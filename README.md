@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TokenBlaster.lol
 
-## Getting Started
+Live BSV traffic, chain games, and token-blasting competitions. Part of the b0ase portfolio;
+competitions are meant to be joined from bWallet's chat rooms and Market.
 
-First, run the development server:
+- `/`: the live "highway" (traffic density follows the mempool) and links
+- `/blast`: the Blast arena: how a round works, the scoreboard (empty until the referee exists)
+- `/api/chain`: live block height and mempool from WhatsOnChain
+- `blaster/blast.ts`: the command-line blaster (`pnpm blast`), dry run unless `--broadcast`
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
+pnpm dev            # http://localhost:3000
+BLASTER_WIF=<throwaway key> pnpm blast --round test --player you --count 100
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Prior art
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- bsv.lol (GorillaPool): live BSV visualiser and retro games. No public source found (2 Oct 2026).
+- [Bitcoin-com/TXBlaster](https://github.com/Bitcoin-com/TXBlaster) (Stress Test 2018): MIT, but the repo only has a LICENSE.
+- TeraGun: no public source found.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Next
 
-## Learn More
+1. Referee: count accepted transactions tagged `tokenblaster <round> <player>` per round (JungleBus / ARC callbacks).
+2. Rounds and live scoreboard, linked from a bWallet chat room.
+3. Real highway: decode live transactions by type (ordinals, locks, social…) instead of mempool density.
+4. Arcade games on live traffic.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+No entry fees or prize pools: free entry, bragging rights (gambling rules and App Store).
