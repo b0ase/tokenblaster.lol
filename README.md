@@ -11,7 +11,7 @@ competitions are meant to be joined from bWallet's chat rooms and Market.
 ```bash
 pnpm install
 pnpm dev            # http://localhost:3000
-BLASTER_WIF=<throwaway key> pnpm blast --round test --player you --count 100
+BLASTER_WIF=<throwaway key> pnpm blast --token <your token id> --count 100
 ```
 
 ## Prior art

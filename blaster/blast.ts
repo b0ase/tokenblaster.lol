@@ -1,10 +1,10 @@
 /**
  * TokenBlaster CLI (bare bones). Fires a chain of transactions, each tagged
- *   OP_FALSE OP_RETURN "tokenblaster" <round> <player> <n>
+ *   OP_FALSE OP_RETURN "tokenblaster.lol" <token id> <n>
  * so the referee can count them. Each one spends the previous one's change, so one coin is enough.
  *
- *   BLASTER_WIF=<your key> pnpm blast --round test --player you --count 100            (dry run)
- *   BLASTER_WIF=<your key> pnpm blast --round test --player you --count 100 --broadcast
+ *   BLASTER_WIF=<your key> pnpm blast --token <txid_vout> --count 100            (dry run)
+ *   BLASTER_WIF=<your key> pnpm blast --token <txid_vout> --count 100 --broadcast
  *
  * The key comes only from the environment, never from a file in this repo. Use a small throwaway
  * wallet: every broadcast transaction pays a fee.
@@ -24,8 +24,8 @@ const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
 async function main() {
   const wif = process.env.BLASTER_WIF;
   if (!wif) throw new Error('Set BLASTER_WIF to the private key (WIF) of a small throwaway wallet.');
-  const round = arg('round', 'test')!;
-  const player = arg('player', 'anon')!;
+  // The token this pack is for (BSV-21 id `<txid>_<vout>`): the leaderboard credits it.
+  const token = arg('token', 'test')!;
   const count = Math.max(1, Math.min(10_000, Number(arg('count', '10'))));
   const broadcast = process.argv.includes('--broadcast');
 
@@ -47,7 +47,7 @@ async function main() {
     const tx = new Transaction();
     tx.addInput({ sourceTransaction: prev, sourceOutputIndex: vout, unlockingScriptTemplate: new P2PKH().unlock(key) });
     tx.addOutput({
-      lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${hex('tokenblaster')} ${hex(round)} ${hex(player)} ${hex(String(n))}`),
+      lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${hex('tokenblaster.lol')} ${hex(token)} ${hex(String(n))}`),
       satoshis: 0,
     });
     tx.addOutput({ lockingScript: new P2PKH().lock(address), change: true });

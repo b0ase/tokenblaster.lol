@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Highway } from '@/components/Highway';
+import { Leaderboard } from '@/components/Leaderboard';
 
 export default function Home() {
   return (
@@ -9,6 +10,7 @@ export default function Home() {
         <p className="text-[#a8a8b8]">Live BSV traffic, chain games, and token-blasting competitions.</p>
       </header>
       <Highway />
+      <Leaderboard />
       <nav className="grid gap-3 sm:grid-cols-2">
         <Link href="/blast" className="rounded-xl border border-[#2a2a35] bg-[#14141c] p-5 hover:border-[#ffd24d]">
           <div className="font-mono text-lg font-bold text-white">Blast →</div>
