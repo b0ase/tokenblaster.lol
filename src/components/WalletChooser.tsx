@@ -35,6 +35,9 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
   };
   const isPhone = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
   const noDesktop = wallets !== null && !isPhone && !wallets.some((w) => w.kind === 'desktop');
+  // Offer bWalletX even when it isn't installed. bwalletx.com/extension points at the Chrome Web Store
+  // once it's listed (one link to keep current).
+  const noBwalletX = wallets !== null && !isPhone && !wallets.some((w) => w.id === 'com.bwalletx.extension');
 
   // Phone QR, live as soon as the chooser opens (spec §2.1). The channel closes with the chooser.
   const [pair, setPair] = useState<PairState>({ k: 'starting' });
@@ -134,6 +137,31 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
               <span style={{ color: '#F5B800', fontSize: 20 }}>›</span>
             </button>
           ))}
+
+          {noBwalletX && (
+            <a
+              href="https://bwalletx.com/extension"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-3 rounded-xl px-3 py-3"
+              style={{ background: '#17191E', border: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/wallets/bwalletx.png" alt="" className="h-9 w-9 rounded-lg" />
+              <span className="flex-1">
+                <span className="block" style={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>
+                  bWalletX
+                </span>
+                <span style={{ color: '#98A2B3', fontSize: 12 }}>Chrome extension · not installed</span>
+              </span>
+              <span
+                className="rounded-lg px-3 py-1.5"
+                style={{ background: 'rgba(245,184,0,0.12)', color: '#F5B800', fontWeight: 600, fontSize: 13 }}
+              >
+                Get it
+              </span>
+            </a>
+          )}
 
           {noDesktop && (
             <div
