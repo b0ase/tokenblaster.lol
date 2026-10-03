@@ -170,8 +170,15 @@ export class Gun {
         new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 20 s.')), 20_000)),
       ])) as { status?: string; description?: string }[];
       // A chain is only as good as its first failure: everything after it spends a missing coin.
+      // @bsv/sdk 2.8.11 marks ARC's `competingTxs: null` as "invalid competing transaction
+      // identifiers" even when ARC took the tx, so check ARC directly before calling anything failed.
+      // The chain is ordered: if ARC has the last tx it has them all.
       let accepted = 0;
       while (accepted < chain.length && results[accepted]?.status === 'success') accepted++;
+      if (accepted < chain.length) {
+        if (await this.known(chain[chain.length - 1].id('hex'))) accepted = chain.length;
+        else while (accepted < chain.length && (await this.known(chain[accepted].id('hex')))) accepted++;
+      }
       if (accepted === 0) {
         await this.resync();
         throw new Error(`ARC rejected the batch: ${results[0]?.description ?? 'no response'}`);
