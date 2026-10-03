@@ -1,26 +1,26 @@
 /**
  * bWallet connection. bWallet (our Yours Wallet Mobile fork) opens apps in its in-app browser,
  * adds `bWallet/` to the user agent and injects a BRC-100 wallet as `window.CWI`. The Yours v5
- * browser extension injects the same thing on desktop, so one path covers both.
- * Same flow as bmovies-app's src/lib/brc100.ts.
+ * browser extension injects the same thing on desktop. Which wallet to use is the player's
+ * choice (src/lib/discovery.ts, docs/wallet-connect.md).
  */
-import { P2PKH, PublicKey, Transaction, WalletClient } from '@bsv/sdk';
+import { P2PKH, PublicKey, Transaction, type WalletInterface } from '@bsv/sdk';
+import type { WalletEntry } from './discovery';
 
-export type Wallet = { client: WalletClient; address: string; publicKey: string };
+export type Wallet = { client: WalletInterface; address: string; publicKey: string; id: string; name: string };
 
 export const hasCwi = () => typeof window !== 'undefined' && Boolean((window as { CWI?: unknown }).CWI);
 export const inBwallet = () =>
   typeof navigator !== 'undefined' && /(?:bWallet|YoursWalletMobile)\//.test(navigator.userAgent) && hasCwi();
 
-export async function connect(): Promise<Wallet> {
-  if (!hasCwi()) throw new Error('No wallet found. Open TokenBlaster.lol from the Apps tab in bWallet.');
-  const client = new WalletClient('window.CWI');
+/** Connect the wallet the player picked in the chooser. */
+export async function connect(entry: WalletEntry): Promise<Wallet> {
   try {
-    const { publicKey } = await client.getPublicKey({ identityKey: true });
-    return { client, publicKey, address: PublicKey.fromString(publicKey).toAddress() };
+    const { publicKey } = await entry.wallet.getPublicKey({ identityKey: true });
+    return { client: entry.wallet, publicKey, address: PublicKey.fromString(publicKey).toAddress(), id: entry.id, name: entry.name };
   } catch (e) {
     // A locked wallet refuses getPublicKey: that means "unlock me", not "not installed".
-    throw new Error(`bWallet did not answer: ${e instanceof Error ? e.message : e}. Unlock it and try again.`);
+    throw new Error(`${entry.name} did not answer: ${e instanceof Error ? e.message : e}. Unlock it and try again.`);
   }
 }
 

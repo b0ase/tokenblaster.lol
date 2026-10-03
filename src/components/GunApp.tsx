@@ -5,7 +5,9 @@ import { FEED_EVENT, type FeedTx } from '@/lib/feed';
 import { Gun } from '@/lib/gun';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { BLASTER_ID, iconUrl, tokenById, tokensHeld, type Token } from '@/lib/tokens';
+import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
 import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
+import { WalletChooser } from './WalletChooser';
 
 type Phase = 'idle' | 'connecting' | 'loading' | 'firing' | 'unloading';
 type Point = { t: number; fired: number; landed: number };
@@ -35,6 +37,7 @@ export function GunApp() {
   const [series, setSeries] = useState<Point[]>([]);
   const [last, setLast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
 
   const pack = PACKS[packIdx];
   const cost = packSats(pack);
@@ -79,11 +82,13 @@ export function GunApp() {
 
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
-  const doConnect = async () => {
+  const pickWallet = async (entry: WalletEntry) => {
+    setChooser(null);
     setError(null);
     setPhase('connecting');
     try {
-      const w = await connect();
+      const w = await connect(entry);
+      rememberWallet(entry.id);
       setWallet(w);
       tokensHeld(w.address)
         .then((held) => {
@@ -96,6 +101,25 @@ export function GunApp() {
     } finally {
       setPhase('idle');
     }
+  };
+
+  /** Reconnect the wallet picked last time; otherwise (or if it is gone) open the chooser. */
+  const doConnect = async () => {
+    setError(null);
+    const id = rememberedWallet();
+    if (!id) return setChooser({ note: null });
+    setPhase('connecting');
+    const found = (await discoverWallets().catch(() => [])).find((w) => w.id === id);
+    setPhase('idle');
+    if (found) return pickWallet(found);
+    setChooser({ note: 'The wallet you used last time is not available any more.' });
+  };
+
+  const switchWallet = () => {
+    rememberWallet(null);
+    setWallet(null);
+    setTokens([]);
+    setChooser({ note: null });
   };
 
   const pickCustom = async () => {
@@ -164,7 +188,7 @@ export function GunApp() {
   const loaded = ammo >= cost * 0.8; // enough for the pack at the real fee (~23 sats each)
   const busy = phase !== 'idle';
   const action = !wallet
-    ? { label: phase === 'connecting' ? 'CONNECTING…' : 'CONNECT bWALLET', ok: true, hint: cwi ? 'bWallet will ask to connect' : 'open TokenBlaster.lol from bWallet → Apps' }
+    ? { label: phase === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET', ok: true, hint: cwi ? 'pick which wallet to use' : 'no wallet found: install bWalletX or open from bWallet' }
     : !token
       ? { label: 'PICK A TOKEN', ok: false, hint: 'choose what you are blasting for' }
       : phase === 'firing'
@@ -187,7 +211,12 @@ export function GunApp() {
         <span className="text-dim">
           {wallet ? (
             <>
-              bWallet <span className="text-hot">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</span>
+              {wallet.name} <span className="text-hot">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</span>{' '}
+              {!busy && (
+                <button onClick={switchWallet} className="btn ml-1 text-xs">
+                  switch wallet
+                </button>
+              )}
             </>
           ) : (
             'not connected'
@@ -217,7 +246,7 @@ export function GunApp() {
           <Readout label="LANDED" value={landed.toLocaleString()} />
           {wallet && ammo > 0 && !busy && (
             <button onClick={doUnload} className="btn text-xs">
-              UNLOAD → bWallet
+              UNLOAD → wallet
             </button>
           )}
         </div>
@@ -256,6 +285,7 @@ export function GunApp() {
         </p>
       )}
       {error && <p className="mt-2 text-sm text-hot">⚠ {error}</p>}
+      {chooser && <WalletChooser note={chooser.note} onPick={pickWallet} onClose={() => setChooser(null)} />}
     </section>
   );
 }
