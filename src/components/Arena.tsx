@@ -27,7 +27,8 @@ const MAP = [
   '1111111111111111',
 ];
 const SIZE = 4; // world units per cell
-const MAX_HEAT = 12; // shots queued for the chain before the gun overheats
+const MAX_HEAT = 12;
+const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts) // shots queued for the chain before the gun overheats
 const DRONES = 6;
 
 const isWall = (x: number, z: number) => {
@@ -51,6 +52,7 @@ type Hud = { kills: number; shots: number; onChain: number; heat: number; last: 
 export function Arena() {
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
+  const weapon = useRef<HTMLDivElement>(null);
   const [hud, setHud] = useState<Hud>({ kills: 0, shots: 0, onChain: 0, heat: 0, last: null });
   const [flashing, setFlashing] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -77,34 +79,110 @@ export function Arena() {
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#050202');
-    scene.fog = new THREE.Fog('#050202', 4, 34);
+    scene.fog = new THREE.Fog('#050202', 6, 30);
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100);
 
-    // ── Level: dark walls with glowing red edges ──
+    // ── Level: DOOM-ish pixel textures, lit by a torch you carry ──
+    const pixelTex = (draw: (c: CanvasRenderingContext2D) => void, repeat = 1) => {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 64;
+      draw(cv.getContext('2d')!);
+      const t = new THREE.CanvasTexture(cv);
+      t.magFilter = THREE.NearestFilter;
+      t.minFilter = THREE.NearestFilter;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(repeat, repeat);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    };
+    const noise = (c: CanvasRenderingContext2D, amt: number) => {
+      for (let i = 0; i < 700; i++) {
+        c.fillStyle = `rgba(0,0,0,${Math.random() * amt})`;
+        c.fillRect(Math.floor(Math.random() * 64), Math.floor(Math.random() * 64), 1, 1);
+      }
+    };
+    const brick = pixelTex((c) => {
+      c.fillStyle = '#2a0c08';
+      c.fillRect(0, 0, 64, 64);
+      for (let row = 0; row < 8; row++)
+        for (let col = 0; col < 4; col++) {
+          const x = col * 16 + (row % 2 ? 8 : 0);
+          c.fillStyle = ['#7a2418', '#6a1e14', '#86301e', '#5e1a10'][(row * 3 + col) % 4];
+          c.fillRect(x % 64, row * 8, 15, 7);
+          if (x + 15 > 64) c.fillRect(0, row * 8, (x + 15) % 64, 7);
+          c.fillStyle = 'rgba(255,140,110,0.18)';
+          c.fillRect(x % 64, row * 8, 15, 1);
+        }
+      noise(c, 0.35);
+    });
+    const tech = pixelTex((c) => {
+      c.fillStyle = '#1e1414';
+      c.fillRect(0, 0, 64, 64);
+      c.fillStyle = '#3a2a28';
+      c.fillRect(2, 2, 60, 60);
+      c.fillStyle = '#2a1c1a';
+      c.fillRect(6, 6, 52, 22);
+      c.fillRect(6, 34, 24, 24);
+      c.fillRect(34, 34, 24, 24);
+      c.fillStyle = '#ff5a48';
+      c.fillRect(10, 14, 44, 3);
+      c.fillStyle = '#ffd0c0';
+      for (let i = 0; i < 4; i++) c.fillRect(10 + i * 12, 44, 4, 4);
+      c.fillStyle = '#5a4a46';
+      [4, 58].forEach((x) => [4, 58].forEach((y) => c.fillRect(x, y, 2, 2)));
+      noise(c, 0.3);
+    });
+    const tiles = pixelTex((c) => {
+      for (let y = 0; y < 4; y++)
+        for (let x = 0; x < 4; x++) {
+          c.fillStyle = (x + y) % 2 ? '#2a1a16' : '#22140f';
+          c.fillRect(x * 16, y * 16, 16, 16);
+          c.fillStyle = '#120a08';
+          c.fillRect(x * 16, y * 16, 16, 1);
+          c.fillRect(x * 16, y * 16, 1, 16);
+        }
+      noise(c, 0.4);
+    }, MAP.length);
+    const ceilTex = pixelTex((c) => {
+      c.fillStyle = '#140c0a';
+      c.fillRect(0, 0, 64, 64);
+      c.fillStyle = '#241612';
+      for (let i = 0; i < 4; i++) c.fillRect(0, i * 16 + 6, 64, 4);
+      c.fillStyle = '#ff5a48';
+      c.fillRect(28, 28, 8, 8);
+      noise(c, 0.4);
+    }, MAP.length);
+
     const wallGeo = new THREE.BoxGeometry(SIZE, SIZE * 0.9, SIZE);
-    const wallMat = new THREE.MeshBasicMaterial({ color: '#1a0606' });
-    const edgeGeo = new THREE.EdgesGeometry(wallGeo);
-    const edgeMat = new THREE.LineBasicMaterial({ color: '#ff5a48' });
+    const brickMat = new THREE.MeshLambertMaterial({ map: brick });
+    const techMat = new THREE.MeshLambertMaterial({ map: tech });
     const walls: THREE.Mesh[] = [];
     let start = new THREE.Vector3(SIZE * 1.5, 1.6, SIZE * 1.5);
     MAP.forEach((row, z) =>
       [...row].forEach((c, x) => {
         if (c === 'S') start = new THREE.Vector3((x + 0.5) * SIZE, 1.6, (z + 0.5) * SIZE);
         if (c !== '1') return;
-        const m = new THREE.Mesh(wallGeo, wallMat);
+        const m = new THREE.Mesh(wallGeo, (x * 7 + z * 3) % 5 === 0 ? techMat : brickMat);
         m.position.set((x + 0.5) * SIZE, SIZE * 0.45, (z + 0.5) * SIZE);
-        m.add(new THREE.LineSegments(edgeGeo, edgeMat));
         scene.add(m);
         walls.push(m);
       }),
     );
     const span = MAP.length * SIZE;
-    const floor = new THREE.GridHelper(span, MAP.length * 2, '#5a1a14', '#2a0a0a');
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(span, span), new THREE.MeshLambertMaterial({ map: tiles }));
+    floor.rotation.x = -Math.PI / 2;
     floor.position.set(span / 2, 0, span / 2);
     scene.add(floor);
-    const ceiling = new THREE.GridHelper(span, MAP.length, '#2a0a0a', '#1a0606');
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(span, span), new THREE.MeshLambertMaterial({ map: ceilTex }));
+    ceiling.rotation.x = Math.PI / 2;
     ceiling.position.set(span / 2, SIZE * 0.9, span / 2);
     scene.add(ceiling);
+    // Torch: light falls off around the player, like DOOM's sector lighting gone personal.
+    scene.add(new THREE.AmbientLight('#ff8070', 0.35));
+    const torch = new THREE.PointLight('#ffb4a0', 60, 22, 1.6);
+    scene.add(torch);
+    const muzzle = new THREE.PointLight('#ffd0c0', 0, 12, 2);
+    scene.add(muzzle);
     camera.position.copy(start);
 
     // ── Drones: token-faced sprites that drift around the maze ──
@@ -269,6 +347,8 @@ export function Arena() {
       heat = queue.length;
       setHud((h) => ({ ...h, shots: h.shots + 1, kills: h.kills + (killed ? 1 : 0), heat }));
       setFlashing(true);
+      muzzle.intensity = 40;
+      recoil = 1;
       setTimeout(() => setFlashing(false), 60);
       void drain();
     };
@@ -286,6 +366,8 @@ export function Arena() {
     window.addEventListener('arena:enter', onEnter);
 
     // ── Loop ──
+    let walkPhase = 0;
+    let recoil = 0;
     const clock = new THREE.Clock();
     let raf = 0;
     const tick = () => {
@@ -323,7 +405,17 @@ export function Arena() {
       const nz = camera.position.z + step.z;
       if (!isWall(nx + Math.sign(step.x) * pad, camera.position.z)) camera.position.x = nx;
       if (!isWall(camera.position.x, nz + Math.sign(step.z) * pad)) camera.position.z = nz;
-      camera.position.y = 1.6 + (f || s ? Math.sin(now / 90) * 0.05 : 0);
+      walkPhase += f || s ? dt * 10 : 0;
+      camera.position.y = 1.6 + (f || s ? Math.sin(walkPhase) * 0.05 : 0);
+      torch.position.copy(camera.position);
+      muzzle.position.copy(camera.position);
+      muzzle.intensity = Math.max(0, muzzle.intensity - dt * 400);
+      recoil = Math.max(0, recoil - dt * 6);
+      if (weapon.current) {
+        const bx = (f || s ? Math.cos(walkPhase / 2) * 10 : 0);
+        const by = (f || s ? Math.abs(Math.sin(walkPhase / 2)) * 8 : 0) + recoil * 26;
+        weapon.current.style.transform = `translate(calc(-50% + ${bx}px), ${by}px)`;
+      }
       // Drones drift and bounce off walls; flash white when hit.
       for (const d of drones) {
         const p = d.s.position;
@@ -361,6 +453,9 @@ export function Arena() {
 
   const pack = PACKS[packIdx];
   const icon = iconUrl(b.token?.icon ?? null);
+  // Drop the counter the moment you fire: queued shots will each burn about one blast fee.
+  const ammoNow = Math.max(0, b.ammo - hud.heat * FEE_PER_SHOT);
+  const shotsLeft = Math.floor(ammoNow / FEE_PER_SHOT);
 
   return (
     <section className="panel">
@@ -381,11 +476,9 @@ export function Arena() {
         <div ref={mount} className="inset h-[58vh] min-h-72 w-full touch-none select-none overflow-hidden" />
         {/* Crosshair */}
         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xl text-hot">+</div>
-        {/* Held gun, DOOM-style, bottom centre */}
-        <div className="pointer-events-none absolute bottom-0 left-1/2 -translate-x-1/2">
-          <div className={`mx-auto h-4 w-6 ${flashing ? 'bg-hot' : 'bg-transparent'}`} />
-          <div className="mx-auto h-10 w-8 border-x-4 border-t-4 border-fg bg-[#4a1414]" />
-          <div className="h-8 w-24 border-4 border-fg bg-[#2a0a0a]" />
+        {/* Held gun, DOOM-style: pixel art, bobs as you walk, kicks when you fire */}
+        <div ref={weapon} className="pointer-events-none absolute bottom-0 left-1/2" style={{ transform: 'translate(-50%, 0)' }}>
+          <WeaponSprite flash={flashing} />
         </div>
         {hud.heat >= MAX_HEAT && <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 text-2xl font-bold text-hot blink">OVERHEAT</div>}
         {!playing && (
@@ -425,7 +518,7 @@ export function Arena() {
 
       {/* DOOM status bar */}
       <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6">
-        <Cell label="AMMO" value={`${b.ammo.toLocaleString()}`} sub="sats" />
+        <Cell label="AMMO" value={shotsLeft.toLocaleString()} sub={`shots · ${ammoNow.toLocaleString()} sats`} />
         <Cell label="SHOTS" value={hud.shots.toLocaleString()} />
         <Cell label="ON CHAIN" value={hud.onChain.toLocaleString()} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
@@ -462,6 +555,36 @@ export function Arena() {
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
   );
+}
+
+/** Pixel-art blaster seen from behind, DOOM style. */
+function WeaponSprite({ flash }: { flash: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current?.getContext('2d');
+    if (!c) return;
+    c.clearRect(0, 0, 48, 40);
+    const px = (x: number, y: number, w: number, h: number, col: string) => {
+      c.fillStyle = col;
+      c.fillRect(x, y, w, h);
+    };
+    if (flash) {
+      px(19, 0, 10, 8, '#ffd0c0');
+      px(16, 3, 16, 3, '#ff9a85');
+      px(22, -1, 4, 12, '#ffffff');
+    }
+    px(20, 8, 8, 6, '#3a1010'); // muzzle
+    px(21, 9, 6, 4, '#0a0404');
+    px(18, 14, 12, 10, '#6a3632'); // barrel
+    px(19, 14, 2, 10, '#a05a52');
+    px(14, 22, 20, 10, '#4a1414'); // body
+    px(15, 22, 3, 10, '#8a2222');
+    px(22, 25, 4, 3, '#ff5a48'); // sight light
+    px(8, 30, 32, 10, '#2a0a0a'); // grip / hands
+    px(10, 30, 8, 10, '#5e2a20');
+    px(30, 30, 8, 10, '#5e2a20');
+  }, [flash]);
+  return <canvas ref={ref} width={48} height={40} className="w-[min(46vw,288px)] [image-rendering:pixelated]" />;
 }
 
 function Cell({ label, value, sub }: { label: string; value: string; sub?: string }) {
