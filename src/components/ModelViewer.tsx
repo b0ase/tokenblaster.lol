@@ -9,6 +9,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { GUNS, MONSTERS } from '@/lib/arenaHD';
 
 const MODELS = [
+  { id: 'miyuki_parts', label: 'Miyuki split into parts (Tripo segmentation)', url: '/arena/models/npg/miyuki_parts.glb' },
   ...MONSTERS.map((m) => ({ id: m.id, label: m.id === 'miyuki' ? 'Miyuki (Ninja Punk Girls)' : m.id, url: m.url })),
   ...GUNS.map((g) => ({ id: g.id, label: `gun: ${g.name}`, url: g.url })),
 ];
@@ -21,7 +22,7 @@ type Clip = { name: string; duration: number };
  */
 export function ModelViewer() {
   const mount = useRef<HTMLDivElement>(null);
-  const [modelId, setModelId] = useState('miyuki');
+  const [modelId, setModelId] = useState('miyuki_parts');
   const [clips, setClips] = useState<Clip[]>([]);
   const [clipIdx, setClipIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -31,11 +32,14 @@ export function ModelViewer() {
   const [spin, setSpin] = useState(false);
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(true);
+  const [parts, setParts] = useState<{ name: string; visible: boolean }[]>([]);
+  const [colourParts, setColourParts] = useState(false);
+  const [explode, setExplode] = useState(0);
   // The render loop reads UI state through this ref; UI writes scrubs through `seek`.
-  const ui = useRef({ playing, speed, wire, spin, clipIdx, seek: null as number | null });
+  const ui = useRef({ playing, speed, wire, spin, clipIdx, colourParts, explode, hidden: new Set<string>(), seek: null as number | null });
   useEffect(() => {
-    ui.current = { ...ui.current, playing, speed, wire, spin, clipIdx };
-  }, [playing, speed, wire, spin, clipIdx]);
+    ui.current = { ...ui.current, playing, speed, wire, spin, clipIdx, colourParts, explode, hidden: new Set(parts.filter((p) => !p.visible).map((p) => p.name)) };
+  }, [playing, speed, wire, spin, clipIdx, colourParts, explode, parts]);
 
   useEffect(() => {
     const el = mount.current;
@@ -81,6 +85,7 @@ export function ModelViewer() {
     let mixer: THREE.AnimationMixer | null = null;
     let actions: THREE.AnimationAction[] = [];
     let current = -1;
+    let meshes: { mesh: THREE.Mesh; name: string; original: THREE.Material | THREE.Material[]; debug: THREE.Material; home: THREE.Vector3; dir: THREE.Vector3 }[] = [];
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
     const url = MODELS.find((m) => m.id === modelId)?.url ?? MODELS[0].url;
@@ -106,6 +111,20 @@ export function ModelViewer() {
           }
         });
         holder.add(model);
+        // Parts: every mesh, with its original material, a debug colour and its direction from the centre (for explode).
+        const centre = new THREE.Box3().setFromObject(model, true).getCenter(new THREE.Vector3());
+        meshes = [];
+        let k = 0;
+        model.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          const c = new THREE.Box3().setFromObject(m, true).getCenter(new THREE.Vector3());
+          const dir = c.sub(centre);
+          const local = m.parent ? m.parent.worldToLocal(m.getWorldPosition(new THREE.Vector3()).add(dir)).sub(m.position) : dir;
+          meshes.push({ mesh: m, name: m.name || `part_${k}`, original: m.material, debug: new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL((k * 0.618) % 1, 0.75, 0.55), roughness: 0.6 }), home: m.position.clone(), dir: local });
+          k++;
+        });
+        setParts(meshes.length > 1 ? meshes.map((x) => ({ name: x.name, visible: true })) : []);
         let tris = 0;
         model.traverse((o) => {
           const g = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
@@ -170,6 +189,11 @@ export function ModelViewer() {
         const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
         if (m && 'wireframe' in m) m.wireframe = u.wire;
       });
+      for (const x of meshes) {
+        x.mesh.material = u.colourParts ? x.debug : x.original;
+        x.mesh.visible = !u.hidden.has(x.name);
+        x.mesh.position.copy(x.home).addScaledVector(x.dir, u.explode);
+      }
       if (u.spin) holder.rotation.y += dt * 0.6;
       // WASD: walk the model about, facing the way it moves (relative to the camera).
       const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
@@ -210,6 +234,8 @@ export function ModelViewer() {
           onChange={(e) => {
             setLoading(true);
             setClipIdx(0);
+            setParts([]);
+            setExplode(0);
             setModelId(e.target.value);
           }}
           className="inset bg-input px-2 py-1 text-hot"
@@ -270,6 +296,17 @@ export function ModelViewer() {
             </label>
           </>
         )}
+        {parts.length > 0 && (
+          <>
+            <button onClick={() => setColourParts((v) => !v)} className={`btn text-xs ${colourParts ? 'btn-on' : ''}`}>
+              COLOUR PARTS
+            </button>
+            <label className="flex items-center gap-1 text-xs text-dim">
+              explode
+              <input type="range" min={0} max={2.5} step={0.01} value={explode} onChange={(e) => setExplode(Number(e.target.value))} className="w-28 accent-[#ff5a48]" />
+            </label>
+          </>
+        )}
         <button onClick={() => setWire((v) => !v)} className={`btn text-xs ${wire ? 'btn-on' : ''}`}>
           WIREFRAME
         </button>
@@ -277,6 +314,20 @@ export function ModelViewer() {
           AUTO-SPIN
         </button>
       </div>
+      {parts.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1 text-xs">
+          <span className="text-dim">{parts.length} parts (click to hide/show):</span>
+          {parts.map((p, i) => (
+            <button
+              key={p.name}
+              onClick={() => setParts((ps) => ps.map((q, k) => (k === i ? { ...q, visible: !q.visible } : q)))}
+              className={`btn px-1 ${p.visible ? 'btn-on' : 'opacity-50'}`}
+            >
+              {i}
+            </button>
+          ))}
+        </div>
+      )}
       {modelId === 'miyuki' && (
         <p className="mt-2 text-xs text-dim">
           Miyuki: Tripo image-to-3D from her Ninja Punk Girls layers, auto-rigged. Her five test moves (idle, walk, run, slash, hurt) came back
