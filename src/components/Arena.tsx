@@ -7,7 +7,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
-import { loadArenaAssets, Monster, type MonsterKind } from '@/lib/arenaHD';
+import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type HeldGun } from '@/lib/arenaHD';
 import { PACKS, formatCount, packSats } from '@/lib/pricing';
 import { iconUrl, tokenById, type Token } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
@@ -51,7 +51,6 @@ const SIZE = 4; // world units per cell
 const WALL_H = SIZE * 0.9;
 const MAX_HEAT = 300; // shots queued for the chain before the gun overheats
 const BATCH = 50; // blasts per ARC request
-const AUTO_MS = 50; // hold-to-fire: 20 shots a second
 const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
 const SLIME: [number, number][] = [
   [5, 3],
@@ -72,12 +71,6 @@ const MEDKITS: [number, number][] = [
   [2, 20],
   [13, 26],
 ];
-const STATS: Record<MonsterKind, { hp: number; speed: number; ranged: boolean; damage: number; run: string; attack: string }> = {
-  warrior: { hp: 4, speed: 2.4, ranged: false, damage: 14, run: 'Running_A', attack: '1H_Melee_Attack_Chop' },
-  rogue: { hp: 3, speed: 3.4, ranged: false, damage: 9, run: 'Running_B', attack: 'Dualwield_Melee_Attack_Stab' },
-  mage: { hp: 3, speed: 1.8, ranged: true, damage: 12, run: 'Walking_A', attack: 'Spellcast_Shoot' },
-  minion: { hp: 1, speed: 3.2, ranged: false, damage: 5, run: 'Running_C', attack: 'Unarmed_Melee_Attack_Punch_A' },
-};
 
 const cellAt = (x: number, z: number) => MAP[Math.floor(z / SIZE)]?.[Math.floor(x / SIZE)];
 const isWall = (x: number, z: number) => {
@@ -111,6 +104,7 @@ export function Arena() {
   const [packIdx, setPackIdx] = useState(0);
   const [custom, setCustom] = useState('');
   const [chainError, setChainError] = useState<string | null>(null);
+  const [weapon, setWeapon] = useState(0);
 
   // The game loop reads the latest blaster state through refs.
   const armed = b.ammo > 30 && Boolean(b.token);
@@ -153,32 +147,28 @@ export function Arena() {
     const muzzleLight = new THREE.PointLight('#fff0c0', 0, 10, 2);
     scene.add(muzzleLight);
 
-    // ── 3D gun, held by the camera ──
-    const gun = new THREE.Group();
-    const steel = new THREE.MeshStandardMaterial({ color: '#3a3f46', metalness: 0.9, roughness: 0.35 });
-    const red = new THREE.MeshStandardMaterial({ color: '#5a140e', metalness: 0.6, roughness: 0.45 });
-    const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 3, 0.6), toneMapped: false });
-    const part = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0) => {
-      const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, y, z);
-      m.rotation.x = rx;
-      gun.add(m);
-      return m;
-    };
-    part(new THREE.BoxGeometry(0.12, 0.14, 0.42), red, 0, 0, 0);
-    part(new THREE.CylinderGeometry(0.035, 0.04, 0.5, 12), steel, 0, 0.03, -0.38, Math.PI / 2);
-    part(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 12), steel, 0, 0.03, -0.62, Math.PI / 2);
-    part(new THREE.BoxGeometry(0.08, 0.18, 0.1), steel, 0, -0.13, 0.08, -0.3);
-    part(new THREE.BoxGeometry(0.02, 0.03, 0.06), glow, 0, 0.09, -0.05);
-    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false }));
-    flash.scale.set(0.35, 0.35, 0.35);
-    flash.position.set(0, 0.03, -0.72);
-    flash.visible = false;
-    gun.add(flash);
-    const gunRest = new THREE.Vector3(0.2, -0.24, -0.55);
-    gun.scale.setScalar(0.7);
-    gun.position.copy(gunRest);
+    // ── Guns: real models (loaded below), held by the camera; 1-4 switches ──
+    const gun = new THREE.Group(); // holder: bob and recoil move this
     camera.add(gun);
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false }));
+    flash.scale.set(0.3, 0.3, 0.3);
+    flash.visible = false;
+    flash.renderOrder = 11;
+    gun.add(flash);
+    const held: HeldGun[] = [];
+    const startGun = Math.max(0, GUNS.findIndex((g) => g.key === new URLSearchParams(window.location.search).get('gun')));
+    let gunIdx = startGun;
+    const gunRest = new THREE.Vector3(...GUNS[gunIdx].pos);
+    const selectGun = (i: number) => {
+      if (!held[i]) return;
+      gunIdx = i;
+      held.forEach((h, k) => (h.group.visible = k === i));
+      gunRest.set(...held[i].def.pos);
+      flash.position.copy(held[i].muzzle);
+      setWeapon(i);
+    };
+    const boltMats = new Map(GUNS.map((g) => [g.id, new THREE.LineBasicMaterial({ color: new THREE.Color(g.bolt).multiplyScalar(4), toneMapped: false })]));
+    const bolts: { line: THREE.Line; born: number }[] = [];
 
     // ── Game state (filled in once assets load) ──
     const walls: THREE.Mesh[] = [];
@@ -227,12 +217,14 @@ export function Arena() {
       while (++tries < 50 && centre(cell, 0).distanceTo(new THREE.Vector3(camera.position.x, 0, camera.position.z)) < SIZE * 3.5);
       mob.m.root.position.copy(centre(cell, 0));
       mob.m.root.visible = true;
-      mob.hp = STATS[mob.m.kind].hp;
+      mob.hp = mob.m.def.hp;
+      mob.m.body.rotation.set(0, 0, 0);
+      mob.m.body.position.set(0, 0, 0);
       mob.state = 'wander';
       mob.since = now;
       mob.next = now + 1500 + Math.random() * 1500;
       mob.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-      mob.m.play(mob.m.kind === 'mage' ? 'Walking_A' : 'Walking_D_Skeletons');
+      mob.m.play('walk');
     };
 
     const damage = (n: number, now: number) => {
@@ -360,11 +352,11 @@ export function Arena() {
 
         // Monsters: warriors, rogues and mages in the maze; minions in the horde hall.
         const now = performance.now();
-        const make = (kind: MonsterKind, horde: boolean) => {
-          const m = new Monster(kind, a.models[kind]);
+        const make = (def: (typeof MONSTERS)[number], horde: boolean) => {
+          const m = new Monster(def, a.monsters[def.id]);
           const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: badgeTex, transparent: true }));
           badge.scale.set(0.45, 0.45, 0.45);
-          badge.position.y = 2.55;
+          badge.position.y = def.height + (def.hover ?? 0) + 0.35;
           m.root.add(badge);
           scene.add(m.root);
           const mob: Mob = { m, hp: 1, state: 'wander', since: now, next: 0, dir: new THREE.Vector3(), horde };
@@ -372,21 +364,34 @@ export function Arena() {
           else spawn(mob, now);
           mobs.push(mob);
         };
-        (['warrior', 'rogue', 'mage', 'warrior', 'mage', 'rogue', 'warrior'] as MonsterKind[]).slice(0, phone ? 5 : 7).forEach((k) => make(k, false));
-        for (let i = 0; i < (phone ? 12 : 24); i++) make('minion', true);
+        for (const def of MONSTERS) {
+          const inMaze = phone ? Math.ceil(def.maze / 2) : def.maze;
+          for (let i = 0; i < inMaze; i++) make(def, false);
+          const inHall = phone ? Math.floor((def.horde ?? 0) / 2) : (def.horde ?? 0);
+          for (let i = 0; i < inHall; i++) make(def, true);
+        }
+        for (const def of GUNS) {
+          const h = buildGun(def, a.guns[def.id]);
+          h.group.visible = false;
+          gun.add(h.group);
+          held.push(h);
+        }
+        selectGun(gunIdx);
 
         camera.position.copy(start);
         // ?showcase: line up a warrior, rogue and mage in the first corridor, facing you (screenshots).
         if (new URLSearchParams(window.location.search).has('showcase')) {
+          const seen = new Set<string>();
           mobs
-            .filter((m) => !m.horde)
-            .slice(0, 3)
+            .filter((m) => !m.horde && !seen.has(m.m.def.id) && seen.add(m.m.def.id))
             .forEach((mob, i) => {
-              mob.m.root.position.copy(centre([3 + i, 1], 0)).add(new THREE.Vector3(0, 0, (i - 1) * 0.9));
+              const spot: [number, number, number][] = [[6, 1, 0], [3, 1, -0.9], [4, 1, 0.9], [3, 1, 0.9], [5, 1, -1]];
+              const [cx, cz, off] = spot[i] ?? [5, 1, 0];
+              mob.m.root.position.copy(centre([cx, cz], 0)).add(new THREE.Vector3(0, 0, off));
               mob.m.root.rotation.y = -Math.PI / 2;
               mob.state = 'attack';
               mob.since = now + 1e9; // hold the pose
-              mob.m.play(i === 2 ? 'Spellcasting' : 'Idle_Combat');
+              mob.m.play('idle');
             });
         }
         ready = true;
@@ -403,6 +408,7 @@ export function Arena() {
       if (e.type === 'keydown') keys.add(e.code);
       else keys.delete(e.code);
       if (e.code === 'Space') trigger = e.type === 'keydown';
+      if (e.type === 'keydown' && /^Digit[1-9]$/.test(e.code)) selectGun(GUNS.findIndex((g) => g.key === e.code.slice(5)));
     };
     const onMouse = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
@@ -453,6 +459,8 @@ export function Arena() {
       }
     };
     const onFireButton = (e: Event) => (trigger = (e as CustomEvent<boolean>).detail !== false);
+    const onCycle = () => selectGun((gunIdx + 1) % held.length);
+    window.addEventListener('arena:cycle', onCycle);
     const onEnter = () => {
       // Play even if the browser refuses pointer lock (arrows aim, click on the arena fires).
       setPlaying(true);
@@ -509,38 +517,53 @@ export function Arena() {
       setHud((h) => ({ ...h, heat }));
       draining = false;
     };
+    /** Monsters with no attack animation lunge at you instead. */
+    const lunge = (mob: Mob, now: number) => {
+      mob.m.body.userData.lunge = now;
+    };
     const shoot = (now: number) => {
-      if (!ready || now - lastShot < AUTO_MS || deadUntil) return;
-      if (!live.current.armed || heat >= MAX_HEAT) return;
+      const g = held[gunIdx]?.def ?? GUNS[gunIdx];
+      if (!ready || now - lastShot < g.fireMs || deadUntil) return;
+      if (!live.current.armed || heat + g.pellets > MAX_HEAT) return;
       lastShot = now;
       sfx?.shoot();
-      raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02), camera);
+      const from = held[gunIdx] ? held[gunIdx].group.localToWorld(held[gunIdx].muzzle.clone()) : camera.position.clone();
       const boxes = mobs.filter((m) => m.state !== 'dying' && m.state !== 'dead' && m.m.root.visible).map((m) => m.m.hitbox);
-      const first = raycaster.intersectObjects([...walls, ...boxes], false)[0];
-      const mob = first && mobs.find((m) => m.m.hitbox === first.object);
-      let killed = false;
-      if (first) sparkAt(first.point, mob ? '#c8ffd0' : '#ffb070');
-      if (mob) {
-        mob.hp--;
-        sfx?.hit();
-        if (mob.hp <= 0) {
-          killed = true;
-          mob.state = 'dying';
-          mob.m.play(Math.random() < 0.5 ? 'Death_A' : 'Death_B', { once: true, fade: 0.08 });
-          sfx?.die();
-        } else {
-          mob.state = 'hit';
-          mob.m.play(Math.random() < 0.5 ? 'Hit_A' : 'Hit_B', { once: true, fade: 0.05 });
+      let kills = 0;
+      // Every pellet is its own raycast and its own on-chain blast.
+      for (let k = 0; k < g.pellets; k++) {
+        raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * g.spread * 2, (Math.random() - 0.5) * g.spread * 2), camera);
+        const first = raycaster.intersectObjects([...walls, ...boxes], false)[0];
+        const end = first ? first.point : camera.position.clone().addScaledVector(raycaster.ray.direction, 40);
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), boltMats.get(g.id));
+        scene.add(line);
+        bolts.push({ line, born: now });
+        const mob = first && mobs.find((m) => m.m.hitbox === first.object && m.state !== 'dying' && m.state !== 'dead');
+        let killed = false;
+        if (first) sparkAt(first.point, mob ? '#c8ffd0' : g.bolt);
+        if (mob) {
+          mob.hp--;
+          sfx?.hit();
+          if (mob.hp <= 0) {
+            killed = true;
+            kills++;
+            mob.state = 'dying';
+            if (mob.m.has('death')) mob.m.play('death', { once: true, fade: 0.08 });
+            sfx?.die();
+          } else if (mob.m.has('hit')) {
+            mob.state = 'hit';
+            mob.m.play('hit', { once: true, fade: 0.05 });
+          }
+          mob.since = now;
         }
-        mob.since = now;
+        queue.push(['arena', mob ? (killed ? 'kill' : 'hit') : 'miss']);
       }
-      queue.push(['arena', mob ? (killed ? 'kill' : 'hit') : 'miss']);
       heat = queue.length;
-      setHud((h) => ({ ...h, shots: h.shots + 1, kills: h.kills + (killed ? 1 : 0), heat }));
+      setHud((h) => ({ ...h, shots: h.shots + g.pellets, kills: h.kills + kills, heat }));
       flash.visible = true;
       flash.material.rotation = Math.random() * Math.PI;
-      muzzleLight.intensity = 25;
-      recoil = 1;
+      muzzleLight.intensity = 25 * g.kick;
+      recoil = g.kick;
       void drain();
     };
 
@@ -608,7 +631,7 @@ export function Arena() {
       const moving = Boolean(f || s);
       walkPhase += moving ? dt * 10 : 0;
       camera.position.y = deadUntil ? 0.4 : 1.6 + (moving ? Math.sin(walkPhase) * 0.04 : 0);
-      torch.position.copy(camera.position).add(new THREE.Vector3(-Math.sin(yaw) * 1.2, 0.8, -Math.cos(yaw) * 1.2));
+      torch.position.copy(camera.position).add(new THREE.Vector3(-Math.sin(yaw) * 2.4, 1.5, -Math.cos(yaw) * 2.4));
       muzzleLight.position.copy(torch.position);
       muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 300);
       if (muzzleLight.intensity < 5) flash.visible = false;
@@ -621,6 +644,18 @@ export function Arena() {
       gun.rotation.x = recoil * 0.12;
 
       if (trigger) shoot(now);
+      const hg = held[gunIdx];
+      if (hg?.spin && hg.mixer) {
+        hg.spin.timeScale += ((trigger ? 3 : 0) - hg.spin.timeScale) * Math.min(1, dt * 5);
+        hg.mixer.update(dt);
+      }
+      for (let i = bolts.length - 1; i >= 0; i--) {
+        if (now - bolts[i].born > 50) {
+          scene.remove(bolts[i].line);
+          bolts[i].line.geometry.dispose();
+          bolts.splice(i, 1);
+        }
+      }
 
       if (ready) {
         // Slime burns.
@@ -649,13 +684,20 @@ export function Arena() {
           const { m } = mob;
           m.mixer.update(dt);
           const p = m.root.position;
-          const st = STATS[m.kind];
+          const lungeAt = m.body.userData.lunge as number | undefined;
+          if (lungeAt && mob.state !== 'dying') m.body.position.z = now - lungeAt < 400 ? Math.sin(((now - lungeAt) / 400) * Math.PI) * 0.7 : 0;
+          const st = m.def;
           const age = now - mob.since;
           if (mob.state === 'dead') {
             if (mob.horde ? inHall && Math.random() < dt * 1.2 : age > 6000) spawn(mob, now);
             continue;
           }
           if (mob.state === 'dying') {
+            if (!m.has('death')) {
+              const t = Math.min(1, age / 450);
+              m.body.rotation.x = -t * Math.PI / 2; // topple over
+              m.body.position.y = -t * 0.2;
+            }
             if (age > 2500) {
               mob.state = 'dead';
               mob.since = now;
@@ -674,18 +716,20 @@ export function Arena() {
           if (sees) {
             mob.dir.set(camera.position.x - p.x, 0, camera.position.z - p.z).normalize();
             m.root.rotation.y = Math.atan2(mob.dir.x, mob.dir.z);
-            const inRange = st.ranged ? dist < 16 : dist < 1.9;
+            const reach = Math.max(1.9, st.height * 0.75);
+            const inRange = st.ranged ? dist < 16 : dist < reach;
             if (inRange && now > mob.next) {
               mob.state = 'attack';
               mob.since = now;
               mob.next = now + (st.ranged ? 2600 : 1300) + Math.random() * 600;
-              m.play(st.attack, { once: true, fade: 0.08, speed: 1.3 });
+              if (m.has('attack')) m.play('attack', { once: true, fade: 0.08, speed: 1.3 });
+              else lunge(mob, now);
               if (st.ranged) {
                 setTimeout(() => {
                   if (mob.state === 'dying' || mob.state === 'dead' || disposed) return;
                   const fb = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, color: new THREE.Color(3, 1.4, 0.5), toneMapped: false, transparent: true, depthWrite: false }));
                   fb.scale.set(0.6, 0.6, 0.6);
-                  fb.position.copy(p).add(new THREE.Vector3(0, 1.5, 0)).addScaledVector(mob.dir, 0.6);
+                  fb.position.copy(p).add(new THREE.Vector3(0, (st.hover ?? 0) + st.height * 0.6, 0)).addScaledVector(mob.dir, 0.6);
                   scene.add(fb);
                   fireballs.push({ s: fb, v: camera.position.clone().sub(fb.position).normalize().multiplyScalar(10) });
                   sfx?.fireball();
@@ -693,22 +737,22 @@ export function Arena() {
               } else
                 setTimeout(() => {
                   if (mob.state !== 'attack' || disposed) return;
-                  if (Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < 2.2) damage(st.damage, performance.now());
+                  if (Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < reach + 0.4) damage(st.damage, performance.now());
                 }, 420);
               continue;
             }
             if (mob.state !== 'chase') {
               mob.state = 'chase';
-              m.play(st.run);
+              m.play('run');
             }
             if (!st.ranged || dist > 8) {
               const nxt = p.clone().addScaledVector(mob.dir, st.speed * dt);
               if (dist > 1.4 && !isWall(nxt.x + mob.dir.x * 0.5, nxt.z + mob.dir.z * 0.5)) p.copy(nxt);
-            } else m.play('Idle_Combat');
+            } else m.play('idle');
           } else {
             if (mob.state !== 'wander') {
               mob.state = 'wander';
-              m.play(m.kind === 'mage' ? 'Walking_A' : 'Walking_D_Skeletons');
+              m.play('walk');
             }
             const nxt = p.clone().addScaledVector(mob.dir, 1.2 * dt);
             if (isWall(nxt.x + mob.dir.x * 0.8, nxt.z + mob.dir.z * 0.8)) mob.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
@@ -722,7 +766,7 @@ export function Arena() {
           fb.s.position.addScaledVector(fb.v, dt);
           fb.s.material.rotation += dt * 8;
           const hitPlayer = fb.s.position.distanceTo(camera.position) < 0.8;
-          if (hitPlayer) damage(STATS.mage.damage, now);
+          if (hitPlayer) damage(12, now);
           if (hitPlayer || isWall(fb.s.position.x, fb.s.position.z) || fb.s.position.y < 0) {
             if (!hitPlayer) sparkAt(fb.s.position, '#ff8030');
             scene.remove(fb.s);
@@ -761,6 +805,7 @@ export function Arena() {
       window.removeEventListener('keyup', onKey);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('arena:fire', onFireButton);
+      window.removeEventListener('arena:cycle', onCycle);
       window.removeEventListener('arena:enter', onEnter);
       document.removeEventListener('mousemove', onMouse);
       document.removeEventListener('pointerlockchange', onLock);
@@ -828,6 +873,11 @@ export function Arena() {
             FIRE
           </button>
         )}
+        {playing && (
+          <button onClick={() => window.dispatchEvent(new Event('arena:cycle'))} className="btn absolute bottom-6 right-36 text-xs sm:hidden">
+            GUN ⟳
+          </button>
+        )}
         {!playing && (
           <div
             className={`absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 p-4 text-center ${isReady ? 'cursor-pointer' : ''}`}
@@ -835,8 +885,8 @@ export function Arena() {
           >
             <p className="text-2xl font-bold text-hot">ARENA</p>
             <p className="max-w-md text-sm text-dim">
-              Skeleton warriors, rogues and mages hunt you; the horde hall to the south never runs dry. WASD / arrows move, Shift runs,
-              mouse aims, hold click or space to fire, Esc pauses. Every shot is a real blast.
+              Demons, zombies, eyebeasts and crawlers hunt you; the horde hall to the south never runs dry. WASD / arrows move, Shift runs,
+              mouse aims, hold click or space to fire, 1–4 switch guns (the sawed-off fires 8 pellets, every pellet a blast), Esc pauses. Every shot is a real blast.
             </p>
             {loadError ? (
               <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
@@ -894,7 +944,7 @@ export function Arena() {
         <Cell label="AMMO" value={shotsLeft.toLocaleString()} sub={`shots · ${ammoNow.toLocaleString()} sats`} />
         <Cell label="ON CHAIN" value={`${hud.onChain.toLocaleString()} / ${hud.shots.toLocaleString()}`} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
-        <Cell label="HEAT" value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} />
+        <Cell label={`${GUNS[weapon]?.key} ${GUNS[weapon]?.name.toUpperCase()}`} value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} sub="heat" />
         <div className="inset flex items-center justify-center gap-2 px-2 py-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {icon ? <img src={icon} alt="" className="h-8 w-8" /> : null}

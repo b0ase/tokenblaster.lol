@@ -22,6 +22,13 @@ export default function ArenaPage() {
         <p className="mt-1 text-dim">Hunt drones with your token. Every shot is a real blast. Multiplayer is next.</p>
       </header>
       <Arena />
+      <p className="text-center text-xs text-muted">
+        3D models by ArtistForge16, LxNazarov, Aleksandr, nodoxi, Rasmus, Nik Vega, Richard Speight, Manny Ruiz and curichenkow (CC-BY 4.0),
+        Kay Lousberg and Poly Haven (CC0).{' '}
+        <a href="/arena/CREDITS.md" className="text-dim hover:text-hot">
+          Full credits
+        </a>
+      </p>
     </main>
   );
 }
