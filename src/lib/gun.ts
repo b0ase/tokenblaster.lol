@@ -64,12 +64,28 @@ export class Gun {
   }
 
   private async send(tx: Transaction) {
+    const txid = tx.id('hex');
     // The wallet may still be propagating the parent; retry briefly before giving up.
     for (let attempt = 0; ; attempt++) {
       const r = await tx.broadcast(this.arc);
       if (r.status === 'success') return;
-      if (attempt >= 4) throw new Error(`ARC rejected ${tx.id('hex')}: ${'description' in r ? r.description : JSON.stringify(r)}`);
+      // A retry of a tx ARC already has can come back as an error (e.g. "invalid competing
+      // transaction identifiers"). Ask ARC directly before treating it as a failure.
+      if (await this.known(txid)) return;
+      if (attempt >= 4) throw new Error(`ARC rejected ${txid}: ${'description' in r ? r.description : JSON.stringify(r)}`);
       await new Promise((ok) => setTimeout(ok, 500 * (attempt + 1)));
+    }
+  }
+
+  /** True when ARC reports the tx as on its way into (or already in) a block. */
+  private async known(txid: string): Promise<boolean> {
+    try {
+      const r = await fetch(`${ARC_URL}/v1/tx/${txid}`);
+      if (!r.ok) return false;
+      const { txStatus } = (await r.json()) as { txStatus?: string };
+      return ['SENT_TO_NETWORK', 'ACCEPTED_BY_NETWORK', 'SEEN_ON_NETWORK', 'MINED', 'IMMUTABLE'].includes(txStatus ?? '');
+    } catch {
+      return false;
     }
   }
 
