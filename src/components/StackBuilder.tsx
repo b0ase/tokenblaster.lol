@@ -299,6 +299,9 @@ function FitSliders({ label, fit, onChange }: { label: string; fit: Fit; onChang
       <button onClick={() => onChange({ scale: 1, y: 0, z: 0, turn: 0 })} className="btn text-xs">
         reset
       </button>
+      <code className="select-all text-accent">
+        {label.toLowerCase()} size {fit.scale.toFixed(3)} · y {fit.y.toFixed(3)} · z {fit.z.toFixed(3)} · turn {fit.turn.toFixed(3)}
+      </code>
     </div>
   );
 }
