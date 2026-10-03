@@ -91,12 +91,35 @@ export class Gun {
     return Math.max(onChain, this.sats);
   }
 
-  /** Take the funding transaction from bWallet as the gun's coin. */
-  load(funding: Transaction) {
+  /**
+   * Take the funding transaction from the wallet as the gun's coin. Topping up while there is still
+   * ammo merges the old coin and the new one into a single coin, so nothing is left behind.
+   */
+  async load(funding: Transaction) {
     const vout = funding.outputs.findIndex((o) => o.lockingScript.toHex() === new P2PKH().lock(this.address).toHex());
     if (vout < 0) throw new Error('Funding transaction does not pay the gun.');
-    this.coin = { tx: Transaction.fromHex(funding.toHex()), vout };
-    this.save();
+    const fresh = { tx: Transaction.fromHex(funding.toHex()), vout };
+    await this.exclusive(async () => {
+      this.refresh();
+      if (!this.coin || this.sats < 1) {
+        this.coin = fresh;
+        this.save();
+        return;
+      }
+      const tx = new Transaction();
+      for (const c of [this.coin, fresh]) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await tx.sign();
+      try {
+        await this.send(tx);
+        this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
+      } catch {
+        // Merge failed (e.g. the old coin was already spent): fall back to the new coin; Unload sweeps the rest.
+        this.coin = fresh;
+      }
+      this.save();
+    });
   }
 
   private async send(tx: Transaction) {

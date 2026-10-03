@@ -16,4 +16,4 @@ export const formatUsd = (v: number) =>
   v < 0.01 ? '<$0.01' : v < 100 ? `$${v.toFixed(2)}` : `$${Math.round(v).toLocaleString()}`;
 
 export const formatCount = (n: number) =>
-  n >= 1e6 ? `${n / 1e6}M` : n >= 1e3 ? `${n / 1e3}K` : String(n);
+  n >= 1e6 && n % 1e5 === 0 ? `${n / 1e6}M` : n >= 1e3 && n % 100 === 0 ? `${n / 1e3}K` : n.toLocaleString();

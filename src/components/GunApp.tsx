@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FEED_EVENT, type FeedTx } from '@/lib/feed';
 import { Gun } from '@/lib/gun';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
+import { AmmoPicker } from './AmmoPicker';
 import { BLASTER_ID, iconUrl, tokenById, tokensHeld, type Token } from '@/lib/tokens';
 import { discoverWallets, inFrame, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
 import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
@@ -30,7 +31,7 @@ export function GunApp() {
   const [tokens, setTokens] = useState<Token[]>([]);
   const [token, setToken] = useState<Token | null>(null);
   const [custom, setCustom] = useState('');
-  const [packIdx, setPackIdx] = useState(0);
+  const [amount, setAmount] = useState(1_000);
   const [bsvUsd, setBsvUsd] = useState<number | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [fired, setFired] = useState(0);
@@ -41,7 +42,8 @@ export function GunApp() {
   const [notice, setNotice] = useState<string | null>(null);
   const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
 
-  const pack = PACKS[packIdx];
+  const pack = amount;
+  const packIdx = PACKS.reduce((best, p, i) => (Math.abs(Math.log(p / amount)) < Math.abs(Math.log(PACKS[best] / amount)) ? i : best), 0);
   const cost = packSats(pack);
 
   // Client-only setup: the gun key (localStorage), wallet presence, price, featured token.
@@ -177,9 +179,9 @@ export function GunApp() {
     setError(null);
     setPhase('loading');
     try {
-      const need = cost - gun.current.sats;
+      const need = cost; // top-ups merge into the gun's coin
       const tx = await fund(wallet, gun.current.address, need, `TokenBlaster: load ${formatCount(pack)} blasts`);
-      gun.current.load(tx);
+      await gun.current.load(tx);
       setAmmo(gun.current.sats);
     } catch (e) {
       fail(e);
@@ -195,13 +197,19 @@ export function GunApp() {
     setPhase('firing');
     stop.current = false;
     try {
-      for (let n = 1; n <= pack && !stop.current; n++) {
-        const txid = await g.fire(token.id, n);
-        sent.current.add(txid);
-        shots.current++;
-        setFired((v) => v + 1);
+      // Blasts go to ARC 25 at a time; each one is still its own transaction and its own tracer.
+      for (let n = 1; n <= pack && !stop.current; ) {
+        const count = Math.min(25, pack - n + 1);
+        const txids = await g.fireBatch(token.id, n, Array.from({ length: count }, () => []));
+        for (const txid of txids) {
+          sent.current.add(txid);
+          shots.current++;
+        }
+        n += txids.length;
+        setFired((v) => v + txids.length);
         setAmmo(g.sats);
-        setLast(txid);
+        setLast(txids[txids.length - 1] ?? null);
+        if (txids.length < count) break; // out of ammo
       }
     } catch (e) {
       fail(e);
@@ -272,12 +280,10 @@ export function GunApp() {
       <BlastChart series={series} />
 
       <div className="mt-3 grid items-center gap-4 md:grid-cols-[220px_1fr_200px]">
-        <Dial
-          idx={packIdx}
-          setIdx={(i) => !busy && setPackIdx(i)}
-          price={bsvUsd ? formatUsd(usd(cost, bsvUsd)) : '…'}
-          sats={cost}
-        />
+        <div className="flex flex-col items-center gap-2">
+          <Dial idx={packIdx} amount={amount} setIdx={(i) => !busy && setAmount(PACKS[i])} price={bsvUsd ? formatUsd(usd(cost, bsvUsd)) : '…'} sats={cost} />
+          <AmmoPicker value={amount} onChange={(n) => !busy && setAmount(n)} bsvUsd={bsvUsd} />
+        </div>
         <div className="flex flex-col items-center gap-2">
           <GunCanvas shots={shots} firing={phase === 'firing'} icon={iconUrl(token?.icon ?? null)} />
           <button onClick={onAction} disabled={!action.ok || (busy && phase !== 'firing')} className="btn-fire">
@@ -357,7 +363,7 @@ function TokenChip({ t, on }: { t: Token; on?: boolean }) {
 }
 
 /** TX POWER: a half-dial whose needle tracks the pack size. */
-function Dial({ idx, setIdx, price, sats }: { idx: number; setIdx: (i: number) => void; price: string; sats: number }) {
+function Dial({ idx, amount, setIdx, price, sats }: { idx: number; amount: number; setIdx: (i: number) => void; price: string; sats: number }) {
   const segs = 12;
   const angle = -90 + ((idx + 0.5) / PACKS.length) * 180;
   return (
@@ -385,7 +391,7 @@ function Dial({ idx, setIdx, price, sats }: { idx: number; setIdx: (i: number) =
           ‹
         </button>
         <span className="w-20 text-center text-3xl font-bold text-hot">
-          {formatCount(PACKS[idx])}
+          {formatCount(amount)}
           <span className="text-xs text-dim"> TX</span>
         </span>
         <button onClick={() => setIdx(Math.min(PACKS.length - 1, idx + 1))} disabled={idx === PACKS.length - 1} className="btn" aria-label="Bigger pack">

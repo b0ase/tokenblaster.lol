@@ -8,7 +8,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
 import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type HeldGun } from '@/lib/arenaHD';
-import { PACKS, formatCount, packSats } from '@/lib/pricing';
+import { formatCount, packSats } from '@/lib/pricing';
+import { AmmoPicker } from './AmmoPicker';
 import { iconUrl, tokenById, type Token } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
@@ -101,7 +102,14 @@ export function Arena() {
   const [hurt, setHurt] = useState(false);
   const [dead, setDead] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [packIdx, setPackIdx] = useState(0);
+  const [shots, setShots] = useState(1_000);
+  const [bsvUsd, setBsvUsd] = useState<number | null>(null);
+  useEffect(() => {
+    fetch('/api/price')
+      .then((r) => r.json())
+      .then((d: { bsvUsd?: number }) => d.bsvUsd && setBsvUsd(d.bsvUsd))
+      .catch(() => undefined);
+  }, []);
   const [custom, setCustom] = useState('');
   const [chainError, setChainError] = useState<string | null>(null);
   const [weapon, setWeapon] = useState(0);
@@ -841,7 +849,6 @@ export function Arena() {
     };
   }, []);
 
-  const pack = PACKS[packIdx];
   const icon = iconUrl(b.token?.icon ?? null);
   // Drop the counter the moment you fire: queued shots will each burn about one blast fee.
   const ammoNow = Math.max(0, b.ammo - hud.heat * FEE_PER_SHOT);
@@ -984,22 +991,14 @@ export function Arena() {
               <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
                 {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
               </button>
-            ) : !armed ? (
+            ) : (
               <div className="flex flex-col items-center gap-2">
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setPackIdx((i) => Math.max(0, i - 1))} className="btn">
-                    ‹
-                  </button>
-                  <span className="w-28 text-hot">{formatCount(pack)} shots</span>
-                  <button onClick={() => setPackIdx((i) => Math.min(PACKS.length - 1, i + 1))} className="btn">
-                    ›
-                  </button>
-                </div>
-                <button onClick={() => b.load(packSats(pack), `TokenBlaster arena: ${formatCount(pack)} shots`)} disabled={!!b.busy} className="btn-fire">
-                  {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `LOAD ${formatCount(pack)}`}
+                <AmmoPicker value={shots} onChange={setShots} bsvUsd={bsvUsd} />
+                <button onClick={() => b.load(packSats(shots), `TokenBlaster arena: ${formatCount(shots)} shots`)} disabled={!!b.busy} className="btn-fire">
+                  {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)}`}
                 </button>
               </div>
-            ) : null}
+            )}
             {isReady && <p className="text-xs text-muted">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>}
           </div>
         )}

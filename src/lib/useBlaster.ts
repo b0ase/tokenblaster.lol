@@ -75,7 +75,7 @@ export function useBlaster() {
       setError(null);
       setBusy('loading');
       try {
-        g.load(await fund(wallet, g.address, Math.max(1, sats - g.sats), label));
+        await g.load(await fund(wallet, g.address, sats, label));
         setAmmo(g.sats);
       } catch (e) {
         fail(e);
