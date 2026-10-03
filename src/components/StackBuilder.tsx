@@ -84,7 +84,8 @@ export function StackBuilder() {
       const k = (slot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * fitNow.scale;
       current.scale.setScalar(k);
       const x = slot.getCenter(new THREE.Vector3()).x - rb.getCenter(new THREE.Vector3()).x * k;
-      const y = slot.max.y - rb.max.y * k;
+      // Sink it onto the scalp: hair cards include volume above the head line.
+      const y = slot.max.y - rb.max.y * k - slot.getSize(new THREE.Vector3()).y * 0.12;
       const z = faceSign > 0 ? slot.max.z - rb.max.z * k : slot.min.z - rb.min.z * k;
       current.position.set(x, y + fitNow.y, z + fitNow.z * faceSign);
     };
