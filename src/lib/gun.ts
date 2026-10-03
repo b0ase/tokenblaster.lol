@@ -359,9 +359,10 @@ export class Gun {
       get(`/address/${this.address}/confirmed/unspent`),
       get(`/address/${this.address}/unconfirmed/unspent`),
     ]);
-    const utxos = [...(conf.result ?? []), ...(unconf.result ?? [])] as { tx_hash: string; tx_pos: number; isSpentInMempoolTx?: boolean }[];
+    const utxos = [...(conf.result ?? []), ...(unconf.result ?? [])] as { tx_hash: string; tx_pos: number; value: number; isSpentInMempoolTx?: boolean }[];
     const out: { tx: Transaction; vout: number }[] = [];
-    for (const u of utxos.filter((u) => !u.isSpentInMempoolTx)) {
+    // 1-sat outputs hold tokens (BSV-21 inscriptions): spending them as plain sats would destroy the tokens.
+    for (const u of utxos.filter((u) => !u.isSpentInMempoolTx && u.value > 1)) {
       const hex = await fetch(`${WOC}/tx/${u.tx_hash}/hex`).then((r) => r.text());
       out.push({ tx: Transaction.fromHex(hex), vout: u.tx_pos });
     }
