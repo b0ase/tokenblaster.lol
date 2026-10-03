@@ -44,6 +44,26 @@ export class Gun {
     this.save();
   }
 
+  /** Another tab may have fired since: take the latest coin from storage. */
+  private refresh() {
+    const s = read();
+    if (s?.wif === this.key.toWif()) this.coin = s.tx ? { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 } : null;
+  }
+
+  /** One tab fires at a time (Web Locks); falls back to running directly where unsupported. */
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+    return locks ? (locks.request('tokenblaster-gun', fn) as Promise<T>) : fn();
+  }
+
+  /** Re-sync with the chain after a double spend: the largest unspent coin at the gun's address. */
+  private async resync() {
+    const coins = await this.coinsOnChain();
+    coins.sort((a, b) => (b.tx.outputs[b.vout].satoshis ?? 0) - (a.tx.outputs[a.vout].satoshis ?? 0));
+    this.coin = coins[0] ?? null;
+    this.save();
+  }
+
   get address() {
     return this.key.toAddress();
   }
@@ -103,6 +123,19 @@ export class Gun {
    * arena shot (the leaderboard reads only the tag and the token). Returns the txid.
    */
   async fire(token: string, n: number, extra: string[] = []): Promise<string> {
+    return this.exclusive(async () => {
+      this.refresh();
+      try {
+        return await this.fireOnce(token, n, extra);
+      } catch (e) {
+        if (!/DOUBLE_SPEND|competing/i.test(e instanceof Error ? e.message : String(e))) throw e;
+        await this.resync();
+        return this.fireOnce(token, n, extra);
+      }
+    });
+  }
+
+  private async fireOnce(token: string, n: number, extra: string[]): Promise<string> {
     if (!this.coin) throw new Error('The gun is empty. Load it first.');
     const tx = new Transaction();
     tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
@@ -123,6 +156,10 @@ export class Gun {
    * that landed there (e.g. a second funding when two wallets both answered one Load).
    */
   async unload(address: string): Promise<string | null> {
+    return this.exclusive(() => this.unloadNow(address));
+  }
+
+  private async unloadNow(address: string): Promise<string | null> {
     const coins = await this.coinsOnChain();
     if (this.coin && !coins.some((c) => c.tx.id('hex') === this.coin!.tx.id('hex') && c.vout === this.coin!.vout)) coins.push(this.coin);
     const total = coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0);
