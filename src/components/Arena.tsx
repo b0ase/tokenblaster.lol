@@ -2,9 +2,21 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { iconUrl } from '@/lib/tokens';
-import { useBlaster } from '@/lib/useBlaster';
+import {
+  ceilingTexture,
+  fireballTexture,
+  floorTexture,
+  impFrames,
+  makeSfx,
+  medkitTexture,
+  slimeTexture,
+  zoneMaterials,
+  type ImpFrame,
+  type Sfx,
+} from '@/lib/arenaArt';
 import { PACKS, formatCount, packSats } from '@/lib/pricing';
+import { iconUrl, tokenById, type Token } from '@/lib/tokens';
+import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
 
 /** 1 = wall. The player starts at S. */
@@ -27,36 +39,58 @@ const MAP = [
   '1111111111111111',
 ];
 const SIZE = 4; // world units per cell
-const MAX_HEAT = 12;
-const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts) // shots queued for the chain before the gun overheats
-const DRONES = 6;
+const MAX_HEAT = 12; // shots queued for the chain before the gun overheats
+const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
+const IMPS = 6;
+const SLIME: [number, number][] = [
+  [5, 3],
+  [9, 9],
+  [3, 13],
+  [12, 13],
+];
+const LAMPS: [number, number][] = [
+  [4, 1],
+  [12, 7],
+  [5, 14],
+];
+const MEDKITS: [number, number][] = [
+  [14, 1],
+  [7, 7],
+  [1, 11],
+  [14, 14],
+];
 
+const cellAt = (x: number, z: number) => MAP[Math.floor(z / SIZE)]?.[Math.floor(x / SIZE)];
 const isWall = (x: number, z: number) => {
-  const cx = Math.floor(x / SIZE);
-  const cz = Math.floor(z / SIZE);
-  return MAP[cz]?.[cx] !== '0' && MAP[cz]?.[cx] !== 'S';
+  const c = cellAt(x, z);
+  return c !== '0' && c !== 'S';
 };
+const zoneOf = (x: number, z: number) => (x < 8 ? 0 : 1) + (z < 8 ? 0 : 2);
+const centre = ([x, z]: [number, number], y: number) => new THREE.Vector3((x + 0.5) * SIZE, y, (z + 0.5) * SIZE);
 const freeCells = () => {
   const out: [number, number][] = [];
   MAP.forEach((row, z) => [...row].forEach((c, x) => c === '0' && out.push([x, z])));
   return out;
 };
 
-type Hud = { kills: number; shots: number; onChain: number; heat: number; last: string | null };
+type Hud = { kills: number; shots: number; onChain: number; heat: number; health: number; last: string | null };
 
 /**
- * Stage 1 of the arena: a solo DOOM-style maze. Every trigger pull is a real blast for your token,
- * tagged `arena`, fired by the same in-browser gun as /blast. Drones are practice targets; other
- * players arrive in stage 2.
+ * The arena: a DOOM-style maze. Imps wearing your token hunt you and throw fireballs; every
+ * trigger pull is a real blast for your token, tagged `arena`, fired by the same in-browser gun
+ * as /blast. Fills the window while you play. Multiplayer is the next stage (docs/arena.md).
  */
 export function Arena() {
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
   const weapon = useRef<HTMLDivElement>(null);
-  const [hud, setHud] = useState<Hud>({ kills: 0, shots: 0, onChain: 0, heat: 0, last: null });
+  const [hud, setHud] = useState<Hud>({ kills: 0, shots: 0, onChain: 0, heat: 0, health: 100, last: null });
   const [flashing, setFlashing] = useState(false);
+  const [hurt, setHurt] = useState(false);
+  const [dead, setDead] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [packIdx, setPackIdx] = useState(0);
+  const [custom, setCustom] = useState('');
   const [chainError, setChainError] = useState<string | null>(null);
 
   // The game loop reads the latest blaster state through refs.
@@ -79,154 +113,126 @@ export function Arena() {
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#050202');
-    scene.fog = new THREE.Fog('#050202', 6, 30);
+    scene.fog = new THREE.Fog('#050202', 7, 32);
     const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100);
 
-    // ── Level: DOOM-ish pixel textures, lit by a torch you carry ──
-    const pixelTex = (draw: (c: CanvasRenderingContext2D) => void, repeat = 1) => {
-      const cv = document.createElement('canvas');
-      cv.width = cv.height = 64;
-      draw(cv.getContext('2d')!);
-      const t = new THREE.CanvasTexture(cv);
-      t.magFilter = THREE.NearestFilter;
-      t.minFilter = THREE.NearestFilter;
-      t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      t.repeat.set(repeat, repeat);
-      t.colorSpace = THREE.SRGBColorSpace;
-      return t;
-    };
-    const noise = (c: CanvasRenderingContext2D, amt: number) => {
-      for (let i = 0; i < 700; i++) {
-        c.fillStyle = `rgba(0,0,0,${Math.random() * amt})`;
-        c.fillRect(Math.floor(Math.random() * 64), Math.floor(Math.random() * 64), 1, 1);
-      }
-    };
-    const brick = pixelTex((c) => {
-      c.fillStyle = '#2a0c08';
-      c.fillRect(0, 0, 64, 64);
-      for (let row = 0; row < 8; row++)
-        for (let col = 0; col < 4; col++) {
-          const x = col * 16 + (row % 2 ? 8 : 0);
-          c.fillStyle = ['#7a2418', '#6a1e14', '#86301e', '#5e1a10'][(row * 3 + col) % 4];
-          c.fillRect(x % 64, row * 8, 15, 7);
-          if (x + 15 > 64) c.fillRect(0, row * 8, (x + 15) % 64, 7);
-          c.fillStyle = 'rgba(255,140,110,0.18)';
-          c.fillRect(x % 64, row * 8, 15, 1);
-        }
-      noise(c, 0.35);
-    });
-    const tech = pixelTex((c) => {
-      c.fillStyle = '#1e1414';
-      c.fillRect(0, 0, 64, 64);
-      c.fillStyle = '#3a2a28';
-      c.fillRect(2, 2, 60, 60);
-      c.fillStyle = '#2a1c1a';
-      c.fillRect(6, 6, 52, 22);
-      c.fillRect(6, 34, 24, 24);
-      c.fillRect(34, 34, 24, 24);
-      c.fillStyle = '#ff5a48';
-      c.fillRect(10, 14, 44, 3);
-      c.fillStyle = '#ffd0c0';
-      for (let i = 0; i < 4; i++) c.fillRect(10 + i * 12, 44, 4, 4);
-      c.fillStyle = '#5a4a46';
-      [4, 58].forEach((x) => [4, 58].forEach((y) => c.fillRect(x, y, 2, 2)));
-      noise(c, 0.3);
-    });
-    const tiles = pixelTex((c) => {
-      for (let y = 0; y < 4; y++)
-        for (let x = 0; x < 4; x++) {
-          c.fillStyle = (x + y) % 2 ? '#2a1a16' : '#22140f';
-          c.fillRect(x * 16, y * 16, 16, 16);
-          c.fillStyle = '#120a08';
-          c.fillRect(x * 16, y * 16, 16, 1);
-          c.fillRect(x * 16, y * 16, 1, 16);
-        }
-      noise(c, 0.4);
-    }, MAP.length);
-    const ceilTex = pixelTex((c) => {
-      c.fillStyle = '#140c0a';
-      c.fillRect(0, 0, 64, 64);
-      c.fillStyle = '#241612';
-      for (let i = 0; i < 4; i++) c.fillRect(0, i * 16 + 6, 64, 4);
-      c.fillStyle = '#ff5a48';
-      c.fillRect(28, 28, 8, 8);
-      noise(c, 0.4);
-    }, MAP.length);
-
+    // ── Level: a wall set per quarter, slime pools, ceiling lamps ──
+    const zones = zoneMaterials();
     const wallGeo = new THREE.BoxGeometry(SIZE, SIZE * 0.9, SIZE);
-    const brickMat = new THREE.MeshLambertMaterial({ map: brick });
-    const techMat = new THREE.MeshLambertMaterial({ map: tech });
     const walls: THREE.Mesh[] = [];
     let start = new THREE.Vector3(SIZE * 1.5, 1.6, SIZE * 1.5);
     MAP.forEach((row, z) =>
       [...row].forEach((c, x) => {
-        if (c === 'S') start = new THREE.Vector3((x + 0.5) * SIZE, 1.6, (z + 0.5) * SIZE);
+        if (c === 'S') start = centre([x, z], 1.6);
         if (c !== '1') return;
-        const m = new THREE.Mesh(wallGeo, (x * 7 + z * 3) % 5 === 0 ? techMat : brickMat);
-        m.position.set((x + 0.5) * SIZE, SIZE * 0.45, (z + 0.5) * SIZE);
+        const zone = zones[zoneOf(x, z)];
+        const m = new THREE.Mesh(wallGeo, (x * 7 + z * 3) % 5 === 0 ? zone.trim : zone.wall);
+        m.position.copy(centre([x, z], SIZE * 0.45));
         scene.add(m);
         walls.push(m);
       }),
     );
     const span = MAP.length * SIZE;
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(span, span), new THREE.MeshLambertMaterial({ map: tiles }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(span / 2, 0, span / 2);
-    scene.add(floor);
-    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(span, span), new THREE.MeshLambertMaterial({ map: ceilTex }));
-    ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.set(span / 2, SIZE * 0.9, span / 2);
-    scene.add(ceiling);
-    // Torch: light falls off around the player, like DOOM's sector lighting gone personal.
-    scene.add(new THREE.AmbientLight('#ff8070', 0.35));
-    const torch = new THREE.PointLight('#ffb4a0', 60, 22, 1.6);
+    const plane = (tex: THREE.Texture, y: number, up: boolean) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(span, span), new THREE.MeshLambertMaterial({ map: tex }));
+      m.rotation.x = up ? -Math.PI / 2 : Math.PI / 2;
+      m.position.set(span / 2, y, span / 2);
+      scene.add(m);
+    };
+    plane(floorTexture(MAP.length), 0, true);
+    plane(ceilingTexture(MAP.length), SIZE * 0.9, false);
+    const slimeTex = slimeTexture();
+    const slimeMat = new THREE.MeshBasicMaterial({ map: slimeTex, color: '#b0ff90' });
+    for (const cell of SLIME) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(SIZE * 0.9, SIZE * 0.9), slimeMat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.copy(centre(cell, 0.02));
+      scene.add(m);
+    }
+    for (const cell of LAMPS) {
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(1, 0.15, 1), new THREE.MeshBasicMaterial({ color: '#ffe066' }));
+      lamp.position.copy(centre(cell, SIZE * 0.88));
+      scene.add(lamp);
+      const l = new THREE.PointLight('#ffd27a', 40, 16, 1.6);
+      l.position.copy(centre(cell, SIZE * 0.7));
+      scene.add(l);
+    }
+    scene.add(new THREE.AmbientLight('#ffb0a0', 0.3));
+    const torch = new THREE.PointLight('#ffc8b4', 55, 20, 1.6);
     scene.add(torch);
-    const muzzle = new THREE.PointLight('#ffd0c0', 0, 12, 2);
+    const muzzle = new THREE.PointLight('#fff0c0', 0, 12, 2);
     scene.add(muzzle);
     camera.position.copy(start);
 
-    // ── Drones: token-faced sprites that drift around the maze ──
-    const faceCanvas = document.createElement('canvas');
-    faceCanvas.width = faceCanvas.height = 64;
-    const face = new THREE.CanvasTexture(faceCanvas);
-    face.magFilter = THREE.NearestFilter;
-    const paintFace = (img?: HTMLImageElement) => {
-      const c = faceCanvas.getContext('2d')!;
-      c.fillStyle = '#ff5a48';
-      c.fillRect(0, 0, 64, 64);
-      c.fillStyle = '#050202';
-      c.fillRect(6, 6, 52, 52);
-      if (img) c.drawImage(img, 10, 10, 44, 44);
-      else {
-        c.fillStyle = '#ff5a48';
-        c.fillRect(16, 20, 10, 10);
-        c.fillRect(38, 20, 10, 10);
-        c.fillRect(18, 42, 28, 6);
-      }
-      face.needsUpdate = true;
-    };
-    paintFace();
+    // ── Imps: animated sprites wearing the player's token ──
+    const frames = impFrames();
     let faceSrc: string | null = null;
-
-    type Drone = { s: THREE.Sprite; hp: number; dir: THREE.Vector3; hitAt: number };
+    type Imp = {
+      s: THREE.Sprite;
+      hp: number;
+      dir: THREE.Vector3;
+      state: 'walk' | 'pain' | 'dying' | 'dead';
+      since: number;
+      nextShot: number;
+    };
     const cells = freeCells();
-    const drones: Drone[] = [];
-    const placeDrone = (d: Drone) => {
+    const imps: Imp[] = [];
+    const placeImp = (m: Imp, now: number) => {
       let cell: [number, number];
       do cell = cells[Math.floor(Math.random() * cells.length)];
-      while (Math.hypot((cell[0] + 0.5) * SIZE - camera.position.x, (cell[1] + 0.5) * SIZE - camera.position.z) < SIZE * 3);
-      d.s.position.set((cell[0] + 0.5) * SIZE, 1.5, (cell[1] + 0.5) * SIZE);
-      d.hp = 3;
-      d.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+      while (centre(cell, 0).distanceTo(new THREE.Vector3(camera.position.x, 0, camera.position.z)) < SIZE * 3.5);
+      m.s.position.copy(centre(cell, 1.25));
+      m.hp = 3;
+      m.state = 'walk';
+      m.since = now;
+      m.nextShot = now + 2000 + Math.random() * 2000;
+      m.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
     };
-    for (let i = 0; i < DRONES; i++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: face, color: '#ffffff' }));
-      s.scale.set(1.6, 1.6, 1.6);
+    for (let i = 0; i < IMPS; i++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: frames.tex('walk0'), transparent: true }));
+      s.scale.set(2.5, 2.5, 2.5);
       scene.add(s);
-      const d: Drone = { s, hp: 3, dir: new THREE.Vector3(), hitAt: 0 };
-      placeDrone(d);
-      drones.push(d);
+      const m: Imp = { s, hp: 3, dir: new THREE.Vector3(), state: 'walk', since: 0, nextShot: 0 };
+      placeImp(m, performance.now());
+      imps.push(m);
     }
+    const setFrame = (m: Imp, f: ImpFrame) => {
+      const mat = m.s.material as THREE.SpriteMaterial;
+      if (mat.map !== frames.tex(f)) {
+        mat.map = frames.tex(f);
+        mat.needsUpdate = true;
+      }
+    };
+
+    // ── Fireballs and medkits ──
+    const fireTex = fireballTexture();
+    const fireballs: { s: THREE.Sprite; v: THREE.Vector3 }[] = [];
+    const medTex = medkitTexture();
+    const medkits = MEDKITS.map((cell) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: medTex, transparent: true }));
+      s.scale.set(0.9, 0.9, 0.9);
+      s.position.copy(centre(cell, 0.45));
+      scene.add(s);
+      return { s, back: 0 };
+    });
+
+    // ── Player ──
+    let health = 100;
+    let deadUntil = 0;
+    let sfx: Sfx | null = null;
+    const damage = (n: number, now: number) => {
+      if (deadUntil) return;
+      health = Math.max(0, health - n);
+      sfx?.hurt();
+      setHurt(true);
+      setTimeout(() => setHurt(false), 120);
+      if (health <= 0) {
+        deadUntil = now + 1800;
+        sfx?.dead();
+        setDead(true);
+      }
+      setHud((h) => ({ ...h, health }));
+    };
 
     // ── Tracers ──
     const tracers: { line: THREE.Line; born: number }[] = [];
@@ -254,14 +260,16 @@ export function Arena() {
       wasLocked = locked;
     };
     // Touch: left half = move stick, right half = look; FIRE is a DOM button (window event).
-    const touch = { move: null as null | { id: number; x: number; y: number; dx: number; dy: number }, look: null as null | { id: number; x: number; y: number } };
+    const touch = {
+      move: null as null | { id: number; x: number; y: number; dx: number; dy: number },
+      look: null as null | { id: number; x: number; y: number },
+    };
     const onTouchStart = (e: TouchEvent) => {
       const r = renderer.domElement.getBoundingClientRect();
       for (const t of Array.from(e.changedTouches)) {
         if (t.clientX - r.left < r.width / 2) touch.move = { id: t.identifier, x: t.clientX, y: t.clientY, dx: 0, dy: 0 };
         else touch.look = { id: t.identifier, x: t.clientX, y: t.clientY };
       }
-      setPlaying(true);
     };
     const onTouchMove = (e: TouchEvent) => {
       e.preventDefault();
@@ -298,15 +306,16 @@ export function Arena() {
     let n = 0;
     let heat = 0;
     let lastShot = 0;
+    let walkPhase = 0;
+    let recoil = 0;
     const queue: string[][] = [];
     let draining = false;
     const drain = async () => {
       if (draining) return;
       draining = true;
       while (queue.length) {
-        const extra = queue[0];
         try {
-          const txid = await live.current.fire(++n, extra);
+          const txid = await live.current.fire(++n, queue[0]);
           setHud((h) => ({ ...h, onChain: h.onChain + 1, last: txid }));
           setChainError(null);
         } catch (e) {
@@ -318,38 +327,46 @@ export function Arena() {
         heat = queue.length;
         setHud((h) => ({ ...h, heat }));
       }
+      heat = queue.length;
+      setHud((h) => ({ ...h, heat }));
       draining = false;
     };
     const shoot = () => {
       const now = performance.now();
-      if (now - lastShot < 140) return; // trigger rate
+      if (now - lastShot < 140 || deadUntil) return; // trigger rate
       if (!live.current.armed || heat >= MAX_HEAT) return;
       lastShot = now;
+      sfx?.shoot();
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-      const hits = raycaster.intersectObjects([...walls, ...drones.map((d) => d.s)], false);
-      const first = hits[0];
+      const targets = imps.filter((m) => m.state === 'walk' || m.state === 'pain').map((m) => m.s);
+      const first = raycaster.intersectObjects([...walls, ...targets], false)[0];
       const end = first ? first.point : camera.position.clone().add(raycaster.ray.direction.clone().multiplyScalar(40));
       const from = camera.position.clone().add(new THREE.Vector3(0.3, -0.35, 0).applyEuler(camera.rotation));
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), tracerMat);
       scene.add(line);
       tracers.push({ line, born: now });
-      const drone = first && drones.find((d) => d.s === first.object);
+      const imp = first && imps.find((m) => m.s === first.object);
       let killed = false;
-      if (drone) {
-        drone.hp--;
-        drone.hitAt = now;
-        if (drone.hp <= 0) {
+      if (imp) {
+        imp.hp--;
+        sfx?.hit();
+        if (imp.hp <= 0) {
           killed = true;
-          placeDrone(drone);
+          imp.state = 'dying';
+          sfx?.die();
+        } else {
+          imp.state = 'pain';
+          if (Math.random() < 0.5) sfx?.growl();
         }
+        imp.since = now;
       }
-      queue.push(['arena', drone ? (killed ? 'kill' : 'hit') : 'miss']);
+      queue.push(['arena', imp ? (killed ? 'kill' : 'hit') : 'miss']);
       heat = queue.length;
       setHud((h) => ({ ...h, shots: h.shots + 1, kills: h.kills + (killed ? 1 : 0), heat }));
       setFlashing(true);
+      setTimeout(() => setFlashing(false), 60);
       muzzle.intensity = 40;
       recoil = 1;
-      setTimeout(() => setFlashing(false), 60);
       void drain();
     };
     const onFireButton = () => shoot();
@@ -357,6 +374,8 @@ export function Arena() {
     const onEnter = () => {
       // Play even if the browser refuses pointer lock (arrows aim, click on the arena fires).
       setPlaying(true);
+      if (!sfx) sfx = makeSfx();
+      sfx?.resume();
       try {
         void Promise.resolve(renderer.domElement.requestPointerLock?.()).catch(() => undefined);
       } catch {
@@ -365,9 +384,18 @@ export function Arena() {
     };
     window.addEventListener('arena:enter', onEnter);
 
+    // ── Line of sight from an imp to the player (walls only) ──
+    const sight = new THREE.Raycaster();
+    const canSee = (from: THREE.Vector3) => {
+      const to = camera.position.clone().sub(from);
+      const dist = to.length();
+      if (dist > 18) return false;
+      sight.set(from, to.normalize());
+      sight.far = dist;
+      return sight.intersectObjects(walls, false).length === 0;
+    };
+
     // ── Loop ──
-    let walkPhase = 0;
-    let recoil = 0;
     const clock = new THREE.Clock();
     let raf = 0;
     const tick = () => {
@@ -375,25 +403,34 @@ export function Arena() {
       const now = performance.now();
       const w = el.clientWidth;
       const h = el.clientHeight;
-      if (renderer.domElement.width !== Math.floor(w * 0.4)) {
+      if (renderer.domElement.width !== Math.floor(w * 0.4) || renderer.domElement.height !== Math.floor(h * 0.4)) {
         renderer.setSize(w, h, false);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
       }
-      // Token face on the drones.
+      // Token on the imps' chests.
       if (live.current.icon !== faceSrc) {
         faceSrc = live.current.icon;
         if (faceSrc) {
           const img = new Image();
           img.crossOrigin = 'anonymous';
-          img.onload = () => paintFace(img);
+          img.onload = () => frames.paint(img);
           img.src = faceSrc;
-        } else paintFace();
+        } else frames.paint(null);
+      }
+      // Respawn after death.
+      if (deadUntil && now > deadUntil) {
+        deadUntil = 0;
+        health = 100;
+        camera.position.copy(start);
+        yaw = -Math.PI / 2;
+        setDead(false);
+        setHud((s) => ({ ...s, health }));
       }
       // Move with wall sliding.
       camera.rotation.set(pitch, yaw, 0, 'YXZ');
-      const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (touch.move?.dy ?? 0);
-      const s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touch.move?.dx ?? 0);
+      const f = deadUntil ? 0 : (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (touch.move?.dy ?? 0);
+      const s = deadUntil ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touch.move?.dx ?? 0);
       if (keys.has('ArrowLeft')) yaw += 2.2 * dt;
       if (keys.has('ArrowRight')) yaw -= 2.2 * dt;
       const speed = 6 * dt;
@@ -406,25 +443,81 @@ export function Arena() {
       if (!isWall(nx + Math.sign(step.x) * pad, camera.position.z)) camera.position.x = nx;
       if (!isWall(camera.position.x, nz + Math.sign(step.z) * pad)) camera.position.z = nz;
       walkPhase += f || s ? dt * 10 : 0;
-      camera.position.y = 1.6 + (f || s ? Math.sin(walkPhase) * 0.05 : 0);
+      camera.position.y = deadUntil ? 0.4 : 1.6 + (f || s ? Math.sin(walkPhase) * 0.05 : 0);
       torch.position.copy(camera.position);
       muzzle.position.copy(camera.position);
       muzzle.intensity = Math.max(0, muzzle.intensity - dt * 400);
       recoil = Math.max(0, recoil - dt * 6);
       if (weapon.current) {
-        const bx = (f || s ? Math.cos(walkPhase / 2) * 10 : 0);
-        const by = (f || s ? Math.abs(Math.sin(walkPhase / 2)) * 8 : 0) + recoil * 26;
+        const bx = f || s ? Math.cos(walkPhase / 2) * 10 : 0;
+        const by = (f || s ? Math.abs(Math.sin(walkPhase / 2)) * 8 : 0) + recoil * 26 + (deadUntil ? 200 : 0);
         weapon.current.style.transform = `translate(calc(-50% + ${bx}px), ${by}px)`;
       }
-      // Drones drift and bounce off walls; flash white when hit.
-      for (const d of drones) {
-        const p = d.s.position;
-        const nxt = p.clone().addScaledVector(d.dir, 1.6 * dt);
-        if (isWall(nxt.x + d.dir.x * 0.8, nxt.z + d.dir.z * 0.8)) d.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-        else p.copy(nxt);
-        p.y = 1.5 + Math.sin(now / 300 + p.x) * 0.15;
-        (d.s.material as THREE.SpriteMaterial).color.set(now - d.hitAt < 90 ? '#ffffff' : d.hp < 3 ? '#ff9a85' : '#ffffff');
-        d.s.scale.setScalar(now - d.hitAt < 90 ? 1.9 : 1.6);
+      // Slime burns.
+      const here: [number, number] = [Math.floor(camera.position.x / SIZE), Math.floor(camera.position.z / SIZE)];
+      if (SLIME.some(([x, z]) => x === here[0] && z === here[1]) && Math.random() < dt * 2) damage(5, now);
+      slimeTex.offset.x = (now / 4000) % 1;
+      // Medkits.
+      for (const m of medkits) {
+        if (m.back && now > m.back) {
+          m.back = 0;
+          m.s.visible = true;
+        }
+        m.s.position.y = 0.45 + Math.sin(now / 400) * 0.08;
+        if (m.s.visible && health < 100 && m.s.position.distanceTo(new THREE.Vector3(camera.position.x, 0.45, camera.position.z)) < 1.2) {
+          health = Math.min(100, health + 25);
+          m.s.visible = false;
+          m.back = now + 20000;
+          sfx?.pickup();
+          setHud((x) => ({ ...x, health }));
+        }
+      }
+      // Imps: wander, chase when they see you, throw fireballs; pain and death animate.
+      for (const m of imps) {
+        const p = m.s.position;
+        const age = now - m.since;
+        if (m.state === 'dying') {
+          setFrame(m, age < 150 ? 'die0' : age < 300 ? 'die1' : 'die2');
+          if (age > 300) m.state = 'dead';
+          continue;
+        }
+        if (m.state === 'dead') {
+          if (age > 5000) placeImp(m, now);
+          continue;
+        }
+        if (m.state === 'pain' && age > 200) m.state = 'walk';
+        setFrame(m, m.state === 'pain' ? 'pain' : Math.floor(now / 220) % 2 ? 'walk1' : 'walk0');
+        if (m.state === 'pain') continue;
+        const sees = !deadUntil && canSee(p);
+        if (sees) {
+          m.dir.set(camera.position.x - p.x, 0, camera.position.z - p.z).normalize();
+          if (now > m.nextShot) {
+            m.nextShot = now + 2200 + Math.random() * 1600;
+            const fb = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, transparent: true }));
+            fb.scale.set(0.7, 0.7, 0.7);
+            fb.position.copy(p).add(new THREE.Vector3(0, 0.2, 0));
+            scene.add(fb);
+            fireballs.push({ s: fb, v: camera.position.clone().sub(fb.position).normalize().multiplyScalar(9) });
+            sfx?.fireball();
+          }
+        }
+        const sp = (sees ? 1.8 : 1.3) * dt;
+        const nxt = p.clone().addScaledVector(m.dir, sp);
+        if (isWall(nxt.x + m.dir.x * 0.9, nxt.z + m.dir.z * 0.9)) m.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+        else if (!sees || p.distanceTo(camera.position) > 3) p.copy(nxt);
+        p.y = 1.25;
+      }
+      for (let i = fireballs.length - 1; i >= 0; i--) {
+        const fb = fireballs[i];
+        fb.s.position.addScaledVector(fb.v, dt);
+        fb.s.material.rotation += dt * 8;
+        const hitPlayer = fb.s.position.distanceTo(camera.position) < 0.8;
+        if (hitPlayer) damage(12, now);
+        if (hitPlayer || isWall(fb.s.position.x, fb.s.position.z)) {
+          scene.remove(fb.s);
+          fb.s.material.dispose();
+          fireballs.splice(i, 1);
+        }
       }
       for (let i = tracers.length - 1; i >= 0; i--) {
         if (now - tracers[i].born > 70) {
@@ -457,30 +550,55 @@ export function Arena() {
   const ammoNow = Math.max(0, b.ammo - hud.heat * FEE_PER_SHOT);
   const shotsLeft = Math.floor(ammoNow / FEE_PER_SHOT);
 
-  return (
-    <section className="panel">
-      <div className="panel-header">
-        <span className="panel-title">Arena · stage 1: solo drones</span>
-        <span className="text-dim">
-          {b.wallet ? (
-            <>
-              {b.wallet.name} <span className="text-hot">{b.wallet.address.slice(0, 6)}…</span>
-            </>
-          ) : (
-            'not connected'
-          )}
-        </span>
-      </div>
+  const pickCustom = async () => {
+    try {
+      b.setToken(await tokenById(custom.trim()));
+      setCustom('');
+    } catch (e) {
+      b.setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const choices: Token[] = [...(b.token ? [b.token] : []), ...b.tokens.filter((t) => t.id !== b.token?.id)].slice(0, 7);
 
-      <div className="relative">
-        <div ref={mount} className="inset h-[58vh] min-h-72 w-full touch-none select-none overflow-hidden" />
-        {/* Crosshair */}
+  return (
+    <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel'}>
+      {!playing && (
+        <div className="panel-header">
+          <span className="panel-title">Arena</span>
+          <span className="text-dim">
+            {b.wallet ? (
+              <>
+                {b.wallet.name} <span className="text-hot">{b.wallet.address.slice(0, 6)}…</span>
+              </>
+            ) : (
+              'not connected'
+            )}
+          </span>
+        </div>
+      )}
+
+      <div className={playing ? 'relative min-h-0 flex-1' : 'relative'}>
+        <div ref={mount} className={`touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[62vh] min-h-72 w-full'}`} />
         <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xl text-hot">+</div>
-        {/* Held gun, DOOM-style: pixel art, bobs as you walk, kicks when you fire */}
         <div ref={weapon} className="pointer-events-none absolute bottom-0 left-1/2" style={{ transform: 'translate(-50%, 0)' }}>
           <WeaponSprite flash={flashing} />
         </div>
+        {hurt && <div className="pointer-events-none absolute inset-0 bg-red-600/35" />}
+        {dead && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-900/50">
+            <span className="text-4xl font-bold text-hot">YOU DIED</span>
+          </div>
+        )}
         {hud.heat >= MAX_HEAT && <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 text-2xl font-bold text-hot blink">OVERHEAT</div>}
+        {playing && (
+          <button
+            onPointerDown={() => window.dispatchEvent(new Event('arena:fire'))}
+            className="btn-fire absolute bottom-4 right-4 sm:hidden"
+            disabled={!armed}
+          >
+            FIRE
+          </button>
+        )}
         {!playing && (
           <div
             className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-3 bg-black/70 p-4 text-center"
@@ -488,9 +606,24 @@ export function Arena() {
           >
             <p className="text-2xl font-bold text-hot">ARENA</p>
             <p className="max-w-md text-sm text-dim">
-              WASD / arrows to move, mouse to aim, click or space to fire. On a phone: left thumb moves, right thumb aims, FIRE button
-              shoots. Every shot is a real blast for your token.
+              Imps wear your token and throw fire. WASD / arrows move, mouse aims, click or space fires, Esc pauses. Phone: left thumb
+              moves, right thumb aims. Every shot is a real blast.
             </p>
+            <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">
+              <span className="text-dim">BLAST:</span>
+              {choices.map((t) => (
+                <button key={t.id} onClick={() => b.setToken(t)} className={`btn ${t.id === b.token?.id ? 'btn-on' : ''}`}>
+                  ${t.sym}
+                </button>
+              ))}
+              <input
+                value={custom}
+                onChange={(e) => setCustom(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && pickCustom()}
+                placeholder="token id (txid_vout)"
+                className="inset w-44 bg-input px-2 py-1 text-hot placeholder:text-muted"
+              />
+            </div>
             {!b.wallet ? (
               <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
                 {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
@@ -511,16 +644,16 @@ export function Arena() {
                 </button>
               </div>
             ) : null}
-            <p className="text-xs text-muted">{b.wallet && armed ? 'click here to play · Esc to pause' : 'click here to walk around without ammo'}</p>
+            <p className="text-xs text-muted">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>
           </div>
         )}
       </div>
 
       {/* DOOM status bar */}
-      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6">
+      <div className={`grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6 ${playing ? 'p-2' : 'mt-2'}`}>
+        <Cell label="HEALTH" value={`${hud.health}%`} />
         <Cell label="AMMO" value={shotsLeft.toLocaleString()} sub={`shots · ${ammoNow.toLocaleString()} sats`} />
-        <Cell label="SHOTS" value={hud.shots.toLocaleString()} />
-        <Cell label="ON CHAIN" value={hud.onChain.toLocaleString()} />
+        <Cell label="ON CHAIN" value={`${hud.onChain.toLocaleString()} / ${hud.shots.toLocaleString()}`} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
         <Cell label="HEAT" value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} />
         <div className="inset flex items-center justify-center gap-2 px-2 py-1">
@@ -530,15 +663,7 @@ export function Arena() {
         </div>
       </div>
 
-      <button
-        onPointerDown={() => window.dispatchEvent(new Event('arena:fire'))}
-        className="btn-fire mt-2 w-full sm:hidden"
-        disabled={!armed}
-      >
-        FIRE
-      </button>
-
-      {hud.last && (
+      {!playing && hud.last && (
         <p className="mt-2 truncate text-xs text-dim">
           last shot on chain:{' '}
           <a href={`https://whatsonchain.com/tx/${hud.last}`} target="_blank" rel="noreferrer" className="text-accent hover:text-hot">
@@ -546,8 +671,8 @@ export function Arena() {
           </a>
         </p>
       )}
-      {(chainError || b.error) && <p className="mt-2 text-sm text-hot">⚠ {chainError ?? b.error}</p>}
-      {b.wallet && b.ammo > 0 && !playing && (
+      {(chainError || b.error) && <p className={`text-sm text-hot ${playing ? 'px-2 pb-2' : 'mt-2'}`}>⚠ {chainError ?? b.error}</p>}
+      {!playing && b.wallet && b.ammo > 0 && (
         <button onClick={b.unload} disabled={!!b.busy} className="btn mt-2 text-xs">
           UNLOAD → wallet
         </button>
@@ -571,7 +696,7 @@ function WeaponSprite({ flash }: { flash: boolean }) {
     if (flash) {
       px(19, 0, 10, 8, '#ffd0c0');
       px(16, 3, 16, 3, '#ff9a85');
-      px(22, -1, 4, 12, '#ffffff');
+      px(22, 0, 4, 11, '#ffffff');
     }
     px(20, 8, 8, 6, '#3a1010'); // muzzle
     px(21, 9, 6, 4, '#0a0404');
@@ -579,12 +704,12 @@ function WeaponSprite({ flash }: { flash: boolean }) {
     px(19, 14, 2, 10, '#a05a52');
     px(14, 22, 20, 10, '#4a1414'); // body
     px(15, 22, 3, 10, '#8a2222');
-    px(22, 25, 4, 3, '#ff5a48'); // sight light
+    px(22, 25, 4, 3, '#7dff9a'); // sight light
     px(8, 30, 32, 10, '#2a0a0a'); // grip / hands
     px(10, 30, 8, 10, '#5e2a20');
     px(30, 30, 8, 10, '#5e2a20');
   }, [flash]);
-  return <canvas ref={ref} width={48} height={40} className="w-[min(46vw,288px)] [image-rendering:pixelated]" />;
+  return <canvas ref={ref} width={48} height={40} className="w-[min(46vw,300px)] [image-rendering:pixelated]" />;
 }
 
 function Cell({ label, value, sub }: { label: string; value: string; sub?: string }) {
