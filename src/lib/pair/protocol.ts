@@ -40,8 +40,14 @@ export type SealedFrame = { s: number; n: string; d: string };
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+// Chunked: String.fromCharCode(...bytes) overflows the call stack on large frames (signed transactions).
+const binary = (bytes: Uint8Array) => {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return s;
+};
 export const b64url = (bytes: Uint8Array) =>
-  btoa(String.fromCharCode(...bytes))
+  btoa(binary(bytes))
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/, '');
@@ -50,7 +56,7 @@ export const fromB64url = (s: string) => {
   const bin = atob(t + '='.repeat((4 - (t.length % 4)) % 4));
   return Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
 };
-const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+const b64 = (bytes: Uint8Array) => btoa(binary(bytes));
 const fromB64 = (s: string) => Uint8Array.from(atob(s), (ch) => ch.charCodeAt(0));
 
 export const newChannel = () => b64url(crypto.getRandomValues(new Uint8Array(16)));
