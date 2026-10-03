@@ -4,6 +4,8 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "TokenBlaster.lol",
   description: "Live BSV traffic, chain games and token-blasting competitions.",
+  applicationName: "TokenBlaster",
+  appleWebApp: { capable: true, title: "TokenBlaster", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {
