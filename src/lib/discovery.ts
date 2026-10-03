@@ -90,15 +90,17 @@ export async function discoverWallets(): Promise<WalletEntry[]> {
     } catch {
       /* locked or slow: keep the generic name */
     }
-    list.push({ id: 'window.CWI', name, icon: null, kind: 'extension', wallet: cwi });
+    // Yours doesn't announce yet; show its own sprout so players recognise it.
+    const icon = /^yours/i.test(name) ? '/wallets/yours.png' : null;
+    list.push({ id: 'window.CWI', name, icon, kind: 'extension', wallet: cwi });
   }
 
-  // MetaNet Desktop on this computer. Only when the chooser is open, never on a phone.
+  // BSV Desktop (formerly MetaNet Desktop) on this computer. Only when the chooser is open, never on a phone.
   if (!isPhone()) {
     try {
       const desk = new HTTPWalletJSON(window.location.host, 'http://localhost:3321');
       await withTimeout(desk.getVersion({}), 1500);
-      list.push({ id: 'metanet.desktop', name: 'MetaNet Desktop', icon: null, kind: 'desktop', wallet: desk });
+      list.push({ id: 'metanet.desktop', name: 'BSV Desktop', icon: '/wallets/bsv-desktop.png', kind: 'desktop', wallet: desk });
     } catch {
       /* not running */
     }

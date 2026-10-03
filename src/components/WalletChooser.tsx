@@ -16,6 +16,7 @@ const KIND: Record<WalletEntry['kind'], string> = {
  */
 export function WalletChooser({ note, onPick, onClose }: { note?: string | null; onPick: (w: WalletEntry) => void; onClose: () => void }) {
   const [wallets, setWallets] = useState<WalletEntry[] | null>(null);
+  const [scan, setScan] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -25,7 +26,13 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
     return () => {
       alive = false;
     };
-  }, []);
+  }, [scan]);
+  const rescan = () => {
+    setWallets(null);
+    setScan((n) => n + 1);
+  };
+  const isPhone = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
+  const noDesktop = wallets !== null && !isPhone && !wallets.some((w) => w.kind === 'desktop');
 
   // bWalletX look (the wallet's own approval pop-ups), not the site's retro panels: this is a wallet
   // moment, so it should feel like the wallet.
@@ -114,25 +121,58 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
             </button>
           ))}
 
-          <div
-            className="flex items-center gap-3 rounded-xl px-3 py-3"
-            style={{ background: '#17191E', border: '1px dashed rgba(255,255,255,0.08)', opacity: 0.7 }}
-          >
-            <span className="grid h-9 w-9 place-items-center rounded-lg" style={{ background: '#2b2f36', color: '#F5B800' }} aria-hidden>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-                <path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h3v3" />
-              </svg>
-            </span>
-            <span className="flex-1">
-              <span className="block" style={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>
-                Use bWallet on your phone
+          {noDesktop && (
+            <div
+              className="flex items-center gap-3 rounded-xl px-3 py-3"
+              style={{ background: '#17191E', border: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/wallets/bsv-desktop.png" alt="" className="h-9 w-9 rounded-lg" style={{ opacity: 0.55 }} />
+              <span className="flex-1">
+                <span className="block" style={{ color: '#fff', fontWeight: 600, fontSize: 15, opacity: 0.75 }}>
+                  BSV Desktop
+                </span>
+                <span style={{ color: '#98A2B3', fontSize: 12 }}>Not running. Open the app, then retry.</span>
               </span>
-              <span style={{ color: '#98A2B3', fontSize: 12 }}>Scan a QR code to connect: coming soon</span>
-            </span>
-          </div>
+              <button
+                onClick={rescan}
+                className="rounded-lg px-3 py-1.5"
+                style={{ background: 'rgba(245,184,0,0.12)', color: '#F5B800', fontWeight: 600, fontSize: 13 }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Phone: shown straight away, an equal option (spec §2). Live once the pairing relay ships. */}
+          {!isPhone && (
+            <div
+              className="flex items-center gap-4 rounded-xl px-3 py-3"
+              style={{ background: '#17191E', border: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              <span
+                className="grid h-[88px] w-[88px] shrink-0 place-items-center rounded-lg"
+                style={{
+                  background:
+                    'repeating-conic-gradient(#2b2f36 0% 25%, #1f2228 0% 50%) 50% / 11px 11px',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                }}
+                aria-hidden
+              >
+                <span className="rounded-md px-1.5 py-0.5" style={{ background: '#101114', color: '#98A2B3', fontSize: 10, fontWeight: 600 }}>
+                  SOON
+                </span>
+              </span>
+              <span className="flex-1">
+                <span className="block" style={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>
+                  Use bWallet on your phone
+                </span>
+                <span style={{ color: '#98A2B3', fontSize: 12, lineHeight: 1.4 }}>
+                  Scan this code with bWallet to connect. Phone pairing is coming soon.
+                </span>
+              </span>
+            </div>
+          )}
         </div>
 
         {yours && wallets && wallets.length > 1 && (
