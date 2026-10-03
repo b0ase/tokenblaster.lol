@@ -11,6 +11,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
  * 3D card stacks: the Ninja Punk Girls cards stack in 2D because every part shares one canvas.
  * Here every 3D part card snaps onto one rigged chibi base. Rigid parts (hair, horns, masks,
  * weapons) attach to a bone; the slot's box on the base says where the part goes and how big.
+ * The four hair cards were made in Anything.world from the 2D hair cards.
  */
 const BASE = '/arena/models/npg/stack/chibi_base.glb';
 const HAIR = [
@@ -72,19 +73,20 @@ export function StackBuilder() {
     let fitNow = { scale: 1, y: 0, z: 0, turn: 0 };
     const cache = new Map<string, THREE.Object3D>();
 
+    let faceSign = 1; // which way the face points along the head bone's Z (from where the mask sits)
     const place = () => {
       if (!current || !slot) return;
-      // Fit the part's box into the slot box (same width, centred), then apply manual tweaks.
+      // Hair sits like hair: scaled to the head's width, its top on top of the head and its front
+      // edge on the hairline. (Centring boxes pushed cards with long tails up and forward.)
+      current.rotation.set(0, ((current.userData.turn as number) ?? 0) + fitNow.turn, 0); // per-card facing + manual turn
       const raw = current.userData.raw as THREE.Box3;
-      const rs = raw.getSize(new THREE.Vector3());
-      const ss = slot.getSize(new THREE.Vector3());
-      const k = Math.max(ss.x / rs.x, ss.z / rs.z) * fitNow.scale;
+      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(current.rotation.y));
+      const k = (slot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * fitNow.scale;
       current.scale.setScalar(k);
-      // Each part card came out of its own generation facing its own way: per-card turn, plus any manual turn.
-      current.rotation.set(0, ((current.userData.turn as number) ?? 0) + fitNow.turn, 0);
-      const rc = raw.getCenter(new THREE.Vector3()).multiplyScalar(k).applyEuler(current.rotation);
-      const sc = slot.getCenter(new THREE.Vector3());
-      current.position.set(sc.x - rc.x, sc.y - rc.y + fitNow.y, sc.z - rc.z + fitNow.z);
+      const x = slot.getCenter(new THREE.Vector3()).x - rb.getCenter(new THREE.Vector3()).x * k;
+      const y = slot.max.y - rb.max.y * k;
+      const z = faceSign > 0 ? slot.max.z - rb.max.z * k : slot.min.z - rb.min.z * k;
+      current.position.set(x, y + fitNow.y, z + fitNow.z * faceSign);
     };
 
     const setHairPart = async (id: string) => {
@@ -135,6 +137,14 @@ export function StackBuilder() {
           const world = new THREE.Box3().setFromObject(hb, true);
           const inv = (head as THREE.Object3D).matrixWorld.clone().invert();
           slot = world.clone().applyMatrix4(inv);
+          let face: THREE.Object3D | null = null;
+          (base as THREE.Object3D).traverse((o) => {
+            if (o.name === 'mask' || (!face && o.name === 'head_1')) face = o;
+          });
+          if (face) {
+            const fc = new THREE.Box3().setFromObject(face, true).applyMatrix4(inv).getCenter(new THREE.Vector3());
+            faceSign = fc.z >= slot.getCenter(new THREE.Vector3()).z ? 1 : -1;
+          }
         } else slot = new THREE.Box3(new THREE.Vector3(-0.3, 0, -0.3), new THREE.Vector3(0.3, 0.6, 0.3));
         api.current = {
           setHair: (id) => void setHairPart(id),
