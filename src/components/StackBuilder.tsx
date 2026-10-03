@@ -21,14 +21,17 @@ const HAIR = [
   { id: 'hikaru', name: 'Hikaru hair', url: '/arena/models/npg/stack/E003HikaruHair.glb', turn: 0 },
   { id: 'nao', name: 'Nao hair', url: '/arena/models/npg/stack/E011NaoHair.glb', turn: Math.PI },
 ];
+// First Tripo test: the Mecha-Style mask card (11_011), image-to-3D from the 2D card.
+const MASK = '/arena/models/npg/stack/M011MechaMask.glb';
 
 export function StackBuilder() {
   const mount = useRef<HTMLDivElement>(null);
   const [hair, setHair] = useState('miyuki');
   const [fit, setFit] = useState({ scale: 1, y: 0, z: 0, turn: 0 });
   const [showClothes, setShowClothes] = useState(true);
+  const [showMask, setShowMask] = useState(false);
   const [status, setStatus] = useState('loading…');
-  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void } | null>(null);
+  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setMask: (v: boolean) => void } | null>(null);
 
   useEffect(() => {
     const el = mount.current;
@@ -72,6 +75,36 @@ export function StackBuilder() {
     let current: THREE.Object3D | null = null;
     let fitNow = { scale: 1, y: 0, z: 0, turn: 0 };
     const cache = new Map<string, THREE.Object3D>();
+
+    let maskSlot: THREE.Box3 | null = null; // the base mask's bounds in head space
+    let maskPart: THREE.Object3D | null = null;
+    let baseMask: THREE.Object3D | null = null;
+    const setMaskPart = async (on: boolean) => {
+      if (!head || !maskSlot) return;
+      if (baseMask) baseMask.visible = !on;
+      if (!on) {
+        if (maskPart) maskPart.visible = false;
+        return;
+      }
+      if (!maskPart) {
+        const g = await load(MASK);
+        if (disposed) return;
+        maskPart = g.scene;
+        maskPart.updateMatrixWorld(true);
+        const raw = new THREE.Box3().setFromObject(maskPart, true);
+        // Card models face +Z; turn to the face side, fit the mask's width, front on the face.
+        maskPart.rotation.y = faceSign > 0 ? 0 : Math.PI;
+        const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(maskPart.rotation.y));
+        const k = maskSlot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x);
+        maskPart.scale.setScalar(k);
+        const c = maskSlot.getCenter(new THREE.Vector3());
+        const rc = rb.getCenter(new THREE.Vector3());
+        const z = faceSign > 0 ? maskSlot.max.z - rb.max.z * k : maskSlot.min.z - rb.min.z * k;
+        maskPart.position.set(c.x - rc.x * k, c.y - rc.y * k, z);
+        head.add(maskPart);
+      }
+      maskPart.visible = true;
+    };
 
     let faceSign = 1; // which way the face points along the head bone's Z (from where the mask sits)
     const place = () => {
@@ -143,6 +176,10 @@ export function StackBuilder() {
             if (o.name === 'mask' || (!face && o.name === 'head_1')) face = o;
           });
           if (face) {
+            if ((face as THREE.Object3D).name === 'mask') {
+              baseMask = face;
+              maskSlot = new THREE.Box3().setFromObject(face, true).applyMatrix4(inv);
+            }
             const fc = new THREE.Box3().setFromObject(face, true).applyMatrix4(inv).getCenter(new THREE.Vector3());
             faceSign = fc.z >= slot.getCenter(new THREE.Vector3()).z ? 1 : -1;
           }
@@ -156,6 +193,7 @@ export function StackBuilder() {
           setClothes: (v) => {
             if (clothes) clothes.visible = v;
           },
+          setMask: (v) => void setMaskPart(v),
         };
         await setHairPart('miyuki');
         setStatus('');
@@ -192,6 +230,7 @@ export function StackBuilder() {
   useEffect(() => api.current?.setHair(hair), [hair]);
   useEffect(() => api.current?.setFit(fit), [fit]);
   useEffect(() => api.current?.setClothes(showClothes), [showClothes]);
+  useEffect(() => api.current?.setMask(showMask), [showMask]);
 
   return (
     <section className="panel">
@@ -212,6 +251,9 @@ export function StackBuilder() {
         ))}
         <button onClick={() => setShowClothes((v) => !v)} className={`btn ${showClothes ? 'btn-on' : ''}`}>
           CLOTHES
+        </button>
+        <button onClick={() => setShowMask((v) => !v)} className={`btn ${showMask ? 'btn-on' : ''}`}>
+          MECHA MASK (Tripo test)
         </button>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-dim">
