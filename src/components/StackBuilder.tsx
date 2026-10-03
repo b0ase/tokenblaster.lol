@@ -278,8 +278,8 @@ export function StackBuilder() {
           MECHA MASK (Tripo test)
         </button>
       </div>
-      <FitSliders label="HAIR" fit={fit} onChange={setFit} />
-      {showMask && <FitSliders label="MASK" fit={maskFit} onChange={setMaskFit} />}
+      <FitSliders label="HAIR" card={hair} fit={fit} onChange={setFit} />
+      {showMask && <FitSliders label="MASK" card="M011MechaMask" fit={maskFit} onChange={setMaskFit} />}
       <button onClick={copyFit} className="btn btn-on mt-2 text-xs">
         {copied ? 'COPIED ✓' : 'COPY ALL FIT SETTINGS'}
       </button>
@@ -290,7 +290,21 @@ export function StackBuilder() {
 
 type Fit = { scale: number; y: number; z: number; turn: number };
 
-function FitSliders({ label, fit, onChange }: { label: string; fit: Fit; onChange: (f: Fit) => void }) {
+function FitSliders({ label, card, fit, onChange }: { label: string; card: string; fit: Fit; onChange: (f: Fit) => void }) {
+  const [copied, setCopied] = useState(false);
+  const json = JSON.stringify({
+    slot: label.toLowerCase(),
+    card,
+    scale: Number(fit.scale.toFixed(3)),
+    y: Number(fit.y.toFixed(3)),
+    z: Number(fit.z.toFixed(3)),
+    turn: Number(fit.turn.toFixed(3)),
+  });
+  const copy = () =>
+    navigator.clipboard?.writeText(json).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
   return (
     <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-dim">
       <span className="w-10">{label}</span>
@@ -311,9 +325,10 @@ function FitSliders({ label, fit, onChange }: { label: string; fit: Fit; onChang
       <button onClick={() => onChange({ scale: 1, y: 0, z: 0, turn: 0 })} className="btn text-xs">
         reset
       </button>
-      <code className="select-all text-accent">
-        {label.toLowerCase()} size {fit.scale.toFixed(3)} · y {fit.y.toFixed(3)} · z {fit.z.toFixed(3)} · turn {fit.turn.toFixed(3)}
-      </code>
+      <button onClick={copy} className="btn text-xs">
+        {copied ? 'copied ✓' : 'copy JSON'}
+      </button>
+      <code className="select-all text-accent">{json}</code>
     </div>
   );
 }
