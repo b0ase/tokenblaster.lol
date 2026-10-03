@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Arena } from '@/components/Arena';
+import { GitHubLink } from '@/components/GitHubLink';
 
 export const metadata = { title: 'Arena · TokenBlaster.lol' };
 
@@ -11,9 +12,12 @@ export default function ArenaPage() {
           <h1 className="text-2xl font-bold text-hot">
             Arena<span className="blink">_</span>
           </h1>
-          <Link href="/" className="text-dim hover:text-hot">
-            &lt; TokenBlaster.lol
-          </Link>
+          <span className="flex items-center gap-3">
+            <GitHubLink />
+            <Link href="/" className="text-dim hover:text-hot">
+              &lt; TokenBlaster.lol
+            </Link>
+          </span>
         </div>
         <p className="mt-1 text-dim">Hunt drones with your token. Every shot is a real blast. Multiplayer is next.</p>
       </header>

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { GitHubLink } from '@/components/GitHubLink';
 import { Highway } from '@/components/Highway';
 import { Leaderboard } from '@/components/Leaderboard';
 
@@ -10,7 +11,10 @@ export default function Home() {
           <h1 className="text-2xl font-bold text-hot">
             TokenBlaster.lol<span className="blink">_</span>
           </h1>
-          <span className="text-dim">live BSV traffic · chain games · token blasting</span>
+          <span className="flex items-center gap-3">
+            <span className="text-dim">live BSV traffic · chain games · token blasting</span>
+            <GitHubLink />
+          </span>
         </div>
       </header>
       <Highway />
