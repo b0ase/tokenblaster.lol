@@ -92,6 +92,7 @@ export function makeSfx() {
     },
     fireball: () => noise(0.35, 0.25, 900),
     hurt: () => tone('square', 160, 60, 0.2, 0.4),
+    click: () => tone('square', 1800, 1200, 0.03, 0.2),
     pickup: () => {
       tone('square', 520, 520, 0.08, 0.3);
       tone('square', 780, 780, 0.1, 0.3, 0.08);

@@ -105,6 +105,7 @@ export function Arena() {
   const [custom, setCustom] = useState('');
   const [chainError, setChainError] = useState<string | null>(null);
   const [weapon, setWeapon] = useState(0);
+  const [empty, setEmpty] = useState(false);
   const cycleRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     const onT = (e: KeyboardEvent) => e.code === 'KeyT' && cycleRef.current();
@@ -114,10 +115,10 @@ export function Arena() {
 
   // The game loop reads the latest blaster state through refs.
   const armed = b.ammo > 30 && Boolean(b.token);
-  const live = useRef({ armed, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) });
+  const live = useRef({ armed, ammo: b.ammo, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
-    live.current = { armed, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) };
-  }, [armed, b.fireBatch, b.token]);
+    live.current = { armed, ammo: b.ammo, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) };
+  }, [armed, b.ammo, b.fireBatch, b.token]);
 
   useEffect(() => {
     const el = mount.current;
@@ -537,7 +538,18 @@ export function Arena() {
     const shoot = (now: number) => {
       const g = held[gunIdx]?.def ?? GUNS[gunIdx];
       if (!ready || now - lastShot < g.fireMs || deadUntil) return;
-      if (!live.current.armed || heat + g.pellets > MAX_HEAT) return;
+      // Only fire shots the gun can pay for, counting the ones already queued for the chain.
+      const canPay = Math.floor(live.current.ammo / FEE_PER_SHOT) - heat;
+      if (!live.current.armed || canPay < g.pellets) {
+        if (now - lastShot > 300) {
+          lastShot = now;
+          sfx?.click();
+          setEmpty(true);
+        }
+        return;
+      }
+      if (heat + g.pellets > MAX_HEAT) return;
+      setEmpty(false);
       lastShot = now;
       sfx?.shoot();
       const from = held[gunIdx] ? held[gunIdx].group.localToWorld(held[gunIdx].muzzle.clone()) : camera.position.clone();
@@ -884,6 +896,12 @@ export function Arena() {
         {dead && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-900/50">
             <span className="text-4xl font-bold text-hot">YOU DIED</span>
+          </div>
+        )}
+        {playing && empty && (
+          <div className="pointer-events-none absolute left-1/2 top-[38%] -translate-x-1/2 text-center">
+            <div className="text-3xl font-bold text-hot blink">OUT OF AMMO</div>
+            <div className="text-sm text-dim">Esc → LOAD more shots</div>
           </div>
         )}
         {hud.heat >= MAX_HEAT && <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 text-2xl font-bold text-hot blink">OVERHEAT</div>}
