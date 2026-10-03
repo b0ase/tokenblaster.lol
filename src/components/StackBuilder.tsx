@@ -30,8 +30,9 @@ export function StackBuilder() {
   const [fit, setFit] = useState({ scale: 1, y: 0, z: 0, turn: 0 });
   const [showClothes, setShowClothes] = useState(true);
   const [showMask, setShowMask] = useState(false);
+  const [maskFit, setMaskFit] = useState({ scale: 1, y: 0, z: 0, turn: 0 });
   const [status, setStatus] = useState('loading…');
-  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setMask: (v: boolean) => void } | null>(null);
+  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setMask: (v: boolean) => void; setMaskFit: (f: typeof fit) => void } | null>(null);
 
   useEffect(() => {
     const el = mount.current;
@@ -79,6 +80,21 @@ export function StackBuilder() {
     let maskSlot: THREE.Box3 | null = null; // the base mask's bounds in head space
     let maskPart: THREE.Object3D | null = null;
     let baseMask: THREE.Object3D | null = null;
+    let maskFit = { scale: 1, y: 0, z: 0, turn: 0 };
+    const placeMask = () => {
+      if (!maskPart || !maskSlot) return;
+      // Tripo built this card lying along Z (its width runs front to back): a quarter turn first,
+      // then to the face side, plus the manual turn. Fit the mask's width, front on the face.
+      maskPart.rotation.set(0, -Math.PI / 2 + (faceSign > 0 ? 0 : Math.PI) + maskFit.turn, 0);
+      const raw = maskPart.userData.raw as THREE.Box3;
+      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(maskPart.rotation.y));
+      const k = (maskSlot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * maskFit.scale;
+      maskPart.scale.setScalar(k);
+      const c = maskSlot.getCenter(new THREE.Vector3());
+      const rc = rb.getCenter(new THREE.Vector3());
+      const z = faceSign > 0 ? maskSlot.max.z - rb.max.z * k : maskSlot.min.z - rb.min.z * k;
+      maskPart.position.set(c.x - rc.x * k, c.y - rc.y * k + maskFit.y, z + maskFit.z * faceSign);
+    };
     const setMaskPart = async (on: boolean) => {
       if (!head || !maskSlot) return;
       if (baseMask) baseMask.visible = !on;
@@ -91,18 +107,10 @@ export function StackBuilder() {
         if (disposed) return;
         maskPart = g.scene;
         maskPart.updateMatrixWorld(true);
-        const raw = new THREE.Box3().setFromObject(maskPart, true);
-        // Card models face +Z; turn to the face side, fit the mask's width, front on the face.
-        maskPart.rotation.y = faceSign > 0 ? 0 : Math.PI;
-        const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(maskPart.rotation.y));
-        const k = maskSlot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x);
-        maskPart.scale.setScalar(k);
-        const c = maskSlot.getCenter(new THREE.Vector3());
-        const rc = rb.getCenter(new THREE.Vector3());
-        const z = faceSign > 0 ? maskSlot.max.z - rb.max.z * k : maskSlot.min.z - rb.min.z * k;
-        maskPart.position.set(c.x - rc.x * k, c.y - rc.y * k, z);
+        maskPart.userData.raw = new THREE.Box3().setFromObject(maskPart, true);
         head.add(maskPart);
       }
+      placeMask();
       maskPart.visible = true;
     };
 
@@ -194,6 +202,10 @@ export function StackBuilder() {
             if (clothes) clothes.visible = v;
           },
           setMask: (v) => void setMaskPart(v),
+          setMaskFit: (f) => {
+            maskFit = f;
+            placeMask();
+          },
         };
         await setHairPart('miyuki');
         setStatus('');
@@ -231,6 +243,7 @@ export function StackBuilder() {
   useEffect(() => api.current?.setFit(fit), [fit]);
   useEffect(() => api.current?.setClothes(showClothes), [showClothes]);
   useEffect(() => api.current?.setMask(showMask), [showMask]);
+  useEffect(() => api.current?.setMaskFit(maskFit), [maskFit]);
 
   return (
     <section className="panel">
@@ -256,23 +269,36 @@ export function StackBuilder() {
           MECHA MASK (Tripo test)
         </button>
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-dim">
-        {(['scale', 'y', 'z', 'turn'] as const).map((k) => (
-          <label key={k} className="flex items-center gap-1">
-            {k === 'scale' ? 'size' : k === 'y' ? 'up/down' : k === 'z' ? 'fwd/back' : 'turn'}
-            <input
-              type="range"
-              min={k === 'scale' ? 0.6 : k === 'turn' ? -Math.PI : -0.3}
-              max={k === 'scale' ? 1.6 : k === 'turn' ? Math.PI : 0.3}
-              step={0.005}
-              value={fit[k]}
-              onChange={(e) => setFit((f) => ({ ...f, [k]: Number(e.target.value) }))}
-              className="w-32 accent-[#ff5a48]"
-            />
-          </label>
-        ))}
-        <span>Fit tweaks get saved per card once the set is final.</span>
-      </div>
+      <FitSliders label="HAIR" fit={fit} onChange={setFit} />
+      {showMask && <FitSliders label="MASK" fit={maskFit} onChange={setMaskFit} />}
+      <p className="mt-1 text-xs text-dim">Fit tweaks get saved per card once the set is final.</p>
     </section>
+  );
+}
+
+type Fit = { scale: number; y: number; z: number; turn: number };
+
+function FitSliders({ label, fit, onChange }: { label: string; fit: Fit; onChange: (f: Fit) => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-dim">
+      <span className="w-10">{label}</span>
+      {(['scale', 'y', 'z', 'turn'] as const).map((k) => (
+        <label key={k} className="flex items-center gap-1">
+          {k === 'scale' ? 'size' : k === 'y' ? 'up/down' : k === 'z' ? 'fwd/back' : 'turn'}
+          <input
+            type="range"
+            min={k === 'scale' ? 0.3 : k === 'turn' ? -Math.PI : -0.3}
+            max={k === 'scale' ? 1.6 : k === 'turn' ? Math.PI : 0.3}
+            step={0.005}
+            value={fit[k]}
+            onChange={(e) => onChange({ ...fit, [k]: Number(e.target.value) })}
+            className="w-32 accent-[#ff5a48]"
+          />
+        </label>
+      ))}
+      <button onClick={() => onChange({ scale: 1, y: 0, z: 0, turn: 0 })} className="btn text-xs">
+        reset
+      </button>
+    </div>
   );
 }
