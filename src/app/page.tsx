@@ -23,13 +23,13 @@ export default function Home() {
           </div>
           <div className="text-dim">Fire your tokens at the chain. Most confirmed in a round wins.</div>
         </Link>
-        <div className="panel opacity-60">
+        <Link href="/arena" className="panel group hover:border-fg">
           <div className="panel-header">
-            <span className="panel-title">&gt; Arcade</span>
-            <span className="text-muted">[LOCKED]</span>
+            <span className="panel-title group-hover:text-hot">&gt; Arena</span>
+            <span className="text-dim">[ENTER]</span>
           </div>
-          <div className="text-dim">Games played on live chain traffic. Coming soon.</div>
-        </div>
+          <div className="text-dim">DOOM-style maze. Hunt drones with your token, every shot a real blast. Multiplayer soon.</div>
+        </Link>
       </nav>
       <footer className="py-2 text-center text-xs text-muted">
         free entry · bragging rights only · no prizes, no fees

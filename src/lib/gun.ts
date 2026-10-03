@@ -98,12 +98,15 @@ export class Gun {
     }
   }
 
-  /** Fire one blast for `token`. Returns its txid. */
-  async fire(token: string, n: number): Promise<string> {
+  /**
+   * Fire one blast for `token`. `extra` pushes go after the count, e.g. ['arena', '<target>'] for an
+   * arena shot (the leaderboard reads only the tag and the token). Returns the txid.
+   */
+  async fire(token: string, n: number, extra: string[] = []): Promise<string> {
     if (!this.coin) throw new Error('The gun is empty. Load it first.');
     const tx = new Transaction();
     tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${hex(TAG)} ${hex(token)} ${hex(String(n))}`), satoshis: 0 });
+    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token, String(n), ...extra].map(hex).join(' ')}`), satoshis: 0 });
     tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
     await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
     await tx.sign();
