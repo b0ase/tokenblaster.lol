@@ -11,8 +11,19 @@ const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
 const STORE = 'tokenblaster.gun';
 export const TAG = 'tokenblaster.lol';
+/** Well-known unspendable address: tokens sent here are burned for good. */
+export const BURN_ADDRESS = '1BitcoinEaterAddressDontSendf59kuE';
+const GP = 'https://ordinals.gorillapool.io/api';
 
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
+
+/** A BSV-21 transfer inscription of `amt` (base units) of token `id`, locked to `address`. */
+const bsv21 = (id: string, amt: bigint, address: string) =>
+  Script.fromASM(
+    `OP_0 OP_IF ${hex('ord')} OP_1 ${hex('application/bsv-20')} OP_0 ${hex(JSON.stringify({ p: 'bsv-20', op: 'transfer', id, amt: amt.toString() }))} OP_ENDIF ${new P2PKH().lock(address).toASM()}`,
+  );
+
+type TokCoin = { id: string; tx: Transaction; vout: number; amt: bigint };
 
 type Saved = { wif: string; tx?: string; vout?: number };
 
@@ -35,6 +46,8 @@ const write = (s: Saved) => {
 export class Gun {
   private key: PrivateKey;
   private coin: { tx: Transaction; vout: number } | null = null;
+  private tok: TokCoin | null = null; // the token UTXO the gun is firing from
+  private spentTok = new Set<string>(); // token outpoints we have spent (the indexer may lag)
   private arc = new ARC(ARC_URL);
 
   constructor() {
@@ -210,6 +223,92 @@ export class Gun {
       this.coin = { tx: Transaction.fromHex(last.toHex()), vout: 1 };
       this.save();
       return chain.slice(0, accepted).map((t) => t.id('hex'));
+    });
+  }
+
+  // ── Token ammo ────────────────────────────────────────────────────
+
+  /** Unspent token outputs of `id` at the gun's address (GorillaPool), largest first. */
+  private async tokenUtxos(id: string) {
+    const r = await fetch(`${GP}/bsv20/${this.address}/id/${id}`);
+    if (!r.ok) return [];
+    const list = (await r.json()) as { txid: string; vout: number; amt: string; spend: string }[];
+    return list
+      .filter((u) => !u.spend && !this.spentTok.has(`${u.txid}_${u.vout}`))
+      .map((u) => ({ txid: u.txid, vout: u.vout, amt: BigInt(u.amt) }))
+      .sort((a, b) => (b.amt > a.amt ? 1 : b.amt < a.amt ? -1 : 0));
+  }
+
+  /** Tokens of `id` loaded in the gun (base units). */
+  async tokenAmmo(id: string): Promise<bigint> {
+    const utxos = await this.tokenUtxos(id);
+    const indexed = utxos.reduce((n, u) => n + u.amt, BigInt(0));
+    // While a chain we fired is still unindexed, trust what we know.
+    return this.tok?.id === id ? this.tok.amt + utxos.filter((u) => u.txid !== this.tok!.tx.id('hex')).reduce((n, u) => n + u.amt, BigInt(0)) : indexed;
+  }
+
+  private async tokenCoin(id: string): Promise<TokCoin | null> {
+    if (this.tok?.id === id && this.tok.amt > BigInt(0)) return this.tok;
+    const [u] = await this.tokenUtxos(id);
+    if (!u) return null;
+    const hexTx = await fetch(`${WOC}/tx/${u.txid}/hex`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('Could not fetch the token transaction.'))));
+    this.tok = { id, tx: Transaction.fromHex(hexTx), vout: u.vout, amt: u.amt };
+    return this.tok;
+  }
+
+  /**
+   * Fire token bullets: each is a real BSV-21 transfer sending `per` (base units) to `to` (the burn
+   * address in solo play, the target's address in multiplayer), carrying the TokenBlaster tag, with
+   * the rest of the tokens staying in the gun. Fees come from the gun's sats. Built as a chain and
+   * sent to ARC in one batch. Returns the accepted txids.
+   */
+  async fireTokens(id: string, per: bigint, startN: number, extras: string[][], to = BURN_ADDRESS): Promise<string[]> {
+    return this.exclusive(async () => {
+      this.refresh();
+      if (!this.coin) throw new Error('No sats in the gun for fees. Load some first.');
+      const start = await this.tokenCoin(id);
+      if (!start || start.amt < per) throw new Error('No tokens in the gun. Send some to its address first.');
+      const chain: { tx: Transaction; tok: TokCoin | null; sats: { tx: Transaction; vout: number } }[] = [];
+      let tok: TokCoin = start;
+      let sats = this.coin;
+      for (let i = 0; i < extras.length && tok.amt >= per; i++) {
+        const rest = tok.amt - per;
+        const tx = new Transaction();
+        tx.addInput({ sourceTransaction: tok.tx, sourceOutputIndex: tok.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+        tx.addInput({ sourceTransaction: sats.tx, sourceOutputIndex: sats.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+        tx.addOutput({ lockingScript: bsv21(id, per, to), satoshis: 1 });
+        if (rest > BigInt(0)) tx.addOutput({ lockingScript: bsv21(id, rest, this.address), satoshis: 1 });
+        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, id, String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
+        tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+        await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+        await tx.sign();
+        const changeVout = tx.outputs.length - 1;
+        if ((tx.outputs[changeVout].satoshis ?? 0) < 1) break; // out of sats for fees
+        const nextTok: TokCoin | null = rest > BigInt(0) ? { id, tx, vout: 1, amt: rest } : null;
+        chain.push({ tx, tok: nextTok, sats: { tx, vout: changeVout } });
+        sats = { tx, vout: changeVout };
+        if (!nextTok) break;
+        tok = nextTok;
+      }
+      if (!chain.length) throw new Error('Out of sats for fees.');
+      const results = (await Promise.race([
+        this.arc.broadcastMany(chain.map((c) => c.tx)),
+        new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 20 s.')), 20_000)),
+      ])) as { status?: string; description?: string }[];
+      let accepted = 0;
+      while (accepted < chain.length && results[accepted]?.status === 'success') accepted++;
+      if (accepted === 0) {
+        this.tok = null;
+        await this.resync();
+        throw new Error(`ARC rejected the token shots: ${results[0]?.description ?? 'no response'}`);
+      }
+      this.spentTok.add(`${start.tx.id('hex')}_${start.vout}`);
+      for (const c of chain.slice(0, accepted - 1)) if (c.tok) this.spentTok.add(`${c.tx.id('hex')}_1`);
+      const last = chain[accepted - 1];
+      this.coin = { tx: Transaction.fromHex(last.sats.tx.toHex()), vout: last.sats.vout };
+      this.tok = last.tok ? { ...last.tok, tx: Transaction.fromHex(last.tok.tx.toHex()) } : null;
+      this.save();
+      return chain.slice(0, accepted).map((c) => c.tx.id('hex'));
     });
   }
 

@@ -11,6 +11,7 @@ import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type HeldGun } from
 import { formatCount, packSats } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl, tokenById, type Token } from '@/lib/tokens';
+import { BURN_ADDRESS } from '@/lib/gun';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
 
@@ -53,6 +54,7 @@ const WALL_H = SIZE * 0.9;
 const MAX_HEAT = 300; // shots queued for the chain before the gun overheats
 const BATCH = 50; // blasts per ARC request
 const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
+const TOKEN_FEE = 90; // sats per token bullet: ~823-byte transfer (83 sats at 100 sat/kB) plus two 1-sat outputs
 const SLIME: [number, number][] = [
   [5, 3],
   [9, 9],
@@ -122,11 +124,12 @@ export function Arena() {
   }, []);
 
   // The game loop reads the latest blaster state through refs.
-  const armed = b.ammo > 30 && Boolean(b.token);
-  const live = useRef({ armed, ammo: b.ammo, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) });
+  const tokenMode = b.mode === 'tokens';
+  const armed = Boolean(b.token) && (tokenMode ? b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30);
+  const live = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
-    live.current = { armed, ammo: b.ammo, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) };
-  }, [armed, b.ammo, b.fireBatch, b.token]);
+    live.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) };
+  }, [armed, b.ammo, b.tokenAmmo, tokenMode, b.fireBatch, b.fireTokens, b.token]);
 
   useEffect(() => {
     const el = mount.current;
@@ -521,12 +524,12 @@ export function Arena() {
       while (queue.length) {
         const batch = queue.slice(0, BATCH);
         try {
-          const txids = await live.current.fireBatch(n + 1, batch);
+          const txids = await (live.current.tokenMode ? live.current.fireTokens(n + 1, batch.slice(0, 25)) : live.current.fireBatch(n + 1, batch));
           n += txids.length;
           queue.splice(0, txids.length);
           setHud((h) => ({ ...h, onChain: h.onChain + txids.length, last: txids[txids.length - 1] ?? h.last }));
           setChainError(null);
-          if (txids.length < batch.length) throw new Error('Out of ammo.');
+          if (txids.length < (live.current.tokenMode ? Math.min(25, batch.length) : batch.length)) throw new Error('Out of ammo.');
         } catch (e) {
           setChainError(e instanceof Error ? e.message : String(e));
           queue.length = 0;
@@ -547,7 +550,8 @@ export function Arena() {
       const g = held[gunIdx]?.def ?? GUNS[gunIdx];
       if (!ready || now - lastShot < g.fireMs || deadUntil) return;
       // Only fire shots the gun can pay for, counting the ones already queued for the chain.
-      const canPay = Math.floor(live.current.ammo / FEE_PER_SHOT) - heat;
+      const L = live.current;
+      const canPay = L.tokenMode ? Math.min(Math.floor(L.tokens), Math.floor(L.ammo / TOKEN_FEE)) - heat : Math.floor(L.ammo / FEE_PER_SHOT) - heat;
       if (!live.current.armed || canPay < g.pellets) {
         if (now - lastShot > 300) {
           lastShot = now;
@@ -851,8 +855,8 @@ export function Arena() {
 
   const icon = iconUrl(b.token?.icon ?? null);
   // Drop the counter the moment you fire: queued shots will each burn about one blast fee.
-  const ammoNow = Math.max(0, b.ammo - hud.heat * FEE_PER_SHOT);
-  const shotsLeft = Math.floor(ammoNow / FEE_PER_SHOT);
+  const ammoNow = Math.max(0, b.ammo - hud.heat * (tokenMode ? TOKEN_FEE : FEE_PER_SHOT));
+  const shotsLeft = tokenMode ? Math.max(0, Math.floor(b.tokenAmmo) - hud.heat) : Math.floor(ammoNow / FEE_PER_SHOT);
   const isReady = loading >= 1;
 
   const pickCustom = async () => {
@@ -987,6 +991,33 @@ export function Arena() {
                 className="inset w-44 bg-input px-2 py-1 text-hot placeholder:text-muted"
               />
             </div>
+            <div className="flex flex-wrap items-center justify-center gap-1 text-xs">
+              <span className="text-dim">AMMO:</span>
+              <button onClick={() => b.setMode('sats')} className={`btn ${!tokenMode ? 'btn-on' : ''}`}>
+                SATS · tagged blasts
+              </button>
+              <button onClick={() => b.setMode('tokens')} className={`btn ${tokenMode ? 'btn-on' : ''}`}>
+                REAL TOKENS · burned
+              </button>
+            </div>
+            {tokenMode && (
+              <div className="inset max-w-xl px-3 py-2 text-left text-xs">
+                <p className="text-hot">
+                  Every bullet burns 1 ${b.token?.sym ?? 'token'} for good (sent to {BURN_ADDRESS.slice(0, 12)}…). Loaded: {b.tokenAmmo.toLocaleString()} ${b.token?.sym ?? ''}
+                </p>
+                <p className="mt-1 text-dim">Send as many as you want to fire to your gun, from your wallet&apos;s token Send:</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-accent">{b.gunAddress}</code>
+                  <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn text-xs">
+                    copy
+                  </button>
+                  <button onClick={b.refreshTokens} className="btn text-xs">
+                    refresh
+                  </button>
+                </div>
+                <p className="mt-1 text-dim">Fuel: each bullet also needs ~{TOKEN_FEE} sats for fees. Load sats below.</p>
+              </div>
+            )}
             {!b.wallet ? (
               <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
                 {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
@@ -1007,7 +1038,7 @@ export function Arena() {
       {/* Status bar */}
       <div className={`grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6 ${playing ? 'p-2' : 'mt-2'}`}>
         <Cell label="HEALTH" value={`${hud.health}%`} />
-        <Cell label="AMMO" value={shotsLeft.toLocaleString()} sub={`shots · ${ammoNow.toLocaleString()} sats`} />
+        <Cell label={tokenMode ? 'TOKENS' : 'AMMO'} value={shotsLeft.toLocaleString()} sub={tokenMode ? `$${b.token?.sym ?? ''} · ${ammoNow.toLocaleString()} sats fuel` : `shots · ${ammoNow.toLocaleString()} sats`} />
         <Cell label="ON CHAIN" value={`${hud.onChain.toLocaleString()} / ${hud.shots.toLocaleString()}`} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
         <Cell label={`${GUNS[weapon]?.key} ${GUNS[weapon]?.name.toUpperCase()}`} value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} sub="heat" />

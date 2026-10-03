@@ -19,10 +19,15 @@ export function useBlaster() {
   const [busy, setBusy] = useState<null | 'connecting' | 'loading' | 'unloading'>(null);
   const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 'sats': tagged blasts (tokens never move). 'tokens': every bullet burns a real token. */
+  const [mode, setMode] = useState<'sats' | 'tokens'>('sats');
+  const [tokenAmmo, setTokenAmmo] = useState<number>(0); // whole tokens loaded in the gun
+  const [gunAddress, setGunAddress] = useState('');
 
   useEffect(() => {
     const g = new Gun();
     gun.current = g;
+    void Promise.resolve().then(() => setGunAddress(g.address)); // client-only key
     g.balance()
       .then((b) => setAmmo((cur) => Math.max(cur, b)))
       .catch(() => setAmmo(g.sats));
@@ -110,6 +115,38 @@ export function useBlaster() {
     [token],
   );
 
+  // Token ammo: poll the gun's token balance while in token mode.
+  const refreshTokens = useCallback(async () => {
+    const g = gun.current;
+    if (!g || !token) return;
+    try {
+      const base = await g.tokenAmmo(token.id);
+      setTokenAmmo(Number(base) / 10 ** token.dec);
+    } catch {
+      /* keep the last known balance */
+    }
+  }, [token]);
+  useEffect(() => {
+    if (mode !== 'tokens') return;
+    void Promise.resolve().then(refreshTokens);
+    const t = setInterval(refreshTokens, 8000);
+    return () => clearInterval(t);
+  }, [mode, refreshTokens]);
+
+  /** Burn real tokens: one whole token per bullet, chained and sent to ARC in one batch. */
+  const fireTokens = useCallback(
+    async (startN: number, extras: string[][]) => {
+      const g = gun.current;
+      if (!g || !token) throw new Error('Pick a token first.');
+      const per = BigInt(10) ** BigInt(token.dec);
+      const txids = await g.fireTokens(token.id, per, startN, extras);
+      setAmmo(g.sats);
+      setTokenAmmo((n) => Math.max(0, n - txids.length));
+      return txids;
+    },
+    [token],
+  );
+
   const unload = useCallback(async () => {
     if (!wallet || !gun.current) return;
     setBusy('unloading');
@@ -123,5 +160,5 @@ export function useBlaster() {
     }
   }, [wallet]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, unload, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }
