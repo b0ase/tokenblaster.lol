@@ -31,15 +31,6 @@ export function StackBuilder() {
   const [showClothes, setShowClothes] = useState(true);
   const [showMask, setShowMask] = useState(false);
   const [maskFit, setMaskFit] = useState({ scale: 1, y: 0, z: 0, turn: 0 });
-  const [copied, setCopied] = useState(false);
-  const copyFit = () => {
-    const r = (f: typeof fit) => Object.fromEntries(Object.entries(f).map(([k, v]) => [k, Number(v.toFixed(3))]));
-    const all = { hair: { card: hair, ...r(fit) }, ...(showMask ? { mask: { card: 'M011MechaMask', ...r(maskFit) } } : {}) };
-    navigator.clipboard?.writeText(JSON.stringify(all)).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
   const [status, setStatus] = useState('loading…');
   const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setMask: (v: boolean) => void; setMaskFit: (f: typeof fit) => void } | null>(null);
 
@@ -280,9 +271,6 @@ export function StackBuilder() {
       </div>
       <FitSliders label="HAIR" card={hair} fit={fit} onChange={setFit} />
       {showMask && <FitSliders label="MASK" card="M011MechaMask" fit={maskFit} onChange={setMaskFit} />}
-      <button onClick={copyFit} className="btn btn-on mt-2 text-xs">
-        {copied ? 'COPIED ✓' : 'COPY ALL FIT SETTINGS'}
-      </button>
       <p className="mt-1 text-xs text-dim">Fit tweaks get saved per card once the set is final.</p>
     </section>
   );
