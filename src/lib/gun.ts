@@ -53,7 +53,14 @@ export class Gun {
   /** One tab fires at a time (Web Locks); falls back to running directly where unsupported. */
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
-    return locks ? (locks.request('tokenblaster-gun', fn) as Promise<T>) : fn();
+    if (!locks) return fn();
+    // Don't wait forever on a tab that is stuck holding the gun.
+    return (locks.request('tokenblaster-gun', { signal: AbortSignal.timeout(10_000) }, fn) as Promise<T>).catch((e) => {
+      if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+        throw new Error('Another TokenBlaster tab is using the gun. Close it and try again.');
+      }
+      throw e;
+    });
   }
 
   /** Re-sync with the chain after a double spend: the largest unspent coin at the gun's address. */
@@ -158,7 +165,10 @@ export class Gun {
         prev = { tx, vout: 1 };
       }
       if (!chain.length) throw new Error('Out of ammo.');
-      const results = (await this.arc.broadcastMany(chain)) as { status?: string; description?: string }[];
+      const results = (await Promise.race([
+        this.arc.broadcastMany(chain),
+        new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 20 s.')), 20_000)),
+      ])) as { status?: string; description?: string }[];
       // A chain is only as good as its first failure: everything after it spends a missing coin.
       let accepted = 0;
       while (accepted < chain.length && results[accepted]?.status === 'success') accepted++;
