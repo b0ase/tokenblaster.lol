@@ -105,6 +105,12 @@ export function Arena() {
   const [custom, setCustom] = useState('');
   const [chainError, setChainError] = useState<string | null>(null);
   const [weapon, setWeapon] = useState(0);
+  const cycleRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    const onT = (e: KeyboardEvent) => e.code === 'KeyT' && cycleRef.current();
+    window.addEventListener('keydown', onT);
+    return () => window.removeEventListener('keydown', onT);
+  }, []);
 
   // The game loop reads the latest blaster state through refs.
   const armed = b.ammo > 30 && Boolean(b.token);
@@ -460,7 +466,14 @@ export function Arena() {
     };
     const onFireButton = (e: Event) => (trigger = (e as CustomEvent<boolean>).detail !== false);
     const onCycle = () => selectGun((gunIdx + 1) % held.length);
+    const onPickWeapon = (e: Event) => selectGun((e as CustomEvent<number>).detail);
+    const onWheel = (e: WheelEvent) => {
+      if (!held.length || Math.abs(e.deltaY) < 10) return;
+      selectGun((gunIdx + (e.deltaY > 0 ? 1 : held.length - 1)) % held.length);
+    };
     window.addEventListener('arena:cycle', onCycle);
+    window.addEventListener('arena:weapon', onPickWeapon);
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: true });
     const onEnter = () => {
       // Play even if the browser refuses pointer lock (arrows aim, click on the arena fires).
       setPlaying(true);
@@ -806,6 +819,7 @@ export function Arena() {
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('arena:fire', onFireButton);
       window.removeEventListener('arena:cycle', onCycle);
+      window.removeEventListener('arena:weapon', onPickWeapon);
       window.removeEventListener('arena:enter', onEnter);
       document.removeEventListener('mousemove', onMouse);
       document.removeEventListener('pointerlockchange', onLock);
@@ -831,6 +845,17 @@ export function Arena() {
     }
   };
   const choices: Token[] = [...(b.token ? [b.token] : []), ...b.tokens.filter((t) => t.id !== b.token?.id)].slice(0, 7);
+  const cycleToken = () => {
+    const all = [...b.tokens];
+    if (b.token && !all.some((t) => t.id === b.token!.id)) all.unshift(b.token);
+    if (all.length < 2) return;
+    const i = all.findIndex((t) => t.id === b.token?.id);
+    b.setToken(all[(i + 1) % all.length]);
+  };
+  // T: cycle which token you fire, without leaving the game.
+  useEffect(() => {
+    cycleRef.current = cycleToken;
+  });
 
   return (
     <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel'}>
@@ -874,9 +899,17 @@ export function Arena() {
           </button>
         )}
         {playing && (
-          <button onClick={() => window.dispatchEvent(new Event('arena:cycle'))} className="btn absolute bottom-6 right-36 text-xs sm:hidden">
-            GUN ⟳
-          </button>
+          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1">
+            {GUNS.map((g, i) => (
+              <button
+                key={g.id}
+                onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
+                className={`btn px-2 py-1 text-xs ${i === weapon ? 'btn-on' : 'opacity-70'}`}
+              >
+                <span className="text-dim">{g.key}</span> {g.name}
+              </button>
+            ))}
+          </div>
         )}
         {!playing && (
           <div
@@ -886,7 +919,7 @@ export function Arena() {
             <p className="text-2xl font-bold text-hot">ARENA</p>
             <p className="max-w-md text-sm text-dim">
               Demons, zombies, eyebeasts and crawlers hunt you; the horde hall to the south never runs dry. WASD / arrows move, Shift runs,
-              mouse aims, hold click or space to fire, 1–4 switch guns (the sawed-off fires 8 pellets, every pellet a blast), Esc pauses. Every shot is a real blast.
+              mouse aims, hold click or space to fire, 1–4 or the wheel switch guns, T switches token, Esc pauses. Every bullet is a real blast.
             </p>
             {loadError ? (
               <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
@@ -898,8 +931,24 @@ export function Arena() {
                 <p className="mt-1 text-xs text-dim">loading arena {Math.round(loading * 100)}%</p>
               </div>
             ) : null}
+            <div className="grid w-full max-w-xl grid-cols-2 gap-1 sm:grid-cols-4">
+              {GUNS.map((g, i) => (
+                <button
+                  key={g.id}
+                  onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
+                  className={`inset px-2 py-1 text-left text-xs ${i === weapon ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
+                >
+                  <div className="font-bold">
+                    {g.key} · {g.name}
+                  </div>
+                  <div>
+                    {Math.round(1000 / g.fireMs)}/s{g.pellets > 1 ? ` · ${g.pellets} pellets` : ''} · {Math.round((1000 / g.fireMs) * g.pellets)} blasts/s
+                  </div>
+                </button>
+              ))}
+            </div>
             <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">
-              <span className="text-dim">BLAST:</span>
+              <span className="text-dim">TOKEN TO FIRE:</span>
               {choices.map((t) => (
                 <button key={t.id} onClick={() => b.setToken(t)} className={`btn ${t.id === b.token?.id ? 'btn-on' : ''}`}>
                   ${t.sym}
@@ -945,11 +994,12 @@ export function Arena() {
         <Cell label="ON CHAIN" value={`${hud.onChain.toLocaleString()} / ${hud.shots.toLocaleString()}`} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
         <Cell label={`${GUNS[weapon]?.key} ${GUNS[weapon]?.name.toUpperCase()}`} value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} sub="heat" />
-        <div className="inset flex items-center justify-center gap-2 px-2 py-1">
+        <button onClick={cycleToken} title="Switch token (T)" className="inset flex items-center justify-center gap-2 px-2 py-1 hover:border-fg">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {icon ? <img src={icon} alt="" className="h-8 w-8" /> : null}
           <span className="text-hot">${b.token?.sym ?? '…'}</span>
-        </div>
+          {b.tokens.length > 1 && <span className="text-xs text-dim">T ⟳</span>}
+        </button>
       </div>
 
       {!playing && hud.last && (

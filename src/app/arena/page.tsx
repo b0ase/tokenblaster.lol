@@ -19,7 +19,7 @@ export default function ArenaPage() {
             </Link>
           </span>
         </div>
-        <p className="mt-1 text-dim">Hunt drones with your token. Every shot is a real blast. Multiplayer is next.</p>
+        <p className="mt-1 text-dim">Pick a gun and a token, then mow down demons. Every bullet is a real blast on BSV. Multiplayer is next.</p>
       </header>
       <Arena />
       <p className="text-center text-xs text-muted">
