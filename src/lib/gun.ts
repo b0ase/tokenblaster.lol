@@ -7,6 +7,7 @@
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
+const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
 const STORE = 'tokenblaster.gun';
 export const TAG = 'tokenblaster.lol';
@@ -106,11 +107,17 @@ export class Gun {
     return tx.id('hex');
   }
 
-  /** Send everything left back to `address`. */
+  /**
+   * Send everything at the gun's address back to `address`: the tracked coin plus anything else
+   * that landed there (e.g. a second funding when two wallets both answered one Load).
+   */
   async unload(address: string): Promise<string | null> {
-    if (!this.coin || this.sats < 50) return null;
+    const coins = await this.coinsOnChain();
+    if (this.coin && !coins.some((c) => c.tx.id('hex') === this.coin!.tx.id('hex') && c.vout === this.coin!.vout)) coins.push(this.coin);
+    const total = coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0);
+    if (total < 50) return null;
     const tx = new Transaction();
-    tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+    for (const c of coins) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
     tx.addOutput({ lockingScript: new P2PKH().lock(address), change: true });
     await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
     await tx.sign();
@@ -118,5 +125,21 @@ export class Gun {
     this.coin = null;
     this.save();
     return tx.id('hex');
+  }
+
+  /** Unspent outputs at the gun's address, confirmed or not (WhatsOnChain). */
+  private async coinsOnChain(): Promise<{ tx: Transaction; vout: number }[]> {
+    const get = (path: string) => fetch(`${WOC}${path}`).then((r) => (r.ok ? r.json() : { result: [] }));
+    const [conf, unconf] = await Promise.all([
+      get(`/address/${this.address}/confirmed/unspent`),
+      get(`/address/${this.address}/unconfirmed/unspent`),
+    ]);
+    const utxos = [...(conf.result ?? []), ...(unconf.result ?? [])] as { tx_hash: string; tx_pos: number; isSpentInMempoolTx?: boolean }[];
+    const out: { tx: Transaction; vout: number }[] = [];
+    for (const u of utxos.filter((u) => !u.isSpentInMempoolTx)) {
+      const hex = await fetch(`${WOC}/tx/${u.tx_hash}/hex`).then((r) => r.text());
+      out.push({ tx: Transaction.fromHex(hex), vout: u.tx_pos });
+    }
+    return out;
   }
 }
