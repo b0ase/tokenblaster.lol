@@ -3,8 +3,9 @@
  * the chooser lists them all and remembers what the player chose.
  */
 import { HTTPWalletJSON, WalletClient, type WalletInterface } from '@bsv/sdk';
+import { resumePhone } from './pair/site';
 
-export type WalletKind = 'extension' | 'in-app' | 'web' | 'desktop';
+export type WalletKind = 'extension' | 'in-app' | 'web' | 'desktop' | 'phone';
 export type WalletEntry = { id: string; name: string; icon: string | null; kind: WalletKind; wallet: WalletInterface };
 
 type Announce = { info: { uuid: string; name: string; icon?: string; rdns: string; kind?: WalletKind }; wallet: WalletInterface };
@@ -80,6 +81,10 @@ export async function discoverWallets(): Promise<WalletEntry[]> {
     kind: a.info.kind ?? 'extension',
     wallet: a.wallet,
   }));
+
+  // A phone paired by QR earlier in this tab (§4.6): offer it again, so a reload reconnects to it.
+  const phone = resumePhone();
+  if (phone) list.push({ id: 'phone', name: `${phone.phone} on your phone`, icon: null, kind: 'phone', wallet: phone.wallet });
 
   // §3.3: a window.CWI nobody announced (Yours today, older wallets).
   const cwi = (window as { CWI?: WalletInterface }).CWI;

@@ -7,6 +7,12 @@ blast from the in-browser gun (`src/lib/gun.ts` via `src/lib/useBlaster.ts`), ta
 
 The leaderboard counts arena shots like any other blast (it reads only the tag and the token).
 
+## Firing thousands of shots
+
+The gun builds chains of blasts locally and sends them to GorillaPool ARC in batches of 50
+(`Gun.fireBatch`, ARC `/v1/txs`), so hold-to-fire (~20 shots/s) keeps up. The horde hall south of
+the maze spawns a constant swarm of skulls (CPU monsters, separate from players) for exactly this.
+
 ## Stages
 
 1. **Solo drones (shipped 3 Oct 2026).** Pixelated maze, token-faced drones, DOOM status bar,

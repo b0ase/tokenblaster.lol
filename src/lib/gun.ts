@@ -135,6 +135,44 @@ export class Gun {
     });
   }
 
+  /**
+   * Fire many blasts in one go: build a chain of `extras.length` blasts locally (signing is fast),
+   * send it to ARC in one batch request, and keep the coin at the last blast ARC accepted. This is
+   * what lets the arena fire thousands of shots instead of a few a second. Returns accepted txids.
+   */
+  async fireBatch(token: string, startN: number, extras: string[][]): Promise<string[]> {
+    return this.exclusive(async () => {
+      this.refresh();
+      if (!this.coin) throw new Error('The gun is empty. Load it first.');
+      const chain: Transaction[] = [];
+      let prev = this.coin;
+      for (let i = 0; i < extras.length; i++) {
+        const tx = new Transaction();
+        tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token, String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
+        tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+        await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+        await tx.sign();
+        if ((tx.outputs[1].satoshis ?? 0) < 1) break; // out of ammo: send what we have
+        chain.push(tx);
+        prev = { tx, vout: 1 };
+      }
+      if (!chain.length) throw new Error('Out of ammo.');
+      const results = (await this.arc.broadcastMany(chain)) as { status?: string; description?: string }[];
+      // A chain is only as good as its first failure: everything after it spends a missing coin.
+      let accepted = 0;
+      while (accepted < chain.length && results[accepted]?.status === 'success') accepted++;
+      if (accepted === 0) {
+        await this.resync();
+        throw new Error(`ARC rejected the batch: ${results[0]?.description ?? 'no response'}`);
+      }
+      const last = chain[accepted - 1];
+      this.coin = { tx: Transaction.fromHex(last.toHex()), vout: 1 };
+      this.save();
+      return chain.slice(0, accepted).map((t) => t.id('hex'));
+    });
+  }
+
   private async fireOnce(token: string, n: number, extra: string[]): Promise<string> {
     if (!this.coin) throw new Error('The gun is empty. Load it first.');
     const tx = new Transaction();

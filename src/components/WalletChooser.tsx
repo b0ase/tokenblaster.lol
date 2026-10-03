@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { discoverWallets, type WalletEntry } from '@/lib/discovery';
+import { startPairing, type PairState } from '@/lib/pair/site';
 
 const KIND: Record<WalletEntry['kind'], string> = {
   extension: 'browser ext.',
   'in-app': 'this app',
   web: 'web wallet',
   desktop: 'this computer',
+  phone: 'paired phone',
 };
 
 /**
@@ -33,6 +35,18 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
   };
   const isPhone = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
   const noDesktop = wallets !== null && !isPhone && !wallets.some((w) => w.kind === 'desktop');
+
+  // Phone QR, live as soon as the chooser opens (spec §2.1). The channel closes with the chooser.
+  const [pair, setPair] = useState<PairState>({ k: 'starting' });
+  useEffect(() => {
+    if (isPhone) return;
+    return startPairing((st) => {
+      setPair(st);
+      if (st.k === 'ready')
+        onPick({ id: 'phone', name: `${st.phone} on your phone`, icon: null, kind: 'phone', wallet: st.wallet });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPhone]);
 
   // bWalletX look (the wallet's own approval pop-ups), not the site's retro panels: this is a wallet
   // moment, so it should feel like the wallet.
@@ -151,24 +165,30 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
               style={{ background: '#17191E', border: '1px solid rgba(255,255,255,0.05)' }}
             >
               <span
-                className="grid h-[88px] w-[88px] shrink-0 place-items-center rounded-lg"
-                style={{
-                  background:
-                    'repeating-conic-gradient(#2b2f36 0% 25%, #1f2228 0% 50%) 50% / 11px 11px',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                }}
-                aria-hidden
+                className="grid h-[112px] w-[112px] shrink-0 place-items-center overflow-hidden rounded-lg"
+                style={{ background: pair.k === 'qr' ? '#fff' : '#1f2228', border: '1px solid rgba(255,255,255,0.06)' }}
               >
-                <span className="rounded-md px-1.5 py-0.5" style={{ background: '#101114', color: '#98A2B3', fontSize: 10, fontWeight: 600 }}>
-                  SOON
-                </span>
+                {pair.k === 'qr' ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={pair.qr} alt="Pairing QR code" className="h-full w-full" />
+                ) : pair.k === 'code' ? (
+                  <span style={{ color: '#F5B800', fontFamily: 'ui-monospace, monospace', fontWeight: 700, fontSize: 26, letterSpacing: 2 }}>
+                    {pair.code}
+                  </span>
+                ) : (
+                  <span style={{ color: '#98A2B3', fontSize: 11 }}>{pair.k === 'error' ? 'Unavailable' : 'Loading…'}</span>
+                )}
               </span>
               <span className="flex-1">
                 <span className="block" style={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>
                   Use bWallet on your phone
                 </span>
                 <span style={{ color: '#98A2B3', fontSize: 12, lineHeight: 1.4 }}>
-                  Scan this code with bWallet to connect. Phone pairing is coming soon.
+                  {pair.k === 'code'
+                    ? `Check bWallet shows ${pair.code}, then tap Connect on your phone.`
+                    : pair.k === 'error'
+                      ? pair.message
+                      : 'Open bWallet › menu › Scan to connect, and point it at this code.'}
                 </span>
               </span>
             </div>

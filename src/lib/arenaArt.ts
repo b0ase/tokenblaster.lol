@@ -309,3 +309,31 @@ export function makeSfx() {
   };
 }
 export type Sfx = NonNullable<ReturnType<typeof makeSfx>>;
+
+/** Swarm monster for the horde hall: a flying flaming skull, 2 frames. */
+export function skullFrames() {
+  const make = (flame: number) => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 16;
+    const c = cv.getContext('2d')!;
+    const px = (x: number, y: number, w: number, h: number, col: string) => {
+      c.fillStyle = col;
+      c.fillRect(x, y, w, h);
+    };
+    px(3 + flame, 0, 3, 3, '#ffaa00'); // flames
+    px(10 - flame, 0, 3, 3, '#ff5500');
+    px(6, 0, 4, 2, '#ffdd44');
+    px(3, 3, 10, 8, '#e8e0c8'); // skull
+    px(4, 11, 8, 3, '#d0c8b0'); // jaw
+    px(5, 6, 2, 2, '#ff2200'); // eyes
+    px(9, 6, 2, 2, '#ff2200');
+    px(7, 9, 2, 1, '#3a2a20'); // nose
+    for (let i = 0; i < 4; i++) px(5 + i * 2, 12, 1, 2, '#3a2a20'); // teeth
+    const t = new THREE.CanvasTexture(cv);
+    t.magFilter = THREE.NearestFilter;
+    t.minFilter = THREE.NearestFilter;
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  };
+  return [make(0), make(1)];
+}

@@ -9,6 +9,7 @@ import {
   impFrames,
   makeSfx,
   medkitTexture,
+  skullFrames,
   slimeTexture,
   zoneMaterials,
   type ImpFrame,
@@ -36,10 +37,29 @@ const MAP = [
   '1011110111111101',
   '1000000100000001',
   '1000000000000001',
+  '1111111001111111',
+  // Horde hall: a big open room full of flying skulls. Walk in and hold the trigger.
+  '1000000000000001',
+  '1000000000000001',
+  '1001100000011001',
+  '1001100000011001',
+  '1000000000000001',
+  '1000000000000001',
+  '1000000110000001',
+  '1000000110000001',
+  '1000000000000001',
+  '1001100000011001',
+  '1001100000011001',
+  '1000000000000001',
   '1111111111111111',
 ];
+const COLS = MAP[0].length;
+const HALL_Z = 16; // first row of the hall
 const SIZE = 4; // world units per cell
-const MAX_HEAT = 12; // shots queued for the chain before the gun overheats
+const MAX_HEAT = 300; // shots queued for the chain before the gun overheats
+const BATCH = 50; // blasts per ARC request
+const AUTO_MS = 50; // hold-to-fire: 20 shots a second
+const SKULLS = 40;
 const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
 const IMPS = 6;
 const SLIME: [number, number][] = [
@@ -65,7 +85,7 @@ const isWall = (x: number, z: number) => {
   const c = cellAt(x, z);
   return c !== '0' && c !== 'S';
 };
-const zoneOf = (x: number, z: number) => (x < 8 ? 0 : 1) + (z < 8 ? 0 : 2);
+const zoneOf = (x: number, z: number) => (z >= HALL_Z ? 0 : (x < 8 ? 0 : 1) + (z < 8 ? 0 : 2));
 const centre = ([x, z]: [number, number], y: number) => new THREE.Vector3((x + 0.5) * SIZE, y, (z + 0.5) * SIZE);
 const freeCells = () => {
   const out: [number, number][] = [];
@@ -95,10 +115,10 @@ export function Arena() {
 
   // The game loop reads the latest blaster state through refs.
   const armed = b.ammo > 30 && Boolean(b.token);
-  const live = useRef({ armed, fire: b.fire, icon: iconUrl(b.token?.icon ?? null) });
+  const live = useRef({ armed, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
-    live.current = { armed, fire: b.fire, icon: iconUrl(b.token?.icon ?? null) };
-  }, [armed, b.fire, b.token]);
+    live.current = { armed, fireBatch: b.fireBatch, icon: iconUrl(b.token?.icon ?? null) };
+  }, [armed, b.fireBatch, b.token]);
 
   useEffect(() => {
     const el = mount.current;
@@ -132,15 +152,23 @@ export function Arena() {
         walls.push(m);
       }),
     );
-    const span = MAP.length * SIZE;
+    const spanX = COLS * SIZE;
+    const spanZ = MAP.length * SIZE;
     const plane = (tex: THREE.Texture, y: number, up: boolean) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(span, span), new THREE.MeshLambertMaterial({ map: tex }));
+      tex.repeat.set(COLS, MAP.length);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), new THREE.MeshLambertMaterial({ map: tex }));
       m.rotation.x = up ? -Math.PI / 2 : Math.PI / 2;
-      m.position.set(span / 2, y, span / 2);
+      m.position.set(spanX / 2, y, spanZ / 2);
       scene.add(m);
     };
-    plane(floorTexture(MAP.length), 0, true);
-    plane(ceilingTexture(MAP.length), SIZE * 0.9, false);
+    plane(floorTexture(1), 0, true);
+    plane(ceilingTexture(1), SIZE * 0.9, false);
+    // The hall glows red.
+    for (const cell of [[4, 19], [11, 19], [7, 25]] as [number, number][]) {
+      const l = new THREE.PointLight('#ff4020', 50, 22, 1.4);
+      l.position.copy(centre(cell, SIZE * 0.7));
+      scene.add(l);
+    }
     const slimeTex = slimeTexture();
     const slimeMat = new THREE.MeshBasicMaterial({ map: slimeTex, color: '#b0ff90' });
     for (const cell of SLIME) {
@@ -216,6 +244,25 @@ export function Arena() {
       return { s, back: 0 };
     });
 
+    // ── Skull swarm (horde hall only) ──
+    const skullTex = skullFrames();
+    const hallCells = freeCells().filter(([, z]) => z >= HALL_Z + 6);
+    const skulls: { s: THREE.Sprite; alive: boolean; speed: number }[] = [];
+    for (let i = 0; i < SKULLS; i++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: skullTex[0], transparent: true }));
+      s.scale.set(1.1, 1.1, 1.1);
+      s.visible = false;
+      scene.add(s);
+      skulls.push({ s, alive: false, speed: 3 + Math.random() * 2.5 });
+    }
+    const spawnSkull = (k: (typeof skulls)[number]) => {
+      const cell = hallCells[Math.floor(Math.random() * hallCells.length)];
+      k.s.position.copy(centre(cell, 1 + Math.random() * 1.6));
+      k.s.position.x += (Math.random() - 0.5) * SIZE * 0.6;
+      k.alive = true;
+      k.s.visible = true;
+    };
+
     // ── Player ──
     let health = 100;
     let deadUntil = 0;
@@ -245,14 +292,19 @@ export function Arena() {
     const onKey = (e: KeyboardEvent) => {
       if (e.type === 'keydown') keys.add(e.code);
       else keys.delete(e.code);
-      if (e.code === 'Space' && e.type === 'keydown') shoot();
+      if (e.code === 'Space') trigger = e.type === 'keydown';
     };
     const onMouse = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
       yaw -= e.movementX * 0.0025;
       pitch = Math.max(-1.2, Math.min(1.2, pitch - e.movementY * 0.0025));
     };
-    const onClick = () => shoot();
+    let trigger = false;
+    const onDown = () => {
+      trigger = true;
+      shoot();
+    };
+    const onUp = () => (trigger = false);
     let wasLocked = false;
     const onLock = () => {
       const locked = document.pointerLockElement === renderer.domElement;
@@ -296,7 +348,8 @@ export function Arena() {
     window.addEventListener('keyup', onKey);
     document.addEventListener('mousemove', onMouse);
     document.addEventListener('pointerlockchange', onLock);
-    renderer.domElement.addEventListener('click', onClick);
+    renderer.domElement.addEventListener('mousedown', onDown);
+    window.addEventListener('mouseup', onUp);
     renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: true });
     renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
     renderer.domElement.addEventListener('touchend', onTouchEnd);
@@ -314,16 +367,19 @@ export function Arena() {
       if (draining) return;
       draining = true;
       while (queue.length) {
+        const batch = queue.slice(0, BATCH);
         try {
-          const txid = await live.current.fire(++n, queue[0]);
-          setHud((h) => ({ ...h, onChain: h.onChain + 1, last: txid }));
+          const txids = await live.current.fireBatch(n + 1, batch);
+          n += txids.length;
+          queue.splice(0, txids.length);
+          setHud((h) => ({ ...h, onChain: h.onChain + txids.length, last: txids[txids.length - 1] ?? h.last }));
           setChainError(null);
+          if (txids.length < batch.length) throw new Error('Out of ammo.');
         } catch (e) {
           setChainError(e instanceof Error ? e.message : String(e));
           queue.length = 0;
           break;
         }
-        queue.shift();
         heat = queue.length;
         setHud((h) => ({ ...h, heat }));
       }
@@ -333,13 +389,15 @@ export function Arena() {
     };
     const shoot = () => {
       const now = performance.now();
-      if (now - lastShot < 140 || deadUntil) return; // trigger rate
+      if (now - lastShot < AUTO_MS - 5 || deadUntil) return; // trigger rate
       if (!live.current.armed || heat >= MAX_HEAT) return;
       lastShot = now;
       sfx?.shoot();
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const targets = imps.filter((m) => m.state === 'walk' || m.state === 'pain').map((m) => m.s);
-      const first = raycaster.intersectObjects([...walls, ...targets], false)[0];
+      const liveSkulls = skulls.filter((k) => k.alive).map((k) => k.s);
+      const first = raycaster.intersectObjects([...walls, ...targets, ...liveSkulls], false)[0];
+      const skull = first && skulls.find((k) => k.s === first.object);
       const end = first ? first.point : camera.position.clone().add(raycaster.ray.direction.clone().multiplyScalar(40));
       const from = camera.position.clone().add(new THREE.Vector3(0.3, -0.35, 0).applyEuler(camera.rotation));
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), tracerMat);
@@ -347,6 +405,12 @@ export function Arena() {
       tracers.push({ line, born: now });
       const imp = first && imps.find((m) => m.s === first.object);
       let killed = false;
+      if (skull) {
+        skull.alive = false;
+        skull.s.visible = false;
+        killed = true;
+        sfx?.hit();
+      }
       if (imp) {
         imp.hp--;
         sfx?.hit();
@@ -360,7 +424,7 @@ export function Arena() {
         }
         imp.since = now;
       }
-      queue.push(['arena', imp ? (killed ? 'kill' : 'hit') : 'miss']);
+      queue.push(['arena', imp || skull ? (killed ? 'kill' : 'hit') : 'miss']);
       heat = queue.length;
       setHud((h) => ({ ...h, shots: h.shots + 1, kills: h.kills + (killed ? 1 : 0), heat }));
       setFlashing(true);
@@ -369,7 +433,7 @@ export function Arena() {
       recoil = 1;
       void drain();
     };
-    const onFireButton = () => shoot();
+    const onFireButton = (e: Event) => (trigger = (e as CustomEvent<boolean>).detail !== false);
     window.addEventListener('arena:fire', onFireButton);
     const onEnter = () => {
       // Play even if the browser refuses pointer lock (arrows aim, click on the arena fires).
@@ -507,6 +571,29 @@ export function Arena() {
         else if (!sees || p.distanceTo(camera.position) > 3) p.copy(nxt);
         p.y = 1.25;
       }
+      if (trigger) shoot();
+      // Skulls swarm while you are in the hall.
+      const inHall = camera.position.z / SIZE >= HALL_Z;
+      for (const k of skulls) {
+        if (!k.alive) {
+          if (inHall && !deadUntil && Math.random() < dt * 1.5) spawnSkull(k);
+          continue;
+        }
+        const to = camera.position.clone().sub(k.s.position);
+        const d = to.length();
+        k.s.position.addScaledVector(to.normalize(), k.speed * dt);
+        k.s.position.y += Math.sin(now / 200 + k.speed) * 0.02;
+        (k.s.material as THREE.SpriteMaterial).map = skullTex[Math.floor(now / 120) % 2];
+        if (d < 0.9) {
+          damage(3, now);
+          k.alive = false;
+          k.s.visible = false;
+        }
+        if (!inHall && d > 30) {
+          k.alive = false;
+          k.s.visible = false;
+        }
+      }
       for (let i = fireballs.length - 1; i >= 0; i--) {
         const fb = fireballs[i];
         fb.s.position.addScaledVector(fb.v, dt);
@@ -536,6 +623,7 @@ export function Arena() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
       window.removeEventListener('arena:fire', onFireButton);
+      window.removeEventListener('mouseup', onUp);
       window.removeEventListener('arena:enter', onEnter);
       document.removeEventListener('mousemove', onMouse);
       document.removeEventListener('pointerlockchange', onLock);
@@ -592,7 +680,9 @@ export function Arena() {
         {hud.heat >= MAX_HEAT && <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 text-2xl font-bold text-hot blink">OVERHEAT</div>}
         {playing && (
           <button
-            onPointerDown={() => window.dispatchEvent(new Event('arena:fire'))}
+            onPointerDown={() => window.dispatchEvent(new CustomEvent('arena:fire', { detail: true }))}
+            onPointerUp={() => window.dispatchEvent(new CustomEvent('arena:fire', { detail: false }))}
+            onPointerLeave={() => window.dispatchEvent(new CustomEvent('arena:fire', { detail: false }))}
             className="btn-fire absolute bottom-4 right-4 sm:hidden"
             disabled={!armed}
           >
@@ -606,7 +696,7 @@ export function Arena() {
           >
             <p className="text-2xl font-bold text-hot">ARENA</p>
             <p className="max-w-md text-sm text-dim">
-              Imps wear your token and throw fire. WASD / arrows move, mouse aims, click or space fires, Esc pauses. Phone: left thumb
+              Imps wear your token and throw fire. Head south to the horde hall and hold the trigger. WASD / arrows move, mouse aims, hold click or space to fire, Esc pauses. Phone: left thumb
               moves, right thumb aims. Every shot is a real blast.
             </p>
             <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">

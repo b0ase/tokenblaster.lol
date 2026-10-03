@@ -98,6 +98,18 @@ export function useBlaster() {
     [token],
   );
 
+  /** Many real blasts in one ARC request (the arena's hold-to-fire). */
+  const fireBatch = useCallback(
+    async (startN: number, extras: string[][]) => {
+      const g = gun.current;
+      if (!g || !token) throw new Error('Pick a token first.');
+      const txids = await g.fireBatch(token.id, startN, extras);
+      setAmmo(g.sats);
+      return txids;
+    },
+    [token],
+  );
+
   const unload = useCallback(async () => {
     if (!wallet || !gun.current) return;
     setBusy('unloading');
@@ -111,5 +123,5 @@ export function useBlaster() {
     }
   }, [wallet]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, unload, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, unload, error, setError };
 }

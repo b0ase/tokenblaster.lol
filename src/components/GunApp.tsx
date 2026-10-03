@@ -8,6 +8,7 @@ import { BLASTER_ID, iconUrl, tokenById, tokensHeld, type Token } from '@/lib/to
 import { discoverWallets, inFrame, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
 import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
 import { WalletChooser } from './WalletChooser';
+import { disconnectPhone } from '@/lib/pair/site';
 
 type Phase = 'idle' | 'connecting' | 'loading' | 'firing' | 'unloading';
 type Point = { t: number; fired: number; landed: number };
@@ -147,6 +148,7 @@ export function GunApp() {
       setPhase('idle');
     }
     rememberWallet(null);
+    disconnectPhone();
     setWallet(null);
     setTokens([]);
     setNotice('Disconnected. To revoke access completely, remove tokenblaster.lol from your wallet’s connected sites.');
@@ -154,6 +156,7 @@ export function GunApp() {
 
   const switchWallet = () => {
     rememberWallet(null);
+    disconnectPhone();
     setWallet(null);
     setTokens([]);
     setChooser({ note: null });
