@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "blast": "tsx blaster/blast.ts"
+    "blast": "tsx blaster/blast.ts",
+    "worker:build": "esbuild worker/indexer.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/indexer.mjs --external:pg-native --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },
   "dependencies": {
     "@bsv/sdk": "^2.8.11",
@@ -19,13 +20,18 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
+    "pg": "^8.23.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "ws": "^8.22.0"
   },
   "packageManager": "pnpm@10.28.0"
 }

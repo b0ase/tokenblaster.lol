@@ -37,16 +37,21 @@ export function GunApp() {
   const [series, setSeries] = useState<Point[]>([]);
   const [last, setLast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
 
   const pack = PACKS[packIdx];
   const cost = packSats(pack);
 
-  // Client-only setup: the gun key (sessionStorage), wallet presence, price, featured token.
+  // Client-only setup: the gun key (localStorage), wallet presence, price, featured token.
   useEffect(() => {
-    gun.current = new Gun();
-    setAmmo(gun.current.sats);
-    setCwi(hasCwi());
+    const g = new Gun();
+    gun.current = g;
+    // Pick up leftovers from an earlier visit (or a second funding the gun was not tracking).
+    g.balance()
+      .then((b) => setAmmo((cur) => Math.max(cur, b)))
+      .catch(() => setAmmo(g.sats));
+    void Promise.resolve().then(() => setCwi(hasCwi())); // after mount: window.CWI is client-only
     fetch('/api/price')
       .then((r) => r.json())
       .then((d: { bsvUsd?: number }) => d.bsvUsd && setBsvUsd(d.bsvUsd))
@@ -80,10 +85,19 @@ export function GunApp() {
     return () => clearInterval(t);
   }, []);
 
+  // Warn before leaving with ammo loaded (it is safe in this browser, but easy to forget).
+  useEffect(() => {
+    if (!ammo) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [ammo]);
+
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
   const pickWallet = async (entry: WalletEntry) => {
     setChooser(null);
+    setNotice(null);
     setError(null);
     setPhase('connecting');
     try {
@@ -113,6 +127,25 @@ export function GunApp() {
     setPhase('idle');
     if (found) return pickWallet(found);
     setChooser({ note: 'The wallet you used last time is not available any more.' });
+  };
+
+  /** Unload any ammo back to the wallet, then forget it. Revoking access happens in the wallet. */
+  const disconnect = async () => {
+    if (wallet && ammo > 0) {
+      setPhase('unloading');
+      try {
+        await gun.current?.unload(wallet.address);
+        setAmmo(0);
+      } catch (e) {
+        setPhase('idle');
+        return fail(e);
+      }
+      setPhase('idle');
+    }
+    rememberWallet(null);
+    setWallet(null);
+    setTokens([]);
+    setNotice('Disconnected. To revoke access completely, remove tokenblaster.lol from your wallet’s connected sites.');
   };
 
   const switchWallet = () => {
@@ -213,9 +246,14 @@ export function GunApp() {
             <>
               {wallet.name} <span className="text-hot">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</span>{' '}
               {!busy && (
-                <button onClick={switchWallet} className="btn ml-1 text-xs">
-                  switch wallet
-                </button>
+                <>
+                  <button onClick={switchWallet} className="btn ml-1 text-xs">
+                    switch wallet
+                  </button>
+                  <button onClick={disconnect} className="btn ml-1 text-xs">
+                    disconnect
+                  </button>
+                </>
               )}
             </>
           ) : (
@@ -284,6 +322,7 @@ export function GunApp() {
           </a>
         </p>
       )}
+      {notice && !wallet && <p className="mt-2 text-sm text-dim">{notice}</p>}
       {error && <p className="mt-2 text-sm text-hot">⚠ {error}</p>}
       {chooser && <WalletChooser note={chooser.note} onPick={pickWallet} onClose={() => setChooser(null)} />}
     </section>

@@ -1,6 +1,6 @@
 /**
- * The gun: a throwaway key that lives only in this browser tab (sessionStorage, so a reload
- * mid-burst does not strand the coins). Loading funds it from bWallet in one approval; firing
+ * The gun: a throwaway key kept in this browser (localStorage, so closing the tab or a reload
+ * mid-burst does not strand the coins; Unload sweeps whatever is at its address). Loading funds it from bWallet in one approval; firing
  * chains tagged blasts off it and broadcasts each to GorillaPool ARC; unloading sends what is
  * left back to the player. Same transaction shape as blaster/blast.ts.
  */
@@ -18,14 +18,15 @@ type Saved = { wif: string; tx?: string; vout?: number };
 
 const read = (): Saved | null => {
   try {
-    return JSON.parse(sessionStorage.getItem(STORE) ?? 'null');
+    // Guns made before 3 Oct 2026 kept their key in sessionStorage: carry it over once.
+    return JSON.parse(localStorage.getItem(STORE) ?? sessionStorage.getItem(STORE) ?? 'null');
   } catch {
     return null;
   }
 };
 const write = (s: Saved) => {
   try {
-    sessionStorage.setItem(STORE, JSON.stringify(s));
+    localStorage.setItem(STORE, JSON.stringify(s));
   } catch {
     /* storage blocked: the gun still works for this page view */
   }
@@ -54,6 +55,13 @@ export class Gun {
 
   private save() {
     write({ wif: this.key.toWif(), tx: this.coin?.tx.toHex(), vout: this.coin?.vout });
+  }
+
+  /** Everything at the gun's address, including coins the gun is not tracking. */
+  async balance(): Promise<number> {
+    const coins = await this.coinsOnChain();
+    const onChain = coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0);
+    return Math.max(onChain, this.sats);
   }
 
   /** Take the funding transaction from bWallet as the gun's coin. */

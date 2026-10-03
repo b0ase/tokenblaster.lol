@@ -7,14 +7,15 @@ import { PERIODS, type Period, type TokenScore } from '@/lib/leaderboard';
 export function Leaderboard() {
   const [period, setPeriod] = useState<Period>('24h');
   const [tokens, setTokens] = useState<TokenScore[] | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let alive = true;
     const load = () =>
       fetch(`/api/leaderboard?period=${period}`)
-        .then((r) => r.json())
-        .then((d: { tokens?: TokenScore[] }) => alive && setTokens(d.tokens ?? []))
-        .catch(() => alive && setTokens([]));
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d: { tokens?: TokenScore[] }) => alive && (setTokens(d.tokens ?? []), setFailed(false)))
+        .catch(() => alive && (setTokens([]), setFailed(true)));
     load();
     const t = setInterval(load, 30_000);
     return () => {
@@ -49,7 +50,7 @@ export function Leaderboard() {
           Loading<span className="blink">…</span>
         </p>
       )}
-      {tokens?.length === 0 && <p className="text-dim">No blasts yet. Be first on the board.</p>}
+      {tokens?.length === 0 && <p className="text-dim">{failed ? 'Leaderboard unavailable, retrying…' : 'No blasts yet. Be first on the board.'}</p>}
       <ol className="flex flex-col gap-1">
         {tokens?.map((t, n) => (
           <li key={t.tokenId} className="flex items-center gap-3">

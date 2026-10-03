@@ -4,5 +4,9 @@ import { isPeriod, topTokens } from '@/lib/leaderboard';
 export async function GET(request: Request) {
   const p = new URL(request.url).searchParams.get('period');
   const period = isPeriod(p) ? p : '24h';
-  return Response.json({ period, tokens: await topTokens(period) });
+  try {
+    return Response.json({ period, tokens: await topTokens(period) });
+  } catch {
+    return Response.json({ period, error: 'Leaderboard unavailable' }, { status: 502 });
+  }
 }
