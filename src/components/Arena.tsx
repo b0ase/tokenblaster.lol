@@ -2,25 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import {
-  ceilingTexture,
-  fireballTexture,
-  floorTexture,
-  impFrames,
-  makeSfx,
-  medkitTexture,
-  skullFrames,
-  slimeTexture,
-  zoneMaterials,
-  type ImpFrame,
-  type Sfx,
-} from '@/lib/arenaArt';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
+import { loadArenaAssets, Monster, type MonsterKind } from '@/lib/arenaHD';
 import { PACKS, formatCount, packSats } from '@/lib/pricing';
 import { iconUrl, tokenById, type Token } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
 
-/** 1 = wall. The player starts at S. */
+/** 1 = wall. The player starts at S. Rows from HALL_Z down are the horde hall. */
 const MAP = [
   '1111111111111111',
   '1S00000100000001',
@@ -38,7 +31,6 @@ const MAP = [
   '1000000100000001',
   '1000000000000001',
   '1111111001111111',
-  // Horde hall: a big open room full of flying skulls. Walk in and hold the trigger.
   '1000000000000001',
   '1000000000000001',
   '1001100000011001',
@@ -54,14 +46,13 @@ const MAP = [
   '1111111111111111',
 ];
 const COLS = MAP[0].length;
-const HALL_Z = 16; // first row of the hall
+const HALL_Z = 16;
 const SIZE = 4; // world units per cell
+const WALL_H = SIZE * 0.9;
 const MAX_HEAT = 300; // shots queued for the chain before the gun overheats
 const BATCH = 50; // blasts per ARC request
 const AUTO_MS = 50; // hold-to-fire: 20 shots a second
-const SKULLS = 40;
 const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
-const IMPS = 6;
 const SLIME: [number, number][] = [
   [5, 3],
   [9, 9],
@@ -78,34 +69,42 @@ const MEDKITS: [number, number][] = [
   [7, 7],
   [1, 11],
   [14, 14],
+  [2, 20],
+  [13, 26],
 ];
+const STATS: Record<MonsterKind, { hp: number; speed: number; ranged: boolean; damage: number; run: string; attack: string }> = {
+  warrior: { hp: 4, speed: 2.4, ranged: false, damage: 14, run: 'Running_A', attack: '1H_Melee_Attack_Chop' },
+  rogue: { hp: 3, speed: 3.4, ranged: false, damage: 9, run: 'Running_B', attack: 'Dualwield_Melee_Attack_Stab' },
+  mage: { hp: 3, speed: 1.8, ranged: true, damage: 12, run: 'Walking_A', attack: 'Spellcast_Shoot' },
+  minion: { hp: 1, speed: 3.2, ranged: false, damage: 5, run: 'Running_C', attack: 'Unarmed_Melee_Attack_Punch_A' },
+};
 
 const cellAt = (x: number, z: number) => MAP[Math.floor(z / SIZE)]?.[Math.floor(x / SIZE)];
 const isWall = (x: number, z: number) => {
   const c = cellAt(x, z);
   return c !== '0' && c !== 'S';
 };
-const zoneOf = (x: number, z: number) => (z >= HALL_Z ? 0 : (x < 8 ? 0 : 1) + (z < 8 ? 0 : 2));
 const centre = ([x, z]: [number, number], y: number) => new THREE.Vector3((x + 0.5) * SIZE, y, (z + 0.5) * SIZE);
-const freeCells = () => {
+const freeCells = (pred: (x: number, z: number) => boolean = () => true) => {
   const out: [number, number][] = [];
-  MAP.forEach((row, z) => [...row].forEach((c, x) => c === '0' && out.push([x, z])));
+  MAP.forEach((row, z) => [...row].forEach((c, x) => c === '0' && pred(x, z) && out.push([x, z])));
   return out;
 };
+const isPhone = () => typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
 
 type Hud = { kills: number; shots: number; onChain: number; heat: number; health: number; last: string | null };
 
 /**
- * The arena: a DOOM-style maze. Imps wearing your token hunt you and throw fireballs; every
- * trigger pull is a real blast for your token, tagged `arena`, fired by the same in-browser gun
- * as /blast. Fills the window while you play. Multiplayer is the next stage (docs/arena.md).
+ * The arena, in HD: PBR-textured maze, animated skeleton warriors, rogues and mages that hunt
+ * you, a horde hall of minions, bloom and a 3D gun. Every trigger pull is a real blast for your
+ * token (tagged `arena`), sent to ARC in batches so hold-to-fire can fire thousands.
  */
 export function Arena() {
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
-  const weapon = useRef<HTMLDivElement>(null);
   const [hud, setHud] = useState<Hud>({ kills: 0, shots: 0, onChain: 0, heat: 0, health: 100, last: null });
-  const [flashing, setFlashing] = useState(false);
+  const [loading, setLoading] = useState(0); // 0..1, 1 = ready
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [hurt, setHurt] = useState(false);
   const [dead, setDead] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -123,150 +122,119 @@ export function Arena() {
   useEffect(() => {
     const el = mount.current;
     if (!el) return;
+    const phone = isPhone();
+    let disposed = false;
 
-    // ── Renderer: low resolution, scaled up with hard pixels ──
-    const renderer = new THREE.WebGLRenderer({ antialias: false });
-    renderer.setPixelRatio(0.4);
+    // ── Renderer: full resolution, filmic tone mapping, bloom ──
+    const renderer = new THREE.WebGLRenderer({ antialias: !phone, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, phone ? 1 : 1.5));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
-    renderer.domElement.style.imageRendering = 'pixelated';
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#050202');
-    scene.fog = new THREE.Fog('#050202', 7, 32);
-    const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 100);
+    scene.background = new THREE.Color('#060303');
+    scene.fog = new THREE.FogExp2('#060303', 0.035);
+    const camera = new THREE.PerspectiveCamera(72, 1, 0.05, 120);
+    scene.add(camera);
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), phone ? 0.5 : 0.8, 0.5, 0.82);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
 
-    // ── Level: a wall set per quarter, slime pools, ceiling lamps ──
-    const zones = zoneMaterials();
-    const wallGeo = new THREE.BoxGeometry(SIZE, SIZE * 0.9, SIZE);
-    const walls: THREE.Mesh[] = [];
-    let start = new THREE.Vector3(SIZE * 1.5, 1.6, SIZE * 1.5);
-    MAP.forEach((row, z) =>
-      [...row].forEach((c, x) => {
-        if (c === 'S') start = centre([x, z], 1.6);
-        if (c !== '1') return;
-        const zone = zones[zoneOf(x, z)];
-        const m = new THREE.Mesh(wallGeo, (x * 7 + z * 3) % 5 === 0 ? zone.trim : zone.wall);
-        m.position.copy(centre([x, z], SIZE * 0.45));
-        scene.add(m);
-        walls.push(m);
-      }),
-    );
-    const spanX = COLS * SIZE;
-    const spanZ = MAP.length * SIZE;
-    const plane = (tex: THREE.Texture, y: number, up: boolean) => {
-      tex.repeat.set(COLS, MAP.length);
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), new THREE.MeshLambertMaterial({ map: tex }));
-      m.rotation.x = up ? -Math.PI / 2 : Math.PI / 2;
-      m.position.set(spanX / 2, y, spanZ / 2);
-      scene.add(m);
-    };
-    plane(floorTexture(1), 0, true);
-    plane(ceilingTexture(1), SIZE * 0.9, false);
-    // The hall glows red.
-    for (const cell of [[4, 19], [11, 19], [7, 25]] as [number, number][]) {
-      const l = new THREE.PointLight('#ff4020', 50, 22, 1.4);
-      l.position.copy(centre(cell, SIZE * 0.7));
-      scene.add(l);
-    }
-    const slimeTex = slimeTexture();
-    const slimeMat = new THREE.MeshBasicMaterial({ map: slimeTex, color: '#b0ff90' });
-    for (const cell of SLIME) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(SIZE * 0.9, SIZE * 0.9), slimeMat);
-      m.rotation.x = -Math.PI / 2;
-      m.position.copy(centre(cell, 0.02));
-      scene.add(m);
-    }
-    for (const cell of LAMPS) {
-      const lamp = new THREE.Mesh(new THREE.BoxGeometry(1, 0.15, 1), new THREE.MeshBasicMaterial({ color: '#ffe066' }));
-      lamp.position.copy(centre(cell, SIZE * 0.88));
-      scene.add(lamp);
-      const l = new THREE.PointLight('#ffd27a', 40, 16, 1.6);
-      l.position.copy(centre(cell, SIZE * 0.7));
-      scene.add(l);
-    }
-    scene.add(new THREE.AmbientLight('#ffb0a0', 0.3));
-    const torch = new THREE.PointLight('#ffc8b4', 55, 20, 1.6);
+    // Lights that don't need assets.
+    scene.add(new THREE.HemisphereLight('#ffd8c8', '#200808', 0.35));
+    // The torch sits ahead of and above you, so the gun in your hands isn't blown out.
+    const torch = new THREE.PointLight('#ffd2bc', 30, 18, 1.5);
     scene.add(torch);
-    const muzzle = new THREE.PointLight('#fff0c0', 0, 12, 2);
-    scene.add(muzzle);
-    camera.position.copy(start);
+    const muzzleLight = new THREE.PointLight('#fff0c0', 0, 10, 2);
+    scene.add(muzzleLight);
 
-    // ── Imps: animated sprites wearing the player's token ──
-    const frames = impFrames();
-    let faceSrc: string | null = null;
-    type Imp = {
-      s: THREE.Sprite;
-      hp: number;
-      dir: THREE.Vector3;
-      state: 'walk' | 'pain' | 'dying' | 'dead';
-      since: number;
-      nextShot: number;
+    // ── 3D gun, held by the camera ──
+    const gun = new THREE.Group();
+    const steel = new THREE.MeshStandardMaterial({ color: '#3a3f46', metalness: 0.9, roughness: 0.35 });
+    const red = new THREE.MeshStandardMaterial({ color: '#5a140e', metalness: 0.6, roughness: 0.45 });
+    const glow = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.4, 3, 0.6), toneMapped: false });
+    const part = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.rotation.x = rx;
+      gun.add(m);
+      return m;
     };
-    const cells = freeCells();
-    const imps: Imp[] = [];
-    const placeImp = (m: Imp, now: number) => {
-      let cell: [number, number];
-      do cell = cells[Math.floor(Math.random() * cells.length)];
-      while (centre(cell, 0).distanceTo(new THREE.Vector3(camera.position.x, 0, camera.position.z)) < SIZE * 3.5);
-      m.s.position.copy(centre(cell, 1.25));
-      m.hp = 3;
-      m.state = 'walk';
-      m.since = now;
-      m.nextShot = now + 2000 + Math.random() * 2000;
-      m.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-    };
-    for (let i = 0; i < IMPS; i++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: frames.tex('walk0'), transparent: true }));
-      s.scale.set(2.5, 2.5, 2.5);
-      scene.add(s);
-      const m: Imp = { s, hp: 3, dir: new THREE.Vector3(), state: 'walk', since: 0, nextShot: 0 };
-      placeImp(m, performance.now());
-      imps.push(m);
-    }
-    const setFrame = (m: Imp, f: ImpFrame) => {
-      const mat = m.s.material as THREE.SpriteMaterial;
-      if (mat.map !== frames.tex(f)) {
-        mat.map = frames.tex(f);
-        mat.needsUpdate = true;
-      }
-    };
+    part(new THREE.BoxGeometry(0.12, 0.14, 0.42), red, 0, 0, 0);
+    part(new THREE.CylinderGeometry(0.035, 0.04, 0.5, 12), steel, 0, 0.03, -0.38, Math.PI / 2);
+    part(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 12), steel, 0, 0.03, -0.62, Math.PI / 2);
+    part(new THREE.BoxGeometry(0.08, 0.18, 0.1), steel, 0, -0.13, 0.08, -0.3);
+    part(new THREE.BoxGeometry(0.02, 0.03, 0.06), glow, 0, 0.09, -0.05);
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false }));
+    flash.scale.set(0.35, 0.35, 0.35);
+    flash.position.set(0, 0.03, -0.72);
+    flash.visible = false;
+    gun.add(flash);
+    const gunRest = new THREE.Vector3(0.2, -0.24, -0.55);
+    gun.scale.setScalar(0.7);
+    gun.position.copy(gunRest);
+    camera.add(gun);
 
-    // ── Fireballs and medkits ──
-    const fireTex = fireballTexture();
+    // ── Game state (filled in once assets load) ──
+    const walls: THREE.Mesh[] = [];
+    let start = centre([1, 1], 1.6);
+    type Mob = { m: Monster; hp: number; state: 'chase' | 'wander' | 'attack' | 'hit' | 'dying' | 'dead'; since: number; next: number; dir: THREE.Vector3; horde: boolean };
+    const mobs: Mob[] = [];
     const fireballs: { s: THREE.Sprite; v: THREE.Vector3 }[] = [];
-    const medTex = medkitTexture();
-    const medkits = MEDKITS.map((cell) => {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: medTex, transparent: true }));
-      s.scale.set(0.9, 0.9, 0.9);
-      s.position.copy(centre(cell, 0.45));
-      scene.add(s);
-      return { s, back: 0 };
-    });
-
-    // ── Skull swarm (horde hall only) ──
-    const skullTex = skullFrames();
-    const hallCells = freeCells().filter(([, z]) => z >= HALL_Z + 6);
-    const skulls: { s: THREE.Sprite; alive: boolean; speed: number }[] = [];
-    for (let i = 0; i < SKULLS; i++) {
-      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: skullTex[0], transparent: true }));
-      s.scale.set(1.1, 1.1, 1.1);
-      s.visible = false;
-      scene.add(s);
-      skulls.push({ s, alive: false, speed: 3 + Math.random() * 2.5 });
-    }
-    const spawnSkull = (k: (typeof skulls)[number]) => {
-      const cell = hallCells[Math.floor(Math.random() * hallCells.length)];
-      k.s.position.copy(centre(cell, 1 + Math.random() * 1.6));
-      k.s.position.x += (Math.random() - 0.5) * SIZE * 0.6;
-      k.alive = true;
-      k.s.visible = true;
-    };
-
-    // ── Player ──
+    const sparks: { p: THREE.Points; born: number }[] = [];
+    const medkits: { mesh: THREE.Mesh; back: number }[] = [];
+    let slimeTex: THREE.CanvasTexture | null = null;
     let health = 100;
     let deadUntil = 0;
     let sfx: Sfx | null = null;
+    let ready = false;
+    const fireTex = fireballTexture();
+
+    // Token badge floating over each monster.
+    const badgeCanvas = document.createElement('canvas');
+    badgeCanvas.width = badgeCanvas.height = 64;
+    const badgeTex = new THREE.CanvasTexture(badgeCanvas);
+    badgeTex.colorSpace = THREE.SRGBColorSpace;
+    const paintBadge = (img: HTMLImageElement | null) => {
+      const c = badgeCanvas.getContext('2d')!;
+      c.clearRect(0, 0, 64, 64);
+      c.fillStyle = '#ff5a48';
+      c.beginPath();
+      c.arc(32, 32, 30, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = '#0a0404';
+      c.beginPath();
+      c.arc(32, 32, 26, 0, Math.PI * 2);
+      c.fill();
+      if (img) c.drawImage(img, 12, 12, 40, 40);
+      badgeTex.needsUpdate = true;
+    };
+    paintBadge(null);
+    let badgeSrc: string | null = null;
+
+    const cellsMaze = freeCells((_, z) => z < HALL_Z);
+    const cellsHall = freeCells((_, z) => z >= HALL_Z + 6);
+    const spawn = (mob: Mob, now: number) => {
+      const pool = mob.horde ? cellsHall : cellsMaze;
+      let cell: [number, number];
+      let tries = 0;
+      do cell = pool[Math.floor(Math.random() * pool.length)];
+      while (++tries < 50 && centre(cell, 0).distanceTo(new THREE.Vector3(camera.position.x, 0, camera.position.z)) < SIZE * 3.5);
+      mob.m.root.position.copy(centre(cell, 0));
+      mob.m.root.visible = true;
+      mob.hp = STATS[mob.m.kind].hp;
+      mob.state = 'wander';
+      mob.since = now;
+      mob.next = now + 1500 + Math.random() * 1500;
+      mob.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+      mob.m.play(mob.m.kind === 'mage' ? 'Walking_A' : 'Walking_D_Skeletons');
+    };
+
     const damage = (n: number, now: number) => {
       if (deadUntil) return;
       health = Math.max(0, health - n);
@@ -274,21 +242,163 @@ export function Arena() {
       setHurt(true);
       setTimeout(() => setHurt(false), 120);
       if (health <= 0) {
-        deadUntil = now + 1800;
+        deadUntil = now + 2000;
         sfx?.dead();
         setDead(true);
       }
       setHud((h) => ({ ...h, health }));
     };
 
-    // ── Tracers ──
-    const tracers: { line: THREE.Line; born: number }[] = [];
-    const tracerMat = new THREE.LineBasicMaterial({ color: '#ffd0c0' });
+    const sparkAt = (p: THREE.Vector3, color: string) => {
+      const n = 14;
+      const pos = new Float32Array(n * 3);
+      const vel: THREE.Vector3[] = [];
+      for (let i = 0; i < n; i++) {
+        pos.set([p.x, p.y, p.z], i * 3);
+        vel.push(new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(4));
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.userData.vel = vel;
+      const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: new THREE.Color(color).multiplyScalar(3), size: 0.07, toneMapped: false, transparent: true }));
+      scene.add(pts);
+      sparks.push({ p: pts, born: performance.now() });
+    };
+
+    // ── Load assets, then build the level ──
+    loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p)))
+      .then((a) => {
+        if (disposed) return;
+        const zoneMats = [a.material('castle_brick_07', [1, 0.9]), a.material('metal_plate', [1, 0.9]), a.material('rough_block_wall', [1, 0.9]), a.material('rusty_metal_02', [1, 0.9])];
+        const trim = a.material('painted_metal_shutter', [1, 0.9]);
+        const hallMat = a.material('corrugated_iron_02', [1, 0.9]);
+        const wallGeo = new THREE.BoxGeometry(SIZE, WALL_H, SIZE);
+        MAP.forEach((row, z) =>
+          [...row].forEach((c, x) => {
+            if (c === 'S') start = centre([x, z], 1.6);
+            if (c !== '1') return;
+            const mat = z >= HALL_Z ? hallMat : (x * 7 + z * 3) % 6 === 0 ? trim : zoneMats[(x < 8 ? 0 : 1) + (z < 8 ? 0 : 2)];
+            const m = new THREE.Mesh(wallGeo, mat);
+            m.position.copy(centre([x, z], WALL_H / 2));
+            scene.add(m);
+            walls.push(m);
+          }),
+        );
+        const spanX = COLS * SIZE;
+        const spanZ = MAP.length * SIZE;
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), a.material('concrete_floor_worn_001', [COLS, MAP.length]));
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.set(spanX / 2, 0, spanZ / 2);
+        scene.add(floor);
+        const ceil = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), a.material('metal_grate_rusty', [COLS, MAP.length]));
+        ceil.rotation.x = Math.PI / 2;
+        ceil.position.set(spanX / 2, WALL_H, spanZ / 2);
+        scene.add(ceil);
+
+        // Glowing slime (burns), lamps, red hall lights.
+        const sc = document.createElement('canvas');
+        sc.width = sc.height = 128;
+        const sx = sc.getContext('2d')!;
+        sx.fillStyle = '#1e8a10';
+        sx.fillRect(0, 0, 128, 128);
+        for (let i = 0; i < 160; i++) {
+          sx.fillStyle = ['#5adc2a', '#2aa012', '#9aff5a'][i % 3];
+          sx.beginPath();
+          sx.arc(Math.random() * 128, Math.random() * 128, 2 + Math.random() * 6, 0, Math.PI * 2);
+          sx.fill();
+        }
+        slimeTex = new THREE.CanvasTexture(sc);
+        slimeTex.wrapS = slimeTex.wrapT = THREE.RepeatWrapping;
+        slimeTex.colorSpace = THREE.SRGBColorSpace;
+        const slimeMat = new THREE.MeshBasicMaterial({ map: slimeTex, color: new THREE.Color(1.6, 2.2, 1.2), toneMapped: false });
+        for (const cell of SLIME) {
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(SIZE * 0.9, SIZE * 0.9), slimeMat);
+          m.rotation.x = -Math.PI / 2;
+          m.position.copy(centre(cell, 0.02));
+          scene.add(m);
+          const l = new THREE.PointLight('#5aff3a', 8, 6, 1.8);
+          l.position.copy(centre(cell, 0.6));
+          scene.add(l);
+        }
+        const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.4, 1.2), toneMapped: false });
+        for (const cell of LAMPS) {
+          const lamp = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.5), lampMat);
+          lamp.position.copy(centre(cell, WALL_H - 0.06));
+          scene.add(lamp);
+          const l = new THREE.PointLight('#ffd27a', 35, 16, 1.6);
+          l.position.copy(centre(cell, WALL_H - 0.5));
+          scene.add(l);
+        }
+        for (const cell of [
+          [4, 19],
+          [11, 19],
+          [7, 25],
+        ] as [number, number][]) {
+          const l = new THREE.PointLight('#ff3a1a', 45, 22, 1.4);
+          l.position.copy(centre(cell, WALL_H - 0.6));
+          scene.add(l);
+        }
+
+        // Medkits: white boxes with a red cross.
+        const mc = document.createElement('canvas');
+        mc.width = mc.height = 64;
+        const mx = mc.getContext('2d')!;
+        mx.fillStyle = '#eeeeee';
+        mx.fillRect(0, 0, 64, 64);
+        mx.fillStyle = '#d01818';
+        mx.fillRect(26, 10, 12, 44);
+        mx.fillRect(10, 26, 44, 12);
+        const medTex = new THREE.CanvasTexture(mc);
+        medTex.colorSpace = THREE.SRGBColorSpace;
+        const medMat = new THREE.MeshStandardMaterial({ map: medTex, roughness: 0.4 });
+        for (const cell of MEDKITS) {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.35, 0.45), medMat);
+          m.position.copy(centre(cell, 0.3));
+          scene.add(m);
+          medkits.push({ mesh: m, back: 0 });
+        }
+
+        // Monsters: warriors, rogues and mages in the maze; minions in the horde hall.
+        const now = performance.now();
+        const make = (kind: MonsterKind, horde: boolean) => {
+          const m = new Monster(kind, a.models[kind]);
+          const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: badgeTex, transparent: true }));
+          badge.scale.set(0.45, 0.45, 0.45);
+          badge.position.y = 2.55;
+          m.root.add(badge);
+          scene.add(m.root);
+          const mob: Mob = { m, hp: 1, state: 'wander', since: now, next: 0, dir: new THREE.Vector3(), horde };
+          if (horde) m.root.visible = false;
+          else spawn(mob, now);
+          mobs.push(mob);
+        };
+        (['warrior', 'rogue', 'mage', 'warrior', 'mage', 'rogue', 'warrior'] as MonsterKind[]).slice(0, phone ? 5 : 7).forEach((k) => make(k, false));
+        for (let i = 0; i < (phone ? 12 : 24); i++) make('minion', true);
+
+        camera.position.copy(start);
+        // ?showcase: line up a warrior, rogue and mage in the first corridor, facing you (screenshots).
+        if (new URLSearchParams(window.location.search).has('showcase')) {
+          mobs
+            .filter((m) => !m.horde)
+            .slice(0, 3)
+            .forEach((mob, i) => {
+              mob.m.root.position.copy(centre([3 + i, 1], 0)).add(new THREE.Vector3(0, 0, (i - 1) * 0.9));
+              mob.m.root.rotation.y = -Math.PI / 2;
+              mob.state = 'attack';
+              mob.since = now + 1e9; // hold the pose
+              mob.m.play(i === 2 ? 'Spellcasting' : 'Idle_Combat');
+            });
+        }
+        ready = true;
+        setLoading(1);
+      })
+      .catch((e) => !disposed && setLoadError(e instanceof Error ? e.message : String(e)));
 
     // ── Input ──
     const keys = new Set<string>();
     let yaw = -Math.PI / 2; // start looking along the first corridor (+x)
     let pitch = 0;
+    let trigger = false;
     const onKey = (e: KeyboardEvent) => {
       if (e.type === 'keydown') keys.add(e.code);
       else keys.delete(e.code);
@@ -296,22 +406,20 @@ export function Arena() {
     };
     const onMouse = (e: MouseEvent) => {
       if (document.pointerLockElement !== renderer.domElement) return;
-      yaw -= e.movementX * 0.0025;
-      pitch = Math.max(-1.2, Math.min(1.2, pitch - e.movementY * 0.0025));
+      yaw -= e.movementX * 0.0022;
+      pitch = Math.max(-1.2, Math.min(1.2, pitch - e.movementY * 0.0022));
     };
-    let trigger = false;
-    const onDown = () => {
-      trigger = true;
-      shoot();
-    };
+    const onDown = () => (trigger = true);
     const onUp = () => (trigger = false);
     let wasLocked = false;
     const onLock = () => {
       const locked = document.pointerLockElement === renderer.domElement;
-      if (wasLocked && !locked) setPlaying(false); // Esc pauses
+      if (wasLocked && !locked) {
+        setPlaying(false); // Esc pauses
+        trigger = false;
+      }
       wasLocked = locked;
     };
-    // Touch: left half = move stick, right half = look; FIRE is a DOM button (window event).
     const touch = {
       move: null as null | { id: number; x: number; y: number; dx: number; dy: number },
       look: null as null | { id: number; x: number; y: number },
@@ -344,23 +452,37 @@ export function Arena() {
         if (touch.look?.id === t.identifier) touch.look = null;
       }
     };
+    const onFireButton = (e: Event) => (trigger = (e as CustomEvent<boolean>).detail !== false);
+    const onEnter = () => {
+      // Play even if the browser refuses pointer lock (arrows aim, click on the arena fires).
+      setPlaying(true);
+      if (!sfx) sfx = makeSfx();
+      sfx?.resume();
+      try {
+        void Promise.resolve(renderer.domElement.requestPointerLock?.()).catch(() => undefined);
+      } catch {
+        /* refused */
+      }
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('arena:fire', onFireButton);
+    window.addEventListener('arena:enter', onEnter);
     document.addEventListener('mousemove', onMouse);
     document.addEventListener('pointerlockchange', onLock);
     renderer.domElement.addEventListener('mousedown', onDown);
-    window.addEventListener('mouseup', onUp);
     renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: true });
     renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
     renderer.domElement.addEventListener('touchend', onTouchEnd);
 
-    // ── Shooting: instant on screen, one real blast per shot in the background ──
+    // ── Shooting: instant on screen, real blasts in batches in the background ──
     const raycaster = new THREE.Raycaster();
     let n = 0;
     let heat = 0;
     let lastShot = 0;
-    let walkPhase = 0;
     let recoil = 0;
+    let walkPhase = 0;
     const queue: string[][] = [];
     let draining = false;
     const drain = async () => {
@@ -387,102 +509,78 @@ export function Arena() {
       setHud((h) => ({ ...h, heat }));
       draining = false;
     };
-    const shoot = () => {
-      const now = performance.now();
-      if (now - lastShot < AUTO_MS - 5 || deadUntil) return; // trigger rate
+    const shoot = (now: number) => {
+      if (!ready || now - lastShot < AUTO_MS || deadUntil) return;
       if (!live.current.armed || heat >= MAX_HEAT) return;
       lastShot = now;
       sfx?.shoot();
-      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-      const targets = imps.filter((m) => m.state === 'walk' || m.state === 'pain').map((m) => m.s);
-      const liveSkulls = skulls.filter((k) => k.alive).map((k) => k.s);
-      const first = raycaster.intersectObjects([...walls, ...targets, ...liveSkulls], false)[0];
-      const skull = first && skulls.find((k) => k.s === first.object);
-      const end = first ? first.point : camera.position.clone().add(raycaster.ray.direction.clone().multiplyScalar(40));
-      const from = camera.position.clone().add(new THREE.Vector3(0.3, -0.35, 0).applyEuler(camera.rotation));
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), tracerMat);
-      scene.add(line);
-      tracers.push({ line, born: now });
-      const imp = first && imps.find((m) => m.s === first.object);
+      raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * 0.02, (Math.random() - 0.5) * 0.02), camera);
+      const boxes = mobs.filter((m) => m.state !== 'dying' && m.state !== 'dead' && m.m.root.visible).map((m) => m.m.hitbox);
+      const first = raycaster.intersectObjects([...walls, ...boxes], false)[0];
+      const mob = first && mobs.find((m) => m.m.hitbox === first.object);
       let killed = false;
-      if (skull) {
-        skull.alive = false;
-        skull.s.visible = false;
-        killed = true;
+      if (first) sparkAt(first.point, mob ? '#c8ffd0' : '#ffb070');
+      if (mob) {
+        mob.hp--;
         sfx?.hit();
-      }
-      if (imp) {
-        imp.hp--;
-        sfx?.hit();
-        if (imp.hp <= 0) {
+        if (mob.hp <= 0) {
           killed = true;
-          imp.state = 'dying';
+          mob.state = 'dying';
+          mob.m.play(Math.random() < 0.5 ? 'Death_A' : 'Death_B', { once: true, fade: 0.08 });
           sfx?.die();
         } else {
-          imp.state = 'pain';
-          if (Math.random() < 0.5) sfx?.growl();
+          mob.state = 'hit';
+          mob.m.play(Math.random() < 0.5 ? 'Hit_A' : 'Hit_B', { once: true, fade: 0.05 });
         }
-        imp.since = now;
+        mob.since = now;
       }
-      queue.push(['arena', imp || skull ? (killed ? 'kill' : 'hit') : 'miss']);
+      queue.push(['arena', mob ? (killed ? 'kill' : 'hit') : 'miss']);
       heat = queue.length;
       setHud((h) => ({ ...h, shots: h.shots + 1, kills: h.kills + (killed ? 1 : 0), heat }));
-      setFlashing(true);
-      setTimeout(() => setFlashing(false), 60);
-      muzzle.intensity = 40;
+      flash.visible = true;
+      flash.material.rotation = Math.random() * Math.PI;
+      muzzleLight.intensity = 25;
       recoil = 1;
       void drain();
     };
-    const onFireButton = (e: Event) => (trigger = (e as CustomEvent<boolean>).detail !== false);
-    window.addEventListener('arena:fire', onFireButton);
-    const onEnter = () => {
-      // Play even if the browser refuses pointer lock (arrows aim, click on the arena fires).
-      setPlaying(true);
-      if (!sfx) sfx = makeSfx();
-      sfx?.resume();
-      try {
-        void Promise.resolve(renderer.domElement.requestPointerLock?.()).catch(() => undefined);
-      } catch {
-        /* refused */
-      }
-    };
-    window.addEventListener('arena:enter', onEnter);
 
-    // ── Line of sight from an imp to the player (walls only) ──
+    // ── Line of sight to the player (walls only) ──
     const sight = new THREE.Raycaster();
-    const canSee = (from: THREE.Vector3) => {
-      const to = camera.position.clone().sub(from);
+    const canSee = (from: THREE.Vector3, range: number) => {
+      const eye = from.clone().setY(1.5);
+      const to = camera.position.clone().sub(eye);
       const dist = to.length();
-      if (dist > 18) return false;
-      sight.set(from, to.normalize());
+      if (dist > range) return false;
+      sight.set(eye, to.normalize());
       sight.far = dist;
       return sight.intersectObjects(walls, false).length === 0;
     };
 
     // ── Loop ──
-    const clock = new THREE.Clock();
+    const timer = new THREE.Timer();
     let raf = 0;
-    const tick = () => {
-      const dt = Math.min(0.05, clock.getDelta());
+    const tick = (t?: number) => {
+      timer.update(t);
+      const dt = Math.min(0.05, timer.getDelta());
       const now = performance.now();
       const w = el.clientWidth;
       const h = el.clientHeight;
-      if (renderer.domElement.width !== Math.floor(w * 0.4) || renderer.domElement.height !== Math.floor(h * 0.4)) {
+      const size = renderer.getSize(new THREE.Vector2());
+      if (size.x !== w || size.y !== h) {
         renderer.setSize(w, h, false);
+        composer.setSize(w, h);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
       }
-      // Token on the imps' chests.
-      if (live.current.icon !== faceSrc) {
-        faceSrc = live.current.icon;
-        if (faceSrc) {
+      if (live.current.icon !== badgeSrc) {
+        badgeSrc = live.current.icon;
+        if (badgeSrc) {
           const img = new Image();
           img.crossOrigin = 'anonymous';
-          img.onload = () => frames.paint(img);
-          img.src = faceSrc;
-        } else frames.paint(null);
+          img.onload = () => paintBadge(img);
+          img.src = badgeSrc;
+        } else paintBadge(null);
       }
-      // Respawn after death.
       if (deadUntil && now > deadUntil) {
         deadUntil = 0;
         health = 100;
@@ -491,13 +589,14 @@ export function Arena() {
         setDead(false);
         setHud((s) => ({ ...s, health }));
       }
+
       // Move with wall sliding.
       camera.rotation.set(pitch, yaw, 0, 'YXZ');
       const f = deadUntil ? 0 : (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (touch.move?.dy ?? 0);
       const s = deadUntil ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touch.move?.dx ?? 0);
       if (keys.has('ArrowLeft')) yaw += 2.2 * dt;
       if (keys.has('ArrowRight')) yaw -= 2.2 * dt;
-      const speed = 6 * dt;
+      const speed = (keys.has('ShiftLeft') ? 9 : 6.5) * dt;
       const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       const step = fwd.multiplyScalar(f * speed).add(right.multiplyScalar(s * speed));
@@ -506,127 +605,166 @@ export function Arena() {
       const nz = camera.position.z + step.z;
       if (!isWall(nx + Math.sign(step.x) * pad, camera.position.z)) camera.position.x = nx;
       if (!isWall(camera.position.x, nz + Math.sign(step.z) * pad)) camera.position.z = nz;
-      walkPhase += f || s ? dt * 10 : 0;
-      camera.position.y = deadUntil ? 0.4 : 1.6 + (f || s ? Math.sin(walkPhase) * 0.05 : 0);
-      torch.position.copy(camera.position);
-      muzzle.position.copy(camera.position);
-      muzzle.intensity = Math.max(0, muzzle.intensity - dt * 400);
-      recoil = Math.max(0, recoil - dt * 6);
-      if (weapon.current) {
-        const bx = f || s ? Math.cos(walkPhase / 2) * 10 : 0;
-        const by = (f || s ? Math.abs(Math.sin(walkPhase / 2)) * 8 : 0) + recoil * 26 + (deadUntil ? 200 : 0);
-        weapon.current.style.transform = `translate(calc(-50% + ${bx}px), ${by}px)`;
-      }
-      // Slime burns.
-      const here: [number, number] = [Math.floor(camera.position.x / SIZE), Math.floor(camera.position.z / SIZE)];
-      if (SLIME.some(([x, z]) => x === here[0] && z === here[1]) && Math.random() < dt * 2) damage(5, now);
-      slimeTex.offset.x = (now / 4000) % 1;
-      // Medkits.
-      for (const m of medkits) {
-        if (m.back && now > m.back) {
-          m.back = 0;
-          m.s.visible = true;
-        }
-        m.s.position.y = 0.45 + Math.sin(now / 400) * 0.08;
-        if (m.s.visible && health < 100 && m.s.position.distanceTo(new THREE.Vector3(camera.position.x, 0.45, camera.position.z)) < 1.2) {
-          health = Math.min(100, health + 25);
-          m.s.visible = false;
-          m.back = now + 20000;
-          sfx?.pickup();
-          setHud((x) => ({ ...x, health }));
-        }
-      }
-      // Imps: wander, chase when they see you, throw fireballs; pain and death animate.
-      for (const m of imps) {
-        const p = m.s.position;
-        const age = now - m.since;
-        if (m.state === 'dying') {
-          setFrame(m, age < 150 ? 'die0' : age < 300 ? 'die1' : 'die2');
-          if (age > 300) m.state = 'dead';
-          continue;
-        }
-        if (m.state === 'dead') {
-          if (age > 5000) placeImp(m, now);
-          continue;
-        }
-        if (m.state === 'pain' && age > 200) m.state = 'walk';
-        setFrame(m, m.state === 'pain' ? 'pain' : Math.floor(now / 220) % 2 ? 'walk1' : 'walk0');
-        if (m.state === 'pain') continue;
-        const sees = !deadUntil && canSee(p);
-        if (sees) {
-          m.dir.set(camera.position.x - p.x, 0, camera.position.z - p.z).normalize();
-          if (now > m.nextShot) {
-            m.nextShot = now + 2200 + Math.random() * 1600;
-            const fb = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, transparent: true }));
-            fb.scale.set(0.7, 0.7, 0.7);
-            fb.position.copy(p).add(new THREE.Vector3(0, 0.2, 0));
-            scene.add(fb);
-            fireballs.push({ s: fb, v: camera.position.clone().sub(fb.position).normalize().multiplyScalar(9) });
-            sfx?.fireball();
+      const moving = Boolean(f || s);
+      walkPhase += moving ? dt * 10 : 0;
+      camera.position.y = deadUntil ? 0.4 : 1.6 + (moving ? Math.sin(walkPhase) * 0.04 : 0);
+      torch.position.copy(camera.position).add(new THREE.Vector3(-Math.sin(yaw) * 1.2, 0.8, -Math.cos(yaw) * 1.2));
+      muzzleLight.position.copy(torch.position);
+      muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 300);
+      if (muzzleLight.intensity < 5) flash.visible = false;
+      recoil = Math.max(0, recoil - dt * 9);
+      gun.position.set(
+        gunRest.x + (moving ? Math.cos(walkPhase / 2) * 0.012 : 0),
+        gunRest.y + (moving ? Math.abs(Math.sin(walkPhase / 2)) * 0.012 : 0) - (deadUntil ? 1 : 0),
+        gunRest.z + recoil * 0.06,
+      );
+      gun.rotation.x = recoil * 0.12;
+
+      if (trigger) shoot(now);
+
+      if (ready) {
+        // Slime burns.
+        const here: [number, number] = [Math.floor(camera.position.x / SIZE), Math.floor(camera.position.z / SIZE)];
+        if (SLIME.some(([x, z]) => x === here[0] && z === here[1]) && Math.random() < dt * 2) damage(5, now);
+        if (slimeTex) slimeTex.offset.set((now / 6000) % 1, (now / 9000) % 1);
+        // Medkits.
+        for (const m of medkits) {
+          if (m.back && now > m.back) {
+            m.back = 0;
+            m.mesh.visible = true;
+          }
+          m.mesh.rotation.y += dt;
+          if (m.mesh.visible && health < 100 && m.mesh.position.distanceTo(new THREE.Vector3(camera.position.x, 0.3, camera.position.z)) < 1.2) {
+            health = Math.min(100, health + 25);
+            m.mesh.visible = false;
+            m.back = now + 20000;
+            sfx?.pickup();
+            setHud((x) => ({ ...x, health }));
           }
         }
-        const sp = (sees ? 1.8 : 1.3) * dt;
-        const nxt = p.clone().addScaledVector(m.dir, sp);
-        if (isWall(nxt.x + m.dir.x * 0.9, nxt.z + m.dir.z * 0.9)) m.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
-        else if (!sees || p.distanceTo(camera.position) > 3) p.copy(nxt);
-        p.y = 1.25;
+
+        // Monsters.
+        const inHall = camera.position.z / SIZE >= HALL_Z;
+        for (const mob of mobs) {
+          const { m } = mob;
+          m.mixer.update(dt);
+          const p = m.root.position;
+          const st = STATS[m.kind];
+          const age = now - mob.since;
+          if (mob.state === 'dead') {
+            if (mob.horde ? inHall && Math.random() < dt * 1.2 : age > 6000) spawn(mob, now);
+            continue;
+          }
+          if (mob.state === 'dying') {
+            if (age > 2500) {
+              mob.state = 'dead';
+              mob.since = now;
+              m.root.visible = false;
+            }
+            continue;
+          }
+          if (mob.horde && !m.root.visible) {
+            mob.state = 'dead';
+            continue;
+          }
+          if (mob.state === 'hit' && age < 350) continue;
+          if (mob.state === 'attack' && age < 900) continue;
+          const dist = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
+          const sees = !deadUntil && (mob.horde ? inHall : canSee(p, 20));
+          if (sees) {
+            mob.dir.set(camera.position.x - p.x, 0, camera.position.z - p.z).normalize();
+            m.root.rotation.y = Math.atan2(mob.dir.x, mob.dir.z);
+            const inRange = st.ranged ? dist < 16 : dist < 1.9;
+            if (inRange && now > mob.next) {
+              mob.state = 'attack';
+              mob.since = now;
+              mob.next = now + (st.ranged ? 2600 : 1300) + Math.random() * 600;
+              m.play(st.attack, { once: true, fade: 0.08, speed: 1.3 });
+              if (st.ranged) {
+                setTimeout(() => {
+                  if (mob.state === 'dying' || mob.state === 'dead' || disposed) return;
+                  const fb = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireTex, color: new THREE.Color(3, 1.4, 0.5), toneMapped: false, transparent: true, depthWrite: false }));
+                  fb.scale.set(0.6, 0.6, 0.6);
+                  fb.position.copy(p).add(new THREE.Vector3(0, 1.5, 0)).addScaledVector(mob.dir, 0.6);
+                  scene.add(fb);
+                  fireballs.push({ s: fb, v: camera.position.clone().sub(fb.position).normalize().multiplyScalar(10) });
+                  sfx?.fireball();
+                }, 450);
+              } else
+                setTimeout(() => {
+                  if (mob.state !== 'attack' || disposed) return;
+                  if (Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < 2.2) damage(st.damage, performance.now());
+                }, 420);
+              continue;
+            }
+            if (mob.state !== 'chase') {
+              mob.state = 'chase';
+              m.play(st.run);
+            }
+            if (!st.ranged || dist > 8) {
+              const nxt = p.clone().addScaledVector(mob.dir, st.speed * dt);
+              if (dist > 1.4 && !isWall(nxt.x + mob.dir.x * 0.5, nxt.z + mob.dir.z * 0.5)) p.copy(nxt);
+            } else m.play('Idle_Combat');
+          } else {
+            if (mob.state !== 'wander') {
+              mob.state = 'wander';
+              m.play(m.kind === 'mage' ? 'Walking_A' : 'Walking_D_Skeletons');
+            }
+            const nxt = p.clone().addScaledVector(mob.dir, 1.2 * dt);
+            if (isWall(nxt.x + mob.dir.x * 0.8, nxt.z + mob.dir.z * 0.8)) mob.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
+            else p.copy(nxt);
+            m.root.rotation.y = Math.atan2(mob.dir.x, mob.dir.z);
+          }
+        }
+
+        for (let i = fireballs.length - 1; i >= 0; i--) {
+          const fb = fireballs[i];
+          fb.s.position.addScaledVector(fb.v, dt);
+          fb.s.material.rotation += dt * 8;
+          const hitPlayer = fb.s.position.distanceTo(camera.position) < 0.8;
+          if (hitPlayer) damage(STATS.mage.damage, now);
+          if (hitPlayer || isWall(fb.s.position.x, fb.s.position.z) || fb.s.position.y < 0) {
+            if (!hitPlayer) sparkAt(fb.s.position, '#ff8030');
+            scene.remove(fb.s);
+            fb.s.material.dispose();
+            fireballs.splice(i, 1);
+          }
+        }
       }
-      if (trigger) shoot();
-      // Skulls swarm while you are in the hall.
-      const inHall = camera.position.z / SIZE >= HALL_Z;
-      for (const k of skulls) {
-        if (!k.alive) {
-          if (inHall && !deadUntil && Math.random() < dt * 1.5) spawnSkull(k);
-          continue;
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const sp = sparks[i];
+        const age = (now - sp.born) / 1000;
+        const pos = sp.p.geometry.getAttribute('position') as THREE.BufferAttribute;
+        const vel = sp.p.geometry.userData.vel as THREE.Vector3[];
+        for (let k = 0; k < vel.length; k++) {
+          vel[k].y -= 9 * dt;
+          pos.setXYZ(k, pos.getX(k) + vel[k].x * dt, pos.getY(k) + vel[k].y * dt, pos.getZ(k) + vel[k].z * dt);
         }
-        const to = camera.position.clone().sub(k.s.position);
-        const d = to.length();
-        k.s.position.addScaledVector(to.normalize(), k.speed * dt);
-        k.s.position.y += Math.sin(now / 200 + k.speed) * 0.02;
-        (k.s.material as THREE.SpriteMaterial).map = skullTex[Math.floor(now / 120) % 2];
-        if (d < 0.9) {
-          damage(3, now);
-          k.alive = false;
-          k.s.visible = false;
-        }
-        if (!inHall && d > 30) {
-          k.alive = false;
-          k.s.visible = false;
+        pos.needsUpdate = true;
+        (sp.p.material as THREE.PointsMaterial).opacity = Math.max(0, 1 - age * 3);
+        if (age > 0.35) {
+          scene.remove(sp.p);
+          sp.p.geometry.dispose();
+          (sp.p.material as THREE.Material).dispose();
+          sparks.splice(i, 1);
         }
       }
-      for (let i = fireballs.length - 1; i >= 0; i--) {
-        const fb = fireballs[i];
-        fb.s.position.addScaledVector(fb.v, dt);
-        fb.s.material.rotation += dt * 8;
-        const hitPlayer = fb.s.position.distanceTo(camera.position) < 0.8;
-        if (hitPlayer) damage(12, now);
-        if (hitPlayer || isWall(fb.s.position.x, fb.s.position.z)) {
-          scene.remove(fb.s);
-          fb.s.material.dispose();
-          fireballs.splice(i, 1);
-        }
-      }
-      for (let i = tracers.length - 1; i >= 0; i--) {
-        if (now - tracers[i].born > 70) {
-          scene.remove(tracers[i].line);
-          tracers[i].line.geometry.dispose();
-          tracers.splice(i, 1);
-        }
-      }
-      renderer.render(scene, camera);
+      composer.render();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
 
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
-      window.removeEventListener('arena:fire', onFireButton);
       window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('arena:fire', onFireButton);
       window.removeEventListener('arena:enter', onEnter);
       document.removeEventListener('mousemove', onMouse);
       document.removeEventListener('pointerlockchange', onLock);
+      composer.dispose();
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
@@ -637,6 +775,7 @@ export function Arena() {
   // Drop the counter the moment you fire: queued shots will each burn about one blast fee.
   const ammoNow = Math.max(0, b.ammo - hud.heat * FEE_PER_SHOT);
   const shotsLeft = Math.floor(ammoNow / FEE_PER_SHOT);
+  const isReady = loading >= 1;
 
   const pickCustom = async () => {
     try {
@@ -667,11 +806,11 @@ export function Arena() {
 
       <div className={playing ? 'relative min-h-0 flex-1' : 'relative'}>
         <div ref={mount} className={`touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[62vh] min-h-72 w-full'}`} />
-        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-xl text-hot">+</div>
-        <div ref={weapon} className="pointer-events-none absolute bottom-0 left-1/2" style={{ transform: 'translate(-50%, 0)' }}>
-          <WeaponSprite flash={flashing} />
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2">
+          <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-hot/80" />
+          <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-hot/80" />
         </div>
-        {hurt && <div className="pointer-events-none absolute inset-0 bg-red-600/35" />}
+        {hurt && <div className="pointer-events-none absolute inset-0 bg-red-600/30" />}
         {dead && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-900/50">
             <span className="text-4xl font-bold text-hot">YOU DIED</span>
@@ -691,14 +830,24 @@ export function Arena() {
         )}
         {!playing && (
           <div
-            className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-3 bg-black/70 p-4 text-center"
-            onClick={(e) => e.target === e.currentTarget && window.dispatchEvent(new Event('arena:enter'))}
+            className={`absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 p-4 text-center ${isReady ? 'cursor-pointer' : ''}`}
+            onClick={(e) => isReady && e.target === e.currentTarget && window.dispatchEvent(new Event('arena:enter'))}
           >
             <p className="text-2xl font-bold text-hot">ARENA</p>
             <p className="max-w-md text-sm text-dim">
-              Imps wear your token and throw fire. Head south to the horde hall and hold the trigger. WASD / arrows move, mouse aims, hold click or space to fire, Esc pauses. Phone: left thumb
-              moves, right thumb aims. Every shot is a real blast.
+              Skeleton warriors, rogues and mages hunt you; the horde hall to the south never runs dry. WASD / arrows move, Shift runs,
+              mouse aims, hold click or space to fire, Esc pauses. Every shot is a real blast.
             </p>
+            {loadError ? (
+              <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
+            ) : !isReady ? (
+              <div className="w-64">
+                <div className="h-2 bg-input">
+                  <div className="h-full bg-fg transition-[width]" style={{ width: `${Math.round(loading * 100)}%` }} />
+                </div>
+                <p className="mt-1 text-xs text-dim">loading arena {Math.round(loading * 100)}%</p>
+              </div>
+            ) : null}
             <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">
               <span className="text-dim">BLAST:</span>
               {choices.map((t) => (
@@ -734,12 +883,12 @@ export function Arena() {
                 </button>
               </div>
             ) : null}
-            <p className="text-xs text-muted">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>
+            {isReady && <p className="text-xs text-muted">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>}
           </div>
         )}
       </div>
 
-      {/* DOOM status bar */}
+      {/* Status bar */}
       <div className={`grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6 ${playing ? 'p-2' : 'mt-2'}`}>
         <Cell label="HEALTH" value={`${hud.health}%`} />
         <Cell label="AMMO" value={shotsLeft.toLocaleString()} sub={`shots · ${ammoNow.toLocaleString()} sats`} />
@@ -748,7 +897,7 @@ export function Arena() {
         <Cell label="HEAT" value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} />
         <div className="inset flex items-center justify-center gap-2 px-2 py-1">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {icon ? <img src={icon} alt="" className="h-8 w-8 [image-rendering:pixelated]" /> : null}
+          {icon ? <img src={icon} alt="" className="h-8 w-8" /> : null}
           <span className="text-hot">${b.token?.sym ?? '…'}</span>
         </div>
       </div>
@@ -770,36 +919,6 @@ export function Arena() {
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
   );
-}
-
-/** Pixel-art blaster seen from behind, DOOM style. */
-function WeaponSprite({ flash }: { flash: boolean }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const c = ref.current?.getContext('2d');
-    if (!c) return;
-    c.clearRect(0, 0, 48, 40);
-    const px = (x: number, y: number, w: number, h: number, col: string) => {
-      c.fillStyle = col;
-      c.fillRect(x, y, w, h);
-    };
-    if (flash) {
-      px(19, 0, 10, 8, '#ffd0c0');
-      px(16, 3, 16, 3, '#ff9a85');
-      px(22, 0, 4, 11, '#ffffff');
-    }
-    px(20, 8, 8, 6, '#3a1010'); // muzzle
-    px(21, 9, 6, 4, '#0a0404');
-    px(18, 14, 12, 10, '#6a3632'); // barrel
-    px(19, 14, 2, 10, '#a05a52');
-    px(14, 22, 20, 10, '#4a1414'); // body
-    px(15, 22, 3, 10, '#8a2222');
-    px(22, 25, 4, 3, '#7dff9a'); // sight light
-    px(8, 30, 32, 10, '#2a0a0a'); // grip / hands
-    px(10, 30, 8, 10, '#5e2a20');
-    px(30, 30, 8, 10, '#5e2a20');
-  }, [flash]);
-  return <canvas ref={ref} width={48} height={40} className="w-[min(46vw,300px)] [image-rendering:pixelated]" />;
 }
 
 function Cell({ label, value, sub }: { label: string; value: string; sub?: string }) {
