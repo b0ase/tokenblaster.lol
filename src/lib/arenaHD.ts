@@ -22,6 +22,7 @@ export type MonsterDef = {
   ranged: boolean;
   damage: number;
   maze: number; // how many roam the maze
+  showcaseOnly?: boolean; // only appears with ?showcase (preview of a coming character)
   horde?: number; // how many swarm the horde hall
   anims: Partial<Record<Role, string>>;
 };
@@ -82,6 +83,19 @@ export const MONSTERS: MonsterDef[] = [
     damage: 8,
     maze: 2,
     anims: { idle: 'Armature|Armature|ArmatureAction', walk: 'Armature|Armature|ArmatureAction', run: 'Armature|Armature|subjectAction' },
+  },
+  {
+    // Ninja Punk Girls: first 3D test (Tripo image-to-3D + auto-rig). Player character, not yet playable.
+    id: 'miyuki',
+    url: '/arena/models/npg/miyuki.glb',
+    height: 1.9,
+    hp: 10,
+    speed: 3,
+    ranged: false,
+    damage: 10,
+    maze: 1,
+    showcaseOnly: true,
+    anims: { idle: 'hurt', walk: 'hurt', run: 'hurt' },
   },
   {
     id: 'minion',

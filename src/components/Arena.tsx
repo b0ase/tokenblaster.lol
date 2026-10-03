@@ -382,7 +382,9 @@ export function Arena() {
           else spawn(mob, now);
           mobs.push(mob);
         };
+        const showcase = new URLSearchParams(window.location.search).has('showcase');
         for (const def of MONSTERS) {
+          if (def.showcaseOnly && !showcase) continue;
           const inMaze = phone ? Math.ceil(def.maze / 2) : def.maze;
           for (let i = 0; i < inMaze; i++) make(def, false);
           const inHall = phone ? Math.floor((def.horde ?? 0) / 2) : (def.horde ?? 0);
@@ -403,7 +405,11 @@ export function Arena() {
           mobs
             .filter((m) => !m.horde && !seen.has(m.m.def.id) && seen.add(m.m.def.id))
             .forEach((mob, i) => {
-              const spot: [number, number, number][] = [[6, 1, 0], [3, 1, -0.9], [4, 1, 0.9], [3, 1, 0.9], [5, 1, -1]];
+              const spot: [number, number, number][] = mob.m.def.id === 'miyuki' ? [[2, 1, 0]] : [[6, 1, 0], [3, 1, -0.9], [4, 1, 0.9], [3, 1, 0.9], [5, 1, -1]];
+              if (mob.m.def.id === 'miyuki') {
+                i = 0;
+                mob.m.root.userData.frozen = true; // hold the opening idle pose for a clean preview
+              }
               const [cx, cz, off] = spot[i] ?? [5, 1, 0];
               mob.m.root.position.copy(centre([cx, cz], 0)).add(new THREE.Vector3(0, 0, off));
               mob.m.root.rotation.y = -Math.PI / 2;
@@ -719,7 +725,8 @@ export function Arena() {
         const inHall = camera.position.z / SIZE >= HALL_Z;
         for (const mob of mobs) {
           const { m } = mob;
-          m.mixer.update(dt);
+          if (m.root.userData.frozen) m.mixer.setTime(2.2);
+          else m.mixer.update(dt);
           const p = m.root.position;
           const lungeAt = m.body.userData.lunge as number | undefined;
           if (lungeAt && mob.state !== 'dying') m.body.position.z = now - lungeAt < 400 ? Math.sin(((now - lungeAt) / 400) * Math.PI) * 0.7 : 0;
