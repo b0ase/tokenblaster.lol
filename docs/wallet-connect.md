@@ -1,12 +1,13 @@
 # Wallet Connect: chooser, discovery and phone (QR) pairing
 
-Status: **draft v0.1**, 3 Oct 2026. Owner: b0ase. Applies to every b0ase site that talks to a
+Status: **draft v0.2**, 3 Oct 2026 (v0.2: code homes, bwallet.space domains, rdns ids, event collision). Owner: b0ase. Applies to every b0ase site that talks to a
 BRC-100 wallet (TokenBlaster, bMovies, bWalletX web, …) and to the wallets we ship (bWallet on
 iPhone/Android, the bWalletX extension, bWalletX web).
 
-Code homes once agreed: site side in `@b0ase/wallet`; phone side in `yours-mobile` (`mobile` branch,
-`src/mobile/`); extension side in `yours-mobile-ext` (`feat/bwallet-extension`); relay as a small
-service on Hetzner.
+Code homes once agreed: site side in `@b0ase/wallet`; phone app **and** bWalletX extension in
+`bitcoin-corp/bwallet` (`main`; phone code under `src/mobile/`, extension built by `pnpm build`); relay
+as a small service on Hetzner. `b0ase/yours-mobile` (`mobile`, tag `yours-mobile-v0.1`) is the frozen
+Yours-branded handoff and gets none of this.
 
 ---
 
@@ -16,13 +17,16 @@ A site that "connects a BRC-100 wallet" today grabs `window.CWI` and hopes. In p
 
 - **`window.CWI` holds one wallet.** The Yours extension and bWalletX (a Yours fork) both inject it.
   Whichever content script runs last wins, silently. The site can't tell which it got, and the
-  user can't choose.
+  user can't choose. Worse: both use `@1sat/wallet-browser`'s `createEventCWI`, which sends each call
+  as a page event with the same event names, so **both extensions' content scripts may answer one
+  request** (two approval windows). Untested; wallets must also use their own event names (§3.2).
 - **BSV MetaNet Desktop isn't on `window` at all.** It answers HTTP on `localhost:3321`. Sites that
   probe it as a fallback (bMovies' `connectWallet()`) can end up on a different wallet than the
   user meant, and the probe hangs inside phone webviews.
 - **A phone wallet isn't reachable from a desktop browser at all.**
-- **Forks look the same as the original.** bWalletX still reports Yours' name and version, so
-  even `getVersion()` can't tell them apart.
+- **Forks look the same as the original.** bWalletX reported Yours' version
+  (`yours-wallet-5.1.0`, hard-coded in `src/background.ts`), so even `getVersion()` couldn't tell
+  them apart.
 
 The user may have all of these at once. **The site must never pick a wallet for the user.** It
 shows what is available, including the phone, and remembers what the user picked.
@@ -51,7 +55,8 @@ Rules:
    browser, show "Open in bWallet" (deep link) instead of the QR.
 2. **List every wallet discovered (§3)**, each with its own name and icon. Never merge entries.
 3. **Inside bWallet's in-app browser there is exactly one wallet.** Skip the chooser and use it
-   (detected by the `bWallet/` user agent plus the announced in-app wallet).
+   (detected by the announced in-app wallet, `kind: 'in-app'`; a `bWallet/` user-agent marker is a
+   hint only. Note: the frozen Yours branch adds `YoursWalletMobile/1`, current bWallet adds none yet).
 4. **Remember the choice per site** (`localStorage`: wallet `rdns`, or the phone pairing). On the
    next visit, reconnect to that wallet without the chooser. If it's gone, show the chooser with a
    note: "bWalletX isn't available any more".
@@ -78,7 +83,7 @@ window.dispatchEvent(new CustomEvent('brc100:announceWallet', {
       uuid: '<random per page load>',          // dedupe key for this page view
       name: 'bWalletX',                        // human name, never another wallet's
       icon: 'data:image/svg+xml;base64,…',     // data URI, ≥ 96×96, square
-      rdns: 'app.bwallet.x',                   // stable reverse-DNS id: remembered per site
+      rdns: 'com.bwalletx.extension',                   // stable reverse-DNS id: remembered per site
       kind: 'extension',                       // 'extension' | 'in-app' | 'web'
     },
     wallet: walletInterface,                   // a BRC-100 WalletInterface
@@ -88,10 +93,13 @@ window.dispatchEvent(new CustomEvent('brc100:announceWallet', {
 
 ### 3.2 Wallet obligations (bWallet, bWalletX, and asked of others)
 
-- Announce as above with a **unique `rdns`**. Proposed ids: bWalletX extension `app.bwallet.x`,
-  bWallet in-app browser `app.bwallet.mobile`, bWalletX web `app.bwallet.web`.
-- **`getVersion()` returns your own name**, e.g. `bwalletx-1.0.0`, not `yours-wallet-…`. Rename the
-  extension (manifest `name`) to bWalletX.
+- Announce as above with a **unique `rdns`**: a reversed domain we own. Ids: bWalletX extension
+  `com.bwalletx.extension`, bWallet in-app browser `space.bwallet.mobile`, bWalletX web
+  `com.bwalletx.web`.
+- **`getVersion()` returns your own name**, e.g. `bwalletx-1.0.0`, not `yours-wallet-…`. (The
+  extension is already named bWalletX and opens in Chrome's side panel.)
+- **Use your own page-event names** for the `window.CWI` transport, so a request sent to one wallet
+  is never answered by another that shares the same library.
 - **Set `window.CWI` only if it's empty.** Never overwrite another wallet's injection. Keep
   setting it for old sites, but discovery is the real interface.
 - Every request reaches the wallet with the **page's real origin** (the content script's
@@ -115,7 +123,7 @@ name.
 
 - **Site:** shows the QR. After pairing it gets a `WalletInterface` whose calls travel over the
   relay. To the site's code this looks exactly like any other wallet in the chooser.
-- **Relay** (`wss://relay.bwallet.app`, name TBD): forwards encrypted frames between the two ends
+- **Relay** (`wss://relay.bwallet.space`): forwards encrypted frames between the two ends
   of a channel. It can't read or alter them, stores nothing on disk, and can be swapped out.
 - **Phone (bWallet):** scans, asks the user to confirm, then passes each request into the
   **existing** approval path, the same `chrome.runtime.sendMessage({ action, params, originator })`
@@ -143,7 +151,7 @@ Site                         Relay                           Phone (bWallet)
 A universal link, so the phone's own camera app opens bWallet (and it degrades to an install page):
 
 ```
-https://bwallet.app/pair?v=1&r=relay.bwallet.app&c=<channel b64url>&k=<S pubkey hex>&o=<site origin>&e=<expiry unix>
+https://bwallet.space/pair?v=1&r=relay.bwallet.space&c=<channel b64url>&k=<S pubkey hex>&o=<site origin>&e=<expiry unix>
 ```
 
 The custom scheme `bwallet://pair?…` (same parameters) is the fallback. `c` is 16 random bytes.
@@ -216,21 +224,22 @@ it. v2 option: the site also signs the QR fields with a key published at
 ## 5. Build order
 
 1. **Agree this spec** (both terminals).
-2. **Discovery (§3)** in `yours-mobile-ext` (bWalletX): announce, rename, `getVersion`, don't
-   overwrite `window.CWI`. Then in `yours-mobile` for the in-app browser. Small change, and it ends
-   the collisions on its own.
+2. **Discovery (§3)** in `bitcoin-corp/bwallet`: announce, own `getVersion`, own event names, don't
+   overwrite `window.CWI`, for both the bWalletX extension and the in-app browser. Small change, and
+   it ends the collisions on its own.
 3. **`@b0ase/wallet`:** chooser UI + discovery + MetaNet probe, used first by TokenBlaster (replaces
    `src/lib/wallet.ts`).
 4. **Relay** + the site side of pairing (§4) in `@b0ase/wallet`.
-5. **Phone side** in `yours-mobile`: camera scanning plugin (iOS/Android), confirm screen, bridge
+5. **Phone side** in `bitcoin-corp/bwallet`: camera scanning plugin (iOS/Android), confirm screen, bridge
    into the approval path, Paired sites screen. Store review needs the camera reason text added
    before the next build after iOS build 7.
 6. bMovies and bWalletX web switch to `@b0ase/wallet`.
 
 ## 6. Open questions
 
-- Domains: `bwallet.app` for universal links and the relay? (Universal links need
-  `apple-app-site-association` and `assetlinks.json` hosted there.)
+- ~~Domains~~ **Decided:** `bwallet.space` (we don't own `bwallet.app`). The store app's own domain,
+  so the App Store bWallet never links to the bwalletx.com exchange. Host `apple-app-site-association`
+  and `assetlinks.json` there for the `/pair` universal link.
 - Should bWalletX **web** also appear in the chooser? A web wallet can't inject into other sites,
   so it would pair like the phone (QR or popup window). Suggest v2.
 - Ask upstream Yours and MetaNet Desktop to adopt the announce event? It costs them a few lines and
