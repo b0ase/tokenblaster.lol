@@ -4,23 +4,36 @@ import { Leaderboard } from '@/components/Leaderboard';
 
 export default function Home() {
   return (
-    <main className="mx-auto flex max-w-4xl flex-col gap-8 px-4 py-10">
-      <header className="flex flex-col gap-2">
-        <h1 className="font-mono text-4xl font-bold text-[#ffd24d]">TokenBlaster.lol</h1>
-        <p className="text-[#a8a8b8]">Live BSV traffic, chain games, and token-blasting competitions.</p>
+    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-2.5">
+      <header className="panel">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="text-2xl font-bold text-hot">
+            TokenBlaster.lol<span className="blink">_</span>
+          </h1>
+          <span className="text-dim">live BSV traffic · chain games · token blasting</span>
+        </div>
       </header>
       <Highway />
       <Leaderboard />
       <nav className="grid gap-3 sm:grid-cols-2">
-        <Link href="/blast" className="rounded-xl border border-[#2a2a35] bg-[#14141c] p-5 hover:border-[#ffd24d]">
-          <div className="font-mono text-lg font-bold text-white">Blast →</div>
-          <div className="text-sm text-[#a8a8b8]">Fire your tokens at the chain. Most confirmed in a round wins.</div>
+        <Link href="/blast" className="panel group hover:border-fg">
+          <div className="panel-header">
+            <span className="panel-title group-hover:text-hot">&gt; Blast</span>
+            <span className="text-dim">[ENTER]</span>
+          </div>
+          <div className="text-dim">Fire your tokens at the chain. Most confirmed in a round wins.</div>
         </Link>
-        <div className="rounded-xl border border-[#2a2a35] bg-[#14141c] p-5 opacity-60">
-          <div className="font-mono text-lg font-bold text-white">Arcade</div>
-          <div className="text-sm text-[#a8a8b8]">Games played on live chain traffic. Coming soon.</div>
+        <div className="panel opacity-60">
+          <div className="panel-header">
+            <span className="panel-title">&gt; Arcade</span>
+            <span className="text-muted">[LOCKED]</span>
+          </div>
+          <div className="text-dim">Games played on live chain traffic. Coming soon.</div>
         </div>
       </nav>
+      <footer className="py-2 text-center text-xs text-muted">
+        free entry · bragging rights only · no prizes, no fees
+      </footer>
     </main>
   );
 }

@@ -25,9 +25,9 @@ export function Leaderboard() {
 
   const top = tokens?.[0]?.blasts ?? 0;
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-[#2a2a35] bg-[#14141c] p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-mono text-lg font-bold text-white">Most blasted tokens</h2>
+    <section className="panel">
+      <div className="panel-header">
+        <span className="panel-title">Most blasted tokens</span>
         <div className="flex gap-1">
           {PERIODS.map((p) => (
             <button
@@ -37,26 +37,30 @@ export function Leaderboard() {
                 setTokens(null);
                 setPeriod(p.id);
               }}
-              className={`rounded-lg px-2.5 py-1 text-xs ${period === p.id ? 'bg-[#ffd24d] text-black' : 'text-[#a8a8b8]'}`}
+              className={`btn text-xs ${period === p.id ? 'btn-on' : ''}`}
             >
               {p.label}
             </button>
           ))}
         </div>
       </div>
-      {tokens === null && <p className="text-sm text-[#a8a8b8]">Loading…</p>}
-      {tokens?.length === 0 && <p className="text-sm text-[#a8a8b8]">No blasts yet. Be first on the board.</p>}
-      <ol className="flex flex-col gap-2">
+      {tokens === null && (
+        <p className="text-dim">
+          Loading<span className="blink">…</span>
+        </p>
+      )}
+      {tokens?.length === 0 && <p className="text-dim">No blasts yet. Be first on the board.</p>}
+      <ol className="flex flex-col gap-1">
         {tokens?.map((t, n) => (
           <li key={t.tokenId} className="flex items-center gap-3">
-            <span className="w-6 text-right font-mono text-sm text-[#a8a8b8]">{n + 1}</span>
+            <span className="w-6 text-right text-dim">{n + 1}</span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {t.icon ? <img src={t.icon} alt="" className="h-8 w-8 rounded-full" /> : <span className="h-8 w-8 rounded-full bg-[#2a2a35]" />}
-            <div className="relative h-8 flex-1 overflow-hidden rounded-lg bg-[#0b0b10]">
-              <div className="h-full bg-[#ffd24d]/80" style={{ width: `${top ? (t.blasts / top) * 100 : 0}%` }} />
-              <span className="absolute inset-y-0 left-3 flex items-center font-mono text-sm font-bold text-white">${t.ticker}</span>
+            {t.icon ? <img src={t.icon} alt="" className="h-5 w-5 [image-rendering:pixelated]" /> : <span className="h-5 w-5 bg-muted" />}
+            <span className="w-28 overflow-hidden text-ellipsis whitespace-nowrap text-accent">${t.ticker}</span>
+            <span className="w-20 text-right text-hot">{t.blasts.toLocaleString()}</span>
+            <div className="h-4 flex-1 bg-input">
+              <div className="h-full bg-fg" style={{ width: `${top ? (t.blasts / top) * 100 : 0}%` }} />
             </div>
-            <span className="w-24 text-right font-mono text-sm text-white">{t.blasts.toLocaleString()}</span>
           </li>
         ))}
       </ol>

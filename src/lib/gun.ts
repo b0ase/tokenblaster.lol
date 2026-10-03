@@ -1,0 +1,106 @@
+/**
+ * The gun: a throwaway key that lives only in this browser tab (sessionStorage, so a reload
+ * mid-burst does not strand the coins). Loading funds it from bWallet in one approval; firing
+ * chains tagged blasts off it and broadcasts each to GorillaPool ARC; unloading sends what is
+ * left back to the player. Same transaction shape as blaster/blast.ts.
+ */
+import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
+
+const ARC_URL = 'https://arc.gorillapool.io';
+const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
+const STORE = 'tokenblaster.gun';
+export const TAG = 'tokenblaster.lol';
+
+const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
+
+type Saved = { wif: string; tx?: string; vout?: number };
+
+const read = (): Saved | null => {
+  try {
+    return JSON.parse(sessionStorage.getItem(STORE) ?? 'null');
+  } catch {
+    return null;
+  }
+};
+const write = (s: Saved) => {
+  try {
+    sessionStorage.setItem(STORE, JSON.stringify(s));
+  } catch {
+    /* storage blocked: the gun still works for this page view */
+  }
+};
+
+export class Gun {
+  private key: PrivateKey;
+  private coin: { tx: Transaction; vout: number } | null = null;
+  private arc = new ARC(ARC_URL);
+
+  constructor() {
+    const s = typeof window !== 'undefined' ? read() : null;
+    this.key = s ? PrivateKey.fromWif(s.wif) : PrivateKey.fromRandom();
+    if (s?.tx) this.coin = { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 };
+    this.save();
+  }
+
+  get address() {
+    return this.key.toAddress();
+  }
+
+  /** Sats loaded in the gun right now. */
+  get sats() {
+    return this.coin ? (this.coin.tx.outputs[this.coin.vout].satoshis ?? 0) : 0;
+  }
+
+  private save() {
+    write({ wif: this.key.toWif(), tx: this.coin?.tx.toHex(), vout: this.coin?.vout });
+  }
+
+  /** Take the funding transaction from bWallet as the gun's coin. */
+  load(funding: Transaction) {
+    const vout = funding.outputs.findIndex((o) => o.lockingScript.toHex() === new P2PKH().lock(this.address).toHex());
+    if (vout < 0) throw new Error('Funding transaction does not pay the gun.');
+    this.coin = { tx: Transaction.fromHex(funding.toHex()), vout };
+    this.save();
+  }
+
+  private async send(tx: Transaction) {
+    // The wallet may still be propagating the parent; retry briefly before giving up.
+    for (let attempt = 0; ; attempt++) {
+      const r = await tx.broadcast(this.arc);
+      if (r.status === 'success') return;
+      if (attempt >= 4) throw new Error(`ARC rejected ${tx.id('hex')}: ${'description' in r ? r.description : JSON.stringify(r)}`);
+      await new Promise((ok) => setTimeout(ok, 500 * (attempt + 1)));
+    }
+  }
+
+  /** Fire one blast for `token`. Returns its txid. */
+  async fire(token: string, n: number): Promise<string> {
+    if (!this.coin) throw new Error('The gun is empty. Load it first.');
+    const tx = new Transaction();
+    tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${hex(TAG)} ${hex(token)} ${hex(String(n))}`), satoshis: 0 });
+    tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+    await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+    await tx.sign();
+    if ((tx.outputs[1].satoshis ?? 0) < 1) throw new Error('Out of ammo.');
+    await this.send(tx);
+    // The next blast only needs this tx's outputs, so drop its ancestry.
+    this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 1 };
+    this.save();
+    return tx.id('hex');
+  }
+
+  /** Send everything left back to `address`. */
+  async unload(address: string): Promise<string | null> {
+    if (!this.coin || this.sats < 50) return null;
+    const tx = new Transaction();
+    tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+    tx.addOutput({ lockingScript: new P2PKH().lock(address), change: true });
+    await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+    await tx.sign();
+    await this.send(tx);
+    this.coin = null;
+    this.save();
+    return tx.id('hex');
+  }
+}

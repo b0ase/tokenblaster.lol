@@ -1,9 +1,10 @@
-/** Packs: how many blasts you buy, priced in dollars (paid in sats at the live rate). */
-export const PACKS = [1_000, 10_000, 100_000, 1_000_000] as const;
+/** Packs: how many blasts one load fires. The browser fires them one after another, so keep packs modest. */
+export const PACKS = [100, 1_000, 10_000] as const;
 
 /**
- * Sats charged per blast: the network fee (~23 sats for a 224-byte tagged tx at 100 sat/kB,
- * blaster/blast.ts) plus a margin for the pack server. Tune once real packs run.
+ * Sats loaded per blast: the network fee for a ~224-byte tagged tx at 100 sat/kB (~23 sats,
+ * src/lib/gun.ts) plus headroom. There is no margin for us: whatever is not burned in fees
+ * goes back to the player on Unload.
  */
 export const SATS_PER_BLAST = 30;
 

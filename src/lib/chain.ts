@@ -1,22 +1,14 @@
-/** Live BSV chain stats from WhatsOnChain (no key needed for these endpoints). */
-const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
+/** Chain tip from GorillaPool JungleBus (public REST, no key). */
+const TIP = 'https://junglebus.gorillapool.io/v1/block_header/tip';
 
-export type ChainStats = {
-  height: number;
-  mempoolTxs: number;
-  mempoolBytes: number;
-  at: string;
-};
+export type ChainStats = { height: number; hash: string; blockTime: number; at: string };
 
 export async function chainStats(): Promise<ChainStats> {
-  const [info, mempool] = await Promise.all([
-    fetch(`${WOC}/chain/info`, { cache: 'no-store' }).then((r) => r.json()),
-    fetch(`${WOC}/mempool/info`, { cache: 'no-store' }).then((r) => r.json()),
-  ]);
+  const tip = await fetch(TIP, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
   return {
-    height: Number(info.blocks) || 0,
-    mempoolTxs: Number(mempool.size) || 0,
-    mempoolBytes: Number(mempool.bytes) || 0,
+    height: Number(tip.height) || 0,
+    hash: String(tip.hash ?? ''),
+    blockTime: Number(tip.time) || 0,
     at: new Date().toISOString(),
   };
 }

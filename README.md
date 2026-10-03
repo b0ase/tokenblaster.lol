@@ -3,9 +3,12 @@
 Live BSV traffic, chain games, and token-blasting competitions. Part of the b0ase portfolio;
 competitions are meant to be joined from bWallet's chat rooms and Market.
 
-- `/`: the live "highway" (traffic density follows the mempool) and links
-- `/blast`: the Blast arena: how a round works, the scoreboard (empty until the referee exists)
-- `/api/chain`: live block height and mempool from WhatsOnChain
+- `/`: the live "highway": every car is a real transaction from a GorillaPool JungleBus subscription
+  (`NEXT_PUBLIC_JUNGLEBUS_SUBSCRIPTION_ID`, Output types `pubkeyhash`), laned by type
+- `/blast`: the gun app. Connect bWallet (BRC-100 `window.CWI`), pick a BSV-21 token (GorillaPool), load a
+  pack (one approval funds an in-tab gun key), fire: each blast is broadcast to GorillaPool ARC and
+  "landed" counts the ones seen back on the JungleBus feed. Unload returns leftover sats.
+- `/api/chain`: chain tip from GorillaPool JungleBus
 - `blaster/blast.ts`: the command-line blaster (`pnpm blast`), dry run unless `--broadcast`
 
 ```bash
@@ -24,7 +27,6 @@ BLASTER_WIF=<throwaway key> pnpm blast --token <your token id> --count 100
 
 1. Referee: count accepted transactions tagged `tokenblaster <round> <player>` per round (JungleBus / ARC callbacks).
 2. Rounds and live scoreboard, linked from a bWallet chat room.
-3. Real highway: decode live transactions by type (ordinals, locks, social…) instead of mempool density.
-4. Arcade games on live traffic.
+3. Arcade games on live traffic.
 
 No entry fees or prize pools: free entry, bragging rights (gambling rules and App Store).
