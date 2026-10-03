@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ModelViewer } from '@/components/ModelViewer';
+import { StackBuilder } from '@/components/StackBuilder';
 
 export const metadata = { title: 'Model viewer · TokenBlaster.lol' };
 
@@ -17,6 +18,7 @@ export default function ViewerPage() {
         </div>
         <p className="mt-1 text-dim">Inspect the arena&apos;s characters: orbit, zoom, play and scrub animations, walk them about.</p>
       </header>
+      <StackBuilder />
       <ModelViewer />
     </main>
   );
