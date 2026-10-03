@@ -5,7 +5,7 @@ import { FEED_EVENT, type FeedTx } from '@/lib/feed';
 import { Gun } from '@/lib/gun';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { BLASTER_ID, iconUrl, tokenById, tokensHeld, type Token } from '@/lib/tokens';
-import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
+import { discoverWallets, inFrame, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
 import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
 import { WalletChooser } from './WalletChooser';
 
@@ -51,7 +51,7 @@ export function GunApp() {
     g.balance()
       .then((b) => setAmmo((cur) => Math.max(cur, b)))
       .catch(() => setAmmo(g.sats));
-    void Promise.resolve().then(() => setCwi(hasCwi())); // after mount: window.CWI is client-only
+    void Promise.resolve().then(() => setCwi(hasCwi() || inFrame())); // after mount: window.CWI is client-only
     fetch('/api/price')
       .then((r) => r.json())
       .then((d: { bsvUsd?: number }) => d.bsvUsd && setBsvUsd(d.bsvUsd))
@@ -121,10 +121,14 @@ export function GunApp() {
   const doConnect = async () => {
     setError(null);
     const id = rememberedWallet();
-    if (!id) return setChooser({ note: null });
     setPhase('connecting');
-    const found = (await discoverWallets().catch(() => [])).find((w) => w.id === id);
+    const all = await discoverWallets().catch(() => [] as WalletEntry[]);
     setPhase('idle');
+    // Inside bWallet there is exactly one wallet: use it, no chooser.
+    const inApp = all.find((w) => w.kind === 'in-app');
+    if (inApp) return pickWallet(inApp);
+    if (!id) return setChooser({ note: null });
+    const found = all.find((w) => w.id === id);
     if (found) return pickWallet(found);
     setChooser({ note: 'The wallet you used last time is not available any more.' });
   };

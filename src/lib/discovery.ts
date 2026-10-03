@@ -2,7 +2,7 @@
  * Find every BRC-100 wallet on offer, per docs/wallet-connect.md §3. The site never picks one:
  * the chooser lists them all and remembers what the player chose.
  */
-import { HTTPWalletJSON, type WalletInterface } from '@bsv/sdk';
+import { HTTPWalletJSON, WalletClient, type WalletInterface } from '@bsv/sdk';
 
 export type WalletKind = 'extension' | 'in-app' | 'web' | 'desktop';
 export type WalletEntry = { id: string; name: string; icon: string | null; kind: WalletKind; wallet: WalletInterface };
@@ -58,7 +58,21 @@ const nameFromVersion = (v: string) => {
     .join(' ');
 };
 
+/** Opened inside a host app's frame (bWallet's Apps tab): the host is the wallet, reached over XDM. */
+export const inFrame = () => typeof window !== 'undefined' && window.self !== window.top;
+
 export async function discoverWallets(): Promise<WalletEntry[]> {
+  // bWallet's Apps tab frames us and injects nothing; the wallet answers postMessage (BRC-100 XDM)
+  // from its own frame only. That is the one wallet on offer there (docs/wallet-connect.md §2.3).
+  if (inFrame()) {
+    const host = new WalletClient('XDM', window.location.host);
+    try {
+      await withTimeout(host.getVersion({}), 2500);
+      return [{ id: 'space.bwallet.mobile', name: 'bWallet', icon: null, kind: 'in-app', wallet: host }];
+    } catch {
+      /* framed by something that is not a wallet: fall through to normal discovery */
+    }
+  }
   const list: WalletEntry[] = (await announced(400)).map((a) => ({
     id: a.info.rdns,
     name: a.info.name,
