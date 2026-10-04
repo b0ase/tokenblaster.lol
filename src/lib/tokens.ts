@@ -105,7 +105,7 @@ export async function tokenCoins(wallet: WalletInterface, withScripts = false): 
  * The tokens actually in the player's wallet, with balances. Falls back to the GorillaPool index
  * for the wallet's address (wallets that don't keep token baskets).
  */
-export async function walletTokens(w: { client: WalletInterface; address: string }): Promise<Token[]> {
+export async function walletTokens(w: { client: WalletInterface; address: string }, quick?: (t: Token[]) => void): Promise<Token[]> {
   const { coins } = await tokenCoins(w.client).catch(() => ({ coins: [] as TokenCoin[] }));
   if (!coins.length) return tokensHeld(w.address).catch(() => []);
   const byId = new Map<string, { amt: bigint; c: TokenCoin }>();
@@ -113,6 +113,9 @@ export async function walletTokens(w: { client: WalletInterface; address: string
     const cur = byId.get(c.id);
     byId.set(c.id, { amt: (cur?.amt ?? BigInt(0)) + c.amt, c: cur?.c.sym ? cur.c : c });
   }
+  const sort = (ts: Token[]) => ts.filter((t) => (t.balance ?? 0) > 0).sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0));
+  // Show what the wallet itself knows straight away; the index fills in names/icons after.
+  quick?.(sort([...byId].map(([id, { amt, c }]) => ({ id, sym: c.sym ?? id.slice(0, 8), icon: c.icon ?? null, dec: c.dec ?? 0, balance: Number(amt) / 10 ** (c.dec ?? 0) }))));
   const out = await Promise.all(
     [...byId].map(async ([id, { amt, c }]) => {
       // Prefer the index for name/decimals/icon; the coin's own notes if the index doesn't know it.
@@ -121,7 +124,7 @@ export async function walletTokens(w: { client: WalletInterface; address: string
       return { ...t, icon: c.icon ?? t.icon, balance: Number(amt) / 10 ** t.dec };
     }),
   );
-  return out.filter((t) => (t.balance ?? 0) > 0).sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0));
+  return sort(out);
 }
 
 /** The `{"p":"bsv-20",…}` JSON inside an ordinal inscription locking script (hex). */

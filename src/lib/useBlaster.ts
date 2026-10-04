@@ -45,11 +45,14 @@ export function useBlaster() {
       rememberWallet(entry.id);
       setWallet(w);
       // The tokens really in the wallet (bWallet's bsv21 basket, else the index).
-      walletTokens(w)
+      const first = (held: Token[]) => {
+        setTokens(held);
+        setToken((cur) => (cur && held.some((t) => t.id === cur.id) ? held.find((t) => t.id === cur.id)! : (held[0] ?? null)));
+      };
+      walletTokens(w, first)
         .then((held) => {
-          setTokens(held);
-          if (held[0]) setToken(held[0]);
-          else setMode('sats'); // nothing to burn
+          first(held);
+          if (!held[0]) setMode('sats'); // nothing to burn
         })
         .catch(() => undefined);
     } catch (e) {
