@@ -5,7 +5,7 @@
  * wallet adds fee inputs, and we ask the wallet to sign the token inputs with that key
  * (createSignature). One approval prompt; the wallet broadcasts.
  */
-import { Hash, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
+import { Hash, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
 import { bsv21 } from './gun';
 import { tokenCoins } from './tokens';
 
@@ -14,7 +14,15 @@ const ONESAT: WalletProtocol = [0, 'onesat'];
 const SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_FORKID;
 
 /** Send `amount` base units of token `id` from the wallet to `to`. Returns the txid. */
-export async function loadTokens(wallet: WalletInterface, id: string, amount: bigint, to: string, sym = 'tokens', shown = amount.toString()): Promise<string> {
+export async function loadTokens(
+  wallet: WalletInterface,
+  id: string,
+  amount: bigint,
+  to: string,
+  sym = 'tokens',
+  shown = amount.toString(),
+  fuelSats = 0,
+): Promise<Transaction> {
   const { coins: all, beef } = await tokenCoins(wallet, true);
   // This token's coins whose key the wallet recorded (needed to ask it to sign).
   const coins: Coin[] = all
@@ -35,6 +43,8 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
   const outputs: Parameters<WalletInterface['createAction']>[0]['outputs'] = [
     { lockingScript: bsv21(id, amount, to).toHex(), satoshis: 1, outputDescription: `${shown} $${sym} into your gun` },
   ];
+  // Fuel: the sats to pay each bullet's fee, in the same transaction (one approval for both).
+  if (fuelSats > 0) outputs.push({ lockingScript: new P2PKH().lock(to).toHex(), satoshis: fuelSats, outputDescription: `Fuel to fire them (${fuelSats.toLocaleString()} sats)` });
   if (change > BigInt(0)) {
     const keyID = `tokenblaster-${Date.now()}`;
     const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
@@ -49,7 +59,7 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
   }
 
   const created = await wallet.createAction({
-    description: `Load ${shown} $${sym} into your TokenBlaster gun as ammunition`,
+    description: `Load ${shown} $${sym} into your TokenBlaster gun as ammunition${fuelSats ? `, plus ${fuelSats.toLocaleString()} sats to fire them` : ''}`,
     inputBEEF: beef,
     inputs: use.map((c) => ({ outpoint: c.outpoint, unlockingScriptLength: 108, inputDescription: `$${sym}` })),
     outputs,
@@ -69,7 +79,7 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
   }
 }
 
-async function signAndSend(wallet: WalletInterface, signable: SignableTransaction, use: Coin[]): Promise<string> {
+async function signAndSend(wallet: WalletInterface, signable: SignableTransaction, use: Coin[]): Promise<Transaction> {
   const tx = Transaction.fromAtomicBEEF(signable.tx);
 
   // Sign each token input with the wallet key it is locked to.
@@ -106,5 +116,7 @@ async function signAndSend(wallet: WalletInterface, signable: SignableTransactio
     };
   }
   const done = await wallet.signAction({ reference: signable.reference, spends });
-  return done.txid ?? (done.tx ? Transaction.fromAtomicBEEF(done.tx).id('hex') : '');
+  if (done.tx) return Transaction.fromAtomicBEEF(done.tx);
+  tx.inputs.forEach((inp, i) => spends[i] && (inp.unlockingScript = UnlockingScript.fromHex(spends[i].unlockingScript)));
+  return tx; // wallet sent it but returned no tx: ours is the same one, now with the token signatures
 }

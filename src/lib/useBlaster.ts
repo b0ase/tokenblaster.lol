@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
-import { Gun } from './gun';
+import { Gun, TOKEN_FEE } from './gun';
 import { walletTokens, type Token } from './tokens';
 import { loadTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
@@ -158,8 +158,15 @@ export function useBlaster() {
       setError(null);
       setBusy('loading-tokens');
       try {
-        await loadTokens(wallet.client, token.id, BigInt(Math.floor(count)) * BigInt(10) ** BigInt(token.dec), g.address, token.sym, Math.floor(count).toLocaleString());
-        setTokenAmmo((n) => n + Math.floor(count));
+        const n = Math.floor(count);
+        const amt = BigInt(n) * BigInt(10) ** BigInt(token.dec);
+        // Top up fuel so every loaded token can be fired, in the same approval.
+        const fuel = Math.max(0, n * TOKEN_FEE + 200 - g.sats);
+        const tx = await loadTokens(wallet.client, token.id, amt, g.address, token.sym, n.toLocaleString(), fuel);
+        g.adoptTokenCoin(token.id, tx, 0, amt);
+        if (fuel > 0) await g.load(tx);
+        setAmmo(g.sats);
+        setTokenAmmo((x) => x + n);
         walletTokens(wallet)
           .then(setTokens)
           .catch(() => undefined);

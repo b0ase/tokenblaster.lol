@@ -11,7 +11,7 @@ import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type HeldGun } from
 import { formatCount, packSats } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl } from '@/lib/tokens';
-import { BURN_ADDRESS } from '@/lib/gun';
+import { TOKEN_FEE } from '@/lib/gun';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
 
@@ -54,7 +54,6 @@ const WALL_H = SIZE * 0.9;
 const MAX_HEAT = 300; // shots queued for the chain before the gun overheats
 const BATCH = 50; // blasts per ARC request
 const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
-const TOKEN_FEE = 90; // sats per token bullet: ~823-byte transfer (83 sats at 100 sat/kB) plus two 1-sat outputs
 const SLIME: [number, number][] = [
   [5, 3],
   [9, 9],
@@ -118,6 +117,7 @@ export function Arena() {
   }, []);
   const [chainError, setChainError] = useState<string | null>(null);
   const [weapon, setWeapon] = useState(0);
+  const [gunThumbs, setGunThumbs] = useState<string[]>([]);
   const [empty, setEmpty] = useState(false);
   const cycleRef = useRef<() => void>(() => undefined);
   useEffect(() => {
@@ -129,6 +129,7 @@ export function Arena() {
   // The game loop reads the latest blaster state through refs.
   const tokenMode = b.mode === 'tokens';
   const [tokenLoad, setTokenLoad] = useState(10);
+  const heldTok = b.tokens.find((t) => t.id === b.token?.id);
   const armed = tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30;
   const live = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
@@ -437,6 +438,42 @@ export function Arena() {
           held.push(h);
         }
         selectGun(gunIdx);
+        // Pictures of each gun for the picker: render them once, side-on, off screen.
+        try {
+          const tr = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+          tr.setSize(240, 120);
+          tr.outputColorSpace = THREE.SRGBColorSpace;
+          tr.toneMapping = THREE.ACESFilmicToneMapping;
+          const ts = new THREE.Scene();
+          ts.environment = scene.environment;
+          ts.add(new THREE.HemisphereLight('#fff4e8', '#3a1410', 3));
+          const dl = new THREE.DirectionalLight('#ffffff', 5);
+          tr.toneMappingExposure = 1.6;
+          dl.position.set(2, 3, 2);
+          ts.add(dl);
+          const tc = new THREE.PerspectiveCamera(30, 2, 0.01, 50);
+          const pics: string[] = [];
+          for (const h of held) {
+            const g = h.group.clone(true);
+            g.visible = true;
+            g.position.set(0, 0, 0);
+            g.rotation.set(0, 0, 0);
+            ts.add(g);
+            g.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(g, true);
+            const c = box.getCenter(new THREE.Vector3());
+            const r = box.getSize(new THREE.Vector3()).length() / 2;
+            tc.position.set(c.x + r * 2.1, c.y + r * 0.45, c.z + r * 0.35); // side-on, barrel left to right
+            tc.lookAt(c);
+            tr.render(ts, tc);
+            pics.push(tr.domElement.toDataURL('image/png'));
+            ts.remove(g);
+          }
+          tr.dispose();
+          setGunThumbs(pics);
+        } catch {
+          /* pictures are a nicety */
+        }
 
         camera.position.copy(start);
         // ?showcase: line up a warrior, rogue and mage in the first corridor, facing you (screenshots).
@@ -1006,7 +1043,7 @@ export function Arena() {
       )}
 
       <div className={playing ? 'relative min-h-0 flex-1' : 'relative'}>
-        <div ref={mount} className={`touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[62vh] min-h-72 w-full'}`} />
+        <div ref={mount} className={`touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[78vh] min-h-[34rem] w-full'}`} />
         <div className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2">
           <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-hot/80" />
           <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-hot/80" />
@@ -1050,14 +1087,11 @@ export function Arena() {
         )}
         {!playing && (
           <div
-            className={`absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 p-4 text-center ${isReady ? 'cursor-pointer' : ''}`}
+            className={`absolute inset-0 flex flex-col items-center gap-3 overflow-y-auto bg-black/75 p-4 text-center ${isReady ? 'cursor-pointer' : ''}`}
             onClick={(e) => isReady && e.target === e.currentTarget && window.dispatchEvent(new Event('arena:enter'))}
           >
             <p className="text-2xl font-bold text-hot">ARENA</p>
-            <p className="max-w-md text-sm text-dim">
-              Demons, zombies, eyebeasts and crawlers hunt you; the horde hall to the south never runs dry. WASD / arrows move, Shift runs,
-              mouse aims, hold click or space to fire, 1–4 or the wheel switch guns, T switches token, Esc pauses. Every bullet is a real blast.
-            </p>
+            <p className="max-w-xl text-xs text-dim">WASD move · Shift run · mouse aim · hold click to fire · 1–4 guns · T token · Esc pause. Every bullet is a real transaction.</p>
             {loadError ? (
               <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
             ) : !isReady ? (
@@ -1068,99 +1102,153 @@ export function Arena() {
                 <p className="mt-1 text-xs text-dim">loading arena {Math.round(loading * 100)}%</p>
               </div>
             ) : null}
-            <div className="grid w-full max-w-xl grid-cols-2 gap-1 sm:grid-cols-4">
-              {GUNS.map((g, i) => (
-                <button
-                  key={g.id}
-                  onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
-                  className={`inset px-2 py-1 text-left text-xs ${i === weapon ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
-                >
-                  <div className="font-bold">
-                    {g.key} · {g.name}
-                  </div>
-                  <div>
-                    {Math.round(1000 / g.fireMs)}/s{g.pellets > 1 ? ` · ${g.pellets} pellets` : ''} · {Math.round((1000 / g.fireMs) * g.pellets)} blasts/s
-                  </div>
-                </button>
-              ))}
+            {/* 1 · gun */}
+            <div className="w-full max-w-3xl">
+              <p className="mb-1 text-left text-xs font-bold text-dim">1 · PICK A GUN</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {GUNS.map((g, i) => (
+                  <button
+                    key={g.id}
+                    onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
+                    className={`inset flex flex-col items-center px-2 py-1 text-xs ${i === weapon ? 'border-fg text-hot' : 'text-dim opacity-80 hover:text-hot hover:opacity-100'}`}
+                  >
+                    {gunThumbs[i] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={gunThumbs[i]} alt="" className="h-20 w-40 object-contain" />
+                    ) : (
+                      <div className="h-20 w-40" />
+                    )}
+                    <div className="font-bold">
+                      {g.key} · {g.name}
+                    </div>
+                    <div>
+                      {Math.round(1000 / g.fireMs)}/s{g.pellets > 1 ? ` · ${g.pellets} pellets` : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">
-              <span className="text-dim">{b.wallet ? (b.tokens.length ? 'YOUR TOKENS:' : 'NO TOKENS FOUND IN YOUR WALLET') : 'CONNECT YOUR WALLET TO SEE YOUR TOKENS'}</span>
-              {b.tokens.map((t) => (
-                <button key={t.id} onClick={() => b.setToken(t)} className={`btn inline-flex items-center gap-1 ${t.id === b.token?.id ? 'btn-on' : ''}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {iconUrl(t.icon) && <img src={iconUrl(t.icon)!} alt="" className="h-4 w-4 rounded-sm object-cover" loading="lazy" />}
-                  ${t.sym}
-                  {t.balance !== undefined && b.tokens.some((h) => h.id === t.id) ? ` · ${t.balance.toLocaleString()}` : ''}
-                </button>
-              ))}
-            </div>
-            {b.wallet && (
-              <p className="text-xs text-dim">
-                Wallet: {b.wallet.name} <span className="text-hot">{b.wallet.address}</span>
-              </p>
-            )}
-            <div className="flex flex-wrap items-center justify-center gap-1 text-xs">
-              <span className="text-dim">AMMO:</span>
-              <button onClick={() => b.setMode('sats')} className={`btn ${!tokenMode ? 'btn-on' : ''}`}>
-                SATS · {b.token ? `tagged $${b.token.sym}, ` : ''}no tokens spent
-              </button>
-              <button
-                onClick={() => b.setMode('tokens')}
-                disabled={Boolean(b.wallet) && !b.tokens.length}
-                title={b.wallet && !b.tokens.length ? 'Your wallet has no tokens to fire' : undefined}
-                className={`btn ${tokenMode ? 'btn-on' : ''} disabled:opacity-40`}
-              >
-                MY TOKENS · burned
-              </button>
-            </div>
-            {tokenMode && (
-              <div className="inset max-w-xl px-3 py-2 text-left text-xs">
-                <p className="text-hot">
-                  Every bullet burns 1 ${b.token?.sym ?? 'token'} for good (sent to {BURN_ADDRESS.slice(0, 12)}…). Loaded: {b.tokenAmmo.toLocaleString()} ${b.token?.sym ?? ''}
-                </p>
-                {b.wallet && b.tokens.some((t) => t.id === b.token?.id) && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      value={tokenLoad}
-                      onChange={(e) => setTokenLoad(Math.max(1, Number(e.target.value) || 1))}
-                      className="inset w-24 bg-input px-2 py-1 text-hot"
-                    />
-                    <span className="text-dim">
-                      of {b.tokens.find((t) => t.id === b.token?.id)?.balance?.toLocaleString()} ${b.token?.sym} in your wallet
-                    </span>
-                    <button onClick={() => b.loadTokenAmmo(tokenLoad)} disabled={!!b.busy} className="btn btn-on">
-                      {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `LOAD ${tokenLoad.toLocaleString()} $${b.token?.sym}`}
+
+            <div className="flex w-full max-w-3xl flex-col gap-3 sm:flex-row">
+              {/* 2 · ammo: the tokens in your wallet, stacked */}
+              <div className="flex w-full flex-col gap-1 sm:w-64">
+                <p className="text-left text-xs font-bold text-dim">2 · PICK YOUR AMMO</p>
+                {!b.wallet ? (
+                  <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
+                    {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
+                  </button>
+                ) : (
+                  <div className="flex max-h-72 flex-col gap-1 overflow-y-auto pr-1">
+                    {b.tokens.map((t) => {
+                      const on = tokenMode && t.id === b.token?.id;
+                      return (
+                        <button
+                          key={t.id}
+                          onClick={() => {
+                            b.setToken(t);
+                            b.setMode('tokens');
+                          }}
+                          className={`inset flex items-center gap-3 px-2 py-2 text-left ${on ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
+                        >
+                          {iconUrl(t.icon) ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={iconUrl(t.icon)!} alt="" className="h-10 w-10 shrink-0 rounded object-cover" loading="lazy" />
+                          ) : (
+                            <div className="h-10 w-10 shrink-0 rounded bg-input" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold">${t.sym}</div>
+                            <div className="text-xs">{t.balance?.toLocaleString()} in your wallet</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                    {!b.tokens.length && <p className="text-left text-xs text-dim">No tokens found in your wallet.</p>}
+                    <button
+                      onClick={() => b.setMode('sats')}
+                      className={`inset flex items-center gap-3 px-2 py-2 text-left ${!tokenMode ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-input text-lg">₿</div>
+                      <div>
+                        <div className="font-bold">Sats only</div>
+                        <div className="text-xs">no tokens spent</div>
+                      </div>
                     </button>
                   </div>
                 )}
-                <p className="mt-2 text-dim">Or send them to your gun yourself, from your wallet&apos;s token Send:</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-accent">{b.gunAddress}</code>
-                  <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn text-xs">
-                    copy
-                  </button>
-                  <button onClick={b.refreshTokens} className="btn text-xs">
-                    refresh
-                  </button>
+                {b.wallet && (
+                  <p className="overflow-hidden text-ellipsis whitespace-nowrap text-left text-xs text-muted" title={b.wallet.address}>
+                    {b.wallet.name} · {b.wallet.address}
+                  </p>
+                )}
+              </div>
+
+              {/* 3 · how many */}
+              {b.wallet && (
+                <div className="inset flex flex-1 flex-col items-center justify-center gap-2 px-3 py-3">
+                  <p className="self-start text-xs font-bold text-dim">3 · HOW MANY TO LOAD</p>
+                  {tokenMode && b.token ? (
+                    <>
+                      <div className="text-5xl font-bold text-hot">{tokenLoad.toLocaleString()}</div>
+                      <div className="text-sm text-dim">${b.token.sym} bullets</div>
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {[1, 10, 100, 1000, 10000]
+                          .filter((n) => n <= Math.max(1, Math.floor(heldTok?.balance ?? 0)))
+                          .map((n) => (
+                            <button key={n} onClick={() => setTokenLoad(n)} className={`btn px-3 py-1 text-sm ${tokenLoad === n ? 'btn-on' : ''}`}>
+                              {formatCount(n)}
+                            </button>
+                          ))}
+                        <button onClick={() => setTokenLoad(Math.max(1, Math.floor(heldTok?.balance ?? 1)))} className="btn px-3 py-1 text-sm">
+                          ALL
+                        </button>
+                        <input
+                          type="number"
+                          min={1}
+                          value={tokenLoad}
+                          onChange={(e) => setTokenLoad(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                          className="inset w-24 bg-input px-2 py-1 text-right text-hot"
+                          aria-label="Tokens to load"
+                        />
+                      </div>
+                      <p className="max-w-sm text-xs text-dim">
+                        Each bullet burns 1 ${b.token.sym} for good. One approval loads the tokens plus the sats to fire them (~
+                        {(tokenLoad * TOKEN_FEE).toLocaleString()} sats). In the gun now: <span className="text-hot">{b.tokenAmmo.toLocaleString()}</span>
+                      </p>
+                      <button onClick={() => b.loadTokenAmmo(tokenLoad)} disabled={!!b.busy} className="btn-fire">
+                        {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `LOAD ${tokenLoad.toLocaleString()} $${b.token.sym}`}
+                      </button>
+                      <details className="text-left text-xs text-dim">
+                        <summary className="cursor-pointer">or send tokens to your gun yourself</summary>
+                        <div className="mt-1 flex items-center gap-2">
+                          <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-accent">{b.gunAddress}</code>
+                          <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn text-xs">
+                            copy
+                          </button>
+                          <button onClick={b.refreshTokens} className="btn text-xs">
+                            refresh
+                          </button>
+                        </div>
+                      </details>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-5xl font-bold text-hot">{formatCount(shots)}</div>
+                      <div className="text-sm text-dim">shots</div>
+                      <AmmoPicker value={shots} onChange={setShots} bsvUsd={bsvUsd} />
+                      <button onClick={() => b.load(packSats(shots), `TokenBlaster arena: ${formatCount(shots)} shots`)} disabled={!!b.busy} className="btn-fire">
+                        {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SHOTS`}
+                      </button>
+                    </>
+                  )}
+                  {armed && isReady && (
+                    <button onClick={() => window.dispatchEvent(new Event('arena:enter'))} className="btn btn-on px-6 py-2 text-lg">
+                      PLAY ▶
+                    </button>
+                  )}
                 </div>
-                <p className="mt-1 text-dim">Fuel: each bullet also needs ~{TOKEN_FEE} sats for fees. Load sats below.</p>
-              </div>
-            )}
-            {!b.wallet ? (
-              <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
-                {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
-              </button>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <AmmoPicker value={shots} onChange={setShots} bsvUsd={bsvUsd} />
-                <button onClick={() => b.load(packSats(shots), `TokenBlaster arena: ${formatCount(shots)} shots`)} disabled={!!b.busy} className="btn-fire">
-                  {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)}`}
-                </button>
-              </div>
-            )}
+              )}
+            </div>
             {isReady && <p className="text-xs text-muted">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>}
           </div>
         )}

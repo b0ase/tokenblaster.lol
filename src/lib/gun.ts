@@ -13,6 +13,8 @@ const STORE = 'tokenblaster.gun';
 export const TAG = 'tokenblaster.lol';
 /** Well-known unspendable address: tokens sent here are burned for good. */
 export const BURN_ADDRESS = '1BitcoinEaterAddressDontSendf59kuE';
+/** Sats per token bullet: ~823-byte transfer (83 sats at 100 sat/kB) plus two 1-sat outputs. */
+export const TOKEN_FEE = 90;
 const GP = 'https://ordinals.gorillapool.io/api';
 
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
@@ -240,6 +242,12 @@ export class Gun {
   }
 
   /** Tokens of `id` loaded in the gun (base units). */
+  /** Use a token coin we just received (from loadTokens) straight away, before the index sees it. */
+  adoptTokenCoin(id: string, tx: Transaction, vout: number, amt: bigint) {
+    if (this.tok?.id === id && this.tok.amt > BigInt(0)) return; // already firing from one; the index merges later
+    this.tok = { id, tx: Transaction.fromHex(tx.toHex()), vout, amt };
+  }
+
   async tokenAmmo(id: string): Promise<bigint> {
     const utxos = await this.tokenUtxos(id);
     const indexed = utxos.reduce((n, u) => n + u.amt, BigInt(0));
