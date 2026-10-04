@@ -5,7 +5,7 @@
  * wallet adds fee inputs, and we ask the wallet to sign the token inputs with that key
  * (createSignature). One approval prompt; the wallet broadcasts.
  */
-import { Hash, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
+import { Beef, Hash, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
 import { bsv21 } from './gun';
 import { tokenCoins } from './tokens';
 
@@ -177,4 +177,44 @@ export async function reNoteTokens(wallet: WalletInterface, id: string, sym: str
     await wallet.abortAction({ reference: signable.reference }).catch(() => undefined);
     throw e;
   }
+}
+
+/**
+ * Unload: the gun sends all its `id` tokens to a fresh key in the wallet (the 1Sat change-key
+ * pattern), then the wallet takes the transaction in with the note it counts (internalizeAction,
+ * basket insertion), so the tokens show in the wallet straight away.
+ */
+export async function returnTokens(
+  wallet: WalletInterface,
+  gun: { unloadTokens: (id: string, to: string) => Promise<{ tx: Transaction; amt: bigint }> },
+  t: { id: string; sym: string; dec?: number; icon?: string | null },
+): Promise<{ txid: string; amt: bigint }> {
+  const keyID = `${t.id}-${Date.now()}`;
+  const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
+  const { tx, amt } = await gun.unloadTokens(t.id, PublicKey.fromString(publicKey).toAddress());
+  const txid = tx.id('hex');
+  // The wallet wants the tx with its history back to mined transactions (BEEF).
+  const beef = new Beef();
+  for (const src of new Set(tx.inputs.map((i) => i.sourceTXID ?? i.sourceTransaction!.id('hex')))) {
+    const hex = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${src}/beef`).then((r) => (r.ok ? r.text() : ''));
+    if (hex) beef.mergeBeef(Utils.toArray(hex.trim(), 'hex'));
+    else {
+      const bin = await fetch(`https://junglebus.gorillapool.io/v1/transaction/beef/${src}`).then((r) => (r.ok ? r.arrayBuffer() : null));
+      if (bin) beef.mergeBeef(Array.from(new Uint8Array(bin)));
+    }
+  }
+  beef.mergeTransaction(tx);
+  await wallet.internalizeAction({
+    tx: beef.toBinaryAtomic(txid),
+    outputs: [
+      {
+        outputIndex: 0,
+        protocol: 'basket insertion',
+        insertionRemittance: { basket: 'bsv21', tags: [`bsv21:${t.id}`], customInstructions: noteFor(t.id, amt, t.sym, t.dec, keyID, t.icon) },
+      },
+    ],
+    description: `Unload ${amt.toLocaleString()} $${t.sym} from your TokenBlaster gun back to your wallet`,
+    labels: ['tokenblaster'],
+  });
+  return { txid, amt };
 }

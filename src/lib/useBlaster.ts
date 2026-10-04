@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { Gun, TOKEN_FEE } from './gun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
-import { loadTokens, reNoteTokens } from './tokenLoad';
+import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
 
 export function useBlaster() {
@@ -24,6 +24,8 @@ export function useBlaster() {
   const [mode, setMode] = useState<'sats' | 'tokens'>('sats');
   const [tokenAmmo, setTokenAmmo] = useState<number>(0); // whole tokens loaded in the gun
   const [gunAddress, setGunAddress] = useState('');
+  /** Last load / unload, shown as a receipt with its transaction. */
+  const [receipt, setReceipt] = useState<{ text: string; txid: string } | null>(null);
 
   useEffect(() => {
     const g = new Gun();
@@ -181,6 +183,7 @@ export function useBlaster() {
         if (fuel > 0) await g.load(tx);
         setAmmo(g.sats);
         setTokenAmmo((x) => x + n);
+        setReceipt({ text: `Loaded ${n.toLocaleString()} $${token.sym} into your gun${fuel ? ` with ${fuel.toLocaleString()} sats of fuel` : ''}`, txid: tx.id('hex') });
         walletTokens(wallet)
           .then(setTokens)
           .catch(() => undefined);
@@ -235,18 +238,54 @@ export function useBlaster() {
     return () => document.removeEventListener('visibilitychange', onFocus);
   }, [wallet, refreshWallet]);
 
+  /** What's in the gun right now: tokens by id (for the Wallet → Gun → Fired strip). */
+  const [gunTokens, setGunTokens] = useState<{ id: string; amt: bigint }[]>([]);
+  const refreshGun = useCallback(async () => {
+    const g = gun.current;
+    if (!g) return;
+    setGunTokens(await g.tokensHeld().catch(() => []));
+    setAmmo(g.sats);
+  }, []);
+  useEffect(() => {
+    void Promise.resolve().then(refreshGun);
+    const t = setInterval(refreshGun, 15000);
+    return () => clearInterval(t);
+  }, [refreshGun]);
+
+
+  /** Unload everything back to the wallet: every token in the gun (so the wallet shows them), then the sats. */
   const unload = useCallback(async () => {
-    if (!wallet || !gun.current) return;
+    const g = gun.current;
+    if (!wallet || !g) return;
     setBusy('unloading');
+    setError(null);
     try {
-      await gun.current.unload(wallet.address);
+      const parts: string[] = [];
+      let last = '';
+      for (const held of await g.tokensHeld()) {
+        const meta = await tokenById(held.id).catch(() => ({ id: held.id, sym: held.id.slice(0, 8), icon: null, dec: 0 }) as Token);
+        const r = await returnTokens(wallet.client, g, { id: held.id, sym: meta.sym, dec: meta.dec, icon: meta.icon });
+        parts.push(`${(Number(r.amt) / 10 ** meta.dec).toLocaleString()} $${meta.sym}`);
+        last = r.txid;
+      }
+      const satsTx = await g.unload(wallet.address);
+      if (satsTx) {
+        parts.push('the leftover sats');
+        last = satsTx;
+      }
       setAmmo(0);
+      setTokenAmmo(0);
+      if (parts.length) setReceipt({ text: `Back in your wallet: ${parts.join(' and ')}`, txid: last });
+      await refreshGun();
+      walletTokens(wallet)
+        .then(setTokens)
+        .catch(() => undefined);
     } catch (e) {
       fail(e);
     } finally {
       setBusy(null);
     }
-  }, [wallet]);
+  }, [wallet, refreshGun]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

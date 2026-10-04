@@ -364,6 +364,50 @@ export class Gun {
    * Send everything at the gun's address back to `address`: the tracked coin plus anything else
    * that landed there (e.g. a second funding when two wallets both answered one Load).
    */
+  /** Token ids the gun holds, with amounts (from the index, plus the coin it's firing from). */
+  async tokensHeld(): Promise<{ id: string; amt: bigint }[]> {
+    const r = await fetch(`${GP}/bsv20/${this.address}/balance`).catch(() => null);
+    const list = r && r.ok ? ((await r.json()) as { id?: string; all?: { confirmed: string; pending: string } }[]) : [];
+    const out = new Map<string, bigint>();
+    for (const t of list) if (t.id && t.all) out.set(t.id, BigInt(t.all.confirmed) + BigInt(t.all.pending));
+    this.refresh();
+    if (this.tok && this.tok.amt > (out.get(this.tok.id) ?? BigInt(0))) out.set(this.tok.id, this.tok.amt);
+    return [...out].filter(([, a]) => a > BigInt(0)).map(([id, amt]) => ({ id, amt }));
+  }
+
+  /**
+   * Send every token of `id` in the gun to `to` (one transfer, fees from the gun's sats). Returns the
+   * transaction with its source transactions attached, ready to hand to the wallet.
+   */
+  async unloadTokens(id: string, to: string): Promise<{ tx: Transaction; amt: bigint }> {
+    return this.exclusive(async () => {
+      this.refresh();
+      if (!this.coin) throw new Error('No sats in the gun to pay the fee.');
+      const coins: TokCoin[] = [];
+      if (this.tok?.id === id && this.tok.amt > BigInt(0)) coins.push(this.tok);
+      for (const u of await this.tokenUtxos(id)) {
+        if (coins.some((c) => c.tx.id('hex') === u.txid && c.vout === u.vout)) continue;
+        const hexTx = await fetch(`${WOC}/tx/${u.txid}/hex`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('Could not fetch a token transaction.'))));
+        coins.push({ id, tx: Transaction.fromHex(hexTx), vout: u.vout, amt: u.amt });
+      }
+      const amt = coins.reduce((n, c) => n + c.amt, BigInt(0));
+      if (!amt) throw new Error('No tokens of that kind in the gun.');
+      const tx = new Transaction();
+      for (const c of coins) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      tx.addOutput({ lockingScript: bsv21(id, amt, to), satoshis: 1 });
+      tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await tx.sign();
+      await this.send(tx);
+      for (const c of coins) this.spentTok.add(`${c.tx.id('hex')}_${c.vout}`);
+      this.tok = null;
+      this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 1 };
+      this.save();
+      return { tx, amt };
+    });
+  }
+
   async unload(address: string): Promise<string | null> {
     return this.exclusive(() => this.unloadNow(address));
   }

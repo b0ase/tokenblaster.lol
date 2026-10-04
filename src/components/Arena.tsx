@@ -98,6 +98,7 @@ export function Arena() {
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
   const [hud, setHud] = useState<Hud>({ kills: 0, shots: 0, onChain: 0, heat: 0, health: 100, last: null });
+  const [recent, setRecent] = useState<{ txid: string; token: boolean }[]>([]);
   const [loading, setLoading] = useState(0); // 0..1, 1 = ready
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hurt, setHurt] = useState(false);
@@ -618,6 +619,8 @@ export function Arena() {
           n += txids.length;
           queue.splice(0, txids.length);
           setHud((h) => ({ ...h, onChain: h.onChain + txids.length, last: txids[txids.length - 1] ?? h.last }));
+          const isTok = live.current.tokenMode;
+          setRecent((r) => [...txids.map((t) => ({ txid: t, token: isTok })).reverse(), ...r].slice(0, 6));
           setChainError(null);
           if (txids.length < (live.current.tokenMode ? Math.min(25, batch.length) : batch.length)) throw new Error('Out of ammo.');
         } catch (e) {
@@ -1029,6 +1032,47 @@ export function Arena() {
   const shotsLeft = tokenMode ? Math.max(0, Math.floor(b.tokenAmmo) - hud.heat) : Math.floor(ammoNow / FEE_PER_SHOT);
   const isReady = loading >= 1;
 
+  // Wallet → Gun → Fired: where your ammo is, always visible.
+  const sym = b.token?.sym ?? '';
+  const gunHeld = b.token ? b.gunTokens.find((t) => t.id === b.token!.id) : undefined;
+  const inGun = gunHeld ? Number(gunHeld.amt) / 10 ** (b.token?.dec ?? 0) : b.tokenAmmo;
+  const fuelShots = Math.floor(b.ammo / (tokenMode ? TOKEN_FEE : FEE_PER_SHOT));
+  const flow = (
+    <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+      {tokenMode && b.token ? (
+        <>
+          <span className="inset bg-black/70 px-2 py-1">
+            <span className="text-dim">WALLET </span>
+            <span className="text-hot">{heldTok?.balance?.toLocaleString() ?? 0}</span> <span className="text-fg">${sym}</span>
+          </span>
+          <span className="text-hot">→</span>
+          <span className="inset bg-black/70 px-2 py-1">
+            <span className="text-dim">GUN </span>
+            <span className="text-hot">{inGun.toLocaleString()}</span> <span className="text-fg">${sym}</span>
+            <span className="text-dim"> · fuel for {fuelShots.toLocaleString()}</span>
+          </span>
+          <span className="text-hot">→</span>
+          <span className="inset bg-black/70 px-2 py-1">
+            <span className="text-dim">FIRED </span>
+            <span className="text-hot">{hud.onChain.toLocaleString()}</span> <span className="text-dim">on chain</span>
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="inset bg-black/70 px-2 py-1">
+            <span className="text-dim">GUN </span>
+            <span className="text-hot">{fuelShots.toLocaleString()}</span> <span className="text-dim">sats shots</span>
+          </span>
+          <span className="text-hot">→</span>
+          <span className="inset bg-black/70 px-2 py-1">
+            <span className="text-dim">FIRED </span>
+            <span className="text-hot">{hud.onChain.toLocaleString()}</span> <span className="text-dim">on chain</span>
+          </span>
+        </>
+      )}
+    </div>
+  );
+
   const cycleToken = () => {
     const all = [...b.tokens];
     if (b.token && !all.some((t) => t.id === b.token!.id)) all.unshift(b.token);
@@ -1068,6 +1112,31 @@ export function Arena() {
         {dead && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-900/50">
             <span className="text-4xl font-bold text-hot">YOU DIED</span>
+          </div>
+        )}
+        {playing && (
+          <div className="pointer-events-none absolute left-2 top-2 max-w-[70%]">{flow}</div>
+        )}
+        {playing && recent.length > 0 && (
+          <div className="absolute right-2 top-2 flex w-56 flex-col gap-1 text-xs">
+            {recent.map((r) => (
+              <a
+                key={r.txid}
+                href={`https://whatsonchain.com/tx/${r.txid}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inset flex items-center gap-2 bg-black/75 px-2 py-1 hover:border-fg"
+              >
+                {r.token && icon ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={icon} alt="" className="h-5 w-5 rounded" />
+                ) : (
+                  <span className="text-hot">●</span>
+                )}
+                <span className="text-hot">{r.token ? `−1 $${sym}` : 'sats shot'}</span>
+                <span className="ml-auto text-dim">{r.txid.slice(0, 8)}… ↗</span>
+              </a>
+            ))}
           </div>
         )}
         {playing && empty && (
@@ -1113,6 +1182,18 @@ export function Arena() {
             onClick={(e) => isReady && e.target === e.currentTarget && window.dispatchEvent(new Event('arena:enter'))}
           >
             <p className="text-3xl font-bold text-hot">ARENA</p>
+            {b.wallet && flow}
+            {b.receipt && (
+              <div className="inset flex max-w-3xl items-center gap-2 border-fg bg-black/80 px-3 py-2 text-sm">
+                <span className="text-hot">✓ {b.receipt.text}</span>
+                <a href={`https://whatsonchain.com/tx/${b.receipt.txid}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                  tx {b.receipt.txid.slice(0, 10)}… ↗
+                </a>
+                <button onClick={() => b.setReceipt(null)} className="btn px-2 py-0 text-xs">
+                  ok
+                </button>
+              </div>
+            )}
             <p className="max-w-2xl text-sm text-dim">WASD move · Shift run · mouse aim · hold click to fire · 1–4 guns · T token · Esc pause. Every bullet is a real transaction.</p>
             {loadError ? (
               <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
@@ -1349,9 +1430,14 @@ export function Arena() {
         </p>
       )}
       {(chainError || b.error) && <p className={`text-sm text-hot ${playing ? 'px-2 pb-2' : 'mt-2'}`}>⚠ {chainError ?? b.error}</p>}
-      {!playing && b.wallet && b.ammo > 0 && (
-        <button onClick={b.unload} disabled={!!b.busy} className="btn mt-2 text-xs">
-          UNLOAD → wallet
+      {!playing && b.wallet && (b.ammo > 0 || b.gunTokens.length > 0) && (
+        <button onClick={b.unload} disabled={!!b.busy} className="btn btn-on mt-2 px-4 py-2 text-sm">
+          {b.busy === 'unloading'
+            ? 'UNLOADING… APPROVE IN WALLET'
+            : `UNLOAD EVERYTHING BACK TO MY WALLET (${[...b.gunTokens.map((t) => {
+                const m = b.tokens.find((x) => x.id === t.id);
+                return `${(Number(t.amt) / 10 ** (m?.dec ?? 0)).toLocaleString()} $${m?.sym ?? t.id.slice(0, 6)}`;
+              }), b.ammo > 0 ? `${b.ammo.toLocaleString()} sats` : ''].filter(Boolean).join(' + ')})`}
         </button>
       )}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
