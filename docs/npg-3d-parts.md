@@ -72,3 +72,10 @@ Card art note: **Medical** = heart patch, **Payne Patch** = red-cross patch. The
 3. For simple masks: put the card art as a texture onto the base (Ayumi) mask mesh. It's free and always the right shape.
 4. Weapons: test 2–3 before buying credits for the set.
 5. Map the remaining categories to bones (hands, feet, chest).
+
+## Chibi animation (in progress)
+
+- The chibi base is fully rigged: 84 bones, IK, finger bones, and `item.L`/`item.R` weapon sockets. It came with no animations.
+- Stopgap clips made in code: `src/lib/chibiAnims.ts` (idle, walk, run). Rotations are written in the character's own axes and converted to each bone's axes in code.
+- She's in the arena as `chibi`: 2 roam the maze, and she roams from the first corridor with `?showcase`.
+- Mixamo clips downloaded by the owner and waiting in `~/Downloads`: `Walking.fbx`, `Walking (1).fbx` (different files, not duplicates) and `Zombie Idle.fbx`. Still to do: convert FBX to GLB (the `fbx2gltf` npm package has no binary, so use Blender or three's FBXLoader), retarget the `mixamorig:*` bones to the chibi's bones, and add run, shoot, hit and death clips.
