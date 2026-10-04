@@ -1109,11 +1109,11 @@ export function Arena() {
         )}
         {!playing && (
           <div
-            className={`absolute inset-0 flex flex-col items-center gap-3 overflow-y-auto bg-black/75 p-4 text-center ${isReady ? 'cursor-pointer' : ''}`}
+            className={`absolute inset-0 flex flex-col items-center gap-4 overflow-y-auto bg-black/85 px-4 py-5 text-center text-sm ${isReady ? 'cursor-pointer' : ''}`}
             onClick={(e) => isReady && e.target === e.currentTarget && window.dispatchEvent(new Event('arena:enter'))}
           >
-            <p className="text-2xl font-bold text-hot">ARENA</p>
-            <p className="max-w-xl text-xs text-dim">WASD move · Shift run · mouse aim · hold click to fire · 1–4 guns · T token · Esc pause. Every bullet is a real transaction.</p>
+            <p className="text-3xl font-bold text-hot">ARENA</p>
+            <p className="max-w-2xl text-sm text-dim">WASD move · Shift run · mouse aim · hold click to fire · 1–4 guns · T token · Esc pause. Every bullet is a real transaction.</p>
             {loadError ? (
               <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
             ) : !isReady ? (
@@ -1125,20 +1125,20 @@ export function Arena() {
               </div>
             ) : null}
             {/* 1 · gun */}
-            <div className="w-full max-w-3xl">
-              <p className="mb-1 text-left text-xs font-bold text-dim">1 · PICK A GUN</p>
+            <div className="w-full max-w-5xl">
+              <p className="mb-2 text-left text-base font-bold text-hot">1 · PICK A GUN</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {GUNS.map((g, i) => (
                   <button
                     key={g.id}
                     onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
-                    className={`inset flex flex-col items-center px-2 py-1 text-xs ${i === weapon ? 'border-fg text-hot' : 'text-dim opacity-80 hover:text-hot hover:opacity-100'}`}
+                    className={`inset flex flex-col items-center bg-black/60 px-2 py-2 text-sm ${i === weapon ? 'border-fg text-hot' : 'text-dim opacity-80 hover:text-hot hover:opacity-100'}`}
                   >
                     {gunThumbs[i] ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={gunThumbs[i]} alt="" className="h-20 w-40 object-contain" />
+                      <img src={gunThumbs[i]} alt="" className="h-24 w-48 object-contain" />
                     ) : (
-                      <div className="h-20 w-40" />
+                      <div className="h-24 w-48" />
                     )}
                     <div className="font-bold">
                       {g.key} · {g.name}
@@ -1151,11 +1151,11 @@ export function Arena() {
               </div>
             </div>
 
-            <div className="flex w-full max-w-3xl flex-col gap-3 sm:flex-row">
+            <div className="flex w-full max-w-5xl flex-col gap-3 sm:flex-row">
               {/* 2 · ammo: the tokens in your wallet, stacked */}
-              <div className="flex w-full flex-col gap-1 sm:w-64">
+              <div className="flex w-full flex-col gap-2 sm:w-80">
                 <div className="flex items-center justify-between">
-                  <p className="text-left text-xs font-bold text-dim">2 · PICK YOUR AMMO</p>
+                  <p className="text-left text-base font-bold text-hot">2 · PICK YOUR AMMO</p>
                   {b.wallet && (
                     <button onClick={b.refreshWallet} disabled={b.refreshing} className="btn px-2 py-0.5 text-xs" title="Look in your wallet again">
                       {b.refreshing ? 'checking…' : '↻ refresh'}
@@ -1167,7 +1167,7 @@ export function Arena() {
                     {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
                   </button>
                 ) : (
-                  <div className="flex max-h-72 flex-col gap-1 overflow-y-auto pr-1">
+                  <div className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
                     {b.tokens.map((t) => {
                       const on = tokenMode && t.id === b.token?.id;
                       return (
@@ -1177,13 +1177,13 @@ export function Arena() {
                             b.setToken(t);
                             b.setMode('tokens');
                           }}
-                          className={`inset flex items-center gap-3 px-2 py-2 text-left ${on ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
+                          className={`inset flex items-center gap-3 bg-black/60 px-3 py-2 text-left text-base ${on ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
                         >
                           {iconUrl(t.icon) ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={iconUrl(t.icon)!} alt="" className="h-10 w-10 shrink-0 rounded object-cover" loading="lazy" />
+                            <img src={iconUrl(t.icon)!} alt="" className="h-12 w-12 shrink-0 rounded object-cover" loading="lazy" />
                           ) : (
-                            <div className="h-10 w-10 shrink-0 rounded bg-input" />
+                            <div className="h-12 w-12 shrink-0 rounded bg-input" />
                           )}
                           <div className="min-w-0">
                             <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold">${t.sym}</div>
@@ -1195,9 +1195,9 @@ export function Arena() {
                     {!b.tokens.length && <p className="text-left text-xs text-dim">No tokens found in your wallet.</p>}
                     <button
                       onClick={() => b.setMode('sats')}
-                      className={`inset flex items-center gap-3 px-2 py-2 text-left ${!tokenMode ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
+                      className={`inset flex items-center gap-3 bg-black/60 px-3 py-2 text-left text-base ${!tokenMode ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
                     >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-input text-lg">₿</div>
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-input text-xl">₿</div>
                       <div>
                         <div className="font-bold">Sats only</div>
                         <div className="text-xs">no tokens spent</div>
@@ -1205,33 +1205,44 @@ export function Arena() {
                     </button>
                   </div>
                 )}
-                {b.wallet && (
-                  <p className="overflow-hidden text-ellipsis whitespace-nowrap text-left text-xs text-muted" title={b.wallet.address}>
-                    Wallet: {b.wallet.name} · {b.wallet.address}
-                  </p>
-                )}
-                {b.gunAddress && (
-                  <p className="flex items-center gap-1 text-left text-xs text-muted">
-                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" title="Your gun's own address in this browser: loaded sats and tokens sit here">
-                      Your gun: <span className="text-hot">{b.gunAddress}</span>
-                    </span>
-                    <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn px-1 text-xs">
-                      copy
-                    </button>
-                    <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noopener noreferrer" className="btn px-1 text-xs">
-                      chain
-                    </a>
-                  </p>
-                )}
+                <div className="inset flex flex-col gap-1 bg-black/60 px-3 py-2 text-left text-xs">
+                  {b.wallet && (
+                    <div className="break-all text-dim">
+                      Wallet: <span className="text-fg">{b.wallet.name}</span> · {b.wallet.address}
+                    </div>
+                  )}
+                  {b.gunAddress && (
+                    <div className="text-dim" title="Your gun's own address in this browser: loaded sats and tokens sit here">
+                      Your gun: <span className="break-all text-hot">{b.gunAddress}</span>
+                      <span className="ml-2 inline-flex gap-1 align-middle">
+                        <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn px-2 py-0 text-xs">
+                          copy
+                        </button>
+                        <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noopener noreferrer" className="btn px-2 py-0 text-xs">
+                          chain
+                        </a>
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* 3 · how many */}
+              {!b.wallet && (
+                <div className="inset flex flex-1 flex-col items-center justify-center gap-2 bg-black/60 px-4 py-6 text-dim">
+                  <p className="self-start text-base font-bold text-hot">3 · HOW MANY TO LOAD</p>
+                  <p className="max-w-md text-sm">
+                    Connect your wallet and your tokens appear on the left. Pick one, choose how many, and load them with one approval: one token per bullet,
+                    every bullet a real transaction.
+                  </p>
+                </div>
+              )}
               {b.wallet && (
-                <div className="inset flex flex-1 flex-col items-center justify-center gap-2 px-3 py-3">
-                  <p className="self-start text-xs font-bold text-dim">3 · HOW MANY TO LOAD</p>
+                <div className="inset flex flex-1 flex-col items-center justify-center gap-3 bg-black/60 px-4 py-4">
+                  <p className="self-start text-base font-bold text-hot">3 · HOW MANY TO LOAD</p>
                   {tokenMode && b.token ? (
                     <>
-                      <div className="text-5xl font-bold text-hot">{tokenLoad.toLocaleString()}</div>
+                      <div className="text-6xl font-bold text-hot">{tokenLoad.toLocaleString()}</div>
                       <div className="text-sm text-dim">${b.token.sym} bullets</div>
                       <div className="flex flex-wrap justify-center gap-1">
                         {[1_000, 10_000, 100_000, 1_000_000]
@@ -1253,7 +1264,7 @@ export function Arena() {
                           aria-label="Tokens to load"
                         />
                       </div>
-                      <p className="max-w-sm text-xs text-dim">
+                      <p className="max-w-md text-sm text-dim">
                         One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus the fees to fire every one of them:{' '}
                         <span className="text-hot">
                           {(tokenLoad * TOKEN_FEE).toLocaleString()} sats ({((tokenLoad * TOKEN_FEE) / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} BSV
@@ -1279,7 +1290,7 @@ export function Arena() {
                     </>
                   ) : (
                     <>
-                      <div className="text-5xl font-bold text-hot">{formatCount(shots)}</div>
+                      <div className="text-6xl font-bold text-hot">{formatCount(shots)}</div>
                       <div className="text-sm text-dim">shots</div>
                       <AmmoPicker value={shots} onChange={setShots} bsvUsd={bsvUsd} />
                       <button onClick={() => b.load(packSats(shots), `TokenBlaster arena: ${formatCount(shots)} shots`)} disabled={!!b.busy} className="btn-fire">
@@ -1295,7 +1306,7 @@ export function Arena() {
                 </div>
               )}
             </div>
-            {isReady && <p className="text-xs text-muted">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>}
+            {isReady && <p className="text-sm text-dim">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>}
           </div>
         )}
       </div>
