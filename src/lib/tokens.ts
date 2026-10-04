@@ -6,7 +6,7 @@ export type Token = { id: string; sym: string; icon: string | null; dec: number;
 
 
 export const iconUrl = (icon: string | null) =>
-  !icon ? null : /^https?:/.test(icon) ? icon : `https://ordfs.network/${icon}`;
+  !icon ? null : /^(https?:|data:)/.test(icon) ? icon : `https://ordfs.network/${icon.replace(/^ord:\/\//, '').replace('.', '_')}`;
 
 type Raw = { id?: string; tick?: string; sym?: string; icon?: string | null; dec?: number; all?: { confirmed: string; pending: string } };
 
@@ -117,7 +117,8 @@ export async function walletTokens(w: { client: WalletInterface; address: string
     [...byId].map(async ([id, { amt, c }]) => {
       // Prefer the index for name/decimals/icon; the coin's own notes if the index doesn't know it.
       const t = await tokenById(id).catch(() => ({ id, sym: c.sym ?? id.slice(0, 8), icon: c.icon ?? null, dec: c.dec ?? 0 }) as Token);
-      return { ...t, balance: Number(amt) / 10 ** t.dec };
+      // The wallet's own icon for the coin wins: it's the one the player sees in their wallet.
+      return { ...t, icon: c.icon ?? t.icon, balance: Number(amt) / 10 ** t.dec };
     }),
   );
   return out.filter((t) => (t.balance ?? 0) > 0).sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0));
