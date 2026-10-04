@@ -8,6 +8,14 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { GUNS, MONSTERS } from '@/lib/arenaHD';
 import { chibiClips } from '@/lib/chibiAnims';
+import { retargetMixamo } from '@/lib/mixamoRetarget';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+
+const MIXAMO: [string, string][] = [
+  ['mixamo_walk.fbx', 'Mixamo walk'],
+  ['mixamo_walk2.fbx', 'Mixamo walk 2'],
+  ['mixamo_zombie_idle.fbx', 'Mixamo zombie idle'],
+];
 
 const MODELS = [
   { id: 'miyuki_parts', label: 'Miyuki split into parts (Tripo segmentation)', url: '/arena/models/npg/miyuki_parts.glb' },
@@ -131,9 +139,22 @@ export function ModelViewer() {
     const url = [...cardsRef.current, ...MODELS].find((m) => m.id === modelId)?.url ?? MODELS[0].url;
     loader.load(
       url,
-      (gltf) => {
+      async (gltf) => {
         if (disposed) return;
-        if (modelId === 'chibi') gltf.animations = chibiClips(gltf.scene);
+        if (modelId === 'chibi') {
+          // Code-made loops plus the owner's Mixamo downloads, retargeted onto her rig.
+          gltf.animations = chibiClips(gltf.scene);
+          const fbx = new FBXLoader();
+          for (const [file, label] of MIXAMO) {
+            try {
+              const src = await fbx.loadAsync(`/arena/models/npg/anims/${file}`);
+              if (src.animations[0]) gltf.animations.push(retargetMixamo(src, src.animations[0], gltf.scene, label));
+            } catch (e) {
+              console.warn('mixamo', file, e);
+            }
+          }
+          if (disposed) return;
+        }
         const model = pickNode(gltf.scene, modelId);
         // Tripo part cards often come out lying along Z: turn them to face the camera.
         if (cardsRef.current.some((c) => c.id === modelId)) {
