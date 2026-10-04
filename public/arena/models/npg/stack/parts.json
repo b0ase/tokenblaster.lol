@@ -101,6 +101,15 @@
   "id": "11_020_Mask_Glasses",
   "name": "Glasses",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_020_Mask_Glasses.glb"
+  "url": "/arena/models/npg/stack/11_020_Mask_Glasses.glb",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "pitch": -1.571,
+   "roll": 0,
+   "bend": 0
+  }
  }
 ]

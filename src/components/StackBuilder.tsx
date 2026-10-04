@@ -99,7 +99,7 @@ export function StackBuilder() {
       const rs = raw.getSize(new THREE.Vector3());
       // Tripo often builds a flat card lying along Z: turn a quarter so its width runs across the face.
       const lying = rs.z > rs.x ? -Math.PI / 2 : 0;
-      r.obj.rotation.set((r.fit.pitch ?? 0) * faceSign, lying + (faceSign > 0 ? 0 : Math.PI) + r.fit.turn, (r.fit.roll ?? 0) * faceSign, 'YXZ');
+      r.obj.rotation.set((r.fit.pitch ?? 0) * faceSign, lying + (faceSign > 0 ? 0 : Math.PI) + r.fit.turn, (r.fit.roll ?? 0) * faceSign, 'XZY'); // yaw in the part's frame, pitch/roll about the head's axes
       const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(r.obj.rotation));
       const width = into.getSize(new THREE.Vector3()).x * (kind === 'horns' ? 0.9 : 1);
       const k = (width / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * r.fit.scale;
@@ -151,7 +151,7 @@ export function StackBuilder() {
       if (!current || !slot) return;
       // Hair sits like hair: scaled to the head's width, its top on top of the head and its front
       // edge on the hairline. (Centring boxes pushed cards with long tails up and forward.)
-      current.rotation.set((fitNow.pitch ?? 0) * faceSign, ((current.userData.turn as number) ?? 0) + fitNow.turn, (fitNow.roll ?? 0) * faceSign, 'YXZ'); // per-card facing + manual turn
+      current.rotation.set((fitNow.pitch ?? 0) * faceSign, ((current.userData.turn as number) ?? 0) + fitNow.turn, (fitNow.roll ?? 0) * faceSign, 'XZY'); // per-card facing + manual turn
       const raw = current.userData.raw as THREE.Box3;
       const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(current.rotation));
       const k = (slot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * fitNow.scale;
@@ -432,8 +432,8 @@ function FitSliders({ label, card, fit, onChange }: { label: string; card: strin
           {k === 'scale' ? 'size' : k === 'y' ? 'up/down' : k === 'z' ? 'fwd/back' : k === 'turn' ? 'yaw' : k}
           <input
             type="range"
-            min={k === 'scale' ? 0.3 : k === 'turn' ? -Math.PI : k === 'pitch' || k === 'roll' || k === 'bend' ? -1 : -0.3}
-            max={k === 'scale' ? 1.6 : k === 'turn' ? Math.PI : k === 'pitch' || k === 'roll' || k === 'bend' ? 1 : 0.3}
+            min={k === 'scale' ? 0.3 : k === 'turn' || k === 'pitch' || k === 'roll' ? -Math.PI : k === 'bend' ? -1 : -0.3}
+            max={k === 'scale' ? 1.6 : k === 'turn' || k === 'pitch' || k === 'roll' ? Math.PI : k === 'bend' ? 1 : 0.3}
             step={0.005}
             value={fit[k] ?? 0}
             onChange={(e) => onChange({ ...fit, [k]: Number(e.target.value) })}
