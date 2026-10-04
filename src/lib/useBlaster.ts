@@ -154,11 +154,12 @@ export function useBlaster() {
 
   /** Burn real tokens: one whole token per bullet, chained and sent to ARC in one batch. */
   const fireTokens = useCallback(
-    async (startN: number, extras: string[][]) => {
+    async (startN: number, extras: string[][], to?: string) => {
       const g = gun.current;
       if (!g || !token) throw new Error('Pick a token first.');
       const per = BigInt(10) ** BigInt(token.dec);
-      const txids = await g.fireTokens(token.id, per, startN, extras);
+      // Solo: burned. Hitting another player: sent to their gun.
+      const txids = await g.fireTokens(token.id, per, startN, extras, to);
       setAmmo(g.sats);
       setTokenAmmo((n) => Math.max(0, n - txids.length));
       return txids;

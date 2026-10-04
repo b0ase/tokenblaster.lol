@@ -14,6 +14,8 @@ import { iconUrl } from '@/lib/tokens';
 import { TOKEN_FEE } from '@/lib/gun';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
+import { Room, realtimeConfigured } from '@/lib/realtime';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 /** 1 = wall. The player starts at S. Rows from HALL_Z down are the horde hall. */
 const MAP = [
@@ -138,6 +140,24 @@ export function Arena() {
   const [tokenLoad, setTokenLoad] = useState(10);
   const heldTok = b.tokens.find((t) => t.id === b.token?.id);
   const armed = tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30;
+  const net = useRef({ name: 'player', gun: '', token: null as null | { id: string; sym: string; icon: string | null } });
+  useEffect(() => {
+    net.current = {
+      name: b.wallet ? `${b.wallet.name.split(' ')[0]}·${b.wallet.address.slice(-4)}` : 'guest',
+      gun: b.gunAddress,
+      token: b.token ? { id: b.token.id, sym: b.token.sym, icon: b.token.icon } : null,
+    };
+  }, [b.wallet, b.gunAddress, b.token]);
+  const [players, setPlayers] = useState(0);
+  const [toasts, setToasts] = useState<{ id: number; text: string; icon: string | null }[]>([]);
+  const toast = useRef<(text: string, icon: string | null) => void>(() => undefined);
+  useEffect(() => {
+    toast.current = (text, icon) => {
+      const id = Math.random();
+      setToasts((t) => [{ id, text, icon }, ...t].slice(0, 5));
+      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
+    };
+  }, []);
   const live = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
     live.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) };
@@ -205,6 +225,66 @@ export function Arena() {
     let start = centre([1, 1], 1.6);
     type Mob = { m: Monster; hp: number; state: 'chase' | 'wander' | 'attack' | 'hit' | 'dying' | 'dead'; since: number; next: number; dir: THREE.Vector3; horde: boolean };
     const mobs: Mob[] = [];
+    // ── Multiplayer: everyone in /arena shares one room (Supabase Realtime broadcast + presence) ──
+    const myId = Math.random().toString(36).slice(2, 10);
+    let chibi: GLTF | null = null;
+    const chibiDef = MONSTERS.find((d) => d.id === 'chibi');
+    type Remote = { m: Monster; to: THREE.Vector3; yaw: number; seen: number; name: string; gun: string; label: THREE.Sprite };
+    const remotes = new Map<string, Remote>();
+    const nameTag = (text: string) => {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 48;
+      const x = c.getContext('2d')!;
+      x.fillStyle = 'rgba(10,4,4,0.75)';
+      x.fillRect(0, 0, 256, 48);
+      x.font = 'bold 26px monospace';
+      x.fillStyle = '#ffd0c0';
+      x.textAlign = 'center';
+      x.fillText(text.slice(0, 16), 128, 33);
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+      sp.scale.set(1.2, 0.225, 1);
+      return sp;
+    };
+    const remoteFor = (id: string, name: string) => {
+      let r = remotes.get(id);
+      if (!r && chibi && chibiDef) {
+        const m = new Monster(chibiDef, chibi);
+        m.play('idle');
+        const label = nameTag(name);
+        label.position.y = chibiDef.height + 0.35;
+        m.root.add(label);
+        scene.add(m.root);
+        r = { m, to: new THREE.Vector3(), yaw: 0, seen: performance.now(), name, gun: '', label };
+        remotes.set(id, r);
+      }
+      return r;
+    };
+    const room = realtimeConfigured()
+      ? new Room('tokenblaster-arena', myId, {
+          onBroadcast: (event, p) => {
+            if (event === 'pose') {
+              const d = p as { id: string; x: number; z: number; yaw: number; name: string; gun: string };
+              const r = remoteFor(d.id, d.name);
+              if (!r) return;
+              r.to.set(d.x, 0, d.z);
+              if (r.seen === 0 || r.m.root.position.lengthSq() === 0) r.m.root.position.copy(r.to);
+              r.yaw = d.yaw;
+              r.gun = d.gun;
+              r.seen = performance.now();
+            } else if (event === 'hit') {
+              const d = p as { to: string; from: string; n: number; tokens: boolean; sym?: string; icon?: string | null };
+              if (d.to !== myId) return;
+              damage(2 * d.n, performance.now());
+              toast.current(d.tokens ? `+${d.n} $${d.sym} from ${d.from} (in your gun)` : `${d.from} hit you ×${d.n}`, d.tokens ? iconUrl(d.icon ?? null) : null);
+            }
+          },
+          onPresence: (state) => setPlayers(Object.keys(state).length),
+        })
+      : null;
+    room?.track({ id: myId });
+    let lastPose = 0;
+
     const fireballs: { s: THREE.Sprite; v: THREE.Vector3 }[] = [];
     const sparks: { p: THREE.Points; born: number }[] = [];
     const medkits: { mesh: THREE.Mesh; back: number }[] = [];
@@ -416,6 +496,7 @@ export function Arena() {
           medkits.push({ mesh: m, back: 0 });
         }
 
+        chibi = a.monsters['chibi'] ?? null;
         // Monsters: warriors, rogues and mages in the maze; minions in the horde hall.
         const now = performance.now();
         const make = (def: (typeof MONSTERS)[number], horde: boolean) => {
@@ -606,16 +687,28 @@ export function Arena() {
     let lastShot = 0;
     let recoil = 0;
     let walkPhase = 0;
-    const queue: string[][] = [];
+    type Shot = { extra: string[]; to?: string; target?: string };
+    const queue: Shot[] = [];
     let draining = false;
     let jammedUntil = 0;
     const drain = async () => {
       if (draining) return;
       draining = true;
       while (queue.length) {
-        const batch = queue.slice(0, BATCH);
+        // One destination per batch: a run of shots at the same player (or the burn address).
+        let run = 1;
+        while (run < queue.length && run < BATCH && queue[run].to === queue[0].to) run++;
+        const batch = queue.slice(0, run);
+        const to = batch[0].to;
+        const target = batch[0].target;
         try {
-          const txids = await (live.current.tokenMode ? live.current.fireTokens(n + 1, batch.slice(0, 25)) : live.current.fireBatch(n + 1, batch));
+          const extras = batch.map((q) => q.extra);
+          const txids = await (live.current.tokenMode ? live.current.fireTokens(n + 1, extras.slice(0, 25), to) : live.current.fireBatch(n + 1, extras));
+          // Tell the player we hit: their gun just received our tokens.
+          if (target && txids.length && room) {
+            const tk = net.current.token;
+            room.broadcast('hit', { to: target, from: net.current.name, n: txids.length, tokens: live.current.tokenMode, sym: tk?.sym, icon: tk?.icon, txid: txids[txids.length - 1] });
+          }
           n += txids.length;
           queue.splice(0, txids.length);
           setHud((h) => ({ ...h, onChain: h.onChain + txids.length, last: txids[txids.length - 1] ?? h.last }));
@@ -667,7 +760,7 @@ export function Arena() {
       lastShot = now;
       sfx?.shoot();
       const from = held[gunIdx] ? held[gunIdx].group.localToWorld(held[gunIdx].muzzle.clone()) : camera.position.clone();
-      const boxes = mobs.filter((m) => m.state !== 'dying' && m.state !== 'dead' && m.m.root.visible).map((m) => m.m.hitbox);
+      const boxes = [...mobs.filter((m) => m.state !== 'dying' && m.state !== 'dead' && m.m.root.visible).map((m) => m.m.hitbox), ...[...remotes.values()].map((r) => r.m.hitbox)];
       let kills = 0;
       // Every pellet is its own raycast and its own on-chain blast.
       for (let k = 0; k < g.pellets; k++) {
@@ -702,7 +795,12 @@ export function Arena() {
           }
           mob.since = now;
         }
-        queue.push(['arena', mob ? (killed ? 'kill' : 'hit') : 'miss']);
+        const foe = first && [...remotes.entries()].find(([, r]) => r.m.hitbox === first.object);
+        if (foe) {
+          sparkAt(first!.point, '#ffd04a');
+          sfx?.hit();
+          queue.push({ extra: ['arena', 'player', foe[0]], to: foe[1].gun || undefined, target: foe[0] });
+        } else queue.push({ extra: ['arena', mob ? (killed ? 'kill' : 'hit') : 'miss'] });
       }
       heat = queue.length;
       // Spent coin out of the ejection port (gun's right side), tumbling up and back.
@@ -886,6 +984,24 @@ export function Arena() {
           }
         }
 
+        // Other players: glide to their last pose, walk while moving, drop if silent for 5 s.
+        if (room && now - lastPose > 100) {
+          lastPose = now;
+          room.broadcast('pose', { id: myId, x: camera.position.x, z: camera.position.z, yaw, name: net.current.name, gun: net.current.gun });
+        }
+        for (const [id, r] of remotes) {
+          if (now - r.seen > 5000) {
+            scene.remove(r.m.root);
+            remotes.delete(id);
+            continue;
+          }
+          const p = r.m.root.position;
+          const gap = p.distanceTo(r.to);
+          p.lerp(r.to, Math.min(1, dt * 8));
+          r.m.root.rotation.y = r.yaw + Math.PI;
+          r.m.play(gap > 0.05 ? 'walk' : 'idle');
+          r.m.mixer.update(dt);
+        }
         // Monsters.
         const inHall = camera.position.z / SIZE >= HALL_Z;
         for (const mob of mobs) {
@@ -1020,6 +1136,7 @@ export function Arena() {
       window.removeEventListener('arena:enter', onEnter);
       document.removeEventListener('mousemove', onMouse);
       document.removeEventListener('pointerlockchange', onLock);
+      room?.close();
       composer.dispose();
       renderer.dispose();
       el.removeChild(renderer.domElement);
@@ -1115,7 +1232,21 @@ export function Arena() {
           </div>
         )}
         {playing && (
-          <div className="pointer-events-none absolute left-2 top-2 max-w-[70%]">{flow}</div>
+          <div className="pointer-events-none absolute left-2 top-2 flex max-w-[70%] flex-col items-start gap-1">
+            {flow}
+            {players > 1 && <span className="inset bg-black/70 px-2 py-1 text-sm text-hot">{players} players in the arena · shoot them to send your tokens</span>}
+          </div>
+        )}
+        {toasts.length > 0 && (
+          <div className="pointer-events-none absolute left-1/2 top-16 flex -translate-x-1/2 flex-col items-center gap-1">
+            {toasts.map((t) => (
+              <div key={t.id} className="inset flex items-center gap-2 border-fg bg-black/85 px-3 py-1 text-sm text-hot">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {t.icon && <img src={t.icon} alt="" className="h-5 w-5 rounded" />}
+                {t.text}
+              </div>
+            ))}
+          </div>
         )}
         {playing && recent.length > 0 && (
           <div className="absolute right-2 top-2 flex w-56 flex-col gap-1 text-xs">
@@ -1182,6 +1313,7 @@ export function Arena() {
             onClick={(e) => isReady && e.target === e.currentTarget && window.dispatchEvent(new Event('arena:enter'))}
           >
             <p className="text-3xl font-bold text-hot">ARENA</p>
+            {players > 1 && <p className="text-sm text-hot">{players} players in the arena now · hitting a player sends them your token</p>}
             {b.wallet && flow}
             {b.receipt && (
               <div className="inset flex max-w-3xl items-center gap-2 border-fg bg-black/80 px-3 py-2 text-sm">
