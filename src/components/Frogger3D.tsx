@@ -56,6 +56,7 @@ export function Frogger3D() {
   const [best, setBest] = useState(0);
   const [killer, setKiller] = useState<FeedTx | null>(null);
   const [wasted, setWasted] = useState(false);
+  const [partyOn, setParty] = useState<null | { n: number; level: number }>(null);
   const [over, setOver] = useState(false);
   const [started, setStarted] = useState(false);
   const [clock, setClock] = useState('');
@@ -542,6 +543,80 @@ export function Frogger3D() {
     let fling: { v: THREE.Vector3; spin: number } | null = null;
     let dayT = 0.32; // start mid-morning
     let ammo = AMMO_PER_CROSSING;
+    let party = 0; // time the crossing party started (0 = none)
+    const confettiN = 420;
+    const confGeo = new THREE.PlaneGeometry(0.16, 0.08);
+    const confMat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, toneMapped: false });
+    const confetti = new THREE.InstancedMesh(confGeo, confMat, confettiN);
+    confetti.visible = false;
+    confetti.frustumCulled = false;
+    const confState = Array.from({ length: confettiN }, () => ({ p: new THREE.Vector3(), v: new THREE.Vector3(), r: new THREE.Euler(), w: new THREE.Vector3() }));
+    const PARTY_COLS = ['#ff3b5c', '#ffd23f', '#3bceac', '#4d7cff', '#ff8a00', '#c64dff', '#ffffff'].map((c) => new THREE.Color(c).multiplyScalar(1.6));
+    for (let i = 0; i < confettiN; i++) confetti.setColorAt(i, PARTY_COLS[i % PARTY_COLS.length]);
+    scene.add(confetti);
+    const sparkGeo = new THREE.SphereGeometry(0.09, 6, 4);
+    type Spark = { m: THREE.Mesh; v: THREE.Vector3; born: number; life: number };
+    const sparks: Spark[] = [];
+    const rockets: { m: THREE.Mesh; v: THREE.Vector3; at: number; col: THREE.Color }[] = [];
+    let audio: AudioContext | null = null;
+    const fanfare = () => {
+      try {
+        audio = audio ?? new AudioContext();
+        const t0 = audio.currentTime;
+        [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5].forEach((f, i) => {
+          const o = audio!.createOscillator();
+          const g = audio!.createGain();
+          o.type = i < 4 ? 'square' : 'triangle';
+          o.frequency.value = f;
+          const t = t0 + i * 0.11 + (i > 3 ? 0.08 : 0);
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, t + (i === 5 ? 0.6 : 0.16));
+          o.connect(g).connect(audio!.destination);
+          o.start(t);
+          o.stop(t + 0.7);
+        });
+      } catch {
+        /* no audio */
+      }
+    };
+    const startParty = (at: THREE.Vector3) => {
+      party = performance.now();
+      confetti.visible = true;
+      confState.forEach((c) => {
+        c.p.set(at.x + (Math.random() - 0.5) * 6, 7 + Math.random() * 5, at.z + (Math.random() - 0.5) * 6);
+        c.v.set((Math.random() - 0.5) * 4, Math.random() * 2, (Math.random() - 0.5) * 4);
+        c.r.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+        c.w.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
+      });
+      for (let k = 0; k < 5; k++) {
+        const col = PARTY_COLS[k % PARTY_COLS.length].clone();
+        const m = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: col, toneMapped: false }));
+        m.position.set(at.x + (k - 2) * 7 + (Math.random() - 0.5) * 3, 0.5, at.z - 6 - Math.random() * 8);
+        scene.add(m);
+        rockets.push({ m, v: new THREE.Vector3((Math.random() - 0.5) * 2, 18 + Math.random() * 6, 0), at: performance.now() + k * 260, col });
+      }
+      fanfare();
+    };
+    // Mouse look: move over the scene to look around the street; wheel to zoom.
+    const look = { yaw: 0, pitch: 0, tYaw: 0, tPitch: 0, dist: 11, tDist: 11 };
+    const onLook = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return;
+      const r = renderer.domElement.getBoundingClientRect();
+      look.tYaw = ((e.clientX - r.left) / r.width - 0.5) * 2.4; // up to ±70°
+      look.tPitch = ((e.clientY - r.top) / r.height - 0.5) * 0.9;
+    };
+    const onLeave = () => {
+      look.tYaw = 0;
+      look.tPitch = 0;
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      look.tDist = Math.max(5, Math.min(26, look.tDist + e.deltaY * 0.01));
+    };
+    renderer.domElement.addEventListener('pointermove', onLook);
+    renderer.domElement.addEventListener('pointerleave', onLeave);
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
     const zaps: { line: THREE.Line; spark: THREE.Mesh; born: number }[] = [];
     const zapMat = new THREE.LineBasicMaterial({ color: new THREE.Color('#7ad7ff').multiplyScalar(4), toneMapped: false });
     const sparkMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#9fe4ff').multiplyScalar(3), toneMapped: false, transparent: true });
@@ -568,7 +643,7 @@ export function Frogger3D() {
       attachGun();
     };
     const move = (dx: number, dz: number) => {
-      if (lifeLeft <= 0 || dead) return;
+      if (lifeLeft <= 0 || dead || party) return;
       setStarted(true);
       target = new THREE.Vector3(Math.max(-ROAD_HALF + 6, Math.min(ROAD_HALF - 6, target.x + dx * STEP)), 0, Math.max(GOAL_Z, Math.min(START_Z, target.z + dz * STEP)));
       heading = Math.atan2(dx, dz);
@@ -698,7 +773,7 @@ export function Frogger3D() {
         if (charId === 'frog' && body) body.position.y = moving ? Math.abs(Math.sin(now / 90)) * 0.35 : 0;
         player.rotation.set(0, THREE.MathUtils.lerp(player.rotation.y, heading, Math.min(1, dt * 12)), 0);
         // Crossed?
-        if (target.z <= GOAL_Z + 0.01 && pos.z <= GOAL_Z + 0.2) {
+        if (!party && target.z <= GOAL_Z + 0.01 && pos.z <= GOAL_Z + 0.2) {
           pts++;
           level = 1 + Math.floor(pts / 3);
           setScore(pts);
@@ -710,13 +785,14 @@ export function Frogger3D() {
           } catch {
             /* storage blocked */
           }
-          pos = new THREE.Vector3(pos.x, 0, START_Z);
-          target = pos.clone();
           ammo = AMMO_PER_CROSSING;
           setAmmoLeft(ammo);
+          setParty({ n: pts, level });
+          startParty(pos.clone());
+          target = pos.clone().setZ(GOAL_Z - 0.01); // hold on the far curb while the party runs
         }
         // Hit?
-        const hit = vehicles.find((v) => Math.abs(v.g.position.z - pos.z) < LANE_W * 0.45 && Math.abs(v.g.position.x - pos.x) < v.len / 2 + 0.35);
+        const hit = !party && vehicles.find((v) => Math.abs(v.g.position.z - pos.z) < LANE_W * 0.45 && Math.abs(v.g.position.x - pos.x) < v.len / 2 + 0.35);
         if (hit) {
           dead = now;
           lifeLeft--;
@@ -746,6 +822,65 @@ export function Frogger3D() {
         }
       }
       mixer?.update(dt);
+      if (party) {
+        const t = (now - party) / 1000;
+        // Victory dance: hop and spin.
+        player.position.y = Math.abs(Math.sin(t * 9)) * 0.5;
+        player.rotation.y += realDt * 9;
+        const tmp = new THREE.Object3D();
+        confState.forEach((c, i) => {
+          c.v.y -= 3.2 * realDt;
+          c.v.multiplyScalar(0.985);
+          c.p.addScaledVector(c.v, realDt);
+          c.r.x += c.w.x * realDt;
+          c.r.y += c.w.y * realDt;
+          tmp.position.copy(c.p);
+          tmp.rotation.copy(c.r);
+          tmp.updateMatrix();
+          confetti.setMatrixAt(i, tmp.matrix);
+        });
+        confetti.instanceMatrix.needsUpdate = true;
+        if (t > 2.8) {
+          party = 0;
+          confetti.visible = false;
+          setParty(null);
+          player.position.y = 0;
+          pos = new THREE.Vector3(pos.x, 0, START_Z);
+          target = pos.clone();
+          player.rotation.set(0, Math.PI, 0);
+        }
+      }
+      for (let i = rockets.length - 1; i >= 0; i--) {
+        const r = rockets[i];
+        if (now < r.at) continue;
+        r.v.y -= 14 * realDt;
+        r.m.position.addScaledVector(r.v, realDt);
+        if (r.v.y < 2) {
+          // Burst.
+          for (let k = 0; k < 46; k++) {
+            const m = new THREE.Mesh(sparkGeo, new THREE.MeshBasicMaterial({ color: r.col, toneMapped: false, transparent: true }));
+            m.position.copy(r.m.position);
+            const d = new THREE.Vector3().randomDirection().multiplyScalar(6 + Math.random() * 4);
+            scene.add(m);
+            sparks.push({ m, v: d, born: now, life: 1100 + Math.random() * 500 });
+          }
+          scene.remove(r.m);
+          rockets.splice(i, 1);
+        }
+      }
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const sp = sparks[i];
+        const age = now - sp.born;
+        sp.v.y -= 6 * realDt;
+        sp.v.multiplyScalar(0.97);
+        sp.m.position.addScaledVector(sp.v, realDt);
+        (sp.m.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - age / sp.life);
+        if (age > sp.life) {
+          scene.remove(sp.m);
+          (sp.m.material as THREE.Material).dispose();
+          sparks.splice(i, 1);
+        }
+      }
       for (let i = zaps.length - 1; i >= 0; i--) {
         const z = zaps[i];
         const age = now - z.born;
@@ -767,9 +902,19 @@ export function Frogger3D() {
         camera.position.lerp(camGoal, Math.min(1, realDt * 2));
         camera.lookAt(player.position.x, 0.8, player.position.z);
       } else {
-        const camGoal = new THREE.Vector3(player.position.x, 7.5, player.position.z + 11);
+        look.yaw += (look.tYaw - look.yaw) * Math.min(1, realDt * 5);
+        look.pitch += (look.tPitch - look.pitch) * Math.min(1, realDt * 5);
+        look.dist += (look.tDist - look.dist) * Math.min(1, realDt * 6);
+        // Orbit behind the player by the mouse: yaw swings round the street, pitch raises/lowers.
+        const yaw = look.yaw + (party ? Math.PI * 0.85 : 0);
+        const camGoal = new THREE.Vector3(
+          player.position.x + Math.sin(yaw) * look.dist,
+          Math.max(1.6, 7.5 * (look.dist / 11) - look.pitch * 6),
+          player.position.z + Math.cos(yaw) * look.dist,
+        );
         camera.position.lerp(camGoal, Math.min(1, realDt * 3));
-        camera.lookAt(player.position.x, 1.2, player.position.z - 6);
+        const ahead = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)).multiplyScalar(party ? 0 : 6);
+        camera.lookAt(player.position.x + ahead.x, 1.2 + look.pitch * 3, player.position.z + ahead.z);
       }
 
       composer.render();
@@ -795,6 +940,10 @@ export function Frogger3D() {
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', key);
       renderer.domElement.removeEventListener('touchstart', ts);
+      renderer.domElement.removeEventListener('pointermove', onLook);
+      renderer.domElement.removeEventListener('pointerleave', onLeave);
+      renderer.domElement.removeEventListener('wheel', onWheel);
+      void audio?.close();
       renderer.domElement.removeEventListener('touchend', te);
       composer.dispose();
       pmrem.dispose();
@@ -831,6 +980,31 @@ export function Frogger3D() {
         <button onClick={() => control.current?.skip()} className="btn absolute left-3 top-3 text-xs">
           ☀/☾ skip
         </button>
+        {partyOn && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <style>{`
+              @keyframes tbPop { 0% { transform: scale(0.2) rotate(-12deg); opacity: 0 } 60% { transform: scale(1.15) rotate(3deg); opacity: 1 } 100% { transform: scale(1) rotate(0) } }
+              @keyframes tbHue { from { filter: hue-rotate(0deg) } to { filter: hue-rotate(360deg) } }
+            `}</style>
+            <span
+              className="font-black uppercase"
+              style={{
+                fontFamily: '"Impact", "Arial Black", sans-serif',
+                fontSize: 'clamp(54px, 10vw, 120px)',
+                color: '#ffd23f',
+                WebkitTextStroke: '3px #000',
+                textShadow: '0 0 30px rgba(255,210,63,0.7), 0 6px 0 #000',
+                animation: 'tbPop 0.55s cubic-bezier(.2,1.5,.4,1) both, tbHue 1.2s linear infinite',
+              }}
+            >
+              Crossed!
+            </span>
+            <span className="mt-2 bg-black/70 px-3 py-1 text-lg font-bold text-hot" style={{ animation: 'tbPop 0.5s ease-out 0.25s both' }}>
+              crossing #{partyOn.n} · level {partyOn.level}
+              {partyOn.n > 1 && partyOn.n === best ? ' · NEW BEST!' : ''}
+            </span>
+          </div>
+        )}
         {wasted && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <style>{`
