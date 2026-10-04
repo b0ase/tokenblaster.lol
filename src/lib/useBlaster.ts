@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { Gun } from './gun';
-import { BLASTER_ID, tokenById, tokensHeld, type Token } from './tokens';
+import { BLASTER_ID, tokenById, walletTokens, type Token } from './tokens';
 import { connect, fund, type Wallet } from './wallet';
 
 export function useBlaster() {
@@ -46,10 +46,12 @@ export function useBlaster() {
       const w = await connect(entry);
       rememberWallet(entry.id);
       setWallet(w);
-      tokensHeld(w.address)
+      // The tokens really in the wallet (bWallet's bsv21 basket, else the index).
+      walletTokens(w)
         .then((held) => {
           setTokens(held);
           if (held[0]) setToken(held[0]);
+          else setMode('sats'); // nothing to burn
         })
         .catch(() => undefined);
     } catch (e) {

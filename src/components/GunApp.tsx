@@ -5,7 +5,7 @@ import { FEED_EVENT, type FeedTx } from '@/lib/feed';
 import { Gun } from '@/lib/gun';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
-import { BLASTER_ID, iconUrl, tokenById, tokensHeld, type Token } from '@/lib/tokens';
+import { BLASTER_ID, iconUrl, tokenById, walletTokens, type Token } from '@/lib/tokens';
 import { discoverWallets, inFrame, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
 import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
 import { WalletChooser } from './WalletChooser';
@@ -107,7 +107,7 @@ export function GunApp() {
       const w = await connect(entry);
       rememberWallet(entry.id);
       setWallet(w);
-      tokensHeld(w.address)
+      walletTokens(w)
         .then((held) => {
           setTokens(held);
           if (held[0]) setToken(held[0]);

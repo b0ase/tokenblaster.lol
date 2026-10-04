@@ -984,10 +984,11 @@ export function Arena() {
               ))}
             </div>
             <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">
-              <span className="text-dim">TOKEN TO FIRE:</span>
-              {choices.map((t) => (
+              <span className="text-dim">{b.wallet ? (b.tokens.length ? 'IN YOUR WALLET:' : 'NO TOKENS IN YOUR WALLET · TAG:') : 'TAG:'}</span>
+              {(tokenMode ? b.tokens : choices).map((t) => (
                 <button key={t.id} onClick={() => b.setToken(t)} className={`btn ${t.id === b.token?.id ? 'btn-on' : ''}`}>
                   ${t.sym}
+                  {t.balance !== undefined && b.tokens.some((h) => h.id === t.id) ? ` · ${t.balance.toLocaleString()}` : ''}
                 </button>
               ))}
               <input
@@ -1001,10 +1002,15 @@ export function Arena() {
             <div className="flex flex-wrap items-center justify-center gap-1 text-xs">
               <span className="text-dim">AMMO:</span>
               <button onClick={() => b.setMode('sats')} className={`btn ${!tokenMode ? 'btn-on' : ''}`}>
-                SATS · tagged blasts
+                SATS · tagged ${b.token?.sym ?? ''}, no tokens spent
               </button>
-              <button onClick={() => b.setMode('tokens')} className={`btn ${tokenMode ? 'btn-on' : ''}`}>
-                REAL TOKENS · burned
+              <button
+                onClick={() => b.setMode('tokens')}
+                disabled={Boolean(b.wallet) && !b.tokens.length}
+                title={b.wallet && !b.tokens.length ? 'Your wallet has no tokens to fire' : undefined}
+                className={`btn ${tokenMode ? 'btn-on' : ''} disabled:opacity-40`}
+              >
+                MY TOKENS · burned
               </button>
             </div>
             {tokenMode && (
@@ -1045,14 +1051,16 @@ export function Arena() {
       {/* Status bar */}
       <div className={`grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6 ${playing ? 'p-2' : 'mt-2'}`}>
         <Cell label="HEALTH" value={`${hud.health}%`} />
-        <Cell label={tokenMode ? 'TOKENS' : 'AMMO'} value={shotsLeft.toLocaleString()} sub={tokenMode ? `$${b.token?.sym ?? ''} · ${ammoNow.toLocaleString()} sats fuel` : `shots · ${ammoNow.toLocaleString()} sats`} />
+        <Cell label={tokenMode ? 'TOKENS' : 'AMMO'} value={shotsLeft.toLocaleString()} sub={tokenMode ? `$${b.token?.sym ?? ''} · ${ammoNow.toLocaleString()} sats fuel` : `sats shots · tag only`} />
         <Cell label="ON CHAIN" value={`${hud.onChain.toLocaleString()} / ${hud.shots.toLocaleString()}`} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
         <Cell label={`${GUNS[weapon]?.key} ${GUNS[weapon]?.name.toUpperCase()}`} value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} sub="heat" />
         <button onClick={cycleToken} title="Switch token (T)" className="inset flex items-center justify-center gap-2 px-2 py-1 hover:border-fg">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {icon ? <img src={icon} alt="" className="h-8 w-8" /> : null}
-          <span className="text-hot">${b.token?.sym ?? '…'}</span>
+          <span className="text-hot">
+            {tokenMode ? '' : 'tag '}${b.token?.sym ?? '…'}
+          </span>
           {b.tokens.length > 1 && <span className="text-xs text-dim">T ⟳</span>}
         </button>
       </div>
