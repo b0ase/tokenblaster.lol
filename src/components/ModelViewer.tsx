@@ -14,6 +14,14 @@ const MODELS = [
   ...GUNS.map((g) => ({ id: g.id, label: `gun: ${g.name}`, url: g.url })),
 ];
 
+// NPG 3D part cards (hair from Anything.world; masks/horns from Tripo, listed in parts.json).
+const NPG_HAIR = ['E001MiyukiHair', 'E002YamarashiiHair', 'E003HikaruHair', 'E011NaoHair'].map((id) => ({
+  id,
+  label: `NPG hair: ${id.slice(4).replace(/Hair$/, '')}`,
+  url: `/arena/models/npg/stack/${id}.glb`,
+}));
+type Model = { id: string; label: string; url: string };
+
 type Clip = { name: string; duration: number };
 
 /**
@@ -23,6 +31,17 @@ type Clip = { name: string; duration: number };
 export function ModelViewer() {
   const mount = useRef<HTMLDivElement>(null);
   const [modelId, setModelId] = useState('miyuki_parts');
+  const [cards, setCards] = useState<Model[]>(NPG_HAIR);
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
+  useEffect(() => {
+    fetch('/arena/models/npg/stack/parts.json')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((ps: { id: string; name: string; slot: string; url: string }[]) =>
+        setCards([...NPG_HAIR, ...ps.map((p) => ({ id: p.id, label: `NPG ${p.slot}: ${p.name}`, url: p.url }))]),
+      )
+      .catch(() => {});
+  }, []);
   const [clips, setClips] = useState<Clip[]>([]);
   const [clipIdx, setClipIdx] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -88,12 +107,17 @@ export function ModelViewer() {
     let meshes: { mesh: THREE.Mesh; name: string; original: THREE.Material | THREE.Material[]; debug: THREE.Material; home: THREE.Vector3; dir: THREE.Vector3 }[] = [];
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
-    const url = MODELS.find((m) => m.id === modelId)?.url ?? MODELS[0].url;
+    const url = [...cardsRef.current, ...MODELS].find((m) => m.id === modelId)?.url ?? MODELS[0].url;
     loader.load(
       url,
       (gltf) => {
         if (disposed) return;
         const model = gltf.scene;
+        // Tripo part cards often come out lying along Z: turn them to face the camera.
+        if (cardsRef.current.some((c) => c.id === modelId)) {
+          const raw = new THREE.Box3().setFromObject(model, true).getSize(new THREE.Vector3());
+          if (raw.z > raw.x) model.rotation.y = -Math.PI / 2;
+        }
         // Stand it on the floor at about 2 m (guns: 1 m long), centred.
         model.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(model, true);
@@ -240,11 +264,20 @@ export function ModelViewer() {
           }}
           className="inset bg-input px-2 py-1 text-hot"
         >
-          {MODELS.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
+          <optgroup label="NPG 3D cards">
+            {cards.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Arena">
+            {MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </optgroup>
         </select>
       </div>
       <div className="relative">
