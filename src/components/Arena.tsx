@@ -982,7 +982,9 @@ export function Arena() {
             <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">
               <span className="text-dim">{b.wallet ? (b.tokens.length ? 'YOUR TOKENS:' : 'NO TOKENS FOUND IN YOUR WALLET') : 'CONNECT YOUR WALLET TO SEE YOUR TOKENS'}</span>
               {b.tokens.map((t) => (
-                <button key={t.id} onClick={() => b.setToken(t)} className={`btn ${t.id === b.token?.id ? 'btn-on' : ''}`}>
+                <button key={t.id} onClick={() => b.setToken(t)} className={`btn inline-flex items-center gap-1 ${t.id === b.token?.id ? 'btn-on' : ''}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {iconUrl(t.icon) && <img src={iconUrl(t.icon)!} alt="" className="h-4 w-4 rounded-sm object-cover" loading="lazy" />}
                   ${t.sym}
                   {t.balance !== undefined && b.tokens.some((h) => h.id === t.id) ? ` · ${t.balance.toLocaleString()}` : ''}
                 </button>
