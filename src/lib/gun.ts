@@ -27,7 +27,7 @@ export const bsv21 = (id: string, amt: bigint, address: string) =>
 
 type TokCoin = { id: string; tx: Transaction; vout: number; amt: bigint };
 
-type Saved = { wif: string; tx?: string; vout?: number };
+type Saved = { wif: string; tx?: string; vout?: number; tok?: { id: string; tx: string; vout: number; amt: string } };
 
 const read = (): Saved | null => {
   try {
@@ -56,13 +56,17 @@ export class Gun {
     const s = typeof window !== 'undefined' ? read() : null;
     this.key = s ? PrivateKey.fromWif(s.wif) : PrivateKey.fromRandom();
     if (s?.tx) this.coin = { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 };
+    if (s?.tok) this.tok = { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) };
     this.save();
   }
 
   /** Another tab may have fired since: take the latest coin from storage. */
   private refresh() {
     const s = read();
-    if (s?.wif === this.key.toWif()) this.coin = s.tx ? { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 } : null;
+    if (s?.wif !== this.key.toWif()) return;
+    this.coin = s.tx ? { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 } : null;
+    // The token coin the gun is firing from: saved, so a reload doesn't depend on the index catching up.
+    this.tok = s.tok ? { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) } : null;
   }
 
   /** One tab fires at a time (Web Locks); falls back to running directly where unsupported. */
@@ -96,7 +100,12 @@ export class Gun {
   }
 
   private save() {
-    write({ wif: this.key.toWif(), tx: this.coin?.tx.toHex(), vout: this.coin?.vout });
+    write({
+      wif: this.key.toWif(),
+      tx: this.coin?.tx.toHex(),
+      vout: this.coin?.vout,
+      tok: this.tok && this.tok.amt > BigInt(0) ? { id: this.tok.id, tx: this.tok.tx.toHex(), vout: this.tok.vout, amt: this.tok.amt.toString() } : undefined,
+    });
   }
 
   /** Everything at the gun's address, including coins the gun is not tracking. */
@@ -247,12 +256,15 @@ export class Gun {
     // The wallet broadcasts the load itself; keep the full tx (with its parents) so we can make sure
     // ARC has it before our first bullet spends it.
     this.loadTx = tx;
-    if (this.tok?.id === id && this.tok.amt > BigInt(0)) return; // already firing from one; the index merges later
+    // Fire from the bigger coin; the other one is still found through the index later.
+    if (this.tok?.id === id && this.tok.amt >= amt) return;
     this.tok = { id, tx: Transaction.fromHex(tx.toHex()), vout, amt };
+    this.save();
   }
   private loadTx: Transaction | null = null;
 
   async tokenAmmo(id: string): Promise<bigint> {
+    this.refresh();
     const utxos = await this.tokenUtxos(id);
     const indexed = utxos.reduce((n, u) => n + u.amt, BigInt(0));
     // While a chain we fired is still unindexed, trust what we know.
