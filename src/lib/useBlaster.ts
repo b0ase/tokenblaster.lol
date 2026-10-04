@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { Gun } from './gun';
 import { BLASTER_ID, tokenById, walletTokens, type Token } from './tokens';
+import { loadTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
 
 export function useBlaster() {
@@ -16,7 +17,7 @@ export function useBlaster() {
   const [ammo, setAmmo] = useState(0);
   const [token, setToken] = useState<Token | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);
-  const [busy, setBusy] = useState<null | 'connecting' | 'loading' | 'unloading'>(null);
+  const [busy, setBusy] = useState<null | 'connecting' | 'loading' | 'loading-tokens' | 'unloading'>(null);
   const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 'sats': tagged blasts (tokens never move). 'tokens': every bullet burns a real token. */
@@ -149,6 +150,29 @@ export function useBlaster() {
     [token],
   );
 
+  /** Load `count` whole tokens from the wallet into the gun: one approval in the wallet. */
+  const loadTokenAmmo = useCallback(
+    async (count: number) => {
+      const g = gun.current;
+      if (!wallet || !g || !token) return;
+      setError(null);
+      setBusy('loading-tokens');
+      try {
+        await loadTokens(wallet.client, token.id, BigInt(Math.floor(count)) * BigInt(10) ** BigInt(token.dec), g.address, token.sym);
+        setTokenAmmo((n) => n + Math.floor(count));
+        walletTokens(wallet)
+          .then(setTokens)
+          .catch(() => undefined);
+        setTimeout(() => void refreshTokens(), 4000); // the index catches up
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [wallet, token, refreshTokens],
+  );
+
   const unload = useCallback(async () => {
     if (!wallet || !gun.current) return;
     setBusy('unloading');
@@ -162,5 +186,5 @@ export function useBlaster() {
     }
   }, [wallet]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

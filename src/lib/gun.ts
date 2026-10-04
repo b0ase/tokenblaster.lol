@@ -18,7 +18,7 @@ const GP = 'https://ordinals.gorillapool.io/api';
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
 
 /** A BSV-21 transfer inscription of `amt` (base units) of token `id`, locked to `address`. */
-const bsv21 = (id: string, amt: bigint, address: string) =>
+export const bsv21 = (id: string, amt: bigint, address: string) =>
   Script.fromASM(
     `OP_0 OP_IF ${hex('ord')} OP_1 ${hex('application/bsv-20')} OP_0 ${hex(JSON.stringify({ p: 'bsv-20', op: 'transfer', id, amt: amt.toString() }))} OP_ENDIF ${new P2PKH().lock(address).toASM()}`,
   );

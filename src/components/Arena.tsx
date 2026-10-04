@@ -125,6 +125,7 @@ export function Arena() {
 
   // The game loop reads the latest blaster state through refs.
   const tokenMode = b.mode === 'tokens';
+  const [tokenLoad, setTokenLoad] = useState(10);
   const armed = Boolean(b.token) && (tokenMode ? b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30);
   const live = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
@@ -1018,7 +1019,24 @@ export function Arena() {
                 <p className="text-hot">
                   Every bullet burns 1 ${b.token?.sym ?? 'token'} for good (sent to {BURN_ADDRESS.slice(0, 12)}…). Loaded: {b.tokenAmmo.toLocaleString()} ${b.token?.sym ?? ''}
                 </p>
-                <p className="mt-1 text-dim">Send as many as you want to fire to your gun, from your wallet&apos;s token Send:</p>
+                {b.wallet && b.tokens.some((t) => t.id === b.token?.id) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      value={tokenLoad}
+                      onChange={(e) => setTokenLoad(Math.max(1, Number(e.target.value) || 1))}
+                      className="inset w-24 bg-input px-2 py-1 text-hot"
+                    />
+                    <span className="text-dim">
+                      of {b.tokens.find((t) => t.id === b.token?.id)?.balance?.toLocaleString()} ${b.token?.sym} in your wallet
+                    </span>
+                    <button onClick={() => b.loadTokenAmmo(tokenLoad)} disabled={!!b.busy} className="btn btn-on">
+                      {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `LOAD ${tokenLoad.toLocaleString()} $${b.token?.sym}`}
+                    </button>
+                  </div>
+                )}
+                <p className="mt-2 text-dim">Or send them to your gun yourself, from your wallet&apos;s token Send:</p>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-accent">{b.gunAddress}</code>
                   <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn text-xs">
