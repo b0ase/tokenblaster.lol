@@ -27,12 +27,12 @@ export default function Home() {
           </div>
           <div className="text-dim">Fire your tokens at the chain. Most confirmed in a round wins.</div>
         </Link>
-        <Link href="/arena" className="panel group hover:border-fg">
+        <Link href="/arcade" className="panel group hover:border-fg">
           <div className="panel-header">
-            <span className="panel-title group-hover:text-hot">&gt; Arena</span>
+            <span className="panel-title group-hover:text-hot">&gt; Arcade</span>
             <span className="text-dim">[ENTER]</span>
           </div>
-          <div className="text-dim">DOOM-style maze. Hunt drones with your token, every shot a real blast. Multiplayer soon.</div>
+          <div className="text-dim">Games on the live chain: the Arena (shoot your own tokens, multiplayer), Chain Frogger (dodge real mainnet traffic), more coming.</div>
         </Link>
       </nav>
       <footer className="py-2 text-center text-xs text-muted">
