@@ -10,7 +10,7 @@ import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
 import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type HeldGun } from '@/lib/arenaHD';
 import { formatCount, packSats } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
-import { iconUrl, tokenById, type Token } from '@/lib/tokens';
+import { iconUrl } from '@/lib/tokens';
 import { BURN_ADDRESS } from '@/lib/gun';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
@@ -104,6 +104,10 @@ export function Arena() {
   const [hurt, setHurt] = useState(false);
   const [dead, setDead] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const playingRef = useRef(false);
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
   const [shots, setShots] = useState(1_000);
   const [bsvUsd, setBsvUsd] = useState<number | null>(null);
   useEffect(() => {
@@ -112,7 +116,6 @@ export function Arena() {
       .then((d: { bsvUsd?: number }) => d.bsvUsd && setBsvUsd(d.bsvUsd))
       .catch(() => undefined);
   }, []);
-  const [custom, setCustom] = useState('');
   const [chainError, setChainError] = useState<string | null>(null);
   const [weapon, setWeapon] = useState(0);
   const [empty, setEmpty] = useState(false);
@@ -126,7 +129,7 @@ export function Arena() {
   // The game loop reads the latest blaster state through refs.
   const tokenMode = b.mode === 'tokens';
   const [tokenLoad, setTokenLoad] = useState(10);
-  const armed = Boolean(b.token) && (tokenMode ? b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30);
+  const armed = tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30;
   const live = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
     live.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) };
@@ -728,6 +731,7 @@ export function Arena() {
           const { m } = mob;
           if (m.root.userData.frozen) m.mixer.setTime(2.2);
           else m.mixer.update(dt);
+          if (!playingRef.current) continue; // monsters wait (animating in place) until you start the game
           const p = m.root.position;
           const lungeAt = m.body.userData.lunge as number | undefined;
           if (lungeAt && mob.state !== 'dying') m.body.position.z = now - lungeAt < 400 ? Math.sin(((now - lungeAt) / 400) * Math.PI) * 0.7 : 0;
@@ -867,15 +871,6 @@ export function Arena() {
   const shotsLeft = tokenMode ? Math.max(0, Math.floor(b.tokenAmmo) - hud.heat) : Math.floor(ammoNow / FEE_PER_SHOT);
   const isReady = loading >= 1;
 
-  const pickCustom = async () => {
-    try {
-      b.setToken(await tokenById(custom.trim()));
-      setCustom('');
-    } catch (e) {
-      b.setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-  const choices: Token[] = [...(b.token ? [b.token] : []), ...b.tokens.filter((t) => t.id !== b.token?.id)].slice(0, 7);
   const cycleToken = () => {
     const all = [...b.tokens];
     if (b.token && !all.some((t) => t.id === b.token!.id)) all.unshift(b.token);
@@ -985,25 +980,23 @@ export function Arena() {
               ))}
             </div>
             <div className="flex max-w-xl flex-wrap items-center justify-center gap-1 text-xs">
-              <span className="text-dim">{b.wallet ? (b.tokens.length ? 'IN YOUR WALLET:' : 'NO TOKENS IN YOUR WALLET · TAG:') : 'TAG:'}</span>
-              {(tokenMode ? b.tokens : choices).map((t) => (
+              <span className="text-dim">{b.wallet ? (b.tokens.length ? 'YOUR TOKENS:' : 'NO TOKENS FOUND IN YOUR WALLET') : 'CONNECT YOUR WALLET TO SEE YOUR TOKENS'}</span>
+              {b.tokens.map((t) => (
                 <button key={t.id} onClick={() => b.setToken(t)} className={`btn ${t.id === b.token?.id ? 'btn-on' : ''}`}>
                   ${t.sym}
                   {t.balance !== undefined && b.tokens.some((h) => h.id === t.id) ? ` · ${t.balance.toLocaleString()}` : ''}
                 </button>
               ))}
-              <input
-                value={custom}
-                onChange={(e) => setCustom(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && pickCustom()}
-                placeholder="token id (txid_vout)"
-                className="inset w-44 bg-input px-2 py-1 text-hot placeholder:text-muted"
-              />
             </div>
+            {b.wallet && (
+              <p className="text-xs text-dim">
+                Wallet: {b.wallet.name} <span className="text-hot">{b.wallet.address}</span>
+              </p>
+            )}
             <div className="flex flex-wrap items-center justify-center gap-1 text-xs">
               <span className="text-dim">AMMO:</span>
               <button onClick={() => b.setMode('sats')} className={`btn ${!tokenMode ? 'btn-on' : ''}`}>
-                SATS · tagged ${b.token?.sym ?? ''}, no tokens spent
+                SATS · {b.token ? `tagged $${b.token.sym}, ` : ''}no tokens spent
               </button>
               <button
                 onClick={() => b.setMode('tokens')}

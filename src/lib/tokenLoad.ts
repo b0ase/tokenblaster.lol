@@ -7,48 +7,19 @@
  */
 import { Hash, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
 import { bsv21 } from './gun';
+import { tokenCoins } from './tokens';
 
 type Coin = { outpoint: string; amt: bigint; protocolID: WalletProtocol; keyID: string };
 const ONESAT: WalletProtocol = [0, 'onesat'];
 const SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_FORKID;
 
-const amtOf = (hex: string): { id?: string; amt?: string; op?: string } | null => {
-  let text = '';
-  for (let i = 0; i + 1 < hex.length; i += 2) text += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
-  const m = text.match(/\{"p":"bsv-20"[^}]*\}/);
-  try {
-    return m ? JSON.parse(m[0]) : null;
-  } catch {
-    return null;
-  }
-};
-
 /** Send `amount` base units of token `id` from the wallet to `to`. Returns the txid. */
 export async function loadTokens(wallet: WalletInterface, id: string, amount: bigint, to: string, sym = 'tokens'): Promise<string> {
-  const listed = await wallet.listOutputs({
-    basket: 'bsv21',
-    include: 'entire transactions',
-    includeTags: true,
-    includeCustomInstructions: true,
-    limit: 10000,
-  });
-  // The wallet's coins of this token, with the key each is locked to.
-  const coins: Coin[] = [];
-  for (const o of listed.outputs) {
-    if (!o.spendable) continue;
-    const ins = amtOf(o.lockingScript ?? '');
-    const tagId = o.tags?.find((t) => t.startsWith('bsv21:') && t !== 'bsv21:deploy' && t !== 'bsv21:auth')?.slice(6);
-    const coinId = tagId ?? ins?.id ?? (ins?.op === 'deploy+mint' ? o.outpoint.replace('.', '_') : undefined);
-    if (coinId !== id || !ins?.amt) continue;
-    let ci: { protocolID?: WalletProtocol; keyID?: string } = {};
-    try {
-      ci = JSON.parse(o.customInstructions ?? '{}');
-    } catch {
-      /* none */
-    }
-    if (!ci.keyID) continue; // can't ask the wallet to sign without knowing the key
-    coins.push({ outpoint: o.outpoint, amt: BigInt(ins.amt), protocolID: ci.protocolID ?? ONESAT, keyID: ci.keyID });
-  }
+  const { coins: all, beef } = await tokenCoins(wallet, true);
+  // This token's coins whose key the wallet recorded (needed to ask it to sign).
+  const coins: Coin[] = all
+    .filter((c) => c.id === id && c.keyID)
+    .map((c) => ({ outpoint: c.outpoint, amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! }));
   coins.sort((a, b) => (b.amt > a.amt ? 1 : -1));
   const use: Coin[] = [];
   let sum = BigInt(0);
@@ -79,7 +50,7 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
 
   const created = await wallet.createAction({
     description: `TokenBlaster: load ${amount} $${sym} into your gun`,
-    inputBEEF: listed.BEEF,
+    inputBEEF: beef,
     inputs: use.map((c) => ({ outpoint: c.outpoint, unlockingScriptLength: 108, inputDescription: `$${sym}` })),
     outputs,
     labels: ['tokenblaster'],

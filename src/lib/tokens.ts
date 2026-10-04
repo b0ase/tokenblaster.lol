@@ -1,11 +1,9 @@
 /** BSV-20/21 token data from the GorillaPool ordinals API (CORS-enabled, no key). */
-import type { WalletInterface } from '@bsv/sdk';
+import { Beef, type WalletInterface } from '@bsv/sdk';
 const API = 'https://ordinals.gorillapool.io/api';
 
 export type Token = { id: string; sym: string; icon: string | null; dec: number; balance?: number };
 
-/** Featured: the $BLASTER token already on chain. */
-export const BLASTER_ID = '429bf19906897c0444a53bdf236473b1b3965a95a03f20863de640f49241d929_0';
 
 export const iconUrl = (icon: string | null) =>
   !icon ? null : /^https?:/.test(icon) ? icon : `https://ordfs.network/${icon}`;
@@ -40,36 +38,85 @@ export async function tokenById(id: string): Promise<Token> {
   return t;
 }
 
+/** One BSV-21 coin in a 1Sat-style wallet (Yours v5, bWallet, bWalletX). */
+export type TokenCoin = {
+  outpoint: string;
+  id: string;
+  amt: bigint;
+  sym?: string;
+  dec?: number;
+  icon?: string;
+  protocolID?: [0 | 1 | 2, string];
+  keyID?: string;
+  lockingScript?: string;
+};
+
+const norm = (op: string) => op.replace('.', '_');
+
 /**
- * The tokens actually in the player's wallet. bWallet/bWalletX keep BSV-21 token outputs in a
- * `bsv21` basket, tagged `bsv21:<tokenId>`; each output's amount is in its inscription. Falls back
- * to the GorillaPool index for the wallet's address (wallets that don't use baskets).
+ * Every spendable token coin in the wallet, read the way the 1Sat wallets read them: the `bsv21`
+ * basket (and its legacy name), 500 at a time; token id and amount from each coin's
+ * customInstructions, then its tags, then the deploy outpoint, then the inscription itself.
+ */
+export async function tokenCoins(wallet: WalletInterface, withScripts = false): Promise<{ coins: TokenCoin[]; beef?: number[] }> {
+  const coins: TokenCoin[] = [];
+  const beef = new Beef();
+  for (const basket of ['bsv21', 'p 1sat bsv21']) {
+    for (let offset = 0; offset < 20000; offset += 500) {
+      const r = await wallet
+        .listOutputs({ basket, include: withScripts ? 'entire transactions' : 'locking scripts', includeTags: true, includeCustomInstructions: true, limit: 500, offset })
+        .catch(() => null);
+      if (!r) break;
+      if (withScripts && r.BEEF) beef.mergeBeef(Array.from(r.BEEF)); // every page's source txs, for spending
+      for (const o of r.outputs) {
+        if (o.spendable === false || !o.outpoint) continue;
+        let ci: Record<string, unknown> = {};
+        try {
+          ci = o.customInstructions ? JSON.parse(o.customInstructions) : {};
+        } catch {
+          /* not JSON */
+        }
+        const tags = o.tags ?? [];
+        const ins = inscriptionJson(o.lockingScript ?? '');
+        const tagId = tags.find((t) => t.startsWith('bsv21:') && t !== 'bsv21:deploy' && t !== 'bsv21:auth')?.slice(6);
+        const isDeploy = tags.includes('bsv21:deploy') || ins?.op === 'deploy+mint';
+        const id = (typeof ci.id === 'string' && ci.id) || tagId || ins?.id || (isDeploy ? o.outpoint : '');
+        const amt = (typeof ci.amt === 'string' && ci.amt) || ins?.amt;
+        if (!id || !amt || tags.includes('bsv21:auth')) continue;
+        coins.push({
+          outpoint: o.outpoint,
+          id: norm(id),
+          amt: BigInt(amt),
+          sym: typeof ci.sym === 'string' ? ci.sym : undefined,
+          dec: ci.dec !== undefined ? Number(ci.dec) : undefined,
+          icon: typeof ci.icon === 'string' ? ci.icon : undefined,
+          protocolID: Array.isArray(ci.protocolID) ? (ci.protocolID as [0 | 1 | 2, string]) : undefined,
+          keyID: typeof ci.keyID === 'string' ? ci.keyID : undefined,
+          lockingScript: o.lockingScript,
+        });
+      }
+      if (r.outputs.length < 500) break;
+    }
+  }
+  return { coins, beef: withScripts ? beef.toBinary() : undefined };
+}
+
+/**
+ * The tokens actually in the player's wallet, with balances. Falls back to the GorillaPool index
+ * for the wallet's address (wallets that don't keep token baskets).
  */
 export async function walletTokens(w: { client: WalletInterface; address: string }): Promise<Token[]> {
-  const sums = new Map<string, bigint>();
-  try {
-    const r = await w.client.listOutputs({ basket: 'bsv21', include: 'locking scripts', includeTags: true, includeCustomInstructions: true, limit: 10000 });
-    for (const o of r.outputs) {
-      const ins = inscriptionJson(o.lockingScript ?? '');
-      let id = o.tags?.find((t) => t.startsWith('bsv21:') && t !== 'bsv21:deploy' && t !== 'bsv21:auth')?.slice(6) ?? ins?.id;
-      if (!id) {
-        try {
-          id = (JSON.parse(o.customInstructions ?? '{}') as { id?: string }).id;
-        } catch {
-          /* no instructions */
-        }
-      }
-      if (!id && ins?.op === 'deploy+mint') id = o.outpoint.replace('.', '_');
-      if (!id || !ins?.amt) continue;
-      sums.set(id, (sums.get(id) ?? BigInt(0)) + BigInt(ins.amt));
-    }
-  } catch {
-    /* wallet has no baskets (or refused): use the index */
+  const { coins } = await tokenCoins(w.client).catch(() => ({ coins: [] as TokenCoin[] }));
+  if (!coins.length) return tokensHeld(w.address).catch(() => []);
+  const byId = new Map<string, { amt: bigint; c: TokenCoin }>();
+  for (const c of coins) {
+    const cur = byId.get(c.id);
+    byId.set(c.id, { amt: (cur?.amt ?? BigInt(0)) + c.amt, c: cur?.c.sym ? cur.c : c });
   }
-  if (!sums.size) return tokensHeld(w.address).catch(() => []);
   const out = await Promise.all(
-    [...sums].map(async ([id, amt]) => {
-      const t = await tokenById(id).catch(() => ({ id, sym: id.slice(0, 8), icon: null, dec: 0 }) as Token);
+    [...byId].map(async ([id, { amt, c }]) => {
+      // Prefer the index for name/decimals/icon; the coin's own notes if the index doesn't know it.
+      const t = await tokenById(id).catch(() => ({ id, sym: c.sym ?? id.slice(0, 8), icon: c.icon ?? null, dec: c.dec ?? 0 }) as Token);
       return { ...t, balance: Number(amt) / 10 ** t.dec };
     }),
   );

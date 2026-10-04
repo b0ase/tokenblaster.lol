@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { Gun } from './gun';
-import { BLASTER_ID, tokenById, walletTokens, type Token } from './tokens';
+import { walletTokens, type Token } from './tokens';
 import { loadTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
 
@@ -32,9 +32,6 @@ export function useBlaster() {
     g.balance()
       .then((b) => setAmmo((cur) => Math.max(cur, b)))
       .catch(() => setAmmo(g.sats));
-    tokenById(BLASTER_ID)
-      .then((t) => setToken((cur) => cur ?? t))
-      .catch(() => undefined);
   }, []);
 
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
@@ -98,8 +95,8 @@ export function useBlaster() {
   const fire = useCallback(
     async (n: number, extra: string[] = []) => {
       const g = gun.current;
-      if (!g || !token) throw new Error('Pick a token first.');
-      const txid = await g.fire(token.id, n, extra);
+      if (!g) throw new Error('No gun.');
+      const txid = await g.fire(token?.id ?? '', n, extra); // sats shots: tagged with your token, or untagged
       setAmmo(g.sats);
       return txid;
     },
@@ -110,8 +107,8 @@ export function useBlaster() {
   const fireBatch = useCallback(
     async (startN: number, extras: string[][]) => {
       const g = gun.current;
-      if (!g || !token) throw new Error('Pick a token first.');
-      const txids = await g.fireBatch(token.id, startN, extras);
+      if (!g) throw new Error('No gun.');
+      const txids = await g.fireBatch(token?.id ?? '', startN, extras);
       setAmmo(g.sats);
       return txids;
     },

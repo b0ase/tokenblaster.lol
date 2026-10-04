@@ -5,7 +5,7 @@ import { FEED_EVENT, type FeedTx } from '@/lib/feed';
 import { Gun } from '@/lib/gun';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
-import { BLASTER_ID, iconUrl, tokenById, walletTokens, type Token } from '@/lib/tokens';
+import { iconUrl, tokenById, walletTokens, type Token } from '@/lib/tokens';
 import { discoverWallets, inFrame, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
 import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
 import { WalletChooser } from './WalletChooser';
@@ -58,9 +58,6 @@ export function GunApp() {
     fetch('/api/price')
       .then((r) => r.json())
       .then((d: { bsvUsd?: number }) => d.bsvUsd && setBsvUsd(d.bsvUsd))
-      .catch(() => undefined);
-    tokenById(BLASTER_ID)
-      .then((t) => setToken((cur) => cur ?? t))
       .catch(() => undefined);
   }, []);
 
