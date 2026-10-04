@@ -8,7 +8,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
 import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type HeldGun } from '@/lib/arenaHD';
-import { formatCount, packSats } from '@/lib/pricing';
+import { formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl } from '@/lib/tokens';
 import { TOKEN_FEE } from '@/lib/gun';
@@ -1241,8 +1241,12 @@ export function Arena() {
                         />
                       </div>
                       <p className="max-w-sm text-xs text-dim">
-                        Each bullet burns 1 ${b.token.sym} for good. One approval loads the tokens plus the sats to fire them (~
-                        {(Math.min(tokenLoad, 10_000) * TOKEN_FEE).toLocaleString()} sats{tokenLoad > 10_000 ? ', enough for the first 10,000 bullets' : ''}). In the gun now: <span className="text-hot">{b.tokenAmmo.toLocaleString()}</span>
+                        One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus the fees to fire every one of them:{' '}
+                        <span className="text-hot">
+                          {(tokenLoad * TOKEN_FEE).toLocaleString()} sats ({((tokenLoad * TOKEN_FEE) / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} BSV
+                          {bsvUsd ? ` · ${formatUsd(usd(tokenLoad * TOKEN_FEE, bsvUsd))}` : ''})
+                        </span>
+                        . Unfired fees come back on Unload. In the gun now: <span className="text-hot">{b.tokenAmmo.toLocaleString()}</span>
                       </p>
                       <button onClick={() => b.loadTokenAmmo(tokenLoad)} disabled={!!b.busy} className="btn-fire">
                         {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `LOAD ${tokenLoad.toLocaleString()} $${b.token.sym}`}
