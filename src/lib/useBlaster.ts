@@ -180,6 +180,29 @@ export function useBlaster() {
     [wallet, token, refreshTokens],
   );
 
+  /** Re-read the wallet's tokens (after buying or receiving more). */
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshWallet = useCallback(async () => {
+    if (!wallet) return;
+    setRefreshing(true);
+    try {
+      const held = await walletTokens(wallet, setTokens);
+      setTokens(held);
+      setToken((cur) => (cur ? (held.find((t) => t.id === cur.id) ?? cur) : (held[0] ?? null)));
+    } catch (e) {
+      fail(e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [wallet]);
+  // Coming back to the tab (e.g. after buying tokens elsewhere): look again.
+  useEffect(() => {
+    if (!wallet) return;
+    const onFocus = () => document.visibilityState === 'visible' && void refreshWallet();
+    document.addEventListener('visibilitychange', onFocus);
+    return () => document.removeEventListener('visibilitychange', onFocus);
+  }, [wallet, refreshWallet]);
+
   const unload = useCallback(async () => {
     if (!wallet || !gun.current) return;
     setBusy('unloading');
@@ -193,5 +216,5 @@ export function useBlaster() {
     }
   }, [wallet]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, refreshWallet, refreshing, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

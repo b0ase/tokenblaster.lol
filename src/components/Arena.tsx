@@ -1132,7 +1132,14 @@ export function Arena() {
             <div className="flex w-full max-w-3xl flex-col gap-3 sm:flex-row">
               {/* 2 · ammo: the tokens in your wallet, stacked */}
               <div className="flex w-full flex-col gap-1 sm:w-64">
-                <p className="text-left text-xs font-bold text-dim">2 · PICK YOUR AMMO</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-left text-xs font-bold text-dim">2 · PICK YOUR AMMO</p>
+                  {b.wallet && (
+                    <button onClick={b.refreshWallet} disabled={b.refreshing} className="btn px-2 py-0.5 text-xs" title="Look in your wallet again">
+                      {b.refreshing ? 'checking…' : '↻ refresh'}
+                    </button>
+                  )}
+                </div>
                 {!b.wallet ? (
                   <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
                     {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
