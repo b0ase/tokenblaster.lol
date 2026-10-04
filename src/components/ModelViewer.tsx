@@ -62,7 +62,9 @@ export function ModelViewer() {
   const [cards, setCards] = useState<Model[]>([...NPG_HAIR, BASE_MASK]);
   const [compareId, setCompareId] = useState('');
   const cardsRef = useRef(cards);
-  cardsRef.current = cards;
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
   useEffect(() => {
     fetch('/arena/models/npg/stack/parts.json')
       .then((r) => (r.ok ? r.json() : []))
