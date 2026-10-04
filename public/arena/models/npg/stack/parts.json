@@ -1,0 +1,92 @@
+[
+ {
+  "id": "09_001_Horns_Phi-Phi-Horn",
+  "name": "Phi Phi Horn",
+  "slot": "horns",
+  "url": "/arena/models/npg/stack/09_001_Horns_Phi-Phi-Horn.glb"
+ },
+ {
+  "id": "M011MechaMask",
+  "name": "Mecha-Style",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/M011MechaMask.glb"
+ },
+ {
+  "id": "11_001_Mask_Yama-Mask",
+  "name": "Yama Mask",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_001_Mask_Yama-Mask.glb"
+ },
+ {
+  "id": "11_002_Mask_Payne-Patch",
+  "name": "Payne Patch",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_002_Mask_Payne-Patch.glb"
+ },
+ {
+  "id": "11_003_Mask_Ayumi-Mask",
+  "name": "Ayumi Mask",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_003_Mask_Ayumi-Mask.glb"
+ },
+ {
+  "id": "11_004_Mask_Kimi-Mask",
+  "name": "Kimi Mask",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_004_Mask_Kimi-Mask.glb"
+ },
+ {
+  "id": "11_005_Mask_Medical",
+  "name": "Medical",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_005_Mask_Medical.glb"
+ },
+ {
+  "id": "11_006_Mask_Spiked",
+  "name": "Spiked",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_006_Mask_Spiked.glb"
+ },
+ {
+  "id": "11_007_Mask_Studded",
+  "name": "Studded",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_007_Mask_Studded.glb"
+ },
+ {
+  "id": "11_009_Mask_Miami-Sunglasses",
+  "name": "Miami Sunglasses",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_009_Mask_Miami-Sunglasses.glb"
+ },
+ {
+  "id": "11_010_Mask_Bluetooth-Mic",
+  "name": "Bluetooth Mic",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_010_Mask_Bluetooth-Mic.glb"
+ },
+ {
+  "id": "11_014_Mask_Plain",
+  "name": "Plain",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_014_Mask_Plain.glb"
+ },
+ {
+  "id": "11_015_Mask_Racing-Goggles",
+  "name": "Racing Goggles",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_015_Mask_Racing-Goggles.glb"
+ },
+ {
+  "id": "11_016_Mask_Polkadot",
+  "name": "Polkadot",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_016_Mask_Polkadot.glb"
+ },
+ {
+  "id": "11_020_Mask_Glasses",
+  "name": "Glasses",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/11_020_Mask_Glasses.glb"
+ }
+]
