@@ -63,7 +63,15 @@
   "id": "11_009_Mask_Miami-Sunglasses",
   "name": "Miami Sunglasses",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_009_Mask_Miami-Sunglasses.glb"
+  "url": "/arena/models/npg/stack/11_009_Mask_Miami-Sunglasses.glb",
+  "fit": {
+   "scale": 1.11,
+   "y": 0.06,
+   "z": -0.025,
+   "turn": 0,
+   "pitch": 0,
+   "bend": 0
+  }
  },
  {
   "id": "11_010_Mask_Bluetooth-Mic",

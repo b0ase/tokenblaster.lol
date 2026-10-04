@@ -20,7 +20,26 @@ const NPG_HAIR = ['E001MiyukiHair', 'E002YamarashiiHair', 'E003HikaruHair', 'E01
   label: `NPG hair: ${id.slice(4).replace(/Hair$/, '')}`,
   url: `/arena/models/npg/stack/${id}.glb`,
 }));
-type Model = { id: string; label: string; url: string };
+type Model = { id: string; label: string; url: string; node?: string };
+// The chibi base's own mask (the Ayumi design), pulled out of the base model for side-by-side checks.
+const BASE_MASK: Model = { id: 'base_mask', label: 'NPG mask: Base mask (chibi) = Ayumi', url: '/arena/models/npg/stack/chibi_base.glb', node: 'mask' };
+
+/** A whole model, or one named mesh pulled out of it (as a plain mesh in its bind pose). */
+function pickNode(root: THREE.Object3D, id: string): THREE.Object3D {
+  const name = id === BASE_MASK.id ? BASE_MASK.node : undefined;
+  if (!name) return root;
+  root.updateMatrixWorld(true);
+  const out = new THREE.Group();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && (o.name === name || o.parent?.name === name)) {
+      const copy = new THREE.Mesh(m.geometry, m.material);
+      copy.applyMatrix4(m.matrixWorld);
+      out.add(copy);
+    }
+  });
+  return out.children.length ? out : root;
+}
 
 type Clip = { name: string; duration: number };
 
@@ -31,14 +50,15 @@ type Clip = { name: string; duration: number };
 export function ModelViewer() {
   const mount = useRef<HTMLDivElement>(null);
   const [modelId, setModelId] = useState('miyuki_parts');
-  const [cards, setCards] = useState<Model[]>(NPG_HAIR);
+  const [cards, setCards] = useState<Model[]>([...NPG_HAIR, BASE_MASK]);
+  const [compareId, setCompareId] = useState('');
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
   useEffect(() => {
     fetch('/arena/models/npg/stack/parts.json')
       .then((r) => (r.ok ? r.json() : []))
       .then((ps: { id: string; name: string; slot: string; url: string }[]) =>
-        setCards([...NPG_HAIR, ...ps.map((p) => ({ id: p.id, label: `NPG ${p.slot}: ${p.name}`, url: p.url }))]),
+        setCards([...NPG_HAIR, BASE_MASK, ...ps.map((p) => ({ id: p.id, label: `NPG ${p.slot}: ${p.name}`, url: p.url }))]),
       )
       .catch(() => {});
   }, []);
@@ -112,7 +132,7 @@ export function ModelViewer() {
       url,
       (gltf) => {
         if (disposed) return;
-        const model = gltf.scene;
+        const model = pickNode(gltf.scene, modelId);
         // Tripo part cards often come out lying along Z: turn them to face the camera.
         if (cardsRef.current.some((c) => c.id === modelId)) {
           const raw = new THREE.Box3().setFromObject(model, true).getSize(new THREE.Vector3());
@@ -123,10 +143,12 @@ export function ModelViewer() {
         const box = new THREE.Box3().setFromObject(model, true);
         const size = box.getSize(new THREE.Vector3());
         const isGun = GUNS.some((g) => g.id === modelId);
-        const s = isGun ? 1 / Math.max(size.x, size.y, size.z) : 2 / Math.max(0.001, size.y);
+        const isCard = cardsRef.current.some((c) => c.id === modelId);
+        // Guns 1 m long; part cards 1 m across, floating at 1 m; characters 2 m tall on the floor.
+        const s = isGun || isCard ? 1 / Math.max(size.x, size.y, size.z) : 2 / Math.max(0.001, size.y);
         model.scale.setScalar(s);
         const c = box.getCenter(new THREE.Vector3()).multiplyScalar(s);
-        model.position.set(-c.x, isGun ? 1 - c.y : -box.min.y * s, -c.z);
+        model.position.set(-c.x, isGun || isCard ? 1 - c.y : -box.min.y * s, -c.z);
         model.traverse((o) => {
           const m = o as THREE.Mesh;
           if (m.isMesh) {
@@ -135,6 +157,7 @@ export function ModelViewer() {
           }
         });
         holder.add(model);
+        if (compareId) model.position.x -= 0.7;
         // Parts: every mesh, with its original material, a debug colour and its direction from the centre (for explode).
         const centre = new THREE.Box3().setFromObject(model, true).getCenter(new THREE.Vector3());
         meshes = [];
@@ -155,7 +178,7 @@ export function ModelViewer() {
           if (g) tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
         });
         setInfo(`${Math.round(tris).toLocaleString()} triangles · ${gltf.animations.length} animation clip(s)`);
-        if (gltf.animations.length) {
+        if (gltf.animations.length && modelId !== BASE_MASK.id) {
           mixer = new THREE.AnimationMixer(model);
           actions = gltf.animations.map((a) => mixer!.clipAction(a));
           setClips(gltf.animations.map((a) => ({ name: a.name, duration: a.duration })));
@@ -165,6 +188,32 @@ export function ModelViewer() {
       undefined,
       (e) => !disposed && setInfo(`Could not load: ${e instanceof Error ? e.message : String(e)}`),
     );
+
+    // Side-by-side: a second model, same height, to the right.
+    if (compareId) {
+      const cdef = [...cardsRef.current, ...MODELS].find((m) => m.id === compareId);
+      if (cdef)
+        loader.load(cdef.url, (g) => {
+          if (disposed) return;
+          const m2 = pickNode(g.scene, compareId);
+          const raw = new THREE.Box3().setFromObject(m2, true).getSize(new THREE.Vector3());
+          if (cardsRef.current.some((c) => c.id === compareId) && raw.z > raw.x) m2.rotation.y = -Math.PI / 2;
+          m2.updateMatrixWorld(true);
+          const b2 = new THREE.Box3().setFromObject(m2, true);
+          const sz2 = b2.getSize(new THREE.Vector3());
+          const s2 = 1 / Math.max(sz2.x, sz2.y, sz2.z);
+          m2.scale.setScalar(s2);
+          const c2 = b2.getCenter(new THREE.Vector3()).multiplyScalar(s2);
+          m2.position.set(0.7 - c2.x, 1 - c2.y, -c2.z);
+          m2.traverse((o) => {
+            if ((o as THREE.Mesh).isMesh) {
+              o.castShadow = true;
+              o.frustumCulled = false;
+            }
+          });
+          holder.add(m2);
+        });
+    }
 
     const keys = new Set<string>();
     const onKey = (e: KeyboardEvent) => {
@@ -246,7 +295,7 @@ export function ModelViewer() {
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
-  }, [modelId]);
+  }, [modelId, compareId]);
 
   const clip = clips[clipIdx];
   return (
@@ -278,6 +327,14 @@ export function ModelViewer() {
               </option>
             ))}
           </optgroup>
+        </select>
+        <select value={compareId} onChange={(e) => setCompareId(e.target.value)} className="inset bg-input px-2 py-1 text-hot">
+          <option value="">compare with… (none)</option>
+          {cards.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
         </select>
       </div>
       <div className="relative">

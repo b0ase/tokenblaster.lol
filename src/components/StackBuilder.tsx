@@ -14,7 +14,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
  * The four hair cards were made in Anything.world from the 2D hair cards.
  */
 const BASE = '/arena/models/npg/stack/chibi_base.glb';
-const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: { scale: number; y: number; z: number; turn: number } }[] = [
+const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: Fit }[] = [
   { id: 'base', name: 'Base hair (chibi)', url: null, turn: 0 },
   { id: 'miyuki', name: 'Miyuki hair', url: '/arena/models/npg/stack/E001MiyukiHair.glb', turn: 0 },
   // fit: the owner's hand-fitted slider values (copy JSON in the builder).
@@ -24,14 +24,14 @@ const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: 
 ];
 // Rigid head parts made in Tripo (image-to-3D from each 2D card). The list lives in parts.json
 // so new batches show up without code changes.
-const ZERO = { scale: 1, y: 0, z: 0, turn: 0 };
+const ZERO = { scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
 const PARTS = '/arena/models/npg/stack/parts.json';
-type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string; fit?: typeof ZERO };
+type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string; fit?: Fit };
 
 export function StackBuilder() {
   const mount = useRef<HTMLDivElement>(null);
   const [hair, setHair] = useState('miyuki');
-  const [fit, setFit] = useState({ scale: 1, y: 0, z: 0, turn: 0 });
+  const [fit, setFit] = useState({ scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 });
   const [showClothes, setShowClothes] = useState(true);
   const [parts, setParts] = useState<Part[]>([]);
   const [mask, setMask] = useState('');
@@ -81,7 +81,7 @@ export function StackBuilder() {
     let clothes: THREE.Object3D | null = null;
     let slot: THREE.Box3 | null = null; // where hair goes, in the head bone's space
     let current: THREE.Object3D | null = null;
-    let fitNow = { scale: 1, y: 0, z: 0, turn: 0 };
+    let fitNow = { scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
     const cache = new Map<string, THREE.Object3D>();
 
     let maskSlot: THREE.Box3 | null = null; // the base mask's bounds in head space
@@ -94,12 +94,13 @@ export function StackBuilder() {
       const r = rigid[kind];
       const into = kind === 'mask' ? maskSlot : slot;
       if (!r.obj || !into) return;
+      bendPart(r.obj, r.fit.bend ?? 0);
       const raw = r.obj.userData.raw as THREE.Box3;
       const rs = raw.getSize(new THREE.Vector3());
       // Tripo often builds a flat card lying along Z: turn a quarter so its width runs across the face.
       const lying = rs.z > rs.x ? -Math.PI / 2 : 0;
-      r.obj.rotation.set(0, lying + (faceSign > 0 ? 0 : Math.PI) + r.fit.turn, 0);
-      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(r.obj.rotation.y));
+      r.obj.rotation.set((r.fit.pitch ?? 0) * faceSign, lying + (faceSign > 0 ? 0 : Math.PI) + r.fit.turn, (r.fit.roll ?? 0) * faceSign, 'YXZ');
+      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(r.obj.rotation));
       const width = into.getSize(new THREE.Vector3()).x * (kind === 'horns' ? 0.9 : 1);
       const k = (width / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * r.fit.scale;
       r.obj.scale.setScalar(k);
@@ -135,6 +136,7 @@ export function StackBuilder() {
         obj = g.scene;
         obj.updateMatrixWorld(true);
         obj.userData.raw = new THREE.Box3().setFromObject(obj, true);
+        obj.userData.flat = obj.userData.raw.clone();
         obj.userData.id = p.id;
         cache.set(p.id, obj);
       }
@@ -149,9 +151,9 @@ export function StackBuilder() {
       if (!current || !slot) return;
       // Hair sits like hair: scaled to the head's width, its top on top of the head and its front
       // edge on the hairline. (Centring boxes pushed cards with long tails up and forward.)
-      current.rotation.set(0, ((current.userData.turn as number) ?? 0) + fitNow.turn, 0); // per-card facing + manual turn
+      current.rotation.set((fitNow.pitch ?? 0) * faceSign, ((current.userData.turn as number) ?? 0) + fitNow.turn, (fitNow.roll ?? 0) * faceSign, 'YXZ'); // per-card facing + manual turn
       const raw = current.userData.raw as THREE.Box3;
-      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(current.rotation.y));
+      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(current.rotation));
       const k = (slot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * fitNow.scale;
       current.scale.setScalar(k);
       const x = slot.getCenter(new THREE.Vector3()).x - rb.getCenter(new THREE.Vector3()).x * k;
@@ -294,7 +296,7 @@ export function StackBuilder() {
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="text-dim">HAIR CARD:</span>
         {HAIR.map((h) => (
-          <button key={h.id} onClick={() => { setHair(h.id); setFit(h.fit ?? ZERO); }} className={`btn ${hair === h.id ? 'btn-on' : ''}`}>
+          <button key={h.id} onClick={() => { setHair(h.id); setFit(withPitch(h.fit)); }} className={`btn ${hair === h.id ? 'btn-on' : ''}`}>
             {h.name}
           </button>
         ))}
@@ -307,7 +309,7 @@ export function StackBuilder() {
         const cur = kind === 'mask' ? mask : horns;
         const pick = (id: string) => {
           (kind === 'mask' ? setMask : setHorns)(id);
-          (kind === 'mask' ? setMaskFit : setHornsFit)(list.find((p) => p.id === id)?.fit ?? ZERO); // owner's saved fit
+          (kind === 'mask' ? setMaskFit : setHornsFit)(withPitch(list.find((p) => p.id === id)?.fit)); // owner's saved fit
         };
         if (!list.length) return null;
         return (
@@ -332,9 +334,79 @@ export function StackBuilder() {
   );
 }
 
-type Fit = { scale: number; y: number; z: number; turn: number };
+/**
+ * Bend deformer: wrap a part around a vertical cylinder, so a flat card-like mask curves round the
+ * face. bend is the arc it covers (1 = half a cylinder); negative bends the other way. The width
+ * axis is whichever horizontal axis is longer. Keeps the original positions to bend from.
+ */
+function bendPart(root: THREE.Object3D, bend: number) {
+  if ((root.userData.bent ?? 0) === bend) return;
+  root.userData.bent = bend;
+  const saved = root.position.clone();
+  const rot = root.rotation.clone();
+  const sc = root.scale.clone();
+  // Work detached so boxes and matrices are in the part's own space, not the head bone's.
+  const parent = root.parent;
+  parent?.remove(root);
+  root.position.set(0, 0, 0);
+  root.rotation.set(0, 0, 0);
+  root.scale.set(1, 1, 1);
+  root.updateMatrixWorld(true);
+  const raw = root.userData.flat as THREE.Box3;
+  const size = raw.getSize(new THREE.Vector3());
+  const c = raw.getCenter(new THREE.Vector3());
+  const wide = size.z > size.x ? 'z' : 'x';
+  const deep = wide === 'x' ? 'z' : 'x';
+  const W = size[wide];
+  const arc = Math.abs(bend) * Math.PI;
+  const sign = Math.sign(bend) || 1;
+  const R = arc > 1e-4 ? W / arc : 0;
+  const v = new THREE.Vector3();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const pos = m.geometry.attributes.position as THREE.BufferAttribute;
+    if (!m.userData.orig) {
+      m.geometry = m.geometry.clone(); // quantized attributes: work on a float copy
+      const f = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) f.set([pos.getX(i), pos.getY(i), pos.getZ(i)], i * 3);
+      m.geometry.setAttribute('position', new THREE.BufferAttribute(f, 3));
+      m.userData.orig = f.slice();
+    }
+    const out = m.geometry.attributes.position as THREE.BufferAttribute;
+    const orig = m.userData.orig as Float32Array;
+    const toRoot = m.matrixWorld.clone();
+    const back = toRoot.clone().invert();
+    for (let i = 0; i < out.count; i++) {
+      v.fromArray(orig, i * 3).applyMatrix4(toRoot);
+      if (R) {
+        const u = v[wide] - c[wide];
+        const d = (v[deep] - c[deep]) * sign;
+        const t = u / R;
+        v[wide] = c[wide] + (R + d) * Math.sin(t);
+        v[deep] = c[deep] + sign * ((R + d) * Math.cos(t) - R);
+      }
+      v.applyMatrix4(back);
+      out.setXYZ(i, v.x, v.y, v.z);
+    }
+    out.needsUpdate = true;
+    // Normals may be quantized ints: replace them with fresh float normals, not write into them.
+    m.geometry.deleteAttribute('normal');
+    m.geometry.computeVertexNormals();
+    m.geometry.computeBoundingBox();
+    m.geometry.computeBoundingSphere();
+  });
+  root.userData.raw = new THREE.Box3().setFromObject(root, true);
+  root.position.copy(saved);
+  root.rotation.copy(rot);
+  root.scale.copy(sc);
+  parent?.add(root);
+}
 
-function FitSliders({ label, card, fit, onChange }: { label: string; card: string; fit: Fit; onChange: (f: Fit) => void }) {
+type Fit = { scale: number; y: number; z: number; turn: number; pitch?: number; roll?: number; bend?: number };
+const withPitch = (f?: Fit) => ({ ...ZERO, ...f });
+
+function FitSliders({ label, card, fit, onChange }: { label: string; card: string; fit: Required<Fit>; onChange: (f: Required<Fit>) => void }) {
   const [copied, setCopied] = useState(false);
   const json = JSON.stringify({
     slot: label.toLowerCase(),
@@ -343,6 +415,9 @@ function FitSliders({ label, card, fit, onChange }: { label: string; card: strin
     y: Number(fit.y.toFixed(3)),
     z: Number(fit.z.toFixed(3)),
     turn: Number(fit.turn.toFixed(3)),
+    pitch: Number((fit.pitch ?? 0).toFixed(3)),
+    roll: Number((fit.roll ?? 0).toFixed(3)),
+    bend: Number((fit.bend ?? 0).toFixed(3)),
   });
   const copy = () =>
     navigator.clipboard?.writeText(json).then(() => {
@@ -352,21 +427,21 @@ function FitSliders({ label, card, fit, onChange }: { label: string; card: strin
   return (
     <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-dim">
       <span className="w-10">{label}</span>
-      {(['scale', 'y', 'z', 'turn'] as const).map((k) => (
+      {(['scale', 'y', 'z', 'turn', 'pitch', 'roll', 'bend'] as const).map((k) => (
         <label key={k} className="flex items-center gap-1">
-          {k === 'scale' ? 'size' : k === 'y' ? 'up/down' : k === 'z' ? 'fwd/back' : 'turn'}
+          {k === 'scale' ? 'size' : k === 'y' ? 'up/down' : k === 'z' ? 'fwd/back' : k === 'turn' ? 'yaw' : k}
           <input
             type="range"
-            min={k === 'scale' ? 0.3 : k === 'turn' ? -Math.PI : -0.3}
-            max={k === 'scale' ? 1.6 : k === 'turn' ? Math.PI : 0.3}
+            min={k === 'scale' ? 0.3 : k === 'turn' ? -Math.PI : k === 'pitch' || k === 'roll' || k === 'bend' ? -1 : -0.3}
+            max={k === 'scale' ? 1.6 : k === 'turn' ? Math.PI : k === 'pitch' || k === 'roll' || k === 'bend' ? 1 : 0.3}
             step={0.005}
-            value={fit[k]}
+            value={fit[k] ?? 0}
             onChange={(e) => onChange({ ...fit, [k]: Number(e.target.value) })}
             className="w-32 accent-[#ff5a48]"
           />
         </label>
       ))}
-      <button onClick={() => onChange({ scale: 1, y: 0, z: 0, turn: 0 })} className="btn text-xs">
+      <button onClick={() => onChange({ scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 })} className="btn text-xs">
         reset
       </button>
       <button onClick={copy} className="btn text-xs">
