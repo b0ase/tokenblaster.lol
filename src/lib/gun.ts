@@ -244,9 +244,13 @@ export class Gun {
   /** Tokens of `id` loaded in the gun (base units). */
   /** Use a token coin we just received (from loadTokens) straight away, before the index sees it. */
   adoptTokenCoin(id: string, tx: Transaction, vout: number, amt: bigint) {
+    // The wallet broadcasts the load itself; keep the full tx (with its parents) so we can make sure
+    // ARC has it before our first bullet spends it.
+    this.loadTx = tx;
     if (this.tok?.id === id && this.tok.amt > BigInt(0)) return; // already firing from one; the index merges later
     this.tok = { id, tx: Transaction.fromHex(tx.toHex()), vout, amt };
   }
+  private loadTx: Transaction | null = null;
 
   async tokenAmmo(id: string): Promise<bigint> {
     const utxos = await this.tokenUtxos(id);
@@ -299,16 +303,24 @@ export class Gun {
         tok = nextTok;
       }
       if (!chain.length) throw new Error('Out of sats for fees.');
+      // First bullet after a load spends the wallet's load tx: make sure ARC has it (rebroadcast if not).
+      if (this.loadTx) {
+        const parent = this.loadTx;
+        if (!(await this.known(parent.id('hex')))) await this.send(parent).catch(() => undefined);
+        this.loadTx = null;
+      }
       const results = (await Promise.race([
         this.arc.broadcastMany(chain.map((c) => c.tx)),
         new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 20 s.')), 20_000)),
-      ])) as { status?: string; description?: string }[];
+      ])) as { status?: string; description?: string; code?: string | number; more?: unknown }[];
       let accepted = 0;
       while (accepted < chain.length && results[accepted]?.status === 'success') accepted++;
       if (accepted === 0) {
         this.tok = null;
         await this.resync();
-        throw new Error(`ARC rejected the token shots: ${results[0]?.description ?? 'no response'}`);
+        const r = results[0];
+        console.warn('[tokenblaster] ARC rejected token shot', chain[0].tx.id('hex'), r);
+        throw new Error(`ARC rejected the token shots: ${r?.description ?? 'no response'}${r?.code ? ` (code ${r.code})` : ''} · tx ${chain[0].tx.id('hex').slice(0, 12)}…`);
       }
       this.spentTok.add(`${start.tx.id('hex')}_${start.vout}`);
       for (const c of chain.slice(0, accepted - 1)) if (c.tok) this.spentTok.add(`${c.tx.id('hex')}_1`);
