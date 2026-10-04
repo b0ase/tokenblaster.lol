@@ -9,6 +9,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { chibiClips } from '@/lib/chibiAnims';
@@ -102,6 +103,25 @@ export function Frogger3D() {
     composer.addPass(new RenderPass(scene, camera));
     const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.25, 0.5, 0.95); // only real lights bloom
     composer.addPass(bloom);
+    const deathGrade = new ShaderPass({
+      uniforms: { tDiffuse: { value: null }, amount: { value: 0 }, time: { value: 0 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: `
+        uniform sampler2D tDiffuse; uniform float amount; uniform float time; varying vec2 vUv;
+        float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233)) + time) * 43758.5453); }
+        void main(){
+          vec4 c = texture2D(tDiffuse, vUv);
+          float g = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 mono = vec3(g) * vec3(1.05, 0.93, 0.9);            // drained, faintly warm-red
+          vec3 col = mix(c.rgb, mono, amount);
+          col = mix(col, (col - 0.5) * 1.25 + 0.45, amount * 0.6); // harsher contrast
+          float d = distance(vUv, vec2(0.5));
+          col *= mix(1.0, smoothstep(0.85, 0.25, d), amount);       // heavy vignette
+          col += (rnd(vUv * 900.0) - 0.5) * 0.07 * amount;          // film grain
+          gl_FragColor = vec4(col, c.a);
+        }`,
+    });
+    composer.addPass(deathGrade);
     composer.addPass(new OutputPass());
 
     // ── Light: sun + sky, driven by the day cycle ──
@@ -586,8 +606,13 @@ export function Frogger3D() {
     let last = performance.now();
     let raf = 0;
     const tick = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const realDt = Math.min(0.05, (now - last) / 1000);
       last = now;
+      // Slow motion while you're down: the world crawls, the camera and the grade don't.
+      const dt = dead ? realDt * 0.28 : realDt;
+      const want = dead ? 1 : 0;
+      deathGrade.uniforms.amount.value += (want - deathGrade.uniforms.amount.value) * Math.min(1, realDt * (dead ? 5 : 3));
+      deathGrade.uniforms.time.value = now / 1000;
       const w = el.clientWidth;
       const h = el.clientHeight;
       const sz = renderer.getSize(new THREE.Vector2());
@@ -710,7 +735,7 @@ export function Frogger3D() {
           fling.v.multiplyScalar(0.3);
           fling.v.y = Math.abs(fling.v.y) * 0.3;
         }
-        if (now - dead > 2200) {
+        if (now - dead > 3400) {
           dead = 0;
           fling = null;
           setWasted(false);
@@ -735,9 +760,17 @@ export function Frogger3D() {
       if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) setSampled(sampled);
 
       // GTA-style chase camera: behind and above, looking across the avenue.
-      const camGoal = new THREE.Vector3(player.position.x, 7.5, player.position.z + 11);
-      camera.position.lerp(camGoal, Math.min(1, dt * 3));
-      camera.lookAt(player.position.x, 1.2, player.position.z - 6);
+      if (dead) {
+        const t = (now - dead) / 1000;
+        const a = 0.6 + t * 0.35; // slow orbit
+        const camGoal = new THREE.Vector3(player.position.x + Math.sin(a) * 7, 3.2 + t * 0.4, player.position.z + Math.cos(a) * 7);
+        camera.position.lerp(camGoal, Math.min(1, realDt * 2));
+        camera.lookAt(player.position.x, 0.8, player.position.z);
+      } else {
+        const camGoal = new THREE.Vector3(player.position.x, 7.5, player.position.z + 11);
+        camera.position.lerp(camGoal, Math.min(1, realDt * 3));
+        camera.lookAt(player.position.x, 1.2, player.position.z - 6);
+      }
 
       composer.render();
       raf = requestAnimationFrame(tick);
@@ -771,6 +804,7 @@ export function Frogger3D() {
   }, []);
 
   const meta = killer?.token ? tokenMeta(killer.token) : null;
+  const killerMeta = meta;
   return (
     <section className="panel">
       <div className="panel-header">
@@ -798,10 +832,34 @@ export function Frogger3D() {
           ☀/☾ skip
         </button>
         {wasted && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-6xl font-bold tracking-widest text-[#d81b2a] drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]" style={{ fontFamily: 'Georgia, serif' }}>
-              WASTED
-            </span>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <style>{`
+              @keyframes tbBand { from { transform: scaleX(0); opacity: 0 } 40% { opacity: 1 } to { transform: scaleX(1); opacity: 1 } }
+              @keyframes tbPunch { 0% { transform: scale(2.6); opacity: 0; filter: blur(8px) } 55% { transform: scale(0.94); opacity: 1; filter: blur(0) } 75% { transform: scale(1.03) } 100% { transform: scale(1) } }
+              @keyframes tbSub { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+            `}</style>
+            <div className="relative flex w-full items-center justify-center py-5" style={{ animation: 'tbBand 0.45s ease-out 0.35s both' }}>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-black/80 to-transparent" />
+              <span
+                className="relative select-none font-black uppercase"
+                style={{
+                  fontFamily: '"Pricedown", "Impact", "Haettenschweiler", "Arial Black", serif',
+                  fontSize: 'clamp(56px, 11vw, 132px)',
+                  letterSpacing: '0.06em',
+                  color: '#b4141e',
+                  WebkitTextStroke: '3px #000',
+                  textShadow: '0 0 24px rgba(180,20,30,0.55), 0 6px 0 #000, 0 10px 24px rgba(0,0,0,0.9)',
+                  animation: 'tbPunch 0.7s cubic-bezier(.2,1.4,.4,1) 0.55s both',
+                }}
+              >
+                Wasted
+              </span>
+            </div>
+            {killer && (
+              <div className="mt-2 bg-black/70 px-3 py-1 text-sm text-fg" style={{ animation: 'tbSub 0.4s ease-out 1.2s both' }}>
+                flattened by {killerMeta ? `a $${killerMeta.sym} box truck` : `a ${KINDS.find((k) => k.id === killer.kind)?.label.toLowerCase()}`} · tx {killer.id.slice(0, 10)}…
+              </div>
+            )}
           </div>
         )}
         {!started && !over && (
