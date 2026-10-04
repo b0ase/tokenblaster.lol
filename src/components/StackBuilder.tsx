@@ -24,9 +24,9 @@ const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: 
 ];
 // Rigid head parts made in Tripo (image-to-3D from each 2D card). The list lives in parts.json
 // so new batches show up without code changes.
-const PARTS = '/arena/models/npg/stack/parts.json';
-type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string };
 const ZERO = { scale: 1, y: 0, z: 0, turn: 0 };
+const PARTS = '/arena/models/npg/stack/parts.json';
+type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string; fit?: typeof ZERO };
 
 export function StackBuilder() {
   const mount = useRef<HTMLDivElement>(null);
@@ -307,7 +307,7 @@ export function StackBuilder() {
         const cur = kind === 'mask' ? mask : horns;
         const pick = (id: string) => {
           (kind === 'mask' ? setMask : setHorns)(id);
-          (kind === 'mask' ? setMaskFit : setHornsFit)(ZERO);
+          (kind === 'mask' ? setMaskFit : setHornsFit)(list.find((p) => p.id === id)?.fit ?? ZERO); // owner's saved fit
         };
         if (!list.length) return null;
         return (

@@ -15,7 +15,13 @@
   "id": "11_001_Mask_Yama-Mask",
   "name": "Yama Mask",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_001_Mask_Yama-Mask.glb"
+  "url": "/arena/models/npg/stack/11_001_Mask_Yama-Mask.glb",
+  "fit": {
+   "scale": 1,
+   "y": 0.06,
+   "z": 0.005,
+   "turn": -0.007
+  }
  },
  {
   "id": "11_002_Mask_Payne-Patch",
