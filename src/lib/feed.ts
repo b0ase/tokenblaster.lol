@@ -15,7 +15,7 @@ export const KINDS: { id: TxKind; label: string; color: string }[] = [
   { id: 'payment', label: 'Payment', color: '#ffd0c0' },
 ];
 
-export type FeedTx = { id: string; kind: TxKind; bytes: number; sats: number; mined: boolean; token?: string };
+export type FeedTx = { id: string; kind: TxKind; bytes: number; sats: number; mined: boolean; token?: string; op?: string; amt?: string };
 
 /** Every classified tx is re-broadcast on window as this event, so the gun can see its blasts land. */
 export const FEED_EVENT = 'tokenblaster:tx';
@@ -48,6 +48,14 @@ export function classify(id: string, raw: string, mined: boolean): FeedTx | null
             : 'payment';
     const sats = tx.outputs.reduce((n, o) => n + (o.satoshis ?? 0), 0);
     const f: FeedTx = { id, kind, bytes: raw.length / 2, sats, mined };
+    // BSV-20/21: which token, what operation, how much (from the first inscription's JSON).
+    const ins = all.includes(BSV20) ? tokenJson(scripts.find((s) => s.includes(BSV20)) ?? '') : null;
+    if (ins) {
+      f.token = ins.id ?? ins.tick;
+      f.op = ins.op;
+      f.amt = ins.amt;
+      if (ins.op === 'deploy+mint' && !ins.id) f.token = `${id}_0`;
+    }
     if (blast) {
       // OP_FALSE OP_RETURN <tag> <token id> <n>: read the token id push.
       const rest = blast.slice(BLAST.length);
@@ -55,6 +63,18 @@ export function classify(id: string, raw: string, mined: boolean): FeedTx | null
       if (len < 76) f.token = Utils.toUTF8(Utils.toArray(rest.slice(2, 2 + len * 2), 'hex'));
     }
     return f;
+  } catch {
+    return null;
+  }
+}
+
+/** The `{"p":"bsv-20",…}` JSON inside an inscription script (hex). */
+function tokenJson(hex: string): { op?: string; id?: string; tick?: string; amt?: string } | null {
+  let text = '';
+  for (let i = 0; i + 1 < hex.length; i += 2) text += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+  const m = text.match(/\{"p":"bsv-20"[^}]*\}/);
+  try {
+    return m ? JSON.parse(m[0]) : null;
   } catch {
     return null;
   }

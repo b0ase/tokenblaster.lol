@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChainStats } from '@/lib/chain';
 import { FEED_EVENT, KINDS, classify, type FeedTx, type TxKind } from '@/lib/feed';
 import { streamSubscription, type JbTx } from '@/lib/junglebus';
+import { tokenMeta } from '@/lib/tokenMeta';
 
 const SUBSCRIPTION = process.env.NEXT_PUBLIC_JUNGLEBUS_SUBSCRIPTION_ID ?? '';
 const WINDOW_MS = 60_000;
@@ -19,7 +20,8 @@ type Status = 'off' | 'connecting' | 'live' | 'error';
 export function Highway() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const queue = useRef<FeedTx[]>([]);
-  const seen = useRef<{ at: number; kind: TxKind }[]>([]);
+  const seen = useRef<{ at: number; kind: TxKind; token?: string; amt?: string }[]>([]);
+  const [movers, setMovers] = useState<{ id: string; n: number; amt: bigint }[]>([]);
   const [tip, setTip] = useState<ChainStats | null>(null);
   const [status, setStatus] = useState<Status>(SUBSCRIPTION ? 'connecting' : 'off');
   const [counts, setCounts] = useState<{ rate: number; byKind: Record<TxKind, number>; now: number } | null>(null);
@@ -51,7 +53,8 @@ export function Highway() {
       const f = classify(tx.id, tx.hex, tx.mined);
       if (!f) return;
       window.dispatchEvent(new CustomEvent<FeedTx>(FEED_EVENT, { detail: f }));
-      seen.current.push({ at: Date.now(), kind: f.kind });
+      seen.current.push({ at: Date.now(), kind: f.kind, token: f.token, amt: f.amt });
+      if (f.token) tokenMeta(f.token); // start fetching its name/icon now
       if (queue.current.length < 300) queue.current.push(f);
     };
     let stop: (() => void) | undefined;
@@ -76,6 +79,20 @@ export function Highway() {
       const byKind = Object.fromEntries(KINDS.map((k) => [k.id, 0])) as Record<TxKind, number>;
       for (const s of seen.current) byKind[s.kind]++;
       setCounts({ rate: seen.current.length / (WINDOW_MS / 1000), byKind, now: Date.now() });
+      // Which tokens are moving, by number of transfers in the last minute.
+      const by = new Map<string, { n: number; amt: bigint }>();
+      for (const x of seen.current) {
+        if (!x.token || (x.kind !== 'token' && x.kind !== 'blast')) continue;
+        const cur = by.get(x.token) ?? { n: 0, amt: BigInt(0) };
+        cur.n++;
+        try {
+          cur.amt += BigInt(x.amt ?? 0);
+        } catch {
+          /* tick amounts can be decimals */
+        }
+        by.set(x.token, cur);
+      }
+      setMovers([...by].map(([id, v]) => ({ id, ...v })).sort((a, b) => b.n - a.n).slice(0, 12));
     }, 1000);
     return () => clearInterval(t);
   }, []);
@@ -109,7 +126,7 @@ export function Highway() {
       for (let k = 0; k < release && queue.current.length; k++) {
         const f = queue.current.shift()!;
         const l = LANE[f.kind];
-        const cw = Math.min(160, 14 + Math.log2(f.bytes) * 6) * dpr;
+        const cw = (f.token ? 150 : Math.min(160, 14 + Math.log2(f.bytes) * 6)) * dpr;
         cars.push({ ...f, x: -cw - Math.random() * 40 * dpr, y: l * lane + lane * 0.3, w: cw, h: lane * 0.4, speed: (2 + Math.random() * 2) * dpr });
       }
       for (let i = cars.length - 1; i >= 0; i--) {
@@ -125,6 +142,15 @@ export function Highway() {
         ctx.fillRect(car.x, car.y, car.w, car.h);
         ctx.fillStyle = car.mined ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.45)';
         ctx.fillRect(car.x, car.y + car.h * 0.75, car.w, car.h * 0.25);
+        // Token cars carry the token's icon and symbol.
+        const meta = car.token ? tokenMeta(car.token) : null;
+        if (meta) {
+          const sz = car.h * 0.9;
+          if (meta.icon?.complete && meta.icon.naturalWidth) ctx.drawImage(meta.icon, car.x + 2 * dpr, car.y + (car.h - sz) / 2, sz, sz);
+          ctx.font = `bold ${Math.max(9, car.h / dpr / 2.2) * dpr}px monospace`;
+          ctx.fillStyle = '#0a0404';
+          ctx.fillText(`$${meta.sym}`, car.x + sz + 5 * dpr, car.y + car.h * 0.62, Math.max(0, car.w - sz - 7 * dpr));
+        }
       }
       ctx.font = `${10 * dpr}px monospace`;
       ctx.fillStyle = '#7a3a30';
@@ -182,6 +208,40 @@ export function Highway() {
         ))}
         <span className="text-muted">last 60 s · white underline = mined</span>
       </div>
+      {movers.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs text-dim">TOKENS MOVING NOW (last 60 s)</p>
+          <div className="mt-1 grid grid-cols-2 gap-1 sm:grid-cols-4">
+            {movers.map((m) => {
+              const meta = tokenMeta(m.id);
+              const amt = meta ? Number(m.amt) / 10 ** meta.dec : null;
+              return (
+                <a
+                  key={m.id}
+                  href={/_\d+$/.test(m.id) ? `https://1sat.market/market/bsv21/${m.id}` : `https://1sat.market/market/bsv20/${m.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inset flex items-center gap-2 px-2 py-1 text-xs hover:border-fg"
+                >
+                  {meta?.iconSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={meta.iconSrc} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
+                  ) : (
+                    <span className="h-6 w-6 shrink-0 rounded bg-input" />
+                  )}
+                  <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                    <span className="text-hot">${meta?.sym ?? m.id.slice(0, 8)}</span>
+                    <span className="text-dim">
+                      {' '}
+                      · {m.n} tx{amt !== null && amt > 0 ? ` · ${amt.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ''}
+                    </span>
+                  </span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
