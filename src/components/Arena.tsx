@@ -1207,7 +1207,20 @@ export function Arena() {
                 )}
                 {b.wallet && (
                   <p className="overflow-hidden text-ellipsis whitespace-nowrap text-left text-xs text-muted" title={b.wallet.address}>
-                    {b.wallet.name} · {b.wallet.address}
+                    Wallet: {b.wallet.name} · {b.wallet.address}
+                  </p>
+                )}
+                {b.gunAddress && (
+                  <p className="flex items-center gap-1 text-left text-xs text-muted">
+                    <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" title="Your gun's own address in this browser: loaded sats and tokens sit here">
+                      Your gun: <span className="text-hot">{b.gunAddress}</span>
+                    </span>
+                    <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn px-1 text-xs">
+                      copy
+                    </button>
+                    <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noopener noreferrer" className="btn px-1 text-xs">
+                      chain
+                    </a>
                   </p>
                 )}
               </div>
