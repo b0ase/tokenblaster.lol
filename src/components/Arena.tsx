@@ -229,6 +229,42 @@ export function Arena() {
     paintBadge(null);
     let badgeSrc: string | null = null;
 
+    // Token coins: each shot flies the token's icon out of the muzzle and kicks a spent coin out of
+    // the side of the gun, like a casing. Only while a token with an icon is picked.
+    const coinCanvas = document.createElement('canvas');
+    coinCanvas.width = coinCanvas.height = 128;
+    const coinTex = new THREE.CanvasTexture(coinCanvas);
+    coinTex.colorSpace = THREE.SRGBColorSpace;
+    let coinReady = false;
+    const paintCoin = (img: HTMLImageElement | null) => {
+      const c = coinCanvas.getContext('2d')!;
+      c.clearRect(0, 0, 128, 128);
+      coinReady = Boolean(img);
+      if (!img) return void (coinTex.needsUpdate = true);
+      const g = c.createRadialGradient(44, 40, 8, 64, 64, 64);
+      g.addColorStop(0, '#fff3b0');
+      g.addColorStop(0.6, '#e2a72e');
+      g.addColorStop(1, '#8a5a12');
+      c.fillStyle = g;
+      c.beginPath();
+      c.arc(64, 64, 62, 0, Math.PI * 2);
+      c.fill();
+      c.save();
+      c.beginPath();
+      c.arc(64, 64, 52, 0, Math.PI * 2);
+      c.clip();
+      c.drawImage(img, 12, 12, 104, 104);
+      c.restore();
+      coinTex.needsUpdate = true;
+    };
+    const coinGeo = new THREE.CircleGeometry(0.035, 20);
+    const coinMat = new THREE.MeshStandardMaterial({ map: coinTex, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide, transparent: true });
+    const flyMat = new THREE.SpriteMaterial({ map: coinTex, transparent: true, depthWrite: false });
+    type Casing = { m: THREE.Mesh; v: THREE.Vector3; spin: THREE.Vector3; born: number; rest: boolean };
+    const casings: Casing[] = [];
+    const flyers: { s: THREE.Sprite; from: THREE.Vector3; to: THREE.Vector3; born: number }[] = [];
+    const MAX_CASINGS = 160;
+
     const cellsMaze = freeCells((_, z) => z < HALL_Z);
     const cellsHall = freeCells((_, z) => z >= HALL_Z + 6);
     const spawn = (mob: Mob, now: number) => {
@@ -585,6 +621,13 @@ export function Arena() {
         const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), boltMats.get(g.id));
         scene.add(line);
         bolts.push({ line, born: now });
+        if (coinReady && flyers.length < 60) {
+          const s = new THREE.Sprite(flyMat);
+          s.scale.setScalar(0.12);
+          s.position.copy(from);
+          scene.add(s);
+          flyers.push({ s, from: from.clone(), to: end.clone(), born: now });
+        }
         const mob = first && mobs.find((m) => m.m.hitbox === first.object && m.state !== 'dying' && m.state !== 'dead');
         let killed = false;
         if (first) sparkAt(first.point, mob ? '#c8ffd0' : g.bolt);
@@ -606,6 +649,24 @@ export function Arena() {
         queue.push(['arena', mob ? (killed ? 'kill' : 'hit') : 'miss']);
       }
       heat = queue.length;
+      // Spent coin out of the ejection port (gun's right side), tumbling up and back.
+      if (coinReady) {
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+        const up = new THREE.Vector3(0, 1, 0);
+        const back = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion);
+        const m = new THREE.Mesh(coinGeo, coinMat);
+        m.position.copy(from).addScaledVector(back, 0.35).addScaledVector(right, 0.06);
+        m.rotation.set(Math.random() * 6, Math.random() * 6, 0);
+        scene.add(m);
+        casings.push({
+          m,
+          v: right.multiplyScalar(1.6 + Math.random()).addScaledVector(up, 1.8 + Math.random()).addScaledVector(back, 0.4),
+          spin: new THREE.Vector3(10 + Math.random() * 10, 6 + Math.random() * 8, 0),
+          born: now,
+          rest: false,
+        });
+        if (casings.length > MAX_CASINGS) scene.remove(casings.shift()!.m);
+      }
       setHud((h) => ({ ...h, shots: h.shots + g.pellets, kills: h.kills + kills, heat }));
       flash.visible = true;
       flash.material.rotation = Math.random() * Math.PI;
@@ -647,9 +708,15 @@ export function Arena() {
         if (badgeSrc) {
           const img = new Image();
           img.crossOrigin = 'anonymous';
-          img.onload = () => paintBadge(img);
+          img.onload = () => {
+            paintBadge(img);
+            paintCoin(img);
+          };
           img.src = badgeSrc;
-        } else paintBadge(null);
+        } else {
+          paintBadge(null);
+          paintCoin(null);
+        }
       }
       if (deadUntil && now > deadUntil) {
         deadUntil = 0;
@@ -695,6 +762,44 @@ export function Arena() {
       if (hg?.spin && hg.mixer) {
         hg.spin.timeScale += ((trigger ? 3 : 0) - hg.spin.timeScale) * Math.min(1, dt * 5);
         hg.mixer.update(dt);
+      }
+      // Flying token icons: zip along the shot (120 ms), spinning.
+      for (let i = flyers.length - 1; i >= 0; i--) {
+        const f = flyers[i];
+        const k = (now - f.born) / 120;
+        if (k >= 1) {
+          scene.remove(f.s);
+          flyers.splice(i, 1);
+          continue;
+        }
+        f.s.position.lerpVectors(f.from, f.to, k);
+      }
+      flyMat.rotation += dt * 14;
+      // Casings: gravity, tumble, bounce on the floor, lie there, then go.
+      for (let i = casings.length - 1; i >= 0; i--) {
+        const c = casings[i];
+        if (now - c.born > 6000) {
+          scene.remove(c.m);
+          casings.splice(i, 1);
+          continue;
+        }
+        if (c.rest) continue;
+        c.v.y -= 9.8 * dt;
+        c.m.position.addScaledVector(c.v, dt);
+        c.m.rotation.x += c.spin.x * dt;
+        c.m.rotation.y += c.spin.y * dt;
+        if (c.m.position.y < 0.01) {
+          c.m.position.y = 0.01;
+          if (Math.abs(c.v.y) < 1) {
+            c.rest = true;
+            c.m.rotation.set(-Math.PI / 2, 0, Math.random() * 6); // lies flat, icon up
+          } else {
+            c.v.y *= -0.35;
+            c.v.x *= 0.5;
+            c.v.z *= 0.5;
+            c.spin.multiplyScalar(0.5);
+          }
+        }
       }
       for (let i = bolts.length - 1; i >= 0; i--) {
         if (now - bolts[i].born > 50) {

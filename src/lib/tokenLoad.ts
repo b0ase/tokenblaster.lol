@@ -54,7 +54,9 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
     inputs: use.map((c) => ({ outpoint: c.outpoint, unlockingScriptLength: 108, inputDescription: `$${sym}` })),
     outputs,
     labels: ['tokenblaster'],
-    options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
+    // signAndProcess: false = hand us the unsigned tx so we can add the token signatures; without it
+    // the wallet's permission layer may finish the action itself and our signAction finds it gone.
+    options: { randomizeOutputs: false, acceptDelayedBroadcast: false, signAndProcess: false },
   });
   const signable = created.signableTransaction;
   if (!signable) throw new Error('The wallet did not return a transaction to sign.');
