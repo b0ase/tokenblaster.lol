@@ -41,3 +41,9 @@ yarn-error.log*
 next-env.d.ts
 !.env.example
 worker/dist
+
+# Screenshots (macOS and others) never belong in the repo
+Screenshot*.png
+Screen Shot*.png
+screenshot*.png
+*.screenshot.png
