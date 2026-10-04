@@ -412,6 +412,7 @@ export function Arena() {
               const [cx, cz, off] = spot[i] ?? [5, 1, 0];
               mob.m.root.position.copy(centre([cx, cz], 0)).add(new THREE.Vector3(0, 0, off));
               mob.m.root.rotation.y = -Math.PI / 2;
+              if (mob.m.def.id === 'chibi') return; // she has real animations: let her roam from here
               mob.state = 'attack';
               mob.since = now + 1e9; // hold the pose
               mob.m.play('idle');
