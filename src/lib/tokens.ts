@@ -82,11 +82,12 @@ export async function tokenCoins(wallet: WalletInterface, withScripts = false): 
         const isDeploy = tags.includes('bsv21:deploy') || ins?.op === 'deploy+mint';
         const id = (typeof ci.id === 'string' && ci.id) || tagId || ins?.id || (isDeploy ? o.outpoint : '');
         const amt = (typeof ci.amt === 'string' && ci.amt) || ins?.amt;
-        if (!id || !amt || tags.includes('bsv21:auth')) continue;
+        if (!id || tags.includes('bsv21:auth')) continue;
+        if (!amt && !withScripts) continue; // whole-tx mode: amount comes from the tx below
         coins.push({
           outpoint: o.outpoint,
           id: norm(id),
-          amt: BigInt(amt),
+          amt: BigInt(amt ?? 0),
           sym: typeof ci.sym === 'string' ? ci.sym : undefined,
           dec: ci.dec !== undefined ? Number(ci.dec) : undefined,
           icon: typeof ci.icon === 'string' ? ci.icon : undefined,
@@ -98,7 +99,19 @@ export async function tokenCoins(wallet: WalletInterface, withScripts = false): 
       if (r.outputs.length < 500) break;
     }
   }
-  return { coins, beef: withScripts ? beef.toBinary() : undefined };
+  // With whole transactions the wallet leaves out lockingScript: read the amount from the tx itself.
+  if (withScripts) {
+    for (const c of coins) {
+      if (c.amt > BigInt(0)) continue;
+      const [txid, vout] = c.outpoint.split(/[._]/);
+      const script = beef.findTxid(txid)?.tx?.outputs[Number(vout)]?.lockingScript.toHex();
+      const ins = script ? inscriptionJson(script) : null;
+      if (ins?.amt) c.amt = BigInt(ins.amt);
+      if (script) c.lockingScript = script;
+    }
+  }
+  return { coins: coins.filter((c) => c.amt > BigInt(0)), beef: withScripts ? beef.toBinary() : undefined };
+
 }
 
 /**

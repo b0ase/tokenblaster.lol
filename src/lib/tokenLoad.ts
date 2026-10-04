@@ -22,6 +22,7 @@ export async function loadTokens(
   sym = 'tokens',
   shown = amount.toString(),
   fuelSats = 0,
+  dec?: number,
 ): Promise<Transaction> {
   const { coins: all, beef } = await tokenCoins(wallet, true);
   // This token's coins whose key the wallet recorded (needed to ask it to sign).
@@ -54,7 +55,8 @@ export async function loadTokens(
       outputDescription: `The rest of your $${sym}, back to your wallet`,
       basket: 'bsv21',
       tags: [`bsv21:${id}`],
-      customInstructions: JSON.stringify({ protocolID: ONESAT, keyID }),
+      // Same notes the 1Sat wallets write (BRC-163 style): token fields + the key it's locked to.
+      customInstructions: JSON.stringify({ id, amt: change.toString(), sym, ...(dec !== undefined ? { dec: String(dec) } : {}), protocolID: ONESAT, keyID }),
     });
   }
 
