@@ -7,8 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { Gun, TOKEN_FEE } from './gun';
-import { walletTokens, type Token } from './tokens';
-import { loadTokens } from './tokenLoad';
+import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
+import { loadTokens, reNoteTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
 
 export function useBlaster() {
@@ -36,6 +36,19 @@ export function useBlaster() {
 
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
+  /** Coins TokenBlaster returned to the wallet without a note (the wallet can't see them). */
+  const [stranded, setStranded] = useState<(Token & { amt: bigint })[]>([]);
+  const checkStranded = useCallback(async (w: Wallet) => {
+    const list = await strandedCoins(w.client).catch(() => []);
+    const withMeta = await Promise.all(
+      list.map(async (s) => {
+        const t = await tokenById(s.id).catch(() => ({ id: s.id, sym: s.id.slice(0, 8), icon: null, dec: 0 }) as Token);
+        return { ...t, amt: s.amt, balance: Number(s.amt) / 10 ** t.dec };
+      }),
+    );
+    setStranded(withMeta);
+  }, []);
+
   const pick = useCallback(async (entry: WalletEntry) => {
     setChooser(null);
     setError(null);
@@ -49,6 +62,7 @@ export function useBlaster() {
         setTokens(held);
         setToken((cur) => (cur && held.some((t) => t.id === cur.id) ? held.find((t) => t.id === cur.id)! : (held[0] ?? null)));
       };
+      void checkStranded(w);
       walletTokens(w, first)
         .then((held) => {
           first(held);
@@ -60,7 +74,7 @@ export function useBlaster() {
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [checkStranded]);
 
   /** Inside bWallet: its wallet, no chooser. Else the remembered wallet, else the chooser. */
   const connectWallet = useCallback(async () => {
@@ -180,12 +194,30 @@ export function useBlaster() {
     [wallet, token, refreshTokens],
   );
 
+  const fixStranded = useCallback(
+    async (t: Token) => {
+      if (!wallet) return;
+      setError(null);
+      setBusy('loading-tokens');
+      try {
+        await reNoteTokens(wallet.client, t.id, t.sym, t.dec);
+        await checkStranded(wallet);
+      } catch (e) {
+        fail(e);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [wallet, checkStranded],
+  );
+
   /** Re-read the wallet's tokens (after buying or receiving more). */
   const [refreshing, setRefreshing] = useState(false);
   const refreshWallet = useCallback(async () => {
     if (!wallet) return;
     setRefreshing(true);
     try {
+      void checkStranded(wallet);
       const held = await walletTokens(wallet, setTokens);
       setTokens(held);
       setToken((cur) => (cur ? (held.find((t) => t.id === cur.id) ?? cur) : (held[0] ?? null)));
@@ -194,7 +226,7 @@ export function useBlaster() {
     } finally {
       setRefreshing(false);
     }
-  }, [wallet]);
+  }, [wallet, checkStranded]);
   // Coming back to the tab (e.g. after buying tokens elsewhere): look again.
   useEffect(() => {
     if (!wallet) return;
@@ -216,5 +248,5 @@ export function useBlaster() {
     }
   }, [wallet]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, refreshWallet, refreshing, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

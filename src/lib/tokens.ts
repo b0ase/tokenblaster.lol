@@ -49,6 +49,8 @@ export type TokenCoin = {
   protocolID?: [0 | 1 | 2, string];
   keyID?: string;
   lockingScript?: string;
+  /** The coin's note carries its amount: the wallet counts it. Without, the wallet can't see it. */
+  noted: boolean;
 };
 
 const norm = (op: string) => op.replace('.', '_');
@@ -94,6 +96,7 @@ export async function tokenCoins(wallet: WalletInterface, withScripts = false): 
           protocolID: Array.isArray(ci.protocolID) ? (ci.protocolID as [0 | 1 | 2, string]) : undefined,
           keyID: typeof ci.keyID === 'string' ? ci.keyID : undefined,
           lockingScript: o.lockingScript,
+          noted: typeof ci.amt === 'string' && ci.amt !== '0',
         });
       }
       if (r.outputs.length < 500) break;
@@ -119,8 +122,10 @@ export async function tokenCoins(wallet: WalletInterface, withScripts = false): 
  * for the wallet's address (wallets that don't keep token baskets).
  */
 export async function walletTokens(w: { client: WalletInterface; address: string }, quick?: (t: Token[]) => void): Promise<Token[]> {
-  const { coins } = await tokenCoins(w.client).catch(() => ({ coins: [] as TokenCoin[] }));
-  if (!coins.length) return tokensHeld(w.address).catch(() => []);
+  const { coins: every } = await tokenCoins(w.client).catch(() => ({ coins: [] as TokenCoin[] }));
+  // Exactly what the wallet itself counts as yours (the 1Sat rule: the coin's note has its amount).
+  const coins = every.filter((c) => c.noted);
+  if (!every.length) return tokensHeld(w.address).catch(() => []);
   const byId = new Map<string, { amt: bigint; c: TokenCoin }>();
   for (const c of coins) {
     const cur = byId.get(c.id);
@@ -152,4 +157,16 @@ function inscriptionJson(hex: string): { op?: string; id?: string; amt?: string 
   } catch {
     return null;
   }
+}
+
+/** Token coins the wallet holds but can't see (their note lacks the amount): to re-note them. */
+export async function strandedCoins(wallet: WalletInterface): Promise<{ id: string; amt: bigint; n: number }[]> {
+  const { coins } = await tokenCoins(wallet).catch(() => ({ coins: [] as TokenCoin[] }));
+  const by = new Map<string, { amt: bigint; n: number }>();
+  for (const c of coins) {
+    if (c.noted || !c.keyID) continue;
+    const cur = by.get(c.id) ?? { amt: BigInt(0), n: 0 };
+    by.set(c.id, { amt: cur.amt + c.amt, n: cur.n + 1 });
+  }
+  return [...by].map(([id, v]) => ({ id, ...v }));
 }

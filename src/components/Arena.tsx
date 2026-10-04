@@ -1193,6 +1193,17 @@ export function Arena() {
                       );
                     })}
                     {!b.tokens.length && <p className="text-left text-xs text-dim">No tokens found in your wallet.</p>}
+                    {b.stranded.map((t) => (
+                      <div key={t.id} className="inset border-fg bg-black/70 px-3 py-2 text-left text-xs text-hot">
+                        <p>
+                          {t.balance?.toLocaleString()} ${t.sym} are in your wallet but it can&apos;t show them: TokenBlaster sent them back without the note your
+                          wallet reads. Our bug.
+                        </p>
+                        <button onClick={() => b.fixStranded(t)} disabled={!!b.busy} className="btn btn-on mt-2 text-xs">
+                          {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `FIX: SHOW MY $${t.sym} IN MY WALLET`}
+                        </button>
+                      </div>
+                    ))}
                     <button
                       onClick={() => b.setMode('sats')}
                       className={`inset flex items-center gap-3 bg-black/60 px-3 py-2 text-left text-base ${!tokenMode ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
