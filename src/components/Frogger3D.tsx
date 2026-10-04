@@ -14,6 +14,16 @@ import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { chibiClips } from '@/lib/chibiAnims';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
+import { buildGun, GUNS } from '@/lib/arenaHD';
+
+const CHARS = [
+  { id: 'chibi', name: 'NPG Chibi', url: '/arena/models/npg/stack/chibi_base.glb', height: 1.6 },
+  { id: 'miyuki', name: 'Miyuki (NPG)', url: '/arena/models/npg/miyuki.glb', height: 1.75 },
+  { id: 'minion', name: 'Skeleton', url: '/arena/models/skeleton_minion.glb', height: 1.7, walk: 'Walking_D_Skeletons', idle: 'Idle' },
+  { id: 'frog', name: 'Frog (classic)', url: '', height: 0.8 },
+] as const;
+type CharId = (typeof CHARS)[number]['id'];
+const AMMO_PER_CROSSING = 3;
 
 /**
  * Chain Frogger, in 3D: cross a city avenue where every vehicle is a real BSV transaction from
@@ -21,7 +31,8 @@ import { useChainFeed } from '@/lib/useChainFeed';
  * bigger truck), token transfers box trucks wearing the token's logo. Glass towers, day and night.
  */
 const LANE_W = 3.4;
-const LANES: TxKind[] = ['payment', 'data', 'social', 'inscription', 'token', 'payment', 'data', 'social'];
+// One way, like value: every vehicle runs sender → receiver. null = the safe median halfway across.
+const LANES: (TxKind | null)[] = ['payment', 'data', 'social', 'inscription', null, 'token', 'payment', 'data', 'social'];
 const ROAD_HALF = 70; // vehicles live in x ∈ [-ROAD_HALF, ROAD_HALF]
 const START_Z = (LANES.length / 2) * LANE_W + 3; // south sidewalk
 const GOAL_Z = -START_Z; // north sidewalk
@@ -29,7 +40,7 @@ const DAY_S = 150; // seconds for a full day
 const BEST = 'tokenblaster:frogger-best';
 
 const laneZ = (i: number) => (i - (LANES.length - 1) / 2) * LANE_W;
-const laneDir = (i: number) => (i < LANES.length / 2 ? 1 : -1); // drive on the right
+const laneDir = (i: number) => (i >= 0 ? 1 : 1); // every lane: sender (west) → receiver (east)
 const PAINTS = ['#d81b2a', '#f2f2f2', '#111216', '#1e5bd8', '#f5b700', '#2bb673', '#8a2be2', '#ff6a00', '#9aa3ad'];
 
 export function Frogger3D() {
@@ -47,7 +58,11 @@ export function Frogger3D() {
   const [over, setOver] = useState(false);
   const [started, setStarted] = useState(false);
   const [clock, setClock] = useState('');
-  const control = useRef<{ move: (dx: number, dz: number) => void; restart: () => void; skip: () => void } | null>(null);
+  const control = useRef<{ move: (dx: number, dz: number) => void; restart: () => void; skip: () => void; fire: () => void; setChar: (id: CharId) => void; setWeapon: (i: number) => void } | null>(null);
+  const [ammoLeft, setAmmoLeft] = useState(AMMO_PER_CROSSING);
+  const [sampledN, setSampled] = useState(0);
+  const [char, setCharState] = useState<CharId>('chibi');
+  const [weapon, setWeaponState] = useState(0);
 
   useEffect(() => {
     let saved = 0;
@@ -120,8 +135,60 @@ export function Frogger3D() {
     }
     const paint = new THREE.MeshStandardMaterial({ color: '#cfccc2', roughness: 0.7 });
     const yellow = new THREE.MeshStandardMaterial({ color: '#f2c200', roughness: 0.6 });
+    // Median: a raised planted strip — the one safe place halfway across.
+    {
+      const mz = laneZ(LANES.indexOf(null));
+      const curb = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 60, 0.3, LANE_W - 0.4), new THREE.MeshStandardMaterial({ color: '#7d7a75', roughness: 0.9 }));
+      curb.position.set(0, 0.15, mz);
+      curb.receiveShadow = true;
+      const grass = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 60, 0.32, LANE_W - 1.2), new THREE.MeshStandardMaterial({ color: '#2f5a2a', roughness: 1 }));
+      grass.position.set(0, 0.17, mz);
+      scene.add(curb, grass);
+      for (let x = -ROAD_HALF; x <= ROAD_HALF; x += 9) {
+        const tree = new THREE.Mesh(new THREE.ConeGeometry(0.9, 2.6, 8), new THREE.MeshStandardMaterial({ color: '#2d6b35', roughness: 0.8 }));
+        tree.position.set(x + 4.5, 1.6, mz);
+        tree.castShadow = true;
+        if (Math.abs(x + 4.5) > 3) scene.add(tree);
+      }
+    }
+    // Direction of travel: chevrons on every lane, and the two ends named.
+    const chevMat = new THREE.MeshStandardMaterial({ color: '#cfccc2', roughness: 0.7 });
+    LANES.forEach((k, i) => {
+      if (!k) return;
+      for (let x = -ROAD_HALF + 10; x < ROAD_HALF; x += 24) {
+        const a = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.25), chevMat);
+        a.rotation.set(-Math.PI / 2, 0, -Math.PI / 4); // arms meet at the east end: ">" (traffic flows east)
+        a.position.set(x, 0.022, laneZ(i) - 0.35);
+        const b2 = a.clone();
+        b2.rotation.z = Math.PI / 4;
+        b2.position.z = laneZ(i) + 0.35;
+        scene.add(a, b2);
+      }
+    });
+    const sign = (text: string, x: number) => {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 128;
+      const g = c.getContext('2d')!;
+      g.fillStyle = '#0f5132';
+      g.fillRect(0, 0, 512, 128);
+      g.strokeStyle = '#fff';
+      g.lineWidth = 6;
+      g.strokeRect(6, 6, 500, 116);
+      g.fillStyle = '#fff';
+      g.font = 'bold 60px sans-serif';
+      g.textAlign = 'center';
+      g.fillText(text, 256, 84);
+      const sp = new THREE.Mesh(new THREE.PlaneGeometry(9, 2.25), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide }));
+      sp.position.set(x, 7.5, 0);
+      sp.rotation.y = x < 0 ? Math.PI / 2 : -Math.PI / 2;
+      scene.add(sp);
+    };
+    sign('← SENDER', -ROAD_HALF + 4);
+    sign('RECEIVER →', ROAD_HALF - 4);
     for (let i = 1; i < LANES.length; i++) {
-      const centre = i === LANES.length / 2;
+      if (LANES[i] === null || LANES[i - 1] === null) continue;
+      const centre = false;
       for (let x = -ROAD_HALF - 20; x < ROAD_HALF + 20; x += centre ? 200 : 6) {
         const m = new THREE.Mesh(new THREE.PlaneGeometry(centre ? 300 : 3, 0.18), centre ? yellow : paint);
         m.rotation.x = -Math.PI / 2;
@@ -336,27 +403,29 @@ export function Frogger3D() {
       scene.add(g);
       return g;
     };
-    type Veh = { g: THREE.Group; f: FeedTx; lane: number; speed: number; len: number };
+    type Veh = { g: THREE.Group; f: FeedTx; lane: number; speed: number; len: number; stalled?: number };
     const vehicles: Veh[] = [];
     let level = 1;
-    const laneSpeed = (i: number) => (9 + (i % 3) * 4 + (i % 2) * 2) * (1 + (level - 1) * 0.12);
+    const laneSpeed = (i: number) => (8 + (i % 3) * 3.5 + (i % 2) * 1.5) * (1 + (level - 1) * 0.1);
+    const nextAt = LANES.map(() => 0); // per-lane spawn cooldown
+    let sampled = 0;
 
-    // ── Player: the NPG chibi, rigged, walking ──
+    // ── Player: pick a character (NPG chibi, Miyuki, skeleton, classic frog) and a weapon ──
     const player = new THREE.Group();
     scene.add(player);
     let mixer: THREE.AnimationMixer | null = null;
     let walkAct: THREE.AnimationAction | null = null;
     let idleAct: THREE.AnimationAction | null = null;
+    let body: THREE.Object3D | null = null;
+    let gunObj: THREE.Object3D | null = null;
+    let gunMuzzle = new THREE.Vector3(0, 1, 0.8);
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
-    loader.load('/arena/models/npg/stack/chibi_base.glb', (gl) => {
-      if (disposed) return;
-      const clips = chibiClips(gl.scene);
-      const model = cloneSkinned(gl.scene);
+    const fitTo = (model: THREE.Object3D, height: number) => {
       model.updateMatrixWorld(true);
       const b = new THREE.Box3().setFromObject(model, true);
-      const s = 1.6 / (b.max.y - b.min.y);
-      model.scale.setScalar(s);
+      const s = height / Math.max(0.01, b.max.y - b.min.y);
+      model.scale.multiplyScalar(s);
       model.position.y = -b.min.y * s;
       model.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) {
@@ -364,12 +433,83 @@ export function Frogger3D() {
           o.frustumCulled = false;
         }
       });
-      player.add(model);
-      mixer = new THREE.AnimationMixer(model);
-      walkAct = mixer.clipAction(clips.find((c) => c.name === 'walk')!);
-      idleAct = mixer.clipAction(clips.find((c) => c.name === 'idle')!);
-      idleAct.play();
-    });
+    };
+    const frogModel = () => {
+      const g = new THREE.Group();
+      const skin = new THREE.MeshPhysicalMaterial({ color: '#3fbf3f', roughness: 0.35, clearcoat: 0.8 });
+      const bodyM = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 14), skin);
+      bodyM.scale.set(1, 0.7, 1.2);
+      bodyM.position.y = 0.32;
+      const eyeW = new THREE.MeshStandardMaterial({ color: '#fff' });
+      const eyeB = new THREE.MeshStandardMaterial({ color: '#111' });
+      for (const sx of [-0.18, 0.18]) {
+        const e = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), eyeW);
+        e.position.set(sx, 0.62, 0.22);
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), eyeB);
+        p.position.set(sx, 0.64, 0.32);
+        g.add(e, p);
+      }
+      for (const sx of [-0.35, 0.35]) {
+        const leg = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), skin);
+        leg.scale.set(1, 0.5, 1.6);
+        leg.position.set(sx, 0.12, -0.1);
+        g.add(leg);
+      }
+      g.add(bodyM);
+      g.traverse((o) => (o as THREE.Mesh).isMesh && (o.castShadow = true));
+      return g;
+    };
+    let charId: CharId = 'chibi';
+    let weaponIdx = 0; // index into GUNS; -1 = unarmed
+    const attachGun = () => {
+      if (gunObj) gunObj.parent?.remove(gunObj);
+      gunObj = null;
+      if (weaponIdx < 0 || !body) return;
+      const def = GUNS[weaponIdx];
+      loader.load(def.url, (gl) => {
+        if (disposed || !body) return;
+        const held = buildGun(def, gl); // barrel down −Z, ~1 m long
+        const g = held.group;
+        g.scale.multiplyScalar(charId === 'frog' ? 0.55 : 0.7);
+        g.rotation.y = Math.PI; // the characters face +Z
+        g.position.set(charId === 'frog' ? 0 : 0.32, charId === 'frog' ? 0.55 : 0.85, charId === 'frog' ? 0.35 : 0.25);
+        player.add(g);
+        gunObj = g;
+        gunMuzzle = new THREE.Vector3(g.position.x, g.position.y + 0.05, g.position.z + 0.75);
+      });
+    };
+    const loadChar = (id: CharId) => {
+      charId = id;
+      if (body) player.remove(body);
+      body = null;
+      mixer = null;
+      walkAct = idleAct = null;
+      const def = CHARS.find((c) => c.id === id)!;
+      if (!def.url) {
+        body = frogModel();
+        player.add(body);
+        attachGun();
+        return;
+      }
+      loader.load(def.url, (gl) => {
+        if (disposed || charId !== id) return;
+        const clips = id === 'chibi' ? chibiClips(gl.scene) : gl.animations;
+        const model = cloneSkinned(gl.scene);
+        fitTo(model, def.height);
+        player.add(model);
+        body = model;
+        mixer = new THREE.AnimationMixer(model);
+        const walkName = 'walk' in def ? def.walk : 'walk';
+        const idleName = 'idle' in def ? def.idle : 'idle';
+        const w = clips.find((c) => c.name === walkName);
+        const i = clips.find((c) => c.name === idleName);
+        walkAct = w ? mixer.clipAction(w) : null;
+        idleAct = i ? mixer.clipAction(i) : null;
+        idleAct?.play();
+        attachGun();
+      });
+    };
+    loadChar('chibi');
 
     // ── Game state ──
     const STEP = LANE_W;
@@ -381,6 +521,32 @@ export function Frogger3D() {
     let dead = 0;
     let fling: { v: THREE.Vector3; spin: number } | null = null;
     let dayT = 0.32; // start mid-morning
+    let ammo = AMMO_PER_CROSSING;
+    const zaps: { line: THREE.Line; spark: THREE.Mesh; born: number }[] = [];
+    const zapMat = new THREE.LineBasicMaterial({ color: new THREE.Color('#7ad7ff').multiplyScalar(4), toneMapped: false });
+    const sparkMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#9fe4ff').multiplyScalar(3), toneMapped: false, transparent: true });
+    const fire = () => {
+      if (dead || lifeLeft <= 0 || weaponIdx < 0 || ammo <= 0) return;
+      // The vehicle bearing down on the next lane you step into (or the one you're in).
+      const ahead = vehicles
+        .filter((v) => !v.stalled && v.g.position.z < pos.z + 0.5 && v.g.position.z > pos.z - LANE_W * 1.6 && v.g.position.x < pos.x + v.len)
+        .sort((a, b) => b.g.position.x - a.g.position.x)[0];
+      ammo--;
+      setAmmoLeft(ammo);
+      const from = player.localToWorld(gunMuzzle.clone());
+      const to = ahead ? ahead.g.position.clone().setY(1.2) : from.clone().add(new THREE.Vector3(0, 0, -20).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y + Math.PI));
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, to]), zapMat);
+      const spark = new THREE.Mesh(new THREE.SphereGeometry(ahead ? 1.4 : 0.3, 12, 10), sparkMat);
+      spark.position.copy(to);
+      scene.add(line, spark);
+      zaps.push({ line, spark, born: performance.now() });
+      if (ahead) ahead.stalled = performance.now(); // shorted out: it stops dead for a few seconds
+    };
+    const setChar = (id: CharId) => loadChar(id);
+    const setWeapon = (i: number) => {
+      weaponIdx = i;
+      attachGun();
+    };
     const move = (dx: number, dz: number) => {
       if (lifeLeft <= 0 || dead) return;
       setStarted(true);
@@ -399,10 +565,14 @@ export function Frogger3D() {
       setKiller(null);
     };
     const skip = () => (dayT = (dayT + 0.5) % 1);
-    control.current = { move, restart, skip };
+    control.current = { move, restart, skip, fire, setChar, setWeapon };
     const key = (e: KeyboardEvent) => {
       const k = e.key;
       const d = k === 'ArrowUp' || k === 'w' ? [0, -1] : k === 'ArrowDown' || k === 's' ? [0, 1] : k === 'ArrowLeft' || k === 'a' ? [-1, 0] : k === 'ArrowRight' || k === 'd' ? [1, 0] : null;
+      if (k === ' ' || k === 'f' || k === 'Enter') {
+        e.preventDefault();
+        return fire();
+      }
       if (!d) return;
       e.preventDefault();
       move(d[0], d[1]);
@@ -457,11 +627,15 @@ export function Frogger3D() {
 
       // Spawn: each lane takes the next live transaction of its kind when its entry is clear.
       LANES.forEach((kind, i) => {
+        if (!kind || now < nextAt[i]) return;
         const dir = laneDir(i);
         const entry = vehicles.filter((v) => v.lane === i).reduce((m, v) => Math.min(m, dir > 0 ? v.g.position.x + ROAD_HALF - v.len / 2 : ROAD_HALF - v.g.position.x - v.len / 2), Infinity);
-        if (entry < 10) return;
+        const minGap = Math.max(9, 26 - level * 2); // room to cross; tightens as you level up
+        if (entry < minGap) return;
         const f = feedRef.current.take((t) => t.kind === kind || (kind === 'payment' && t.kind === 'blast'));
         if (!f) return;
+        sampled++;
+        nextAt[i] = now + (1200 + Math.random() * 2600) / (1 + (level - 1) * 0.15);
         const g = makeVehicle(f, i);
         vehicles.push({ g, f, lane: i, speed: laneSpeed(i) * (0.85 + Math.random() * 0.3), len: g.userData.len });
       });
@@ -471,7 +645,8 @@ export function Frogger3D() {
         const dir = laneDir(v.lane);
         const ahead = vehicles.filter((o) => o !== v && o.lane === v.lane && (o.g.position.x - v.g.position.x) * dir > 0);
         const gap = ahead.reduce((m, o) => Math.min(m, Math.abs(o.g.position.x - v.g.position.x) - (o.len + v.len) / 2), Infinity);
-        const sp = gap < 3 ? Math.min(v.speed, (ahead.find((o) => Math.abs(o.g.position.x - v.g.position.x) - (o.len + v.len) / 2 === gap)?.speed ?? v.speed)) : v.speed;
+        const stalled = v.stalled && now - v.stalled < 3500;
+        const sp = stalled ? 0 : gap < 3 ? Math.min(v.speed, (ahead.find((o) => Math.abs(o.g.position.x - v.g.position.x) - (o.len + v.len) / 2 === gap)?.speed ?? v.speed)) : v.speed;
         v.g.position.x += dir * sp * dt;
         if (Math.abs(v.g.position.x) > ROAD_HALF + 20) {
           scene.remove(v.g);
@@ -495,6 +670,7 @@ export function Frogger3D() {
           }
         }
         player.position.copy(pos);
+        if (charId === 'frog' && body) body.position.y = moving ? Math.abs(Math.sin(now / 90)) * 0.35 : 0;
         player.rotation.set(0, THREE.MathUtils.lerp(player.rotation.y, heading, Math.min(1, dt * 12)), 0);
         // Crossed?
         if (target.z <= GOAL_Z + 0.01 && pos.z <= GOAL_Z + 0.2) {
@@ -511,6 +687,8 @@ export function Frogger3D() {
           }
           pos = new THREE.Vector3(pos.x, 0, START_Z);
           target = pos.clone();
+          ammo = AMMO_PER_CROSSING;
+          setAmmoLeft(ammo);
         }
         // Hit?
         const hit = vehicles.find((v) => Math.abs(v.g.position.z - pos.z) < LANE_W * 0.45 && Math.abs(v.g.position.x - pos.x) < v.len / 2 + 0.35);
@@ -543,6 +721,18 @@ export function Frogger3D() {
         }
       }
       mixer?.update(dt);
+      for (let i = zaps.length - 1; i >= 0; i--) {
+        const z = zaps[i];
+        const age = now - z.born;
+        sparkMat.opacity = Math.max(0, 1 - age / 400);
+        z.spark.scale.setScalar(1 + age / 300);
+        if (age > 400) {
+          scene.remove(z.line, z.spark);
+          zaps.splice(i, 1);
+        }
+      }
+      for (const v of vehicles) if (v.stalled) v.g.position.y = now - v.stalled < 3500 ? Math.sin(now / 30) * 0.03 : 0;
+      if (Math.floor(now / 1000) !== Math.floor((now - dt * 1000) / 1000)) setSampled(sampled);
 
       // GTA-style chase camera: behind and above, looking across the avenue.
       const camGoal = new THREE.Vector3(player.position.x, 7.5, player.position.z + 11);
@@ -602,6 +792,7 @@ export function Frogger3D() {
         <div className="pointer-events-none absolute right-3 top-3 text-right font-bold text-hot drop-shadow">
           <div className="text-2xl">{clock}</div>
           <div className="text-sm">{'♥'.repeat(Math.max(0, lives))}</div>
+          {weapon >= 0 && <div className="text-sm">⚡ {'▮'.repeat(ammoLeft)}{'▯'.repeat(Math.max(0, AMMO_PER_CROSSING - ammoLeft))}</div>}
         </div>
         <button onClick={() => control.current?.skip()} className="btn absolute left-3 top-3 text-xs">
           ☀/☾ skip
@@ -614,9 +805,29 @@ export function Frogger3D() {
           </div>
         )}
         {!started && !over && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-6 flex flex-col items-center gap-1 text-center">
-            <p className="bg-black/60 px-3 py-1 text-2xl font-bold text-hot">CHAIN FROGGER</p>
-            <p className="max-w-md bg-black/60 px-3 py-1 text-sm text-fg">Every vehicle is a real BSV transaction, live. Cross the avenue: arrows / WASD, or swipe and tap.</p>
+          <div className="absolute inset-x-0 bottom-4 flex flex-col items-center gap-2 text-center">
+            <p className="bg-black/70 px-3 py-1 text-2xl font-bold text-hot">CHAIN FROGGER</p>
+            <p className="max-w-lg bg-black/70 px-3 py-1 text-sm text-fg">
+              Every vehicle is a real BSV transaction, live, running one way: sender → receiver. Cross the avenue; rest on the median. Arrows / WASD to move, Space / F to zap
+              the vehicle ahead ({AMMO_PER_CROSSING} shots per crossing).
+            </p>
+            <div className="flex flex-wrap justify-center gap-1 bg-black/70 px-2 py-1 text-xs">
+              <span className="self-center text-dim">PLAY AS:</span>
+              {CHARS.map((c) => (
+                <button key={c.id} onClick={() => (setCharState(c.id), control.current?.setChar(c.id))} className={`btn ${char === c.id ? 'btn-on' : ''}`}>
+                  {c.name}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap justify-center gap-1 bg-black/70 px-2 py-1 text-xs">
+              <span className="self-center text-dim">WEAPON:</span>
+              {[{ name: 'None' }, ...GUNS].map((g, i) => (
+                <button key={g.name} onClick={() => (setWeaponState(i - 1), control.current?.setWeapon(i - 1))} className={`btn ${weapon === i - 1 ? 'btn-on' : ''}`}>
+                  {g.name}
+                </button>
+              ))}
+            </div>
+            <p className="bg-black/70 px-2 text-xs text-dim">press an arrow key to start</p>
           </div>
         )}
         {over && (
@@ -631,6 +842,9 @@ export function Frogger3D() {
           </div>
         )}
       </div>
+      <p className="mt-2 text-xs text-muted">
+        Traffic is a live sample of mainnet: {sampledN.toLocaleString()} real transactions have driven past so far (the chain runs far more than a road could hold).
+      </p>
       <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
         <div className="inset px-2 py-1">
           <span className="text-dim">Crossings: </span>
@@ -667,6 +881,11 @@ export function Frogger3D() {
             {l}
           </button>
         ))}
+        {weapon >= 0 && (
+          <button onClick={() => control.current?.fire()} className="btn btn-on px-4 py-3 text-xl">
+            ⚡
+          </button>
+        )}
       </div>
     </section>
   );
