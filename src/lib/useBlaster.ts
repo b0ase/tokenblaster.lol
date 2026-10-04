@@ -158,7 +158,7 @@ export function useBlaster() {
       setError(null);
       setBusy('loading-tokens');
       try {
-        await loadTokens(wallet.client, token.id, BigInt(Math.floor(count)) * BigInt(10) ** BigInt(token.dec), g.address, token.sym);
+        await loadTokens(wallet.client, token.id, BigInt(Math.floor(count)) * BigInt(10) ** BigInt(token.dec), g.address, token.sym, Math.floor(count).toLocaleString());
         setTokenAmmo((n) => n + Math.floor(count));
         walletTokens(wallet)
           .then(setTokens)

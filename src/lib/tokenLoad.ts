@@ -14,7 +14,7 @@ const ONESAT: WalletProtocol = [0, 'onesat'];
 const SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_FORKID;
 
 /** Send `amount` base units of token `id` from the wallet to `to`. Returns the txid. */
-export async function loadTokens(wallet: WalletInterface, id: string, amount: bigint, to: string, sym = 'tokens'): Promise<string> {
+export async function loadTokens(wallet: WalletInterface, id: string, amount: bigint, to: string, sym = 'tokens', shown = amount.toString()): Promise<string> {
   const { coins: all, beef } = await tokenCoins(wallet, true);
   // This token's coins whose key the wallet recorded (needed to ask it to sign).
   const coins: Coin[] = all
@@ -33,7 +33,7 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
   // Change goes back to the wallet under a fresh key it can find again (same 1Sat convention).
   const change = sum - amount;
   const outputs: Parameters<WalletInterface['createAction']>[0]['outputs'] = [
-    { lockingScript: bsv21(id, amount, to).toHex(), satoshis: 1, outputDescription: `Load gun: ${sym}` },
+    { lockingScript: bsv21(id, amount, to).toHex(), satoshis: 1, outputDescription: `${shown} $${sym} into your gun` },
   ];
   if (change > BigInt(0)) {
     const keyID = `tokenblaster-${Date.now()}`;
@@ -41,7 +41,7 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
     outputs.push({
       lockingScript: bsv21(id, change, PublicKey.fromString(publicKey).toAddress()).toHex(),
       satoshis: 1,
-      outputDescription: `${sym} change`,
+      outputDescription: `The rest of your $${sym}, back to your wallet`,
       basket: 'bsv21',
       tags: [`bsv21:${id}`],
       customInstructions: JSON.stringify({ protocolID: ONESAT, keyID }),
@@ -49,7 +49,7 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
   }
 
   const created = await wallet.createAction({
-    description: `TokenBlaster: load ${amount} $${sym} into your gun`,
+    description: `Load ${shown} $${sym} into your TokenBlaster gun as ammunition`,
     inputBEEF: beef,
     inputs: use.map((c) => ({ outpoint: c.outpoint, unlockingScriptLength: 108, inputDescription: `$${sym}` })),
     outputs,
@@ -74,6 +74,7 @@ async function signAndSend(wallet: WalletInterface, signable: SignableTransactio
 
   // Sign each token input with the wallet key it is locked to.
   const spends: Record<number, { unlockingScript: string }> = {};
+  const keys = new Map<string, string>(); // one getPublicKey per key, not per coin
   for (let i = 0; i < use.length; i++) {
     const input = tx.inputs[i];
     const src = input.sourceTransaction!.outputs[input.sourceOutputIndex];
@@ -92,7 +93,9 @@ async function signAndSend(wallet: WalletInterface, signable: SignableTransactio
     });
     const digest = Hash.sha256(Hash.sha256(preimage));
     const { signature } = await wallet.createSignature({ hashToDirectlySign: digest, protocolID: use[i].protocolID, keyID: use[i].keyID, counterparty: 'self' });
-    const { publicKey } = await wallet.getPublicKey({ protocolID: use[i].protocolID, keyID: use[i].keyID, counterparty: 'self' });
+    const k = JSON.stringify([use[i].protocolID, use[i].keyID]);
+    if (!keys.has(k)) keys.set(k, (await wallet.getPublicKey({ protocolID: use[i].protocolID, keyID: use[i].keyID, counterparty: 'self' })).publicKey);
+    const publicKey = keys.get(k)!;
     const sig = [...signature, SIGHASH];
     const pub = Utils.toArray(publicKey, 'hex');
     spends[i] = {
