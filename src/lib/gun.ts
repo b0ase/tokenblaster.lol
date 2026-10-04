@@ -203,7 +203,7 @@ export class Gun {
       for (let i = 0; i < extras.length; i++) {
         const tx = new Transaction();
         tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token, String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
+        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
         tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
         await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
         await tx.sign();
@@ -348,7 +348,7 @@ export class Gun {
     if (!this.coin) throw new Error('The gun is empty. Load it first.');
     const tx = new Transaction();
     tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token, String(n), ...extra].map(hex).join(' ')}`), satoshis: 0 });
+    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(n), ...extra].map(hex).join(' ')}`), satoshis: 0 });
     tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
     await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
     await tx.sign();

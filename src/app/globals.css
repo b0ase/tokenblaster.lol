@@ -9,8 +9,8 @@
   --text: #ff5a48;
   --accent: #ff9a85;
   --hot: #ffd0c0;
-  --dim: #a05a52;
-  --muted: #6a3632;
+  --dim: #e0958a; /* readable on the dark panels and the arena brick */
+  --muted: #b06e66;
   --border: #8a2222;
   --border-dim: #4a1414;
   --border-canvas: #2a0a0a;
@@ -54,7 +54,7 @@ body::after {
   pointer-events: none;
   z-index: 50;
   background:
-    repeating-linear-gradient(to bottom, rgb(0 0 0 / 0) 0 2px, rgb(0 0 0 / 0.18) 2px 3px),
+    repeating-linear-gradient(to bottom, rgb(0 0 0 / 0) 0 2px, rgb(0 0 0 / 0.1) 2px 3px),
     radial-gradient(ellipse at center, rgb(0 0 0 / 0) 60%, rgb(0 0 0 / 0.55) 100%);
 }
 
