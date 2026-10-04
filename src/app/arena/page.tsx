@@ -2,7 +2,13 @@ import Link from 'next/link';
 import { Arena } from '@/components/Arena';
 import { GitHubLink } from '@/components/GitHubLink';
 
-export const metadata = { title: 'Arena · TokenBlaster.lol' };
+const description = 'A DOOM-style arena where your ammo is the tokens in your wallet. Pick a gun, load your tokens, and every bullet is a real BSV transaction.';
+export const metadata = {
+  title: 'Arena · TokenBlaster.lol',
+  description,
+  openGraph: { title: 'TokenBlaster Arena', description, url: '/arena' },
+  twitter: { card: 'summary_large_image', title: 'TokenBlaster Arena', description },
+};
 
 export default function ArenaPage() {
   return (
