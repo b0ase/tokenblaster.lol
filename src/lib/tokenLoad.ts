@@ -5,7 +5,7 @@
  * wallet adds fee inputs, and we ask the wallet to sign the token inputs with that key
  * (createSignature). One approval prompt; the wallet broadcasts.
  */
-import { Hash, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
+import { Hash, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
 import { bsv21 } from './gun';
 import { tokenCoins } from './tokens';
 
@@ -60,6 +60,16 @@ export async function loadTokens(wallet: WalletInterface, id: string, amount: bi
   });
   const signable = created.signableTransaction;
   if (!signable) throw new Error('The wallet did not return a transaction to sign.');
+  try {
+    return await signAndSend(wallet, signable, use);
+  } catch (e) {
+    // Release the token coins the half-built action reserved, so the wallet can spend them again.
+    await wallet.abortAction({ reference: signable.reference }).catch(() => undefined);
+    throw e;
+  }
+}
+
+async function signAndSend(wallet: WalletInterface, signable: SignableTransaction, use: Coin[]): Promise<string> {
   const tx = Transaction.fromAtomicBEEF(signable.tx);
 
   // Sign each token input with the wallet key it is locked to.
