@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Frogger } from '@/components/Frogger';
+import { Frogger3D as Frogger } from '@/components/Frogger3D';
 
 const description = 'Frogger where the traffic is the BSV mainnet, live: every car is a real transaction. Cross the chain.';
 export const metadata = {
