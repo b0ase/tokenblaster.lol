@@ -8,13 +8,13 @@ export const metadata = {
   twitter: { card: 'summary_large_image', title: 'TokenBlaster Arcade', description },
 };
 
-type Game = { href?: string; external?: boolean; title: string; by?: string; blurb: string; status: 'live' | 'soon' };
+type Game = { href?: string; external?: boolean; title: string; by?: string; blurb: string; status: 'live' | 'soon'; img: string };
 const GAMES: Game[] = [
-  { href: '/arena', title: 'Arena', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: every bullet is a real transaction. Multiplayer: hit a player and your token lands in their gun.', status: 'live' },
-  { href: '/arcade/frogger', title: 'Chain Frogger', blurb: 'Cross the road where the traffic is the BSV mainnet, live. Every car is a real transaction; token transfers carry their token.', status: 'live' },
-  { title: 'Ninja Punk Girls', blurb: 'The NPG cards come alive in 3D: build your girl from her cards, then take her into the fight.', status: 'soon' },
-  { title: 'Token Rally', blurb: 'Race the tokens moving on chain right now.', status: 'soon' },
-  { href: 'https://paiybit.com/paiybit/arcade', external: true, title: 'Midnight Pass', by: 'Paiybit', blurb: 'From the Paiybit arcade.', status: 'soon' },
+  { href: '/arena', title: 'Arena', img: '/arcade/arena.jpg', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: every bullet is a real transaction. Multiplayer: hit a player and your token lands in their gun.', status: 'live' },
+  { href: '/arcade/frogger', title: 'Chain Frogger', img: '/arcade/frogger.jpg', blurb: 'A 3D city crossing where every vehicle is a live mainnet transaction, one way from sender to receiver. Pick a character, arm up, zap traffic.', status: 'live' },
+  { title: 'Ninja Punk Girls', img: '/arcade/npg.jpg', blurb: 'The NPG cards come alive in 3D: build your girl from her cards, then take her into the fight.', status: 'soon' },
+  { title: 'Token Rally', img: '/arcade/rally.jpg', blurb: 'Race the tokens moving on chain right now.', status: 'soon' },
+  { href: 'https://paiybit.com/paiybit/arcade', external: true, title: 'Midnight Pass', by: 'Paiybit', img: '/arcade/midnight.jpg', blurb: 'From the Paiybit arcade.', status: 'soon' },
 ];
 
 export default function ArcadePage() {
@@ -35,6 +35,11 @@ export default function ArcadePage() {
         {GAMES.map((g) => {
           const body = (
             <>
+              <div className="relative -mx-2.5 -mt-2.5 mb-2 aspect-[1200/630] overflow-hidden border-b border-[var(--border-dim)]">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={g.img} alt={`${g.title} screenshot`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
+                {g.status === 'soon' && <span className="absolute right-2 top-2 bg-black/80 px-2 py-0.5 text-xs text-hot">COMING SOON</span>}
+              </div>
               <div className="panel-header">
                 <span className="panel-title group-hover:text-hot">&gt; {g.title}</span>
                 <span className={g.status === 'live' ? 'text-hot' : 'text-dim'}>{g.status === 'live' ? '[PLAY]' : '[COMING SOON]'}</span>
@@ -50,7 +55,7 @@ export default function ArcadePage() {
               </Link>
             );
           return (
-            <div key={g.title} className="panel opacity-70">
+            <div key={g.title} className="panel group opacity-80">
               {body}
             </div>
           );
