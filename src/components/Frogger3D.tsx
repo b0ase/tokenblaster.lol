@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -42,6 +44,22 @@ const BEST = 'tokenblaster:frogger-best';
 
 const laneZ = (i: number) => (i - (LANES.length - 1) / 2) * LANE_W;
 const laneDir = (i: number) => (i >= 0 ? 1 : 1); // every lane: sender (west) → receiver (east)
+const ASSETS = '/arcade/frogger';
+type ModelKey = 'sports' | 'sedan' | 'cruiser' | 'taxi' | 'van' | 'boxtruck' | 'bus' | 'supercar';
+/** Real vehicle models (CC-BY, see public/arena/CREDITS.md). rotY turns the model's nose to +x; paint: recolour the body per vehicle. */
+const MODELS: Record<ModelKey, { rotY: number; paint: boolean }> = {
+  sports: { rotY: 0, paint: true },
+  sedan: { rotY: 0, paint: true },
+  cruiser: { rotY: 0, paint: true },
+  taxi: { rotY: 0, paint: false },
+  van: { rotY: 0, paint: true },
+  boxtruck: { rotY: 0, paint: true },
+  bus: { rotY: 0, paint: false },
+  supercar: { rotY: Math.PI / 2, paint: true },
+};
+const DECAL_Z = 0.214; // boxtruck cargo-box side, in the 1 m template's units
+const NEON = ['BSV', 'MEMPOOL', '24/7', 'HOTEL', 'TOKENS', 'LIQUOR', 'BLOCK 21', "SATOSHI'S", 'PAWN', 'NOODLES', 'CASH', 'SATS'];
+const NEON_COLS = ['#ff2d6f', '#28e7ff', '#ffd23f', '#9b5cff', '#3bff8a', '#ff7a1a'];
 const PAINTS = ['#d81b2a', '#f2f2f2', '#111216', '#1e5bd8', '#f5b700', '#2bb673', '#8a2be2', '#ff6a00', '#9aa3ad'];
 
 export function Frogger3D() {
@@ -81,7 +99,7 @@ export function Frogger3D() {
     if (!el) return;
     let disposed = false;
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMappingExposure = 0.8;
@@ -93,8 +111,23 @@ export function Frogger3D() {
 
     const scene = new THREE.Scene();
     const pmrem = new THREE.PMREMGenerator(renderer);
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = env;
+    const roomEnv = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; // until the HDRI arrives
+    scene.environment = roomEnv;
+    // Real sky: a Poly Haven city HDRI lights everything (and is the sky by day).
+    let hdrSky: THREE.DataTexture | null = null;
+    let hdrEnv: THREE.Texture | null = null;
+    new HDRLoader().load(`${ASSETS}/tex/potsdamer_platz.hdr`, (t) => {
+      if (disposed) return t.dispose();
+      t.mapping = THREE.EquirectangularReflectionMapping;
+      hdrSky = t;
+      hdrEnv = pmrem.fromEquirectangular(t).texture;
+      scene.environment = hdrEnv;
+      // Own envMap so these can be pushed past the scene level (wet road, mirror glass).
+      for (const m of [asphalt, ...towerMats.slice(0, 6)]) {
+        m.envMap = hdrEnv;
+        m.needsUpdate = true;
+      }
+    });
     scene.fog = new THREE.Fog('#9fb4c8', 110, 320);
     const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 600);
     camera.position.set(0, 7.5, START_Z + 11);
@@ -102,19 +135,32 @@ export function Frogger3D() {
 
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
+    // Ambient occlusion: contact shadows under cars, in corners and kerbs.
+    const gtao = new GTAOPass(scene, camera, 512, 512);
+    gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1.5, scale: 1, samples: 12, distanceFallOff: 1 });
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 });
+    gtao.blendIntensity = 0.85;
+    composer.addPass(gtao);
     const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.25, 0.5, 0.95); // only real lights bloom
     composer.addPass(bloom);
     const deathGrade = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, amount: { value: 0 }, time: { value: 0 } },
+      uniforms: { tDiffuse: { value: null }, amount: { value: 0 }, time: { value: 0 }, night: { value: 0 } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader: `
-        uniform sampler2D tDiffuse; uniform float amount; uniform float time; varying vec2 vUv;
+        uniform sampler2D tDiffuse; uniform float amount; uniform float time; uniform float night; varying vec2 vUv;
         float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233)) + time) * 43758.5453); }
         void main(){
           vec4 c = texture2D(tDiffuse, vUv);
           float g = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+          // Always-on GTA grade: a touch more saturation, teal shadows / warm highlights, soft vignette.
+          vec3 base = mix(vec3(g), c.rgb, 1.12);
+          float sh = 1.0 - smoothstep(0.0, 0.35, g);
+          base *= mix(vec3(1.0), mix(vec3(0.93, 1.0, 1.06), vec3(0.9, 0.97, 1.12), night), sh);
+          base *= mix(vec3(1.0), vec3(1.05, 1.0, 0.93), smoothstep(0.5, 1.5, g) * (1.0 - night));
+          base *= mix(1.0, smoothstep(1.05, 0.35, distance(vUv, vec2(0.5))), 0.35);
+          g = dot(base, vec3(0.299, 0.587, 0.114));
           vec3 mono = vec3(g) * vec3(1.05, 0.93, 0.9);            // drained, faintly warm-red
-          vec3 col = mix(c.rgb, mono, amount);
+          vec3 col = mix(base, mono, amount);
           col = mix(col, (col - 0.5) * 1.25 + 0.45, amount * 0.6); // harsher contrast
           float d = distance(vUv, vec2(0.5));
           col *= mix(1.0, smoothstep(0.85, 0.25, d), amount);       // heavy vignette
@@ -131,23 +177,42 @@ export function Frogger3D() {
     const sun = new THREE.DirectionalLight('#fff1dc', 3);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -60, right: 60, top: 60, bottom: -60, near: 1, far: 300 });
+    // Tight frustum that follows the player (the sun is re-aimed at them every frame): crisp shadows.
+    Object.assign(sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 1, far: 260 });
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.03;
     scene.add(sun, sun.target);
 
     // ── Ground: avenue, sidewalks, crosswalk, lane markings ──
-    const asphalt = new THREE.MeshStandardMaterial({ color: '#2a2b2e', roughness: 0.75, metalness: 0.05 });
+    // Poly Haven CC0 PBR sets: asphalt for the avenue, concrete pavers for the sidewalks.
+    const texLoader = new THREE.TextureLoader();
+    const pbr = (name: string, rx: number, ry: number) => {
+      const load = (suffix: string, srgb: boolean) => {
+        const t = texLoader.load(`${ASSETS}/tex/${name}_${suffix}.webp`);
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(rx, ry);
+        t.anisotropy = 8;
+        if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      };
+      return { map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false) };
+    };
+    const roadW = LANES.length * LANE_W;
+    const asphalt = new THREE.MeshStandardMaterial({ ...pbr('asphalt_02', (ROAD_HALF * 2 + 60) / 6, roadW / 6), color: '#8a8a8e', roughness: 1, metalness: 0, normalScale: new THREE.Vector2(0.8, 0.8) });
     // City ground under everything (plazas, the far side of the blocks).
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), new THREE.MeshStandardMaterial({ color: '#3a3836', roughness: 0.95 }));
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(800, 800),
+      new THREE.MeshStandardMaterial({ ...pbr('concrete_pavement', 160, 160), color: '#77736e', roughness: 1 }),
+    );
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.02;
     ground.receiveShadow = true;
     scene.add(ground);
-    const roadW = LANES.length * LANE_W;
     const road = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_HALF * 2 + 60, roadW), asphalt);
     road.rotation.x = -Math.PI / 2;
     road.receiveShadow = true;
     scene.add(road);
-    const walkMat = new THREE.MeshStandardMaterial({ color: '#6f6c68', roughness: 0.9 });
+    const walkMat = new THREE.MeshStandardMaterial({ ...pbr('concrete_pavement', (ROAD_HALF * 2 + 60) / 3, 8 / 3), color: '#b8b3ad', roughness: 1 });
     for (const z of [START_Z + 3, GOAL_Z - 3]) {
       const walk = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 60, 0.25, 6 + 2), walkMat);
       walk.position.set(0, 0.125, z + Math.sign(z) * 1);
@@ -165,11 +230,25 @@ export function Frogger3D() {
       const grass = new THREE.Mesh(new THREE.BoxGeometry(ROAD_HALF * 2 + 60, 0.32, LANE_W - 1.2), new THREE.MeshStandardMaterial({ color: '#2f5a2a', roughness: 1 }));
       grass.position.set(0, 0.17, mz);
       scene.add(curb, grass);
+      // Street trees: trunk + clumped leafy crowns, geometry and materials shared.
+      const trunkGeo = new THREE.CylinderGeometry(0.1, 0.16, 2.2, 7);
+      const crownGeo = new THREE.IcosahedronGeometry(1, 1);
+      const trunkMat = new THREE.MeshStandardMaterial({ color: '#4a3a2c', roughness: 1 });
+      const leafMats = ['#2f6a2f', '#3b7a35', '#28592b'].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
       for (let x = -ROAD_HALF; x <= ROAD_HALF; x += 9) {
-        const tree = new THREE.Mesh(new THREE.ConeGeometry(0.9, 2.6, 8), new THREE.MeshStandardMaterial({ color: '#2d6b35', roughness: 0.8 }));
-        tree.position.set(x + 4.5, 1.6, mz);
-        tree.castShadow = true;
-        if (Math.abs(x + 4.5) > 3) scene.add(tree);
+        const tx = x + 4.5;
+        if (Math.abs(tx) <= 3) continue;
+        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        trunk.position.set(tx, 1.4, mz);
+        trunk.castShadow = true;
+        scene.add(trunk);
+        for (let k = 0; k < 3; k++) {
+          const c = new THREE.Mesh(crownGeo, leafMats[(k + Math.abs(Math.round(x))) % 3]);
+          c.scale.setScalar(0.75 + ((k * 37 + x) % 3) * 0.12);
+          c.position.set(tx + (k - 1) * 0.45, 2.9 + (k % 2) * 0.5, mz + (k === 1 ? 0.3 : -0.2));
+          c.castShadow = true;
+          scene.add(c);
+        }
       }
     }
     // Direction of travel: chevrons on every lane, and the two ends named.
@@ -246,10 +325,10 @@ export function Frogger3D() {
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       return t;
     };
-    const towerMats: THREE.MeshPhysicalMaterial[] = [];
+    // Facades: glass curtain walls plus concrete, brick-red and pale stone blocks, all with lit windows at night.
+    const towerMats: THREE.MeshStandardMaterial[] = [];
     const glassTints = ['#5b7a99', '#3d5466', '#7a8fa3', '#2f4a5e', '#8aa0b0', '#4a6070'];
     for (let i = 0; i < 6; i++) {
-      const w = windowTex(i * 977 + 13);
       towerMats.push(
         new THREE.MeshPhysicalMaterial({
           color: glassTints[i],
@@ -259,14 +338,95 @@ export function Frogger3D() {
           clearcoatRoughness: 0.05,
           envMapIntensity: 1.6,
           emissive: '#ffffff',
-          emissiveMap: w,
+          emissiveMap: windowTex(i * 977 + 13),
           emissiveIntensity: 0,
         }),
       );
     }
+    const solidTints = ['#8d8478', '#6e4a3a', '#b7ad9c', '#56575c', '#9c8f7e'];
+    // Same window grid as windowTex, so lit windows line up with the dark panes of the facade.
+    const facadeTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = 128;
+      c.height = 256;
+      const x = c.getContext('2d')!;
+      x.fillStyle = '#e4e0d8';
+      x.fillRect(0, 0, 128, 256);
+      for (let yy = 4; yy < 256; yy += 10) {
+        x.fillStyle = '#cfcac0';
+        x.fillRect(0, yy + 7, 128, 2);
+        for (let xx = 4; xx < 128; xx += 9) {
+          x.fillStyle = '#23272e';
+          x.fillRect(xx, yy, 6, 7);
+        }
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      return t;
+    })();
+    solidTints.forEach((c, i) => {
+      towerMats.push(
+        new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0.05, map: facadeTex, emissive: '#ffffff', emissiveMap: windowTex(i * 541 + 101), emissiveIntensity: 0 }),
+      );
+    });
+    // Storefront band: shop windows, signs and awnings along the ground floor of the front blocks.
+    const shopTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 64;
+      const x = c.getContext('2d')!;
+      x.fillStyle = '#16181c';
+      x.fillRect(0, 0, 512, 64);
+      const awn = ['#9c1c24', '#1d4f8a', '#2c6b3c', '#c47a12', '#5a2a7a'];
+      for (let k = 0; k < 8; k++) {
+        const x0 = k * 64 + 4;
+        x.fillStyle = k % 3 === 0 ? '#ffe2b0' : k % 3 === 1 ? '#cfe8ff' : '#ffd0e0';
+        x.fillRect(x0, 22, 56, 38);
+        x.fillStyle = 'rgba(0,0,0,0.35)';
+        x.fillRect(x0 + 27, 22, 3, 38);
+        x.fillStyle = awn[k % awn.length];
+        x.fillRect(x0 - 2, 6, 60, 12);
+      }
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = THREE.RepeatWrapping;
+      return t;
+    })();
+    const shopMat = new THREE.MeshStandardMaterial({ map: shopTex, emissive: '#ffffff', emissiveMap: shopTex, emissiveIntensity: 0.15, roughness: 0.35, metalness: 0.2 });
+    const podiumMat = new THREE.MeshStandardMaterial({ color: '#3a3a3e', roughness: 0.6, metalness: 0.3 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: '#5d5f63', roughness: 0.8, metalness: 0.4 });
+    const beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff2020').multiplyScalar(3), toneMapped: false });
+    const unitBox = new THREE.BoxGeometry(1, 1, 1);
+    const neonMats: THREE.MeshStandardMaterial[] = [];
+    const neonSign = (text: string, col: string) => {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 128;
+      const x = c.getContext('2d')!;
+      x.fillStyle = '#050507';
+      x.fillRect(0, 0, 512, 128);
+      x.font = 'bold 84px "Arial Black", Impact, sans-serif';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.shadowColor = col;
+      x.shadowBlur = 18;
+      x.strokeStyle = col;
+      x.lineWidth = 6;
+      x.strokeText(text, 256, 68, 480);
+      x.fillStyle = '#ffffff';
+      x.fillText(text, 256, 68, 480);
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      const m = new THREE.MeshStandardMaterial({ map: t, emissive: '#ffffff', emissiveMap: t, emissiveIntensity: 0.3, roughness: 0.5 });
+      neonMats.push(m);
+      return m;
+    };
     const towers: { m: THREE.Mesh }[] = [];
+    const beacons: THREE.Mesh[] = [];
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    let neonI = 0;
     for (const side of [1, -1]) {
       for (let row = 0; row < 3; row++) {
         for (let x = -ROAD_HALF - 30; x < ROAD_HALF + 30; ) {
@@ -280,11 +440,57 @@ export function Frogger3D() {
           const uv = geo.attributes.uv as THREE.BufferAttribute;
           for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * (w / 8), uv.getY(k) * (h / 16));
           // Behind you (south) the blocks start beyond the chase camera so they never fill the view.
-          m.position.set(x + w / 2, h / 2, side * (START_Z + (side > 0 ? 24 : 12) + row * 22 + rnd() * 6));
+          const cx = x + w / 2;
+          const cz = side * (START_Z + (side > 0 ? 24 : 12) + row * 22 + rnd() * 6);
+          m.position.set(cx, h / 2, cz);
           m.castShadow = row === 0;
           m.receiveShadow = true;
           scene.add(m);
           towers.push({ m });
+          const face = cz - side * (d / 2); // the side facing the avenue
+          if (row === 0) {
+            // Podium with a lit storefront band on the street side.
+            const pod = new THREE.Mesh(unitBox, podiumMat);
+            pod.scale.set(w + 0.8, 5, d + 0.8);
+            pod.position.set(cx, 2.5, cz);
+            pod.castShadow = pod.receiveShadow = true;
+            const shop = new THREE.Mesh(new THREE.PlaneGeometry(w, 3.2), shopMat);
+            shop.geometry.attributes.uv.array.forEach((_, k, arr) => {
+              if (k % 2 === 0) (arr as Float32Array)[k] *= w / 10;
+            });
+            shop.position.set(cx, 1.9, face - side * 0.42);
+            shop.rotation.y = side > 0 ? Math.PI : 0;
+            scene.add(pod, shop);
+            // Every few blocks a neon sign hangs over the street.
+            if (rnd() < 0.55) {
+              const txt = NEON[neonI % NEON.length];
+              const sm = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(w - 1, 7), 1.75), neonSign(txt, NEON_COLS[neonI % NEON_COLS.length]));
+              sm.position.set(cx, 6.4 + rnd() * 3, face - side * 0.5);
+              sm.rotation.y = side > 0 ? Math.PI : 0;
+              scene.add(sm);
+              neonI++;
+            }
+          }
+          // Rooftop: plant room, AC units, and on the tall ones a mast with a blinking beacon.
+          const pr = new THREE.Mesh(unitBox, roofMat);
+          pr.scale.set(w * 0.4, 2.2, d * 0.35);
+          pr.position.set(cx + (rnd() - 0.5) * w * 0.3, h + 1.1, cz + (rnd() - 0.5) * d * 0.3);
+          scene.add(pr);
+          for (let k = 0; k < 3; k++) {
+            const ac = new THREE.Mesh(unitBox, roofMat);
+            ac.scale.set(1.2, 0.9, 1.2);
+            ac.position.set(cx + (rnd() - 0.5) * (w - 2), h + 0.45, cz + (rnd() - 0.5) * (d - 2));
+            scene.add(ac);
+          }
+          if (h > 60) {
+            const mast = new THREE.Mesh(unitBox, roofMat);
+            mast.scale.set(0.25, 9, 0.25);
+            mast.position.set(cx, h + 4.5, cz);
+            const bc = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), beaconMat);
+            bc.position.set(cx, h + 9.1, cz);
+            scene.add(mast, bc);
+            beacons.push(bc);
+          }
           x += w + 2 + rnd() * 4;
         }
       }
@@ -356,13 +562,133 @@ export function Frogger3D() {
           g.add(w, r);
         }
     };
+    // ── Real vehicle models: loaded once, normalised to a 1 m long template (nose +x, wheels on y=0) ──
+    type Tpl = { obj: THREE.Group; w: number; h: number };
+    const tpls: Partial<Record<ModelKey, Tpl>> = {};
+    let modelsReady = false;
+    const modelLightMats = new Set<THREE.MeshStandardMaterial>();
+    const paintCache = new Map<string, THREE.Material>();
+    const vLoader = new GLTFLoader();
+    vLoader.setMeshoptDecoder(MeshoptDecoder);
+    const prepTemplate = (k: ModelKey, src: THREE.Object3D): Tpl => {
+      src.rotation.y = MODELS[k].rotY;
+      const root = new THREE.Group();
+      root.add(src);
+      root.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(root, true);
+      const len = b.max.x - b.min.x;
+      src.position.set(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);
+      root.scale.setScalar(1 / len);
+      const obj = new THREE.Group();
+      obj.add(root);
+      src.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = m.material as THREE.MeshStandardMaterial;
+        if (/bodymat/i.test(mat.name) || (k === 'supercar' && /_bod_/.test(m.name))) m.userData.paint = true;
+        // The lamp atlas (head and tail lights) glows with its own colours after dark.
+        if (mat.name === 'UCB_Lights_and_Glass' && mat.map) {
+          mat.emissive = new THREE.Color('#ffffff');
+          mat.emissiveMap = mat.map;
+          modelLightMats.add(mat);
+        }
+        if (k === 'supercar' && /_emit_/.test(m.name)) m.material = headlight;
+        if (k === 'supercar' && /_remit_/.test(m.name)) m.material = taillight;
+      });
+      return { obj, w: (b.max.z - b.min.z) / len, h: (b.max.y - b.min.y) / len };
+    };
+    void Promise.all(
+      (Object.keys(MODELS) as ModelKey[]).map((k) =>
+        vLoader
+          .loadAsync(`${ASSETS}/vehicles/${k}.glb`)
+          .then((gl) => {
+            if (!disposed) tpls[k] = prepTemplate(k, gl.scene);
+          })
+          .catch(() => {
+            /* that body falls back to the procedural one */
+          }),
+      ),
+    ).then(() => (modelsReady = true));
+    const pick = <T,>(a: readonly T[]) => a[Math.floor(Math.random() * a.length)];
+    const truckLen = (f: FeedTx) => Math.min(13, 7 + Math.log2(Math.max(2, f.bytes)) * 0.45);
+    const pickModel = (f: FeedTx): { k: ModelKey; len: number } => {
+      if (f.kind === 'blast') return { k: 'supercar', len: 4.7 };
+      if (f.kind === 'token') return { k: 'boxtruck', len: Math.min(9, truckLen(f)) };
+      if (f.kind === 'inscription' || (f.kind === 'data' && f.bytes > 2000)) {
+        const len = truckLen(f);
+        return len > 9.5 ? { k: 'bus', len } : { k: 'boxtruck', len };
+      }
+      if (f.kind === 'payment') return { k: pick(['sports', 'sports', 'sedan', 'cruiser'] as const), len: 4.5 };
+      if (f.kind === 'data') return { k: 'van', len: 5.4 };
+      return { k: pick(['sedan', 'cruiser', 'taxi'] as const), len: 4.7 };
+    };
+    const lampGeo = new THREE.PlaneGeometry(1, 1);
+    /** Dress g with a real model for this transaction; false if that model isn't available. */
+    const buildModel = (g: THREE.Group, f: FeedTx) => {
+      const { k, len } = pickModel(f);
+      const tpl = tpls[k];
+      if (!tpl) return false;
+      const v = tpl.obj.clone(true);
+      v.scale.setScalar(len);
+      const hex = f.kind === 'blast' ? '#f4f4f4' : f.kind === 'inscription' ? pick(['#c8c2b8', '#e9e6df', '#9aa3ad']) : pick(PAINTS);
+      if (MODELS[k].paint)
+        v.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh || !m.userData.paint) return;
+          const key = `${k}|${hex}`;
+          let pm = paintCache.get(key);
+          if (!pm) {
+            const c = (m.material as THREE.MeshStandardMaterial).clone();
+            c.color.set(hex);
+            if (k === 'supercar') {
+              c.map = null;
+              c.metalness = 0.55;
+              c.roughness = 0.22;
+            }
+            pm = c;
+            paintCache.set(key, pm);
+          }
+          m.material = pm;
+        });
+      // Lamps for bodies without a lamp atlas (bus): small emissive quads front and rear.
+      if (k === 'bus') {
+        for (const s of [1, -1]) {
+          const hl = new THREE.Mesh(lampGeo, headlight);
+          hl.scale.set(0.035, 0.018, 1);
+          hl.rotation.y = Math.PI / 2;
+          hl.position.set(0.502, tpl.h * 0.14, s * tpl.w * 0.36);
+          const tl = new THREE.Mesh(lampGeo, taillight);
+          tl.scale.set(0.02, 0.03, 1);
+          tl.rotation.y = -Math.PI / 2;
+          tl.position.set(-0.502, tpl.h * 0.2, s * tpl.w * 0.4);
+          v.add(hl, tl);
+        }
+      }
+      // Token box trucks wear the token's logo on both sides of the cargo box.
+      if (f.kind === 'token') {
+        const dm = new THREE.MeshStandardMaterial({ map: logoTex(f), roughness: 0.45, polygonOffset: true, polygonOffsetFactor: -2 });
+        for (const s of [1, -1]) {
+          const d = new THREE.Mesh(lampGeo, dm);
+          d.scale.set(0.6, 0.24, 1);
+          d.position.set(-0.14, 0.32, s * DECAL_Z);
+          d.rotation.y = s > 0 ? 0 : Math.PI;
+          v.add(d);
+        }
+        g.userData.decal = dm;
+      }
+      g.add(v);
+      g.userData.len = len;
+      return true;
+    };
     /** A vehicle for a transaction: kind picks the body, size picks the length. */
     const makeVehicle = (f: FeedTx, lane: number) => {
       const g = new THREE.Group();
       const kind: TxKind = f.kind;
       const truck = kind === 'inscription' || kind === 'token' || (kind === 'data' && f.bytes > 2000);
       const blast = kind === 'blast';
-      if (truck) {
+      if (buildModel(g, f)) {
+        // a real model (falls through to the procedural bodies below if it failed to load)
+      } else if (truck) {
         const len = Math.min(13, 7 + Math.log2(Math.max(2, f.bytes)) * 0.45);
         const cab = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.4, 2.3), paintMat(PAINTS[Math.floor(Math.random() * PAINTS.length)]));
         cab.position.set(len / 2 - 1.1, 1.7, 0);
@@ -674,6 +1000,17 @@ export function Frogger3D() {
     };
     window.addEventListener('keydown', key);
 
+    // Night rain: streaks around the camera (cheap line segments), part of the wet-street look.
+    const RAIN_N = 1400;
+    const rainPos = new Float32Array(RAIN_N * 6);
+    const rainGeo = new THREE.BufferGeometry();
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+    const rainMat = new THREE.LineBasicMaterial({ color: '#aac4dd', transparent: true, opacity: 0, depthWrite: false });
+    const rain = new THREE.LineSegments(rainGeo, rainMat);
+    rain.frustumCulled = false;
+    rain.visible = false;
+    scene.add(rain);
+    const rainSeed = Array.from({ length: RAIN_N }, () => [Math.random() * 60 - 30, Math.random() * 30, Math.random() * 60 - 30]);
     const sky = new THREE.Color();
     const DAY = new THREE.Color('#8fb8e8');
     const DUSK = new THREE.Color('#e8845a');
@@ -702,20 +1039,48 @@ export function Frogger3D() {
       dayT = (dayT + dt / DAY_S) % 1;
       const ang = dayT * Math.PI * 2 - Math.PI / 2; // 0.25 = noon
       const elev = Math.sin(ang);
-      sun.position.set(Math.cos(ang) * 120, Math.max(5, elev * 140), 60);
+      sun.position.set(pos.x + Math.cos(ang) * 120, Math.max(5, elev * 140), pos.z + 60);
       sun.target.position.set(pos.x, 0, pos.z);
       const night = THREE.MathUtils.clamp(-elev * 3 + 0.2, 0, 1);
       const dusk = THREE.MathUtils.clamp(1 - Math.abs(elev) * 4, 0, 1);
       sky.copy(DAY).lerp(DUSK, dusk * 0.8).lerp(NIGHT, night);
-      scene.background = sky;
+      // By day the HDRI is the sky; once the light goes the old graded sky colour takes over.
+      if (hdrSky && night < 0.55) {
+        scene.background = hdrSky;
+        scene.backgroundIntensity = Math.max(0.08, 1 - night * 1.6) * (1 - dusk * 0.35);
+      } else scene.background = sky;
       (scene.fog as THREE.Fog).color.copy(sky);
+      scene.environmentIntensity = 0.12 + 0.88 * (1 - night);
+      deathGrade.uniforms.night.value = night;
+      // Wet asphalt after dark: glossier, more reflective, a shade darker.
+      asphalt.roughness = 1 - night * 0.62;
+      asphalt.envMapIntensity = 0.9 - night * 0.45;
+      asphalt.color.setScalar(0.26 - night * 0.1);
+      rain.visible = night > 0.45;
+      if (rain.visible) {
+        rainMat.opacity = (night - 0.45) * 0.45;
+        const fall = (now / 1000) * 22;
+        for (let i = 0; i < RAIN_N; i++) {
+          const r = rainSeed[i];
+          const y = 30 - ((r[1] + fall) % 30);
+          const x = camera.position.x + r[0];
+          const z = camera.position.z + r[2];
+          rainPos.set([x, y, z, x + 0.06, y - 0.7, z], i * 6);
+        }
+        rainGeo.attributes.position.needsUpdate = true;
+      }
+      for (const m of modelLightMats) m.emissiveIntensity = 0.15 + night * 1.6;
+      for (const m of neonMats) m.emissiveIntensity = 0.3 + night * 1.3;
+      shopMat.emissiveIntensity = 0.2 + night * 0.45;
+      const blink = night > 0.3 && Math.floor(now / 700) % 2 === 0;
+      for (const b of beacons) b.visible = blink;
       sun.intensity = 3.2 * (1 - night);
       sun.color.set(dusk > 0.4 ? '#ffb27a' : '#fff1dc');
       hemi.intensity = 0.12 + 0.6 * (1 - night);
       renderer.toneMappingExposure = 0.8 - night * 0.15;
       for (const m of towerMats) {
         m.emissiveIntensity = night * 0.55;
-        m.envMapIntensity = 0.4 + 1.2 * (1 - night);
+        m.envMapIntensity = 0.15 + 1.45 * (1 - night);
       }
       headMat.emissiveIntensity = night * 3;
       headlight.emissiveIntensity = 0.3 + night * 2.5;
@@ -727,7 +1092,7 @@ export function Frogger3D() {
 
       // Spawn: each lane takes the next live transaction of its kind when its entry is clear.
       LANES.forEach((kind, i) => {
-        if (!kind || now < nextAt[i]) return;
+        if (!kind || !modelsReady || now < nextAt[i]) return;
         const dir = laneDir(i);
         const entry = vehicles.filter((v) => v.lane === i).reduce((m, v) => Math.min(m, dir > 0 ? v.g.position.x + ROAD_HALF - v.len / 2 : ROAD_HALF - v.g.position.x - v.len / 2), Infinity);
         const minGap = Math.max(9, 26 - level * 2); // room to cross; tightens as you level up
@@ -750,6 +1115,9 @@ export function Frogger3D() {
         v.g.position.x += dir * sp * dt;
         if (Math.abs(v.g.position.x) > ROAD_HALF + 20) {
           scene.remove(v.g);
+          const dm = v.g.userData.decal as THREE.MeshStandardMaterial | undefined;
+          dm?.map?.dispose();
+          dm?.dispose();
           vehicles.splice(i, 1);
         }
       }
@@ -946,6 +1314,29 @@ export function Frogger3D() {
       void audio?.close();
       renderer.domElement.removeEventListener('touchend', te);
       composer.dispose();
+      gtao.dispose();
+      const textures = new Set<THREE.Texture>();
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose();
+        const mats = m.material ? (Array.isArray(m.material) ? m.material : [m.material]) : [];
+        for (const mat of mats) {
+          for (const v of Object.values(mat)) if (v instanceof THREE.Texture) textures.add(v);
+          mat.dispose();
+        }
+      });
+      for (const tpl of Object.values(tpls))
+        tpl?.obj.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          m.geometry.dispose();
+          for (const v of Object.values(m.material as THREE.Material)) if (v instanceof THREE.Texture) textures.add(v);
+          (m.material as THREE.Material).dispose();
+        });
+      for (const t of textures) t.dispose();
+      hdrSky?.dispose();
+      hdrEnv?.dispose();
+      roomEnv.dispose();
       pmrem.dispose();
       renderer.dispose();
       el.removeChild(renderer.domElement);
