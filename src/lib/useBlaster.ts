@@ -37,13 +37,13 @@ export function useBlaster() {
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
   /** Coins TokenBlaster returned to the wallet without a note (the wallet can't see them). */
-  const [stranded, setStranded] = useState<(Token & { amt: bigint })[]>([]);
+  const [stranded, setStranded] = useState<(Token & { amt: bigint; why: 'hidden' | 'icon' })[]>([]);
   const checkStranded = useCallback(async (w: Wallet) => {
     const list = await strandedCoins(w.client).catch(() => []);
     const withMeta = await Promise.all(
       list.map(async (s) => {
         const t = await tokenById(s.id).catch(() => ({ id: s.id, sym: s.id.slice(0, 8), icon: null, dec: 0 }) as Token);
-        return { ...t, amt: s.amt, balance: Number(s.amt) / 10 ** t.dec };
+        return { ...t, amt: s.amt, why: s.why, balance: Number(s.amt) / 10 ** t.dec };
       }),
     );
     setStranded(withMeta);
@@ -176,7 +176,7 @@ export function useBlaster() {
         const amt = BigInt(n) * BigInt(10) ** BigInt(token.dec);
         // Top up fuel so every loaded token can be fired, in the same approval.
         const fuel = Math.max(0, n * TOKEN_FEE + 200 - g.sats); // one transaction per token: fees for every one
-        const tx = await loadTokens(wallet.client, token.id, amt, g.address, token.sym, n.toLocaleString(), fuel, token.dec);
+        const tx = await loadTokens(wallet.client, token.id, amt, g.address, token.sym, n.toLocaleString(), fuel, token.dec, token.icon);
         g.adoptTokenCoin(token.id, tx, 0, amt);
         if (fuel > 0) await g.load(tx);
         setAmmo(g.sats);
@@ -200,7 +200,7 @@ export function useBlaster() {
       setError(null);
       setBusy('loading-tokens');
       try {
-        await reNoteTokens(wallet.client, t.id, t.sym, t.dec);
+        await reNoteTokens(wallet.client, t.id, t.sym, t.dec, t.icon);
         await checkStranded(wallet);
       } catch (e) {
         fail(e);

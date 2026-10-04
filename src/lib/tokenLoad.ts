@@ -12,8 +12,18 @@ import { tokenCoins } from './tokens';
 const ONESAT: WalletProtocol = [0, 'onesat'];
 
 /** The note the 1Sat wallets write on a token coin (bsv21 basket): the wallet counts it from this. */
-const noteFor = (id: string, amt: bigint, sym: string, dec: number | undefined, keyID: string) =>
-  JSON.stringify({ id, amt: amt.toString(), op: 'transfer', sym, ...(dec !== undefined ? { dec: String(dec) } : {}), protocolID: ONESAT, keyID, counterparty: 'self' });
+const noteFor = (id: string, amt: bigint, sym: string, dec: number | undefined, keyID: string, icon?: string | null) =>
+  JSON.stringify({
+    id,
+    amt: amt.toString(),
+    op: 'transfer',
+    sym,
+    ...(dec !== undefined ? { dec: String(dec) } : {}),
+    ...(icon ? { icon } : {}), // the wallet draws the token's icon from this
+    protocolID: ONESAT,
+    keyID,
+    counterparty: 'self',
+  });
 
 type Coin = { outpoint: string; amt: bigint; protocolID: WalletProtocol; keyID: string };
 const SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_FORKID;
@@ -28,6 +38,7 @@ export async function loadTokens(
   shown = amount.toString(),
   fuelSats = 0,
   dec?: number,
+  icon?: string | null,
 ): Promise<Transaction> {
   const { coins: all, beef } = await tokenCoins(wallet, true);
   // This token's coins whose key the wallet recorded (needed to ask it to sign).
@@ -61,7 +72,7 @@ export async function loadTokens(
       basket: 'bsv21',
       tags: [`bsv21:${id}`],
       // Same notes the 1Sat wallets write (BRC-163 style): token fields + the key it's locked to.
-      customInstructions: noteFor(id, change, sym, dec, keyID),
+      customInstructions: noteFor(id, change, sym, dec, keyID, icon),
     });
   }
 
@@ -132,10 +143,10 @@ async function signAndSend(wallet: WalletInterface, signable: SignableTransactio
  * Re-note coins of `id` the wallet holds but can't see: spend them to one fresh coin in the
  * wallet, with the note the wallet counts. One approval; afterwards the wallet shows them.
  */
-export async function reNoteTokens(wallet: WalletInterface, id: string, sym: string, dec?: number): Promise<Transaction> {
+export async function reNoteTokens(wallet: WalletInterface, id: string, sym: string, dec?: number, icon?: string | null): Promise<Transaction> {
   const { coins, beef } = await tokenCoins(wallet, true);
   const use: Coin[] = coins
-    .filter((c) => c.id === id && c.keyID && !c.noted)
+    .filter((c) => c.id === id && c.keyID && (!c.noted || (icon && !c.icon)))
     .map((c) => ({ outpoint: c.outpoint, amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! }));
   const total = use.reduce((n, c) => n + c.amt, BigInt(0));
   if (!total) throw new Error('Nothing to fix.');
@@ -152,7 +163,7 @@ export async function reNoteTokens(wallet: WalletInterface, id: string, sym: str
         outputDescription: `Your $${sym}, back in your wallet`,
         basket: 'bsv21',
         tags: [`bsv21:${id}`],
-        customInstructions: noteFor(id, total, sym, dec, keyID),
+        customInstructions: noteFor(id, total, sym, dec, keyID, icon),
       },
     ],
     labels: ['tokenblaster'],

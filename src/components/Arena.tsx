@@ -1196,11 +1196,12 @@ export function Arena() {
                     {b.stranded.map((t) => (
                       <div key={t.id} className="inset border-fg bg-black/70 px-3 py-2 text-left text-xs text-hot">
                         <p>
-                          {t.balance?.toLocaleString()} ${t.sym} are in your wallet but it can&apos;t show them: TokenBlaster sent them back without the note your
-                          wallet reads. Our bug.
+                          {t.why === 'icon'
+                            ? `Your wallet shows ${t.balance?.toLocaleString()} $${t.sym} with a broken icon: TokenBlaster saved them without the icon. Our bug.`
+                            : `${t.balance?.toLocaleString()} $${t.sym} are in your wallet but it can't show them: TokenBlaster sent them back without the note your wallet reads. Our bug.`}
                         </p>
                         <button onClick={() => b.fixStranded(t)} disabled={!!b.busy} className="btn btn-on mt-2 text-xs">
-                          {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `FIX: SHOW MY $${t.sym} IN MY WALLET`}
+                          {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : t.why === 'icon' ? `FIX THE $${t.sym} ICON` : `FIX: SHOW MY $${t.sym} IN MY WALLET`}
                         </button>
                       </div>
                     ))}
