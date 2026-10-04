@@ -14,25 +14,32 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
  * The four hair cards were made in Anything.world from the 2D hair cards.
  */
 const BASE = '/arena/models/npg/stack/chibi_base.glb';
-const HAIR = [
+const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: { scale: number; y: number; z: number; turn: number } }[] = [
   { id: 'base', name: 'Base hair (chibi)', url: null, turn: 0 },
   { id: 'miyuki', name: 'Miyuki hair', url: '/arena/models/npg/stack/E001MiyukiHair.glb', turn: 0 },
-  { id: 'yamarashii', name: 'Yamarashii hair', url: '/arena/models/npg/stack/E002YamarashiiHair.glb', turn: Math.PI },
+  // fit: the owner's hand-fitted slider values (copy JSON in the builder).
+  { id: 'yamarashii', name: 'Yamarashii hair', url: '/arena/models/npg/stack/E002YamarashiiHair.glb', turn: Math.PI, fit: { scale: 1, y: 0.29, z: -0.06, turn: 3.138 } },
   { id: 'hikaru', name: 'Hikaru hair', url: '/arena/models/npg/stack/E003HikaruHair.glb', turn: 0 },
   { id: 'nao', name: 'Nao hair', url: '/arena/models/npg/stack/E011NaoHair.glb', turn: Math.PI },
 ];
-// First Tripo test: the Mecha-Style mask card (11_011), image-to-3D from the 2D card.
-const MASK = '/arena/models/npg/stack/M011MechaMask.glb';
+// Rigid head parts made in Tripo (image-to-3D from each 2D card). The list lives in parts.json
+// so new batches show up without code changes.
+const PARTS = '/arena/models/npg/stack/parts.json';
+type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string };
+const ZERO = { scale: 1, y: 0, z: 0, turn: 0 };
 
 export function StackBuilder() {
   const mount = useRef<HTMLDivElement>(null);
   const [hair, setHair] = useState('miyuki');
   const [fit, setFit] = useState({ scale: 1, y: 0, z: 0, turn: 0 });
   const [showClothes, setShowClothes] = useState(true);
-  const [showMask, setShowMask] = useState(false);
-  const [maskFit, setMaskFit] = useState({ scale: 1, y: 0, z: 0, turn: 0 });
+  const [parts, setParts] = useState<Part[]>([]);
+  const [mask, setMask] = useState('');
+  const [horns, setHorns] = useState('');
+  const [maskFit, setMaskFit] = useState(ZERO);
+  const [hornsFit, setHornsFit] = useState(ZERO);
   const [status, setStatus] = useState('loading…');
-  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setMask: (v: boolean) => void; setMaskFit: (f: typeof fit) => void } | null>(null);
+  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setPart: (slot: Part['slot'], p: Part | null, f: typeof fit) => void } | null>(null);
 
   useEffect(() => {
     const el = mount.current;
@@ -78,40 +85,63 @@ export function StackBuilder() {
     const cache = new Map<string, THREE.Object3D>();
 
     let maskSlot: THREE.Box3 | null = null; // the base mask's bounds in head space
-    let maskPart: THREE.Object3D | null = null;
     let baseMask: THREE.Object3D | null = null;
-    let maskFit = { scale: 1, y: 0, z: 0, turn: 0 };
-    const placeMask = () => {
-      if (!maskPart || !maskSlot) return;
-      // Tripo built this card lying along Z (its width runs front to back): a quarter turn first,
-      // then to the face side, plus the manual turn. Fit the mask's width, front on the face.
-      maskPart.rotation.set(0, -Math.PI / 2 + (faceSign > 0 ? 0 : Math.PI) + maskFit.turn, 0);
-      const raw = maskPart.userData.raw as THREE.Box3;
-      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(maskPart.rotation.y));
-      const k = (maskSlot.getSize(new THREE.Vector3()).x / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * maskFit.scale;
-      maskPart.scale.setScalar(k);
-      const c = maskSlot.getCenter(new THREE.Vector3());
-      const rc = rb.getCenter(new THREE.Vector3());
-      const z = faceSign > 0 ? maskSlot.max.z - rb.max.z * k : maskSlot.min.z - rb.min.z * k;
-      maskPart.position.set(c.x - rc.x * k, c.y - rc.y * k + maskFit.y, z + maskFit.z * faceSign);
+    const rigid: Record<Part['slot'], { obj: THREE.Object3D | null; fit: typeof fitNow; want: string }> = {
+      mask: { obj: null, fit: { ...ZERO }, want: '' },
+      horns: { obj: null, fit: { ...ZERO }, want: '' },
     };
-    const setMaskPart = async (on: boolean) => {
-      if (!head || !maskSlot) return;
-      if (baseMask) baseMask.visible = !on;
-      if (!on) {
-        if (maskPart) maskPart.visible = false;
-        return;
+    const placeRigid = (kind: Part['slot']) => {
+      const r = rigid[kind];
+      const into = kind === 'mask' ? maskSlot : slot;
+      if (!r.obj || !into) return;
+      const raw = r.obj.userData.raw as THREE.Box3;
+      const rs = raw.getSize(new THREE.Vector3());
+      // Tripo often builds a flat card lying along Z: turn a quarter so its width runs across the face.
+      const lying = rs.z > rs.x ? -Math.PI / 2 : 0;
+      r.obj.rotation.set(0, lying + (faceSign > 0 ? 0 : Math.PI) + r.fit.turn, 0);
+      const rb = raw.clone().applyMatrix4(new THREE.Matrix4().makeRotationY(r.obj.rotation.y));
+      const width = into.getSize(new THREE.Vector3()).x * (kind === 'horns' ? 0.9 : 1);
+      const k = (width / Math.max(1e-6, rb.getSize(new THREE.Vector3()).x)) * r.fit.scale;
+      r.obj.scale.setScalar(k);
+      const c = into.getCenter(new THREE.Vector3());
+      const rc = rb.getCenter(new THREE.Vector3());
+      let y: number;
+      let z: number;
+      if (kind === 'mask') {
+        // Centred on the base mask, front on the face.
+        y = c.y - rc.y * k;
+        z = faceSign > 0 ? into.max.z - rb.max.z * k : into.min.z - rb.min.z * k;
+      } else {
+        // Horns stand on the crown: bottom a little below the top of the head, centred front to back.
+        y = into.max.y - into.getSize(new THREE.Vector3()).y * 0.2 - rb.min.y * k;
+        z = c.z - rc.z * k;
       }
-      if (!maskPart) {
-        const g = await load(MASK);
+      r.obj.position.set(c.x - rc.x * k, y + r.fit.y, z + r.fit.z * faceSign);
+    };
+    const setRigid = async (kind: Part['slot'], p: Part | null) => {
+      const r = rigid[kind];
+      if (!head) return;
+      r.want = p?.id ?? '';
+      if (kind === 'mask' && baseMask) baseMask.visible = !p;
+      if (r.obj && r.obj.userData.id !== r.want) {
+        head.remove(r.obj);
+        r.obj = null;
+      }
+      if (!p || r.obj) return placeRigid(kind);
+      let obj = cache.get(p.id);
+      if (!obj) {
+        const g = await load(p.url);
         if (disposed) return;
-        maskPart = g.scene;
-        maskPart.updateMatrixWorld(true);
-        maskPart.userData.raw = new THREE.Box3().setFromObject(maskPart, true);
-        head.add(maskPart);
+        obj = g.scene;
+        obj.updateMatrixWorld(true);
+        obj.userData.raw = new THREE.Box3().setFromObject(obj, true);
+        obj.userData.id = p.id;
+        cache.set(p.id, obj);
       }
-      placeMask();
-      maskPart.visible = true;
+      if (r.want !== p.id) return; // picked something else while loading
+      r.obj = obj;
+      head.add(obj);
+      placeRigid(kind);
     };
 
     let faceSign = 1; // which way the face points along the head bone's Z (from where the mask sits)
@@ -201,10 +231,10 @@ export function StackBuilder() {
           setClothes: (v) => {
             if (clothes) clothes.visible = v;
           },
-          setMask: (v) => void setMaskPart(v),
-          setMaskFit: (f) => {
-            maskFit = f;
-            placeMask();
+          setPart: (kind, p, f) => {
+            rigid[kind].fit = f;
+            if ((p?.id ?? '') === rigid[kind].want) placeRigid(kind);
+            else void setRigid(kind, p);
           },
         };
         await setHairPart('miyuki');
@@ -242,8 +272,14 @@ export function StackBuilder() {
   useEffect(() => api.current?.setHair(hair), [hair]);
   useEffect(() => api.current?.setFit(fit), [fit]);
   useEffect(() => api.current?.setClothes(showClothes), [showClothes]);
-  useEffect(() => api.current?.setMask(showMask), [showMask]);
-  useEffect(() => api.current?.setMaskFit(maskFit), [maskFit]);
+  useEffect(() => {
+    fetch(PARTS)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setParts)
+      .catch(() => setParts([]));
+  }, []);
+  useEffect(() => api.current?.setPart('mask', parts.find((p) => p.id === mask) ?? null, maskFit), [parts, mask, maskFit, status]);
+  useEffect(() => api.current?.setPart('horns', parts.find((p) => p.id === horns) ?? null, hornsFit), [parts, horns, hornsFit, status]);
 
   return (
     <section className="panel">
@@ -258,19 +294,39 @@ export function StackBuilder() {
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="text-dim">HAIR CARD:</span>
         {HAIR.map((h) => (
-          <button key={h.id} onClick={() => setHair(h.id)} className={`btn ${hair === h.id ? 'btn-on' : ''}`}>
+          <button key={h.id} onClick={() => { setHair(h.id); setFit(h.fit ?? ZERO); }} className={`btn ${hair === h.id ? 'btn-on' : ''}`}>
             {h.name}
           </button>
         ))}
         <button onClick={() => setShowClothes((v) => !v)} className={`btn ${showClothes ? 'btn-on' : ''}`}>
           CLOTHES
         </button>
-        <button onClick={() => setShowMask((v) => !v)} className={`btn ${showMask ? 'btn-on' : ''}`}>
-          MECHA MASK (Tripo test)
-        </button>
       </div>
+      {(['mask', 'horns'] as const).map((kind) => {
+        const list = parts.filter((p) => p.slot === kind);
+        const cur = kind === 'mask' ? mask : horns;
+        const pick = (id: string) => {
+          (kind === 'mask' ? setMask : setHorns)(id);
+          (kind === 'mask' ? setMaskFit : setHornsFit)(ZERO);
+        };
+        if (!list.length) return null;
+        return (
+          <div key={kind} className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-dim">{kind.toUpperCase()} CARD:</span>
+            <button onClick={() => pick('')} className={`btn ${cur === '' ? 'btn-on' : ''}`}>
+              {kind === 'mask' ? 'Base mask (chibi)' : 'None'}
+            </button>
+            {list.map((p) => (
+              <button key={p.id} onClick={() => pick(p.id)} className={`btn ${cur === p.id ? 'btn-on' : ''}`}>
+                {p.name}
+              </button>
+            ))}
+          </div>
+        );
+      })}
       <FitSliders label="HAIR" card={hair} fit={fit} onChange={setFit} />
-      {showMask && <FitSliders label="MASK" card="M011MechaMask" fit={maskFit} onChange={setMaskFit} />}
+      {mask && <FitSliders label="MASK" card={mask} fit={maskFit} onChange={setMaskFit} />}
+      {horns && <FitSliders label="HORNS" card={horns} fit={hornsFit} onChange={setHornsFit} />}
       <p className="mt-1 text-xs text-dim">Fit tweaks get saved per card once the set is final.</p>
     </section>
   );
