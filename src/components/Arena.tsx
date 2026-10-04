@@ -405,11 +405,10 @@ export function Arena() {
           mobs
             .filter((m) => !m.horde && !seen.has(m.m.def.id) && seen.add(m.m.def.id))
             .forEach((mob, i) => {
-              const spot: [number, number, number][] = mob.m.def.id === 'miyuki' ? [[2, 1, 0]] : [[6, 1, 0], [3, 1, -0.9], [4, 1, 0.9], [3, 1, 0.9], [5, 1, -1]];
-              if (mob.m.def.id === 'miyuki') {
-                i = 0;
-                mob.m.root.userData.frozen = true; // hold the opening idle pose for a clean preview
-              }
+              const npg = mob.m.def.id === 'miyuki' || mob.m.def.id === 'chibi';
+              const spot: [number, number, number][] = npg ? [[2, 1, mob.m.def.id === 'chibi' ? 0.7 : -0.5]] : [[6, 1, 0], [3, 1, -0.9], [4, 1, 0.9], [3, 1, 0.9], [5, 1, -1]];
+              if (npg) i = 0;
+              if (mob.m.def.id === 'miyuki') mob.m.root.userData.frozen = true; // hold the opening idle pose for a clean preview
               const [cx, cz, off] = spot[i] ?? [5, 1, 0];
               mob.m.root.position.copy(centre([cx, cz], 0)).add(new THREE.Vector3(0, 0, off));
               mob.m.root.rotation.y = -Math.PI / 2;

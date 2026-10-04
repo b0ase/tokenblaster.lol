@@ -4,6 +4,7 @@
  * out materials, ready-to-animate monsters and first-person guns.
  */
 import * as THREE from 'three';
+import { chibiClips } from './chibiAnims';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -98,6 +99,18 @@ export const MONSTERS: MonsterDef[] = [
     anims: { idle: 'hurt', walk: 'hurt', run: 'hurt' },
   },
   {
+    // Ninja Punk Girls chibi base: properly rigged (84 bones); idle/walk/run are made in code (chibiAnims.ts).
+    id: 'chibi',
+    url: '/arena/models/npg/stack/chibi_base.glb',
+    height: 1.4,
+    hp: 6,
+    speed: 3,
+    ranged: false,
+    damage: 8,
+    maze: 2,
+    anims: { idle: 'idle', walk: 'walk', run: 'run' },
+  },
+  {
     id: 'minion',
     url: '/arena/models/skeleton_minion.glb',
     height: 2.1,
@@ -176,7 +189,13 @@ export async function loadArenaAssets(renderer: THREE.WebGLRenderer, onProgress:
         return [id, { map, normalMap, roughnessMap }] as const;
       }),
     ),
-    Promise.all(MONSTERS.map(async (m) => [m.id, await gl.loadAsync(m.url)] as const)),
+    Promise.all(
+      MONSTERS.map(async (m) => {
+        const g = await gl.loadAsync(m.url);
+        if (m.id === 'chibi') g.animations = chibiClips(g.scene);
+        return [m.id, g] as const;
+      }),
+    ),
     Promise.all(GUNS.map(async (g) => [g.id, await gl.loadAsync(g.url)] as const)),
   ]);
   const byId = new Map(maps);

@@ -7,6 +7,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { GUNS, MONSTERS } from '@/lib/arenaHD';
+import { chibiClips } from '@/lib/chibiAnims';
 
 const MODELS = [
   { id: 'miyuki_parts', label: 'Miyuki split into parts (Tripo segmentation)', url: '/arena/models/npg/miyuki_parts.glb' },
@@ -132,6 +133,7 @@ export function ModelViewer() {
       url,
       (gltf) => {
         if (disposed) return;
+        if (modelId === 'chibi') gltf.animations = chibiClips(gltf.scene);
         const model = pickNode(gltf.scene, modelId);
         // Tripo part cards often come out lying along Z: turn them to face the camera.
         if (cardsRef.current.some((c) => c.id === modelId)) {
