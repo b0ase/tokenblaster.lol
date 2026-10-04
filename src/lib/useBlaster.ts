@@ -161,7 +161,7 @@ export function useBlaster() {
         const n = Math.floor(count);
         const amt = BigInt(n) * BigInt(10) ** BigInt(token.dec);
         // Top up fuel so every loaded token can be fired, in the same approval.
-        const fuel = Math.max(0, n * TOKEN_FEE + 200 - g.sats);
+        const fuel = Math.max(0, Math.min(n, 10_000) * TOKEN_FEE + 200 - g.sats); // fuel for up to 10,000 bullets per load
         const tx = await loadTokens(wallet.client, token.id, amt, g.address, token.sym, n.toLocaleString(), fuel);
         g.adoptTokenCoin(token.id, tx, 0, amt);
         if (fuel > 0) await g.load(tx);

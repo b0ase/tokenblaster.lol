@@ -118,6 +118,12 @@ export function Arena() {
   const [chainError, setChainError] = useState<string | null>(null);
   const [weapon, setWeapon] = useState(0);
   const [gunThumbs, setGunThumbs] = useState<string[]>([]);
+  const [jam, setJam] = useState<string | null>(null);
+  useEffect(() => {
+    if (!jam) return;
+    const t = setTimeout(() => setJam(null), 4000);
+    return () => clearTimeout(t);
+  }, [jam]);
   const [empty, setEmpty] = useState(false);
   const cycleRef = useRef<() => void>(() => undefined);
   useEffect(() => {
@@ -601,6 +607,7 @@ export function Arena() {
     let walkPhase = 0;
     const queue: string[][] = [];
     let draining = false;
+    let jammedUntil = 0;
     const drain = async () => {
       if (draining) return;
       draining = true;
@@ -616,6 +623,8 @@ export function Arena() {
         } catch (e) {
           setChainError(e instanceof Error ? e.message : String(e));
           queue.length = 0;
+          jammedUntil = performance.now() + 4000; // shots that didn't reach the chain don't get to keep playing
+          setJam(e instanceof Error ? e.message : String(e));
           break;
         }
         heat = queue.length;
@@ -632,6 +641,13 @@ export function Arena() {
     const shoot = (now: number) => {
       const g = held[gunIdx]?.def ?? GUNS[gunIdx];
       if (!ready || now - lastShot < g.fireMs || deadUntil) return;
+      if (now < jammedUntil) {
+        if (now - lastShot > 300) {
+          lastShot = now;
+          sfx?.click();
+        }
+        return;
+      }
       // Only fire shots the gun can pay for, counting the ones already queued for the chain.
       const L = live.current;
       const canPay = L.tokenMode ? Math.min(Math.floor(L.tokens), Math.floor(L.ammo / TOKEN_FEE)) - heat : Math.floor(L.ammo / FEE_PER_SHOT) - heat;
@@ -1060,6 +1076,12 @@ export function Arena() {
             <div className="text-sm text-dim">Esc → LOAD more shots</div>
           </div>
         )}
+        {jam && (
+          <div className="pointer-events-none absolute left-1/2 top-[30%] max-w-lg -translate-x-1/2 text-center">
+            <div className="text-3xl font-bold text-hot blink">JAMMED</div>
+            <div className="mt-1 bg-black/70 px-3 py-1 text-sm text-hot">Shots did not reach the chain: {jam}</div>
+          </div>
+        )}
         {hud.heat >= MAX_HEAT && <div className="pointer-events-none absolute left-1/2 top-1/3 -translate-x-1/2 text-2xl font-bold text-hot blink">OVERHEAT</div>}
         {playing && (
           <button
@@ -1199,7 +1221,7 @@ export function Arena() {
                       <div className="text-5xl font-bold text-hot">{tokenLoad.toLocaleString()}</div>
                       <div className="text-sm text-dim">${b.token.sym} bullets</div>
                       <div className="flex flex-wrap justify-center gap-1">
-                        {[1, 10, 100, 1000, 10000]
+                        {[1_000, 10_000, 100_000, 1_000_000]
                           .filter((n) => n <= Math.max(1, Math.floor(heldTok?.balance ?? 0)))
                           .map((n) => (
                             <button key={n} onClick={() => setTokenLoad(n)} className={`btn px-3 py-1 text-sm ${tokenLoad === n ? 'btn-on' : ''}`}>
@@ -1220,7 +1242,7 @@ export function Arena() {
                       </div>
                       <p className="max-w-sm text-xs text-dim">
                         Each bullet burns 1 ${b.token.sym} for good. One approval loads the tokens plus the sats to fire them (~
-                        {(tokenLoad * TOKEN_FEE).toLocaleString()} sats). In the gun now: <span className="text-hot">{b.tokenAmmo.toLocaleString()}</span>
+                        {(Math.min(tokenLoad, 10_000) * TOKEN_FEE).toLocaleString()} sats{tokenLoad > 10_000 ? ', enough for the first 10,000 bullets' : ''}). In the gun now: <span className="text-hot">{b.tokenAmmo.toLocaleString()}</span>
                       </p>
                       <button onClick={() => b.loadTokenAmmo(tokenLoad)} disabled={!!b.busy} className="btn-fire">
                         {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `LOAD ${tokenLoad.toLocaleString()} $${b.token.sym}`}
