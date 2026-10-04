@@ -14,6 +14,14 @@ resized to 1024 px WebP and meshes compressed (meshopt) for the browser; otherwi
 - `models/guns/sawedoff.glb`: "Sawed-off Winchester" by Richard Speight (https://sketchfab.com/richardsp8.2), https://sketchfab.com/3d-models/sawed-off-winchester-b009decb8313474fb2ed0902dd37c5cf, CC-BY-4.0
 - `models/guns/plasmarifle.glb`: "Plasma Rifle" by Manny Ruiz (https://sketchfab.com/MannyRuiz), https://sketchfab.com/3d-models/plasma-rifle-bf439e8a1f8e41888d7e94592c352807, CC-BY-4.0
 - `models/guns/quadplasma.glb`: "Quad Barrel Plasma Gun" by curichenkow (https://sketchfab.com/curichenkow), https://sketchfab.com/3d-models/quad-barrel-plasma-gun-11d18396863242a19e29e0259755bfa9, CC-BY-4.0
+- `../arcade/frogger/vehicles/sports.glb`: "Saba V12 '95 - Low poly model" by Daniel Zhabotinsky (https://sketchfab.com/DanielZhabotinsky), https://sketchfab.com/3d-models/saba-v12-95-low-poly-model-3ab977050c334c13b6abb5de078b4957, CC-BY-4.0
+- `../arcade/frogger/vehicles/sedan.glb`: "Kiri '86 - Low poly model" by Daniel Zhabotinsky (https://sketchfab.com/DanielZhabotinsky), https://sketchfab.com/3d-models/kiri-86-low-poly-model-5c17c582ef9549798f694b660feea42a, CC-BY-4.0
+- `../arcade/frogger/vehicles/cruiser.glb`: "Fairheaven LT '80 - Low poly model" by Daniel Zhabotinsky (https://sketchfab.com/DanielZhabotinsky), https://sketchfab.com/3d-models/fairheaven-lt-80-low-poly-model-e2678da920cc4be68dbc193727919ffb, CC-BY-4.0
+- `../arcade/frogger/vehicles/taxi.glb`: "Canyon '75 Taxi - Low poly model" by Daniel Zhabotinsky (https://sketchfab.com/DanielZhabotinsky), https://sketchfab.com/3d-models/canyon-75-taxi-low-poly-model-9e8f92a215784f3d8aaaaeab1bef54c4, CC-BY-4.0
+- `../arcade/frogger/vehicles/van.glb`: "Shvan '92 - Low poly model" by Daniel Zhabotinsky (https://sketchfab.com/DanielZhabotinsky), https://sketchfab.com/3d-models/shvan-92-low-poly-model-09d718c9cf72401b8534d265a06a803f, CC-BY-4.0
+- `../arcade/frogger/vehicles/boxtruck.glb`: "LCT 3000 '95 - Low poly model" by Daniel Zhabotinsky (https://sketchfab.com/DanielZhabotinsky), https://sketchfab.com/3d-models/lct-3000-95-low-poly-model-663a0953c038434a918cb85725c88ffa, CC-BY-4.0
+- `../arcade/frogger/vehicles/bus.glb`: "Generic Town Bus" by own.guest (https://sketchfab.com/own.guest), https://sketchfab.com/3d-models/generic-town-bus-14fe03d792914d51b6c6250b393c44fd, CC-BY-4.0
+- `../arcade/frogger/vehicles/supercar.glb`: "Koenigsegg One:1" by iSteven (https://sketchfab.com/OneSteven), https://sketchfab.com/3d-models/koenigsegg-one1-b4e5a4c5fa5d4d45acd6715d3325254f, CC-BY-4.0
 
 ## CC0 (public domain)
 
@@ -23,3 +31,5 @@ Credit not required but given with thanks.
   https://kaylousberg.com, https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0
 - Textures (`tex/*`): Poly Haven, https://polyhaven.com (castle_brick_07, metal_plate, rough_block_wall,
   rusty_metal_02, painted_metal_shutter, concrete_floor_worn_001, metal_grate_rusty, corrugated_iron_02)
+- Chain Frogger (`../arcade/frogger/tex/*`): Poly Haven, https://polyhaven.com: HDRI potsdamer_platz;
+  textures asphalt_02, concrete_pavement (converted to WebP)
