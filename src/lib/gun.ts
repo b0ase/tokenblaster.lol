@@ -635,7 +635,37 @@ export class Gun {
 
   /** Unspent outputs at the gun's address, confirmed or not (WhatsOnChain). */
   private async coinsOnChain(): Promise<{ tx: Transaction; vout: number }[]> {
-    const get = (path: string) => fetch(`${WOC}${path}`).then((r) => (r.ok ? r.json() : { result: [] }));
+    try {
+      return await this.coinsWoc();
+    } catch {
+      return this.coinsGp(); // WOC rate-limits browsers (503); GorillaPool has the same coins
+    }
+  }
+
+  private async coinsGp(): Promise<{ tx: Transaction; vout: number }[]> {
+    const r = await fetch(`https://ordinals.gorillapool.io/api/txos/address/${this.address}/unspent?limit=300`);
+    if (!r.ok) throw new Error(`Couldn't read the gun's coins (GorillaPool ${r.status}).`);
+    const list = (await r.json()) as { txid: string; vout: number; satoshis: number; origin: unknown; spend: string }[];
+    const out: { tx: Transaction; vout: number }[] = [];
+    const cache = new Map<string, Transaction>();
+    for (const u of list.filter((u) => u.satoshis > 1 && !u.origin && !u.spend)) {
+      let tx = cache.get(u.txid);
+      if (!tx) {
+        const raw = await fetch(`https://ordinals.gorillapool.io/api/tx/${u.txid}/raw`).then((x) => x.arrayBuffer());
+        tx = Transaction.fromBinary([...new Uint8Array(raw)]);
+        cache.set(u.txid, tx);
+      }
+      out.push({ tx, vout: u.vout });
+    }
+    return out;
+  }
+
+  private async coinsWoc(): Promise<{ tx: Transaction; vout: number }[]> {
+    const get = (path: string) =>
+      fetch(`${WOC}${path}`).then((r) => {
+        if (!r.ok) throw new Error(`WOC ${r.status}`);
+        return r.json();
+      });
     const [conf, unconf] = await Promise.all([
       get(`/address/${this.address}/confirmed/unspent`),
       get(`/address/${this.address}/unconfirmed/unspent`),
@@ -644,7 +674,10 @@ export class Gun {
     const out: { tx: Transaction; vout: number }[] = [];
     // 1-sat outputs hold tokens (BSV-21 inscriptions): spending them as plain sats would destroy the tokens.
     for (const u of utxos.filter((u) => !u.isSpentInMempoolTx && u.value > 1)) {
-      const hex = await fetch(`${WOC}/tx/${u.tx_hash}/hex`).then((r) => r.text());
+      const hex = await fetch(`${WOC}/tx/${u.tx_hash}/hex`).then((r) => {
+        if (!r.ok) throw new Error(`WOC ${r.status}`);
+        return r.text();
+      });
       out.push({ tx: Transaction.fromHex(hex), vout: u.tx_pos });
     }
     return out;
