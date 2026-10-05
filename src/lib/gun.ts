@@ -11,7 +11,10 @@ const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
 const STORE = 'tokenblaster.gun';
 /** ARC took it AND it's headed for a block (an orphan = its parent is missing/spent: it will never mine). */
-const good = (r?: { status?: string; txStatus?: string }) => r?.status === 'success' && !/ORPHAN|REJECT|DOUBLE/i.test(r.txStatus ?? '');
+const good = (r?: { status?: string; txStatus?: string; description?: string }) =>
+  (r?.status === 'success' && !/ORPHAN|REJECT|DOUBLE/i.test(r.txStatus ?? '')) ||
+  // @bsv/sdk 2.8 flags ARC's normal `competingTxs: null` reply as an error; ARC did take the tx.
+  /invalid competing transaction identifiers/i.test(r?.description ?? '');
 export const TAG = 'tokenblaster.lol';
 /** Well-known unspendable address: tokens sent here are burned for good. */
 export const BURN_ADDRESS = '1BitcoinEaterAddressDontSendf59kuE';
@@ -194,7 +197,7 @@ export class Gun {
       const r = await fetch(`${ARC_URL}/v1/tx/${txid}`);
       if (!r.ok) return false;
       const { txStatus } = (await r.json()) as { txStatus?: string };
-      return ['SENT_TO_NETWORK', 'ACCEPTED_BY_NETWORK', 'SEEN_ON_NETWORK', 'MINED', 'IMMUTABLE'].includes(txStatus ?? '');
+      return ['RECEIVED', 'STORED', 'ANNOUNCED_TO_NETWORK', 'REQUESTED_BY_NETWORK', 'SENT_TO_NETWORK', 'ACCEPTED_BY_NETWORK', 'SEEN_ON_NETWORK', 'MINED', 'IMMUTABLE'].includes(txStatus ?? '');
     } catch {
       return false;
     }
@@ -413,7 +416,7 @@ export class Gun {
         lanes = lanes
           .map((l, i): Lane => {
             const k = okBy[i];
-            if (!k) return { ...l, misses: l.misses + 1 };
+            if (!k) return { ...l, left: 0 }; // unknown fate: never re-spend its coin
             const t = chains[i][k - 1];
             return { tx: Transaction.fromHex(t.toHex()), vout: 1, left: l.left - k, misses: 0 };
           })
@@ -636,11 +639,15 @@ export class Gun {
 
   /** Unspent outputs at the gun's address, confirmed or not (WhatsOnChain). */
   private async coinsOnChain(): Promise<{ tx: Transaction; vout: number }[]> {
-    try {
-      return await this.coinsWoc();
-    } catch {
-      return this.coinsGp(); // WOC rate-limits browsers (503); GorillaPool has the same coins
+    // WOC sees mempool spends straight away; GorillaPool's index can lag. Retry WOC first.
+    for (let i = 0; i < 4; i++) {
+      try {
+        return await this.coinsWoc();
+      } catch {
+        await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+      }
     }
+    return this.coinsGp();
   }
 
   private async coinsGp(): Promise<{ tx: Transaction; vout: number }[]> {
