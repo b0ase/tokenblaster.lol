@@ -191,6 +191,17 @@ export class Gun {
     return { accepted, why: r ? `${r.description ?? 'no response'}${r.code ? ` (code ${r.code})` : ''}` : undefined };
   }
 
+  /** True once the network itself has the tx (not just ARC's queue). */
+  private async seen(txid: string): Promise<boolean> {
+    try {
+      const r = await fetch(`${ARC_URL}/v1/tx/${txid}`);
+      const { txStatus } = (await r.json()) as { txStatus?: string };
+      return ['SEEN_ON_NETWORK', 'ACCEPTED_BY_NETWORK', 'MINED', 'IMMUTABLE'].includes(txStatus ?? '');
+    } catch {
+      return false;
+    }
+  }
+
   /** True when ARC reports the tx as on its way into (or already in) a block. */
   private async known(txid: string): Promise<boolean> {
     try {
@@ -314,6 +325,9 @@ export class Gun {
       await split.fee(new SatoshisPerKilobyte(FEE_RATE));
       await split.sign();
       await this.send(split);
+      // Wait until the network has the split, so the lanes' first blasts don't arrive as orphans.
+      onStatus('Waiting for the network to see the split…');
+      for (let i = 0; i < 20 && !(await this.seen(split.id('hex'))); i++) await new Promise((r) => setTimeout(r, 750));
       const base = Transaction.fromHex(split.toHex());
       const lanes0 = Array.from({ length: lanesN }, (_, i) => ({ tx: base, vout: i, left: perLane }));
       let lastWhy: string | undefined;
@@ -366,8 +380,10 @@ export class Gun {
         }),
       );
       if (!sent) failed = `ARC took no blasts: ${lastWhy ?? 'no reason given'}`;
-      // Merge every lane end (and the split's change) back into one coin.
+      // Merge every lane end (and the split's change) back into one coin. Give the last blasts a few
+      // seconds to show up first, so the merge never spends a coin a pending blast is using.
       onStatus('Merging leftover sats back into the gun…');
+      await new Promise((r) => setTimeout(r, 6000));
       await this.resync().catch(() => undefined);
       const coins = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
       if (coins.length > 1) {

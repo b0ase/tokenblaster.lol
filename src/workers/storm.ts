@@ -12,7 +12,9 @@ import { P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } fr
 const ARC_URL = 'https://arc.gorillapool.io';
 const TAG = 'tokenblaster.lol';
 const FEE_RATE = 100; // sats/kB
-const BAD = /ORPHAN|REJECT|DOUBLE|INVALID|ERROR/i;
+// Orphan is NOT bad here: a chained blast often reaches ARC a moment before its parent is processed;
+// it's held and goes through once the parent lands.
+const BAD = /REJECT|DOUBLE|INVALID|ERROR/i;
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
 
 let stopped = false;
