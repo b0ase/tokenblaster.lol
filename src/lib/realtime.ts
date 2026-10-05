@@ -20,6 +20,7 @@ export class Room {
   private closed = false;
   private presence: Record<string, unknown[]> = {};
   private me: Record<string, unknown> | null = null;
+  private joinRef = '';
 
   constructor(
     private topic: string,
@@ -41,11 +42,14 @@ export class Room {
     this.ws = ws;
     ws.onopen = () => {
       this.send('phx_join', { config: { broadcast: { self: false }, presence: { key: this.key } }, access_token: KEY });
+      this.joinRef = String(this.ref);
       this.beat = setInterval(() => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify({ topic: 'phoenix', event: 'heartbeat', payload: {}, ref: String(++this.ref) })), 25_000);
     };
     ws.onmessage = (m) => {
-      const d = JSON.parse(m.data as string) as { event: string; payload: { event?: string; payload?: unknown; status?: string; joins?: Record<string, { metas: unknown[] }>; leaves?: Record<string, { metas: unknown[] }> } & Record<string, { metas: unknown[] }> };
-      if (d.event === 'phx_reply' && d.payload.status === 'ok') {
+      const d = JSON.parse(m.data as string) as { event: string; ref?: string | null; payload: { event?: string; payload?: unknown; status?: string; joins?: Record<string, { metas: unknown[] }>; leaves?: Record<string, { metas: unknown[] }> } & Record<string, { metas: unknown[] }> };
+      // Only the join's reply means (re)joined; every broadcast/track also gets an ok reply, and
+      // re-tracking on those looped forever (track → ok → track …) and got the socket rate-limited.
+      if (d.event === 'phx_reply' && d.payload.status === 'ok' && d.ref === this.joinRef) {
         this.h.onStatus?.('live');
         if (this.me) this.track(this.me);
       } else if (d.event === 'broadcast' && d.payload.event) this.h.onBroadcast(d.payload.event, d.payload.payload);
