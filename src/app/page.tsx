@@ -3,6 +3,7 @@ import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
 
 const GAMES = [
+  { href: '/arcade/bsvgun', img: '/arcade/bsvgun.jpg', title: 'BSVGun', tag: 'V1 · mass blaster', blurb: 'TeraGun-style: load once and fire 50,000 real tagged transactions in parallel lanes. Every blast counts on the leaderboard.' },
   { href: '/arena', img: '/arcade/arena.jpg', title: 'Arena', tag: 'V1 · multiplayer', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: one token per bullet, one transaction per token. Hit another player and your token lands in their gun.' },
   { href: '/arcade/frogger', img: '/arcade/frogger.jpg', title: 'Chain Frogger', tag: 'V2 · 3D city', blurb: 'Cross a GTA-style avenue where every vehicle is a live mainnet transaction, one way from sender to receiver. Token transfers drive box trucks wearing their logo.' },
   { href: '/arcade', img: '/arcade/npg.jpg', title: 'More in the Arcade', tag: 'coming soon', blurb: 'Ninja Punk Girls in 3D, an open-world city, Token Rally, plus links to other builders’ BSV games.' },
@@ -37,6 +38,9 @@ export default function Home() {
             <Link href="/blast" className="btn-fire">
               BLAST NOW
             </Link>
+            <Link href="/arcade/bsvgun" className="btn btn-on px-4 py-2">
+              BSVGUN
+            </Link>
             <Link href="/arena" className="btn btn-on px-4 py-2">
               ARENA
             </Link>
@@ -58,7 +62,7 @@ export default function Home() {
             all games &gt;
           </Link>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {GAMES.map((g) => (
             <Link key={g.title} href={g.href} className="inset group overflow-hidden hover:border-fg">
               <div className="aspect-[1200/630] overflow-hidden">
@@ -118,6 +122,7 @@ export default function Home() {
 
       <footer className="flex flex-wrap justify-center gap-x-4 gap-y-1 py-3 text-xs text-muted">
         <Link href="/arcade" className="hover:text-hot">arcade</Link>
+        <Link href="/arcade/bsvgun" className="hover:text-hot">bsvgun</Link>
         <Link href="/arena" className="hover:text-hot">arena</Link>
         <Link href="/arcade/frogger" className="hover:text-hot">chain frogger</Link>
         <Link href="/blast" className="hover:text-hot">blast</Link>

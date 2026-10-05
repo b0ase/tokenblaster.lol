@@ -7,6 +7,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildGun, GUNS } from '@/lib/arenaHD';
 
@@ -49,7 +50,9 @@ export function GunView({ firing }: { firing: boolean }) {
     const flare = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), new THREE.MeshBasicMaterial({ color: '#ffd090', transparent: true, opacity: 0 }));
     let held: ReturnType<typeof buildGun> | null = null;
     const def = GUNS[0]; // minigun
-    new GLTFLoader().load(def.url, (gltf) => {
+    const loader = new GLTFLoader();
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.load(def.url, (gltf) => {
       held = buildGun(def, gltf);
       holder.add(held.group);
       held.group.add(flash, flare);
@@ -59,7 +62,7 @@ export function GunView({ firing }: { firing: boolean }) {
       holder.rotation.y = -Math.PI / 2;
       const box = new THREE.Box3().setFromObject(holder, true);
       const r = box.getSize(new THREE.Vector3()).length() / 2;
-      camera.position.set(0, r * 0.35, r * 2.6);
+      camera.position.set(0, r * 0.25, r * 1.5);
       camera.lookAt(0, 0, 0);
     });
 
