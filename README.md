@@ -40,7 +40,7 @@ in the player's browser, and the CLI blaster reads `BLASTER_WIF` from the enviro
 2. Rounds and live scoreboard, linked from a bWallet chat room.
 3. Arcade games on live traffic.
 
-No entry fees or prize pools: free entry, bragging rights (gambling rules and App Store).
+This is BSV: every action is a real transaction and the player pays its network fee. Some games also charge a small per-action amount (see each game).
 
 ## 1Sat Ordnance (weapons as 1Sat ordinals)
 

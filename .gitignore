@@ -48,3 +48,6 @@ Screen Shot*.png
 screenshot*.png
 *.screenshot.png
 public/storm-worker.js
+
+# Private notes (handoffs, business plans): never commit
+.private/
