@@ -296,7 +296,7 @@ export class Gun {
       if (!this.coin) throw new Error('The gun is empty. Load it first.');
       const lanesN = Math.max(1, Math.min(100, Math.ceil(total / 300)));
       const perLane = Math.ceil(total / lanesN);
-      const budget = this.sats - 40 - lanesN * 2;
+      const budget = this.sats - 300 - lanesN * 40; // leave room for the split tx fee (~34 bytes per lane output)
       if (budget < lanesN * STORM_FEE) throw new Error('Not enough sats loaded for a storm.');
       // Split into lanes.
       onStatus(`Splitting the gun into ${lanesN} lanes…`);

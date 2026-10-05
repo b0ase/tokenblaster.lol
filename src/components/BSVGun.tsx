@@ -12,7 +12,7 @@ import { GunView } from './GunView';
 import { WalletChooser } from './WalletChooser';
 
 const SIZES = [1_000, 10_000, 50_000, 100_000];
-const costOf = (n: number) => n * STORM_FEE + Math.ceil(n / 300) * 40 + 500;
+const costOf = (n: number) => n * STORM_FEE + Math.min(100, Math.ceil(n / 300)) * 60 + 1000;
 
 export function BSVGun() {
   const b = useBlaster();
