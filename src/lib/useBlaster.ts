@@ -124,11 +124,11 @@ export function useBlaster() {
 
   /** BSVGun: thousands of blasts in parallel lanes. */
   const storm = useCallback(
-    async (total: number, onProgress: (sent: number, last?: string) => void, stop?: () => boolean) => {
+    async (total: number, onProgress: (sent: number, last?: string) => void, stop?: () => boolean, onStatus?: (s: string) => void) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
       try {
-        return await g.storm(token?.id ?? '', total, onProgress, stop);
+        return await g.storm(token?.id ?? '', total, onProgress, stop, onStatus);
       } finally {
         setAmmo(g.sats);
       }

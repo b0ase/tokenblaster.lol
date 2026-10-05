@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { STORM_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
+import { GunView } from './GunView';
 import { WalletChooser } from './WalletChooser';
 
 const SIZES = [1_000, 10_000, 50_000, 100_000];
@@ -22,6 +23,7 @@ export function BSVGun() {
   const [firing, setFiring] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [tps, setTps] = useState(0);
+  const [status, setStatus] = useState<string | null>(null);
   const stop = useRef(false);
   const t0 = useRef(0);
 
@@ -36,6 +38,7 @@ export function BSVGun() {
 
   const fire = async () => {
     setErr(null);
+    setStatus('Starting…');
     setSent(0);
     setLast(null);
     const n = Math.min(size, canFire);
@@ -51,9 +54,12 @@ export function BSVGun() {
           if (tx) setLast(tx);
         },
         () => stop.current,
+        setStatus,
       );
+      setStatus(null);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
+      setStatus(null);
     } finally {
       setFiring(false);
     }
@@ -63,6 +69,9 @@ export function BSVGun() {
 
   return (
     <div className="flex flex-col gap-3">
+      <section className="panel overflow-hidden p-0">
+        <GunView firing={firing} />
+      </section>
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">1 · Wallet</span>
@@ -146,6 +155,7 @@ export function BSVGun() {
         <div className="inset mt-3 h-4 overflow-hidden">
           <div className="h-full bg-[var(--hot)] transition-[width]" style={{ width: `${pct}%` }} />
         </div>
+        {status && <p className="mt-2 text-sm text-accent">{status}</p>}
         {last && (
           <p className="mt-2 text-sm text-dim">
             latest:{' '}

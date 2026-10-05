@@ -265,7 +265,14 @@ export class Gun {
    * at once (500 per ARC request, several requests in flight). Lane ends merge back into one coin.
    * `onProgress(sent, lastTxid)` after every request; `stop()` returning true ends it early.
    */
-  async storm(token: string, total: number, onProgress: (sent: number, last?: string) => void, stop: () => boolean = () => false): Promise<number> {
+  async storm(
+    token: string,
+    total: number,
+    onProgress: (sent: number, last?: string) => void,
+    stop: () => boolean = () => false,
+    onStatus: (s: string) => void = () => undefined,
+  ): Promise<number> {
+    const breathe = () => new Promise((r) => setTimeout(r, 0)); // let the page paint while we sign
     return this.exclusive(async () => {
       this.refresh();
       if (!this.coin) throw new Error('The gun is empty. Load it first.');
@@ -274,6 +281,7 @@ export class Gun {
       const budget = this.sats - 40 - lanesN * 2;
       if (budget < lanesN * STORM_FEE) throw new Error('Not enough sats loaded for a storm.');
       // Split into lanes.
+      onStatus(`Splitting the gun into ${lanesN} lanes…`);
       const split = new Transaction();
       split.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
       const each = Math.floor(budget / lanesN);
@@ -289,11 +297,16 @@ export class Gun {
       this.save();
       let sent = 0;
       let n = 0;
-      const STEP = 25; // blasts per lane per round
+      let built = 0;
+      let roundNo = 0;
       while (sent < total && lanes.length && !stop()) {
+        // First round small so blasts show up within seconds; then 25 per lane.
+        const STEP = roundNo++ === 0 ? 3 : 25;
+        onStatus(`Signing round ${roundNo}…`);
         const round: Transaction[] = [];
         const ends: { tx: Transaction; vout: number; left: number }[] = [];
         for (const lane of lanes) {
+          if (stop()) break;
           let prev = { tx: lane.tx, vout: lane.vout };
           let k = 0;
           for (; k < Math.min(STEP, lane.left, total - sent - round.length); k++) {
@@ -306,10 +319,18 @@ export class Gun {
             await tx.sign();
             round.push(tx);
             prev = { tx, vout: 1 };
+            if (++built % 40 === 0) {
+              await breathe();
+              if (stop()) {
+                k++;
+                break;
+              }
+            }
           }
           ends.push({ ...prev, left: lane.left - k });
         }
         if (!round.length) break;
+        onStatus(`Broadcasting ${round.length.toLocaleString()} transactions…`);
         // Send in requests of 500, a few at a time. Chains stay in order inside each request.
         const parts: Transaction[][] = [];
         for (let i = 0; i < round.length; i += 500) parts.push(round.slice(i, i + 500));
@@ -330,6 +351,7 @@ export class Gun {
         lanes = ends.filter((e) => e.left > 0).map((e) => ({ tx: Transaction.fromHex(e.tx.toHex()), vout: e.vout, left: e.left }));
       }
       // Merge every lane end (and the split's change) back into one coin.
+      onStatus('Merging leftover sats back into the gun…');
       await this.resync().catch(() => undefined);
       const coins = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
       if (coins.length > 1) {
