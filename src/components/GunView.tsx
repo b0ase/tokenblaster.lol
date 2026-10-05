@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * The arena's 3D minigun for the BSVGun page. It follows the pointer (mouse or finger) around the
- * window and tilts with it; click/tap fires. While `firing`, the barrel spins, the muzzle flashes and
+ * The arena's 3D minigun, hanging in space, for the BSVGun page. It swivels on the pivot to aim at the
+ * pointer (mouse or finger); a mouse click fires. While `firing`, the barrel spins, the muzzle flashes and
  * tracers spray wherever the gun points.
  */
 import { useEffect, useRef } from 'react';
@@ -47,14 +47,18 @@ export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => vo
     scene.add(rim);
     const camera = new THREE.PerspectiveCamera(28, 2, 0.01, 50);
 
-    // rig: follows the pointer. holder: turns the gun side-on, sways and shakes.
+    // rig: the pivot the gun hangs on in space, turned to aim. holder: turns the gun side-on, shakes.
     const rig = new THREE.Group();
     scene.add(rig);
     const holder = new THREE.Group();
     rig.add(holder);
-    let reach = { x: 0, y: 0 }; // how far the rig may travel from the centre (world units)
     let size = 0.5; // the gun's radius, for tracer speed
-    const want = new THREE.Vector2(); // pointer, -1..1
+    const want = new THREE.Vector2(0.6, 0.1); // pointer, -1..1
+    const ray = new THREE.Raycaster();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+    const hit = new THREE.Vector3();
+    let aimYaw = 0;
+    let aimPitch = 0;
     const onMove = (e: PointerEvent) => {
       const b = el.getBoundingClientRect();
       want.set(((e.clientX - b.left) / b.width) * 2 - 1, -(((e.clientY - b.top) / b.height) * 2 - 1));
@@ -83,9 +87,9 @@ export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => vo
       const box = new THREE.Box3().setFromObject(holder, true);
       const r = box.getSize(new THREE.Vector3()).length() / 2;
       size = r;
-      camera.position.set(0, 0, r * 3.2);
+      camera.position.set(0, 0, r * 3);
       camera.lookAt(0, 0, 0);
-      fit();
+      rig.position.set(0, 0, 0);
     });
     // Tracers: a pool of thin glowing bolts.
     const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -98,12 +102,7 @@ export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => vo
     });
     let nextTracer = 0;
     let emit = 0;
-    const fit = () => {
-      // Half the visible area at the gun's depth, less a margin so the gun stays on screen.
-      const d = camera.position.z;
-      const hh = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * d;
-      reach = { x: Math.max(0, hh * camera.aspect - size * 0.9), y: Math.max(0, hh - size * 0.45) };
-    };
+
 
     const resize = () => {
       const w = el.clientWidth;
@@ -111,7 +110,6 @@ export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => vo
       renderer.setSize(w, h);
       camera.aspect = w / Math.max(1, h);
       camera.updateProjectionMatrix();
-      fit();
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -133,19 +131,24 @@ export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => vo
       flash.intensity = on ? 8 : 0;
       (flare.material as THREE.MeshBasicMaterial).opacity = on ? 0.9 : 0;
       flare.scale.setScalar(on ? 1 + Math.random() : 1);
-      // Follow the pointer, tilting with the movement (nose up when moving up, a lean when moving fast).
-      const tx = want.x * reach.x;
-      const ty = want.y * reach.y;
-      const vx = (tx - rig.position.x) * Math.min(1, dt * 8);
-      const vy = (ty - rig.position.y) * Math.min(1, dt * 8);
-      rig.position.x += vx;
-      rig.position.y += vy;
-      rig.rotation.z += (want.y * 0.35 + (vy / Math.max(1e-3, dt)) * 0.02 - rig.rotation.z) * Math.min(1, dt * 6);
-      rig.rotation.y += (-want.x * 0.25 - rig.rotation.y) * Math.min(1, dt * 6);
+      // Aim: find the pointer on the gun's plane and swivel the pivot toward it.
+      ray.setFromCamera(want, camera);
+      if (ray.ray.intersectPlane(plane, hit)) {
+        const dx = hit.x - rig.position.x;
+        const dy = hit.y - rig.position.y;
+        const left = dx < 0;
+        // Swing round for targets behind, then tilt up/down (clamped, like a mounted gun).
+        const yaw = left ? Math.PI : 0;
+        const pitch = THREE.MathUtils.clamp(Math.atan2(dy, Math.abs(dx)), -0.6, 1.0);
+        aimYaw += (yaw - aimYaw) * Math.min(1, dt * 7);
+        aimPitch += (pitch - aimPitch) * Math.min(1, dt * 10);
+        rig.rotation.set(0, aimYaw, aimPitch, 'YXZ');
+      }
       // Idle sway; shake while firing.
-      const shake = fire.current ? 0.006 : 0;
-      holder.position.set((Math.random() - 0.5) * shake, Math.sin(t * 1.3) * 0.01 + (Math.random() - 0.5) * shake, 0);
-      holder.rotation.x = Math.sin(t * 0.7) * 0.04;
+      const shake = fire.current ? size * 0.01 : 0;
+      holder.position.x = (Math.random() - 0.5) * shake;
+      holder.position.z = (Math.random() - 0.5) * shake;
+      void t;
       // Tracers out of the muzzle, along the barrel.
       if (held && fire.current) {
         emit += dt * 40;
@@ -186,5 +189,5 @@ export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => vo
     };
   }, []);
 
-  return <div ref={host} className="h-72 w-full cursor-crosshair touch-none sm:h-96" aria-label="3D minigun: move to aim, click to fire" />;
+  return <div ref={host} className="h-72 w-full cursor-crosshair touch-none sm:h-96" aria-label="3D minigun: point to aim, click to fire" />;
 }
