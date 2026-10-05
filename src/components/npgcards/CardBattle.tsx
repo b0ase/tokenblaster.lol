@@ -590,7 +590,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
     [commit, handleEvents],
   );
 
-  const mySetup = useCallback((): PlayerSetup => ({ name: (name || 'You').slice(0, 16), hero, deck: deck.map((id) => cards[id]) }), [name, hero, deck, cards]);
+  const mySetup = useCallback((): PlayerSetup => ({ name: (name || 'Player').slice(0, 16), hero, deck: deck.map((id) => cards[id]) }), [name, hero, deck, cards]);
 
   const begin = useCallback(
     (g: Game, side: 0 | 1) => {
@@ -724,10 +724,10 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
             if (g.turn === sideRef.current && a.t !== 'concede') return;
             if (a.t === 'concede' && a.p === sideRef.current) return;
             run(a, true);
-          } else if (seq > g.seq) n.send('sync', { id: myId });
+          } else if (seq > g.seq) n.send('sync', { id: myId, seq: g.seq });
         } else if (event === 'sync') {
           const g = gRef.current;
-          if (g && opp.current?.id === from) n.send('state', { id: myId, to: from, g, first: firstRef.current });
+          if (g && opp.current?.id === from && g.seq > Number(p.seq ?? -1)) n.send('state', { id: myId, to: from, g, first: firstRef.current });
         } else if (event === 'state') {
           if (p.to !== myId) return;
           const g = p.g as Game;
@@ -746,7 +746,14 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
       },
     });
     netRef.current = n;
+    // A dropped broadcast would leave us waiting forever: while it's the opponent's move, ask every
+    // few seconds whether they're ahead of us (they answer with their state only if so).
+    const poll = setInterval(() => {
+      const g = gRef.current;
+      if (g && g.winner === null && g.turn !== sideRef.current && opp.current) n.send('sync', { id: myId, seq: g.seq });
+    }, 3000);
     return () => {
+      clearInterval(poll);
       n.close();
       if (netRef.current === n) netRef.current = null;
     };
@@ -1033,7 +1040,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
   };
 
   return shell(
-    <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-[radial-gradient(ellipse_at_center,#3b0764_0%,#09090b_70%)] p-2 sm:p-3">
+    <div data-npgc-seq={game.seq} data-npgc-turn={game.turn} data-npgc-side={mySide} className={`relative overflow-hidden rounded-xl border border-zinc-800 bg-[radial-gradient(ellipse_at_center,#3b0764_0%,#09090b_70%)] p-2 sm:p-3 ${badge ? 'pb-10 sm:pb-10' : ''}`}>
       {badge}
       {/* top bar */}
       <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-zinc-400">
