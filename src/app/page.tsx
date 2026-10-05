@@ -8,7 +8,9 @@ const GAMES = [
   { href: '/arcade/frogger', img: '/arcade/frogger.jpg', title: 'Chain Frogger', tag: 'V2 · 3D city', blurb: 'Cross a GTA-style avenue where every vehicle is a live mainnet transaction, one way from sender to receiver. Token transfers drive box trucks wearing their logo.' },
   { href: '/arcade/hopper', img: '/arcade/hopper.jpg', title: 'Block Hopper', tag: 'V1 · platformer', blurb: 'Run and jump across mainnet as it happens: every platform is a live transaction, token transfers walk out as enemies, new blocks are checkpoints.' },
   { href: '/arcade/invaders', img: '/arcade/invaders.jpg', title: 'Mempool Invaders', tag: 'V1 · shooter', blurb: 'Live transactions march down as invaders. Shoot the gold token invaders and catch the BSV-21 token they drop.' },
-  { href: '/arcade', img: '/arcade/npg.jpg', title: 'More in the Arcade', tag: 'coming soon', blurb: 'Ninja Punk Girls in 3D, an open-world city, Token Rally, plus links to other builders’ BSV games.' },
+  { href: '/arcade/snake', img: '/arcade/snake.jpg', title: 'Token Snake', tag: 'V1 · snake', blurb: 'Eat the live chain: every bite is a transaction. Token transfers are token food you collect, TokenBlaster blasts are gold.' },
+  { href: '/arcade/city', img: '/arcade/city.jpg', title: 'Satoshi City', tag: 'V1 · open world', blurb: 'Open-world island city where every car on the road is a live mainnet transaction. Walk, carjack, drift, deliver the next block.' },
+  { href: '/arcade', img: '/arcade/npg.jpg', title: 'More in the Arcade', tag: 'coming soon', blurb: 'Ninja Punk Girls in 3D, Token Rally, plus links to other builders’ BSV games.' },
 ];
 
 const STACK = [
