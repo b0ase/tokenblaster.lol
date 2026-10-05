@@ -1,5 +1,5 @@
 /**
- * Double-O Satoshi cast: stylised procedural villains and henchmen (boxes, spheres, a few canvas
+ * Double-O Kweg cast: stylised procedural villains and henchmen (boxes, spheres, a few canvas
  * textures). Cartoon parody characters with parody names only: no real names, photos, likenesses or logos.
  */
 import * as THREE from 'three';
@@ -120,7 +120,7 @@ function limb(w: number, h: number, d: number, mat: THREE.Material, pivotY: numb
 }
 
 /** Build one character facing +Z, feet at y = 0, scaled to its def height. */
-export function buildRig(kind: Kind): Rig {
+export function buildRig(kind: Kind, agent?: string): Rig {
   const def = CAST[kind];
   const root = new THREE.Group();
   const body = new THREE.Group();
@@ -140,8 +140,8 @@ export function buildRig(kind: Kind): Rig {
     custodian: { suit: '#5c6168', legs: '#3c4046', skin: '#d8a888', shirt: '#f4f4f4' },
     hoarder: { suit: '#e8741c', legs: '#2a2a2e', skin: '#e0b090', shirt: '#e8741c' },
   };
-  const p = palette[kind];
-  const suit = kind === 'goon' ? new THREE.MeshStandardMaterial({ map: paperTex(), roughness: 0.9 }) : std(p.suit, kind === 'kingpin' ? { metalness: 0.45, roughness: 0.55 } : kind === 'bot' ? { metalness: 0.7, roughness: 0.35 } : {});
+  const p = agent ? { suit: '#0d0d10', legs: '#0d0d10', skin: '#e2b48e', shirt: '#f4f4f4' } : palette[kind];
+  const suit = kind === 'goon' && !agent ? new THREE.MeshStandardMaterial({ map: paperTex(), roughness: 0.9 }) : std(p.suit, kind === 'kingpin' ? { metalness: 0.45, roughness: 0.55 } : kind === 'bot' ? { metalness: 0.7, roughness: 0.35 } : {});
   const legMat = std(p.legs, kind === 'bot' ? { metalness: 0.7, roughness: 0.4 } : {});
   const skin = std(p.skin, kind !== 'bot' ? { roughness: 0.85 } : kind === 'bot' ? { metalness: 0.7, roughness: 0.35 } : {});
 
@@ -157,12 +157,12 @@ export function buildRig(kind: Kind): Rig {
   const torso = new THREE.Mesh(rbox(0.62 + belly, 0.72, 0.36 + belly, 0.1), suit);
   torso.position.y = 1.24;
   inner.add(torso);
-  if (kind !== 'goon' && kind !== 'bot' && kind !== 'hoarder') {
+  if (agent || (kind !== 'goon' && kind !== 'bot' && kind !== 'hoarder')) {
     // Shirt and tie.
     const shirt = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.02), std(p.shirt));
     shirt.position.set(0, 1.32, 0.19 + belly / 2);
     inner.add(shirt);
-    const tie = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.4, 0.02), std(kind === 'kingpin' ? '#b0141c' : '#1d3a7a'));
+    const tie = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.4, 0.02), agent ? glow(agent, 1.6) : std(kind === 'kingpin' ? '#b0141c' : '#1d3a7a'));
     tie.position.set(0, 1.3, 0.205 + belly / 2);
     inner.add(tie);
   }
@@ -185,7 +185,7 @@ export function buildRig(kind: Kind): Rig {
   // Right hand holds something that shoots.
   const muzzle = new THREE.Object3D();
   const gunMat = std('#151515', { metalness: 0.6, roughness: 0.4 });
-  if (kind === 'custodian') {
+  if (kind === 'custodian' && !agent) {
     const brief = new THREE.Mesh(rbox(0.12, 0.34, 0.46, 0.03), std('#3b2414', { roughness: 0.35 }));
     brief.position.set(0, -0.9, 0.05);
     arms[1].add(brief);
@@ -262,7 +262,7 @@ export function buildRig(kind: Kind): Rig {
     button.position.set(-0.17, 1.42, 0.27);
     inner.add(button);
   }
-  if (kind === 'custodian') {
+  if (kind === 'custodian' && !agent) {
     const vest = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.12), new THREE.MeshBasicMaterial({ map: textTex(BRIAN_CO.toUpperCase(), '#111', '#e8e8e8', 256, 64) }));
     vest.position.set(0.17, 1.42, 0.185);
     vest.scale.setScalar(0.6);
@@ -309,3 +309,6 @@ export function poseRig(r: Rig, dt: number, speed: number, aim: boolean, now: nu
   r.arms[1].rotation.x = aim ? -Math.PI / 2 : sw * 0.8;
   r.body.position.y = speed > 0.05 ? Math.abs(Math.cos(r.phase)) * 0.05 : Math.sin(now / 500) * 0.01;
 }
+
+/** A tux-wearing agent (other players): black suit, white shirt, a tie in the player's colour. */
+export const buildAgent = (tint: string) => buildRig('goon', tint);

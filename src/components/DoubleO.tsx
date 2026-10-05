@@ -17,8 +17,9 @@ import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
 import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type ArenaAssets, type HeldGun } from '@/lib/arenaHD';
 import { TOKEN_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
+import { Room, realtimeConfigured } from '@/lib/realtime';
 import { useBlaster } from '@/lib/useBlaster';
-import { buildRig, CAST, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
+import { buildAgent, buildRig, CAST, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
 import { Grid } from '@/lib/doubleo/grid';
 import { LEVELS, SIZE, type Level } from '@/lib/doubleo/levels';
 import { AGENT } from '@/lib/doubleo/names';
@@ -49,8 +50,21 @@ type Hud = {
   dist: number;
   arrow: number; // radians, 0 = straight ahead
 };
-type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string };
-type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void };
+type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[] };
+type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void };
+type NetInfo = { status: 'off' | 'connecting' | 'live'; agents: { name: string; host: boolean; me: boolean; vs: boolean }[] };
+/** Level-map letters for each cast kind (also the wire format for the host's actor list). */
+const KIND_CODE: Record<string, string> = { bot: 'g', goon: 'p', hazmat: 'h', kingpin: 'K', custodian: 'U', hoarder: 'L' };
+const CODE_KIND: Record<string, Kind | 'hazmat'> = { g: 'bot', p: 'goon', h: 'hazmat', K: 'kingpin', U: 'custodian', L: 'hoarder' };
+const TINTS = ['#ff4060', '#40c0ff', '#60ff90', '#ffb040', '#c070ff', '#ff70d0', '#f0f040'];
+const tintFor = (id: string) => TINTS[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % TINTS.length];
+const loadName = () => {
+  try {
+    return localStorage.getItem('doubleo:name') || '';
+  } catch {
+    return '';
+  }
+};
 
 const HUD0: Hud = { health: 100, armor: 0, obj: '', objIdx: 0, objTotal: 0, progress: null, bosses: [], shots: 0, hits: 0, kills: 0, onChain: 0, heat: 0, last: null, dist: 0, arrow: 0 };
 
@@ -89,10 +103,48 @@ export function DoubleO() {
   const [empty, setEmpty] = useState(false);
   const [touchUi, setTouchUi] = useState(false);
   const [tokenLoad, setTokenLoad] = useState(50);
+  // Multiplayer: name, VERSUS toggle, per-mission head counts, toasts.
+  const [name, setName] = useState('');
+  const [versus, setVersus] = useState(false);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [net, setNet] = useState<NetInfo>({ status: 'off', agents: [] });
+  const [toasts, setToasts] = useState<{ id: number; text: string; icon: string | null }[]>([]);
+  const toast = useRef<(text: string, icon: string | null) => void>(() => undefined);
+  useEffect(() => {
+    toast.current = (text, icon) => {
+      const id = Math.random();
+      setToasts((t) => [{ id, text, icon }, ...t].slice(0, 4));
+      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
+    };
+  }, []);
+  const me = useRef({ name: 'Agent', vs: false, gun: '', setVs: ((v: boolean) => void v) as (v: boolean) => void });
+  useEffect(() => {
+    me.current = { name: name.trim() || 'Agent', vs: versus, gun: b.gunAddress, setVs: setVersus };
+  }, [name, versus, b.gunAddress]);
+  // Lobby presence: who is in which mission (shown on the mission cards).
+  const lobby = useRef<Room | null>(null);
+  useEffect(() => {
+    if (!realtimeConfigured()) return;
+    const r = new Room('doubleokweg-lobby', Math.random().toString(36).slice(2, 10), {
+      onBroadcast: () => undefined,
+      onPresence: (st) => {
+        const c: Record<string, number> = {};
+        for (const metas of Object.values(st)) {
+          const m = (metas[0] as { m?: string | null } | undefined)?.m;
+          if (m) c[m] = (c[m] ?? 0) + 1;
+        }
+        setCounts(c);
+      },
+    });
+    r.track({ m: null });
+    lobby.current = r;
+    return () => r.close();
+  }, []);
 
   useEffect(() => {
     void Promise.resolve().then(() => {
       setDone(loadDone());
+      setName(loadName() || `Agent ${String(Math.floor(Math.random() * 900) + 100)}`);
       setTouchUi(isPhone() || window.matchMedia?.('(pointer: coarse)').matches);
     });
   }, []);
@@ -118,6 +170,13 @@ export function DoubleO() {
   const icon = iconUrl(b.token?.icon ?? null);
   const heldTok = b.tokens.find((t) => t.id === b.token?.id);
   const armed = Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE;
+  const inMission = screen === 'play' || screen === 'paused';
+  useEffect(() => {
+    lobby.current?.track({ m: inMission ? LEVELS[level].id : null });
+  }, [inMission, level]);
+  useEffect(() => {
+    if (screen === 'menu') engine.current?.leave();
+  }, [screen]);
   const live_ = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, fireTokens: b.fireTokens, icon, sym });
   useEffect(() => {
     live_.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, fireTokens: b.fireTokens, icon, sym };
@@ -297,7 +356,7 @@ export function DoubleO() {
       }
       return m;
     };
-    type Bolt = { s: THREE.Sprite; v: THREE.Vector3; dmg: number; born: number; from: Actor };
+    type Bolt = { s: THREE.Sprite; v: THREE.Vector3; dmg: number; born: number; from: Actor | null };
     const bolts: Bolt[] = [];
 
     // ── State ──
@@ -352,6 +411,9 @@ export function DoubleO() {
       buyAt: number; // MICHAEL keeps buying armour
       summoned: boolean;
       tag: THREE.Sprite | null;
+      netTo: THREE.Vector3 | null; // co-op guests: where the host says this actor is
+      netRy: number;
+      hitByMe: number; // co-op guests: last time my coin landed on it (kill credit)
     };
     const actors: Actor[] = [];
 
@@ -393,7 +455,7 @@ export function DoubleO() {
       });
       lvlGroup!.add(root);
       const now = performance.now();
-      actors.push({ cast, kind, rig, mon, root, hitbox, hp: cast.hp, max: cast.hp, state: 'patrol', seen: false, seenCheck: 0, lastSeen: 0, goal: null, wait: now + Math.random() * 1500, repath: 0, step: null, nextShot: 0, aimAt: 0, quipAt: 0, dyingAt: 0, wobble: 0, buyAt: now + 6000, summoned: false, tag });
+      actors.push({ cast, kind, rig, mon, root, hitbox, hp: cast.hp, max: cast.hp, state: 'patrol', seen: false, seenCheck: 0, lastSeen: 0, goal: null, wait: now + Math.random() * 1500, repath: 0, step: null, nextShot: 0, aimAt: 0, quipAt: 0, dyingAt: 0, wobble: 0, buyAt: now + 6000, summoned: false, tag, netTo: null, netRy: 0, hitByMe: 0 });
     };
 
     // ── Build a level ──
@@ -701,14 +763,15 @@ export function DoubleO() {
         trigger = false;
         if (document.pointerLockElement) document.exitPointerLock();
         setScreen('failed');
+        leaveMission();
       }
     };
 
-    const completeObjective = () => {
+    const completeObjective = (quiet = false) => {
       const o = L.objectives[objIdx];
-      sfx?.pickup();
+      if (!quiet) sfx?.pickup();
       const at = camera.position.clone().add(new THREE.Vector3(-Math.sin(yaw) * 3, 0.4, -Math.cos(yaw) * 3));
-      popup(o.kind === 'plant' ? (L.id === 'tower' ? 'WITHDRAWALS UNFROZEN!' : L.id === 'vault' ? 'VAULT CRACKED!' : 'NODE PLANTED!') : 'OBJECTIVE COMPLETE', at, '#60ff90', true);
+      if (!quiet) popup(o.kind === 'plant' ? (L.id === 'tower' ? 'WITHDRAWALS UNFROZEN!' : L.id === 'vault' ? 'VAULT CRACKED!' : 'NODE PLANTED!') : 'OBJECTIVE COMPLETE', at, '#60ff90', true);
       if (o.kind === 'plant' && grid) {
         const [x, z] = grid.find(o.at)[0];
         const c = grid.centre(x, z);
@@ -729,13 +792,15 @@ export function DoubleO() {
         const ids = Array.from(new Set([...loadDone(), L.id]));
         saveDone(ids);
         setDone(ids);
-        setDebrief({ level: lvlIdx, secs: elapsed, shots: stats.shots, hits: stats.hits, kills: stats.kills, onChain: stats.onChain, live: liveMode, sym: live_.current.sym });
+        const squad = [me.current.name, ...[...remotes.values()].map((r) => r.name)];
+        setDebrief({ level: lvlIdx, secs: elapsed, shots: stats.shots, hits: stats.hits, kills: stats.kills, onChain: stats.onChain, live: liveMode, sym: live_.current.sym, squad });
         setScreen('debrief');
+        leaveMission();
       }
     };
 
     // ── Chain: queue of token shots, sent in batches (jam-free retry, like the Arena) ──
-    type Shot = { extra: string[] };
+    type Shot = { extra: string[]; to?: string; target?: string };
     const queue: Shot[] = [];
     let heat = 0;
     let draining = false;
@@ -746,9 +811,16 @@ export function DoubleO() {
       if (draining) return;
       draining = true;
       while (queue.length) {
-        const batch = queue.slice(0, BATCH);
+        // One destination per batch: a run of shots at the same agent (or plain shots, burned).
+        let run = 1;
+        while (run < queue.length && run < BATCH && queue[run].to === queue[0].to) run++;
+        const batch = queue.slice(0, run);
+        const to = batch[0].to;
+        const target = batch[0].target;
         try {
-          const txids = await live_.current.fireTokens(n + 1, batch.map((q) => q.extra));
+          const txids = await live_.current.fireTokens(n + 1, batch.map((q) => q.extra), to);
+          // Tell the agent we hit: their gun just received our tokens.
+          if (target && txids.length && room) room.broadcast('phit', { to: target, from: me.current.name, n: txids.length, tokens: true, sym: live_.current.sym, icon: live_.current.icon });
           n += txids.length;
           queue.splice(0, txids.length);
           stats.onChain += txids.length;
@@ -781,12 +853,29 @@ export function DoubleO() {
 
     // ── Shooting ──
     const raycaster = new THREE.Raycaster();
-    const hitActor = (a: Actor, point: THREE.Vector3, now: number) => {
+    const killActor = (a: Actor, now: number, point: THREE.Vector3, mine: boolean) => {
+      a.state = 'dying';
+      a.dyingAt = now;
+      if (mine) stats.kills++;
+      sfx?.die();
+      burstCoins(point, a.cast.boss ? 24 : 8);
+      popup('REKT!', a.root.position.clone().setY(a.cast.height + 0.6), '#ff4040', true);
+      if (a.tag) a.tag.visible = false;
+    };
+    /** A coin lands on an actor. Co-op: only the host changes hp; guests show it and tell the host. */
+    const hitActor = (a: Actor, point: THREE.Vector3, now: number, mine = true) => {
       if (a.state === 'dying') return;
-      a.hp--;
       a.wobble = now;
       sfx?.hit();
       burstCoins(point, a.cast.boss ? 3 : 2);
+      if (!isHost()) {
+        if (mine) {
+          a.hitByMe = now;
+          room?.broadcast('ehit', { i: actors.indexOf(a), p: [point.x, point.y, point.z] });
+        }
+        return;
+      }
+      a.hp--;
       if (a.state === 'patrol') {
         a.state = 'alert';
         a.lastSeen = now;
@@ -822,15 +911,7 @@ export function DoubleO() {
             g.lastSeen = now;
           }
       }
-      if (a.hp <= 0) {
-        a.state = 'dying';
-        a.dyingAt = now;
-        stats.kills++;
-        sfx?.die();
-        burstCoins(point, a.cast.boss ? 24 : 8);
-        popup('REKT!', a.root.position.clone().setY(a.cast.height + 0.6), '#ff4040', true);
-        if (a.tag) a.tag.visible = false;
-      }
+      if (a.hp <= 0) killActor(a, now, point, mine);
     };
 
     const shoot = (now: number) => {
@@ -862,10 +943,15 @@ export function DoubleO() {
       const from = held ? held.group.localToWorld(held.muzzle.clone()) : camera.position.clone();
       raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * 0.01, (Math.random() - 0.5) * 0.01), camera);
       const alive = actors.filter((a) => a.state !== 'dying');
-      const hit = raycaster.intersectObjects([...walls, ...alive.map((a) => a.hitbox)], false)[0];
+      // VERSUS: agents who both have it on can shoot each other.
+      const foes = me.current.vs ? [...remotes.entries()].filter(([, r]) => r.vs && r.act) : [];
+      const hit = raycaster.intersectObjects([...walls, ...alive.map((a) => a.hitbox), ...foes.map(([, r]) => r.rig.hitbox)], false)[0];
       const end = hit ? hit.point.clone() : camera.position.clone().addScaledVector(raycaster.ray.direction, 45);
       const target = hit ? (alive.find((a) => a.hitbox === hit.object) ?? null) : null;
-      if (target) stats.hits++;
+      const foe = hit ? foes.find(([, r]) => r.rig.hitbox === hit.object) : undefined;
+      if (target || foe) stats.hits++;
+      if (foe && room && !liveMode) room.broadcast('phit', { to: foe[0], from: me.current.name, n: 1, tokens: false });
+      room?.broadcast('shot', { f: [from.x, from.y, from.z], t: [end.x, end.y, end.z] });
       const m = new THREE.Mesh(coinGeo, coinMats);
       m.position.copy(from);
       scene.add(m);
@@ -877,7 +963,9 @@ export function DoubleO() {
           a.lastSeen = now;
         }
       if (liveMode) {
-        queue.push({ extra: ['doubleo', L.id, 'shot'] });
+        // A hit on a VERSUS agent sends the token to their gun; everything else is burned.
+        if (foe?.[1].gun) queue.push({ extra: ['doubleo', L.id, 'versus'], to: foe[1].gun, target: foe[0] });
+        else queue.push({ extra: ['doubleo', L.id, 'shot'] });
         heat = queue.length;
         void drain();
       }
@@ -894,6 +982,10 @@ export function DoubleO() {
     const onKey = (e: KeyboardEvent) => {
       if (e.type === 'keydown') keys.add(e.code);
       else keys.delete(e.code);
+      if (e.code === 'KeyV' && e.type === 'keydown' && running) {
+        me.current.setVs(!me.current.vs);
+        me.current.vs = !me.current.vs;
+      }
       if (e.code === 'Space') {
         trigger = e.type === 'keydown';
         if (running) e.preventDefault();
@@ -962,6 +1054,7 @@ export function DoubleO() {
         sfx?.resume();
         liveMode = isLive;
         buildLevel(i);
+        joinMission();
         running = true;
         lastTick = performance.now();
         setScreen('play');
@@ -982,6 +1075,7 @@ export function DoubleO() {
         running = false;
         setScreen('menu');
       },
+      leave: () => leaveMission(),
     };
 
     // ── AI ──
@@ -994,20 +1088,27 @@ export function DoubleO() {
       if (!grid.solidAt(nx + Math.sign(dx) * pad, p.z)) p.x = nx;
       if (!grid.solidAt(p.x, nz + Math.sign(dz) * pad)) p.z = nz;
     };
-    const fireVolley = (a: Actor, now: number) => {
+    const spawnBolt = (from: THREE.Vector3, dir: THREE.Vector3, a: Actor | null, color: string, size: number, speed: number, dmg: number, now: number) => {
+      const s = new THREE.Sprite(shotMat(color));
+      s.scale.setScalar(size);
+      s.position.copy(from);
+      scene.add(s);
+      bolts.push({ s, v: dir.clone().multiplyScalar(speed), dmg, born: now, from: a });
+    };
+    const fireVolley = (a: Actor, now: number, tp: THREE.Vector3) => {
       const from = a.rig ? a.rig.muzzle.getWorldPosition(new THREE.Vector3()) : a.root.position.clone().setY(1.3);
-      const aim = camera.position.clone().setY(camera.position.y - 0.25).sub(from).normalize();
+      const aim = tp.clone().setY(EYE - 0.25).sub(from).normalize();
+      const sent: number[] = [];
       const nShots = a.cast.boss && a.hp < a.max / 2 ? a.cast.volley + 1 : a.cast.volley;
       for (let i = 0; i < nShots; i++) {
         const spread = (i - (nShots - 1) / 2) * 0.13 + (Math.random() - 0.5) * 0.06;
         const dir = aim.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), spread);
         dir.y += (Math.random() - 0.5) * 0.03;
-        const s = new THREE.Sprite(shotMat(a.cast.shotColor));
-        s.scale.setScalar(a.kind === 'hoarder' ? 0.22 : 0.3);
-        s.position.copy(from);
-        scene.add(s);
-        bolts.push({ s, v: dir.multiplyScalar(a.cast.shotSpeed), dmg: a.cast.damage, born: now, from: a });
+        spawnBolt(from, dir, a, a.cast.shotColor, a.kind === 'hoarder' ? 0.22 : 0.3, a.cast.shotSpeed, a.cast.damage, now);
+        sent.push(+dir.x.toFixed(3), +dir.y.toFixed(3), +dir.z.toFixed(3));
       }
+      // Guests fly the same bolts and check them against themselves.
+      room?.broadcast('volley', { i: actors.indexOf(a), f: [from.x, from.y, from.z], d: sent });
       if (a.kind === 'custodian' && now > a.quipAt) {
         a.quipAt = now + 5000;
         popup(a.cast.quip[0], a.root.position.clone().setY(a.cast.height + 0.9), '#ffffff');
@@ -1035,15 +1136,25 @@ export function DoubleO() {
         a.mon?.mixer.update(dt * 0.3);
         return;
       }
-      const dx = camera.position.x - p.x;
-      const dz = camera.position.z - p.z;
+      // Co-op: hunt the nearest agent (me or anyone else in the mission).
+      let tp = camera.position;
+      let best = running && health > 0 ? Math.hypot(tp.x - p.x, tp.z - p.z) : Infinity;
+      for (const r of remotes.values()) {
+        const d = r.act ? Math.hypot(r.eye.x - p.x, r.eye.z - p.z) : Infinity;
+        if (d < best) {
+          best = d;
+          tp = r.eye;
+        }
+      }
+      const dx = tp.x - p.x;
+      const dz = tp.z - p.z;
       const dist = Math.hypot(dx, dz);
       if (now > a.seenCheck) {
         a.seenCheck = now + 180 + Math.random() * 80;
         const face = new THREE.Vector3(Math.sin(a.root.rotation.y), 0, Math.cos(a.root.rotation.y));
         const dot = (face.x * dx + face.z * dz) / Math.max(0.01, dist);
         const range = a.state === 'alert' ? 30 : 22;
-        a.seen = dist < range && (dot > 0.25 || dist < 6 || a.state === 'alert') && grid.los(p.x, p.z, camera.position.x, camera.position.z);
+        a.seen = dist < range && (dot > 0.25 || dist < 6 || a.state === 'alert') && grid.los(p.x, p.z, tp.x, tp.z);
         if (a.seen) {
           if (a.state === 'patrol') {
             a.state = 'alert';
@@ -1096,7 +1207,7 @@ export function DoubleO() {
           if (!a.aimAt && now > a.nextShot) a.aimAt = now + (a.kind === 'hoarder' ? 600 : 350);
           if (a.aimAt && now > a.aimAt) {
             a.aimAt = 0;
-            fireVolley(a, now);
+            fireVolley(a, now, tp);
             a.nextShot = now + a.cast.fireMs * (a.cast.boss && a.hp < a.max / 2 ? 0.7 : 1) * (0.8 + Math.random() * 0.4);
           }
         } else {
@@ -1104,9 +1215,9 @@ export function DoubleO() {
           // Chase where the player is (or was).
           if (now > a.repath) {
             a.repath = now + 400;
-            a.step = grid.nextStep(grid.cell(p.x, p.z), grid.cell(camera.position.x, camera.position.z));
+            a.step = grid.nextStep(grid.cell(p.x, p.z), grid.cell(tp.x, tp.z));
           }
-          const t2 = a.step ? grid.centre(a.step[0], a.step[1]) : { x: camera.position.x, z: camera.position.z };
+          const t2 = a.step ? grid.centre(a.step[0], a.step[1]) : { x: tp.x, z: tp.z };
           const sx = t2.x - p.x;
           const sz = t2.z - p.z;
           const sd = Math.max(0.01, Math.hypot(sx, sz));
@@ -1125,6 +1236,9 @@ export function DoubleO() {
           popup("I'LL JUST BUY MORE! +ARMOR", p.clone().setY(a.cast.height + 0.9), '#ffb040');
         }
       }
+      animActor(a, dt, now, speed, aiming);
+    };
+    const animActor = (a: Actor, dt: number, now: number, speed: number, aiming: boolean) => {
       // Telegraph: eyes flare before a shot.
       if (a.rig) {
         const flare = a.aimAt ? 1 + Math.sin(now / 40) * 0.5 + 1 : 1;
@@ -1146,6 +1260,214 @@ export function DoubleO() {
         a.mon.body.rotation.z = w < 0.5 ? Math.sin(w * 40) * 0.15 * (1 - w * 2) : 0;
       }
     };
+    /** Co-op guests: glide each actor to where the host says it is. */
+    const followActor = (a: Actor, dt: number, now: number) => {
+      if (a.state === 'dying' || !a.netTo) return thinkActor(a, dt, now);
+      const p = a.root.position;
+      const gap = Math.hypot(a.netTo.x - p.x, a.netTo.z - p.z);
+      if (gap > 6) p.set(a.netTo.x, p.y, a.netTo.z);
+      else {
+        const k = Math.min(1, dt * 8);
+        p.x += (a.netTo.x - p.x) * k;
+        p.z += (a.netTo.z - p.z) * k;
+      }
+      const dr = Math.atan2(Math.sin(a.netRy - a.root.rotation.y), Math.cos(a.netRy - a.root.rotation.y));
+      a.root.rotation.y += dr * Math.min(1, dt * 10);
+      animActor(a, dt, now, Math.min(1, gap * 1.5), a.aimAt > 0);
+    };
+
+    // ── Multiplayer: one Realtime room per mission. Co-op world simulated by the host (oldest agent). ──
+    const myId = Math.random().toString(36).slice(2, 10);
+    type Remote = { rig: Rig; to: THREE.Vector3; eye: THREE.Vector3; yaw: number; seen: number; name: string; vs: boolean; gun: string; act: boolean; tag: THREE.Sprite | null; tagKey: string };
+    const remotes = new Map<string, Remote>();
+    let room: Room | null = null;
+    let joinedAt = 0;
+    let rosterReady = false;
+    let roster: Record<string, { id: string; t: number }> = {};
+    let hostId = myId;
+    let lastPose = 0;
+    let lastState = 0;
+    const isHost = () => hostId === myId;
+    const pushNet = (status?: NetInfo['status']) =>
+      setNet((nInfo) => ({
+        status: status ?? nInfo.status,
+        agents: room ? [{ name: me.current.name, host: isHost(), me: true, vs: me.current.vs }, ...[...remotes.entries()].map(([id, r]) => ({ name: r.name, host: id === hostId, me: false, vs: r.vs }))] : [],
+      }));
+    const elect = () => {
+      // Candidates: me, plus agents whose poses are arriving (a presence entry can outlive a closed tab).
+      const grace = Date.now() - joinedAt < 3000;
+      const list = Object.values(roster).filter((m) => m && m.id && (m.id === myId || grace || remotes.has(m.id)));
+      if (!list.some((m) => m.id === myId)) list.push({ id: myId, t: joinedAt });
+      list.sort((a, b2) => a.t - b2.t || (a.id < b2.id ? -1 : 1));
+      const was = hostId;
+      hostId = list[0].id;
+      if (was !== hostId && hostId === myId && running) toast.current('You are now running the mission (host)', null);
+      pushNet();
+    };
+    const dropRemote = (id: string) => {
+      const r = remotes.get(id);
+      if (!r) return;
+      scene.remove(r.rig.root);
+      disposeGroup(r.rig.root);
+      remotes.delete(id);
+    };
+    const remoteFor = (id: string, nm: string) => {
+      let r = remotes.get(id);
+      if (!r) {
+        const rig = buildAgent(tintFor(id));
+        rig.root.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh && o !== rig.hitbox) o.castShadow = true;
+        });
+        scene.add(rig.root);
+        r = { rig, to: new THREE.Vector3(), eye: new THREE.Vector3(), yaw: 0, seen: 0, name: nm, vs: false, gun: '', act: true, tag: null, tagKey: '' };
+        remotes.set(id, r);
+      }
+      return r;
+    };
+    const applyState = (d: { o: number; p: number; k: string; a: number[] }) => {
+      if (!grid || isHost()) return;
+      const now = performance.now();
+      for (let i = actors.length; i < d.k.length; i++) {
+        const kind = CODE_KIND[d.k[i]];
+        if (!kind) break;
+        const [cx, cz] = grid.cell(d.a[i * 6], d.a[i * 6 + 1]);
+        spawnActor(kind, cx, cz);
+      }
+      actors.forEach((a, i) => {
+        const o = i * 6;
+        if (o + 5 >= d.a.length) return;
+        (a.netTo ??= new THREE.Vector3()).set(d.a[o], 0, d.a[o + 1]);
+        a.netRy = d.a[o + 2];
+        a.hp = d.a[o + 3];
+        const st = d.a[o + 4];
+        if (st === 2) {
+          if (a.state !== 'dying') killActor(a, now, a.root.position.clone().setY(a.cast.height * 0.6), now - a.hitByMe < 2500);
+        } else if (a.state !== 'dying') a.state = st ? 'alert' : 'patrol';
+        a.aimAt = d.a[o + 5] ? 1 : 0;
+      });
+      while (objIdx < d.o && objIdx < L.objectives.length && running) completeObjective(true);
+      progress = d.p;
+    };
+    const leaveMission = () => {
+      room?.close();
+      room = null;
+      for (const id of [...remotes.keys()]) dropRemote(id);
+      hostId = myId;
+      rosterReady = false;
+      pushNet('off');
+    };
+    const joinMission = () => {
+      leaveMission();
+      if (!realtimeConfigured()) return;
+      joinedAt = Date.now();
+      roster = {};
+      // (the Room constructor reports status synchronously, before `r` is assigned)
+      let r: Room | null = null;
+      r = new Room(`doubleokweg-${L.id}`, myId, {
+        onBroadcast: (event, raw) => {
+          if (r !== room || !grid) return;
+          const now = performance.now();
+          if (event === 'pose') {
+            const d = raw as { id: string; x: number; z: number; yaw: number; name: string; vs: boolean; gun: string; act: boolean };
+            const rm = remoteFor(d.id, d.name);
+            const fresh = rm.seen === 0;
+            if (fresh) elect();
+            rm.to.set(d.x, 0, d.z);
+            rm.eye.set(rm.eye.x, EYE, rm.eye.z);
+            if (fresh) rm.rig.root.position.copy(rm.to);
+            const changed = rm.name !== d.name || rm.vs !== d.vs;
+            rm.yaw = d.yaw;
+            rm.name = d.name;
+            rm.vs = d.vs;
+            rm.gun = d.gun;
+            rm.act = d.act;
+            rm.seen = now;
+            if (fresh || changed) pushNet();
+          } else if (event === 'state') applyState(raw as { o: number; p: number; k: string; a: number[] });
+          else if (event === 'ehit') {
+            const d = raw as { i: number; p: number[] };
+            const a = actors[d.i];
+            if (a && isHost()) hitActor(a, new THREE.Vector3(d.p[0], d.p[1], d.p[2]), now, false);
+          } else if (event === 'volley') {
+            const d = raw as { i: number; f: number[]; d: number[] };
+            const a = actors[d.i] ?? null;
+            const cast = a?.cast ?? CAST.bot;
+            const from = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
+            for (let k = 0; k + 2 < d.d.length; k += 3) spawnBolt(from, new THREE.Vector3(d.d[k], d.d[k + 1], d.d[k + 2]), a, cast.shotColor, a?.kind === 'hoarder' ? 0.22 : 0.3, cast.shotSpeed, cast.damage, now);
+          } else if (event === 'shot') {
+            const d = raw as { f: number[]; t: number[] };
+            const m = new THREE.Mesh(coinGeo, coinMats);
+            const f = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
+            const t = new THREE.Vector3(d.t[0], d.t[1], d.t[2]);
+            m.position.copy(f);
+            scene.add(m);
+            flyers.push({ m, from: f, to: t, t: 0, dur: Math.max(0.05, f.distanceTo(t) / 50), target: null, point: t.clone() });
+          } else if (event === 'phit') {
+            const d = raw as { to: string; from: string; n: number; tokens: boolean; sym?: string; icon?: string | null };
+            if (d.to !== myId) return;
+            damagePlayer(4 * d.n);
+            toast.current(d.tokens ? `+${d.n} $${d.sym} from ${d.from} (in your gun)` : `${d.from} hit you`, d.tokens ? (d.icon ?? null) : null);
+          }
+        },
+        onPresence: (st) => {
+          if (r !== room) return;
+          rosterReady = true;
+          roster = Object.fromEntries(Object.entries(st).map(([k, metas]) => [k, metas[0] as { id: string; t: number }]));
+          for (const id of [...remotes.keys()]) if (!roster[id]) dropRemote(id);
+          elect();
+        },
+        onStatus: (status) => {
+          if (r && r === room) pushNet(status);
+        },
+      });
+      room = r;
+      r.track({ id: myId, t: joinedAt });
+      pushNet('connecting');
+    };
+    /** Per frame: send my pose, (host) the world, and move everyone else's agent. */
+    const netTick = (dt: number, now: number) => {
+      if (!room) return;
+      if (now - lastPose > 100) {
+        lastPose = now;
+        room.broadcast('pose', { id: myId, x: +camera.position.x.toFixed(2), z: +camera.position.z.toFixed(2), yaw: +yaw.toFixed(3), name: me.current.name, vs: me.current.vs, gun: me.current.gun, act: running && health > 0 });
+      }
+      if (isHost() && rosterReady && grid && now - lastState > 100) {
+        lastState = now;
+        const a: number[] = [];
+        let k = '';
+        for (const x of actors) {
+          k += KIND_CODE[x.kind] ?? 'g';
+          a.push(+x.root.position.x.toFixed(2), +x.root.position.z.toFixed(2), +x.root.rotation.y.toFixed(2), x.hp, x.state === 'dying' ? 2 : x.state === 'alert' ? 1 : 0, x.aimAt ? 1 : 0);
+        }
+        room.broadcast('state', { o: objIdx, p: +progress.toFixed(3), k, a });
+      }
+      for (const [id, r] of remotes) {
+        if (r.seen && now - r.seen > 6000) {
+          dropRemote(id);
+          elect(); // the host may have gone silent (closed tab): hand off
+          continue;
+        }
+        const p = r.rig.root.position;
+        const gap = p.distanceTo(r.to);
+        p.lerp(r.to, Math.min(1, dt * 8));
+        r.eye.set(p.x, EYE, p.z);
+        r.rig.root.rotation.y = r.yaw + Math.PI;
+        r.rig.root.visible = r.act;
+        poseRig(r.rig, dt, Math.min(1, gap * 2), false, now);
+        const key = `${r.name}|${r.vs}`;
+        if (key !== r.tagKey) {
+          r.tagKey = key;
+          if (r.tag) {
+            r.rig.root.remove(r.tag);
+            r.tag.material.map?.dispose();
+            r.tag.material.dispose();
+          }
+          r.tag = nameTag(r.vs ? `${r.name} · VERSUS` : r.name, r.vs ? '#ff7060' : tintFor(id));
+          r.tag.position.y = 2.35;
+          r.rig.root.add(r.tag);
+        }
+      }
+    };
 
     // ── Main loop ──
     let lastTick = performance.now();
@@ -1154,7 +1476,7 @@ export function DoubleO() {
       if (!grid) return;
       elapsed += dt;
       // Doors: open when anyone walks up.
-      const movers = [camera.position, ...actors.filter((a) => a.state !== 'dying').map((a) => a.root.position)];
+      const movers = [camera.position, ...[...remotes.values()].map((r) => r.eye), ...actors.filter((a) => a.state !== 'dying').map((a) => a.root.position)];
       for (const dm of doorMeshes) {
         const d = grid.doors.get(dm.key)!;
         const c = grid.centre(d.x, d.z);
@@ -1206,10 +1528,13 @@ export function DoubleO() {
       const o = L.objectives[objIdx];
       if (o) {
         const tgt = objTarget();
-        if (o.kind === 'boss') {
+        // Co-op: the host decides objectives (any agent can reach them); guests follow its state.
+        if (!isHost()) {
+          /* objective progress arrives with the host's state */
+        } else if (o.kind === 'boss') {
           if (!actors.some((a) => a.cast.boss && a.state !== 'dying')) completeObjective();
         } else if (tgt) {
-          const d = Math.hypot(tgt.x - camera.position.x, tgt.z - camera.position.z);
+          const d = Math.min(Math.hypot(tgt.x - camera.position.x, tgt.z - camera.position.z), ...[...remotes.values()].filter((r) => r.act).map((r) => Math.hypot(tgt.x - r.eye.x, tgt.z - r.eye.z)));
           if (o.kind === 'goto' && d < 2.2) completeObjective();
           else if (o.kind === 'plant') {
             if (d < 2.4) {
@@ -1228,7 +1553,7 @@ export function DoubleO() {
         }
       }
 
-      for (const a of actors) thinkActor(a, dt, now);
+      for (const a of actors) (isHost() ? thinkActor : followActor)(a, dt, now);
 
       // Enemy bolts.
       for (let i = bolts.length - 1; i >= 0; i--) {
@@ -1239,7 +1564,7 @@ export function DoubleO() {
         if (hitMe) {
           damagePlayer(bo.dmg);
           const src = bo.from;
-          if (src.cast.grab && src.state !== 'dying' && now > src.quipAt) {
+          if (src && src.cast.grab && src.state !== 'dying' && now > src.quipAt) {
             src.quipAt = now + 2500;
             popup(src.cast.grab, src.root.position.clone().setY(src.cast.height + 0.9), '#ffd84a');
           }
@@ -1366,6 +1691,8 @@ export function DoubleO() {
       } else slowFor = 0;
       if (running) step(dt, performance.now());
       else if (!grid) yaw += dt * 0.15; // menu: slow look around
+      else if (room && isHost()) for (const a of actors) thinkActor(a, dt, performance.now()); // paused host keeps the co-op world going
+      netTick(dt, performance.now());
       fx(dt, performance.now());
       held?.mixer?.update(dt);
       if (running && now > hudAt) {
@@ -1387,7 +1714,7 @@ export function DoubleO() {
           pushHud();
           composer.render();
         },
-        state: () => ({ running, health, armor, objIdx, level: L.id, pos: [camera.position.x, camera.position.z], actors: actors.map((a) => ({ k: a.kind, hp: a.hp, st: a.state, p: [a.root.position.x, a.root.position.z] })), stats }),
+        state: () => ({ host: isHost(), hostId, me: myId, remotes: [...remotes.keys()], running, health, armor, objIdx, level: L.id, pos: [camera.position.x, camera.position.z], actors: actors.map((a) => ({ k: a.kind, hp: a.hp, st: a.state, p: [a.root.position.x, a.root.position.z] })), stats }),
         goTo: (c: string) => {
           const cell = grid?.find(c)[0];
           if (cell && grid) {
@@ -1399,6 +1726,15 @@ export function DoubleO() {
           const a = actors[i];
           if (!a) return;
           const d = a.root.position.clone().setY(a.cast.height * 0.6).sub(camera.position);
+          yaw = Math.atan2(-d.x, -d.z);
+          pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+          camera.rotation.set(pitch, yaw, 0, 'YXZ');
+          camera.updateMatrixWorld();
+        },
+        aimAtAgent: (id: string) => {
+          const r = remotes.get(id);
+          if (!r) return;
+          const d = r.rig.root.position.clone().setY(1.2).sub(camera.position);
           yaw = Math.atan2(-d.x, -d.z);
           pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
           camera.rotation.set(pitch, yaw, 0, 'YXZ');
@@ -1430,10 +1766,22 @@ export function DoubleO() {
       })
       .catch((e) => !disposed && setLoadError(e instanceof Error ? e.message : String(e)));
     raf = requestAnimationFrame(frame);
+    // Hidden tabs get no animation frames: keep the co-op link (and, for the host, the world) ticking.
+    const bg = setInterval(() => {
+      const now = performance.now();
+      if (!room || now - lastTick < 400) return;
+      const dt = Math.min(0.05, (now - lastTick) / 1000);
+      lastTick = now;
+      if (running) step(dt, now);
+      else if (grid && isHost()) for (const a of actors) thinkActor(a, dt, now);
+      netTick(dt, now);
+    }, 250);
 
     return () => {
       disposed = true;
+      clearInterval(bg);
       cancelAnimationFrame(raf);
+      leaveMission();
       engine.current = null;
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
@@ -1460,6 +1808,19 @@ export function DoubleO() {
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const tokensLeft = Math.max(0, Math.floor(b.tokenAmmo) - hud.heat);
 
+  const startMode = (i: number, isLive: boolean) => {
+    setLevel(i);
+    setEmpty(false);
+    setLive(isLive);
+    engine.current?.start(i, isLive);
+  };
+  const loadingTokens = b.busy === 'loading-tokens';
+  const stepNo = !b.wallet ? 1 : armed ? 3 : 2;
+  const stepCls = (n: number) => `inset flex flex-col gap-2 bg-black/60 p-2 ${stepNo === n ? 'border-fg' : stepNo > n ? 'opacity-80' : 'pointer-events-none opacity-40'}`;
+  const amounts = [10, 50, 100];
+  const held = Math.max(0, Math.floor(heldTok?.balance ?? 0));
+
+  // The ammo flow: 1 connect → 2 pick token + amount, LOAD (one approval) → 3 PLAY.
   const ammoPanel = (
     <div className="inset flex w-full flex-col gap-2 bg-black/70 p-3 text-left text-sm">
       <div className="flex items-center justify-between gap-2">
@@ -1470,75 +1831,99 @@ export function DoubleO() {
           </button>
         )}
       </div>
-      {!b.wallet ? (
-        <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
-          {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
-        </button>
-      ) : (
-        <>
-          <div className="flex max-h-48 flex-col gap-1 overflow-y-auto pr-1">
-            {b.tokens.map((t) => {
-              const on = t.id === b.token?.id;
-              const ic = iconUrl(t.icon);
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => {
-                    b.setToken(t);
-                    b.setMode('tokens');
-                  }}
-                  className={`inset flex items-center gap-2 bg-black/60 px-2 py-1 text-left ${on ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
-                >
-                  {ic ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={ic} alt="" className="h-8 w-8 shrink-0 rounded object-cover" loading="lazy" />
+      <div className={stepCls(1)}>
+        <span className="text-xs font-bold tracking-widest text-dim">1 · CONNECT WALLET {b.wallet && <span className="text-[#60ff90]">✓</span>}</span>
+        {!b.wallet ? (
+          <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire !px-3 !text-base">
+            {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
+          </button>
+        ) : (
+          <span className="truncate text-xs text-accent">{b.wallet.name}</span>
+        )}
+      </div>
+      <div className={stepCls(2)}>
+        <span className="text-xs font-bold tracking-widest text-dim">2 · PICK TOKEN + LOAD {armed && <span className="text-[#60ff90]">✓</span>}</span>
+        {b.wallet && (
+          <>
+            <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+              {b.tokens.map((t) => {
+                const on = t.id === b.token?.id;
+                const ic = iconUrl(t.icon);
+                return (
+                  <button
+                    key={t.id}
+                    disabled={loadingTokens}
+                    onClick={() => {
+                      b.setToken(t);
+                      b.setMode('tokens');
+                    }}
+                    className={`inset flex items-center gap-2 bg-black/60 px-2 py-1 text-left ${on ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
+                  >
+                    {ic ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={ic} alt="" className="h-7 w-7 shrink-0 rounded object-cover" loading="lazy" />
+                    ) : (
+                      <div className="h-7 w-7 shrink-0 rounded bg-input" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate font-bold">${t.sym}</span>
+                    <span className="text-xs">{t.balance?.toLocaleString()}</span>
+                  </button>
+                );
+              })}
+              {!b.tokens.length && <p className="text-xs text-dim">No tokens found in your wallet. Get some PNEE, or play practice.</p>}
+            </div>
+            {b.token && held > 0 && (
+              <>
+                <div className="flex flex-wrap items-center gap-1">
+                  {amounts
+                    .filter((n) => n <= held)
+                    .map((n) => (
+                      <button key={n} disabled={loadingTokens} onClick={() => setTokenLoad(n)} className={`btn px-2 py-0.5 text-xs ${tokenLoad === n ? 'btn-on' : ''}`}>
+                        {n}
+                      </button>
+                    ))}
+                  <button disabled={loadingTokens} onClick={() => setTokenLoad(held)} className={`btn px-2 py-0.5 text-xs ${tokenLoad === held ? 'btn-on' : ''}`}>
+                    all ({held.toLocaleString()})
+                  </button>
+                </div>
+                <p className="text-xs text-dim">
+                  One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(Math.min(tokenLoad, held) * TOKEN_FEE).toLocaleString()} sats of network fees. Unfired fees
+                  come back on Unload.
+                </p>
+                <button onClick={() => b.loadTokenAmmo(Math.min(tokenLoad, held))} disabled={!!b.busy} className="btn px-3 py-2 font-bold">
+                  {loadingTokens ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-hot border-t-transparent" /> APPROVE IN WALLET…
+                    </span>
                   ) : (
-                    <div className="h-8 w-8 shrink-0 rounded bg-input" />
+                    `LOAD ${Math.min(tokenLoad, held).toLocaleString()} $${b.token.sym}`
                   )}
-                  <span className="min-w-0 flex-1 truncate font-bold">${t.sym}</span>
-                  <span className="text-xs">{t.balance?.toLocaleString()}</span>
                 </button>
-              );
-            })}
-            {!b.tokens.length && <p className="text-xs text-dim">No tokens found in your wallet. Get some PNEE, or play in practice.</p>}
-          </div>
-          {b.token && (
-            <>
-              <div className="flex flex-wrap items-center gap-1">
-                {[10, 50, 200, 1000]
-                  .filter((n) => n <= Math.max(1, Math.floor(heldTok?.balance ?? 0)))
-                  .map((n) => (
-                    <button key={n} onClick={() => setTokenLoad(n)} className={`btn px-2 py-0.5 text-xs ${tokenLoad === n ? 'btn-on' : ''}`}>
-                      {n}
-                    </button>
-                  ))}
-                <input
-                  type="number"
-                  min={1}
-                  value={tokenLoad}
-                  onChange={(e) => setTokenLoad(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                  className="inset w-20 bg-input px-2 py-0.5 text-right text-hot"
-                  aria-label="Tokens to load"
-                />
-              </div>
-              <p className="text-xs text-dim">
-                One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(tokenLoad * TOKEN_FEE).toLocaleString()} sats of network fees to fire them. Unfired
-                fees come back on Unload.
-              </p>
-              <button onClick={() => b.loadTokenAmmo(tokenLoad)} disabled={!!b.busy} className="btn-fire">
-                {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `LOAD ${tokenLoad.toLocaleString()} $${b.token.sym}`}
-              </button>
-            </>
-          )}
-          <div className="text-xs text-dim">
-            In the gun: <span className="text-hot">{Math.floor(b.tokenAmmo).toLocaleString()}</span> ${sym} · fuel {b.ammo.toLocaleString()} sats
-          </div>
-          {(b.ammo > 0 || b.gunTokens.length > 0) && (
-            <button onClick={b.unload} disabled={!!b.busy} className="btn px-2 py-1 text-xs">
-              {b.busy === 'unloading' ? 'UNLOADING… APPROVE IN WALLET' : 'UNLOAD EVERYTHING BACK TO MY WALLET'}
+              </>
+            )}
+            {b.error && <p className="text-xs text-hot">⚠ {b.error}</p>}
+          </>
+        )}
+      </div>
+      <div className={stepCls(3)}>
+        <span className="text-xs font-bold tracking-widest text-dim">3 · PLAY</span>
+        {armed ? (
+          <>
+            <p className="text-xs text-dim">
+              In the gun: <span className="text-hot">{Math.floor(b.tokenAmmo).toLocaleString()}</span> ${sym} · fuel {b.ammo.toLocaleString()} sats
+            </p>
+            <button onClick={() => startMode(level, true)} disabled={!ready} className="btn-fire animate-pulse !px-3">
+              ▶ PLAY LIVE · {L.name.toUpperCase()}
             </button>
-          )}
-        </>
+          </>
+        ) : (
+          <p className="text-xs text-dim">Load tokens to play LIVE, or play practice for free.</p>
+        )}
+      </div>
+      {(b.ammo > 0 || b.gunTokens.length > 0) && (
+        <button onClick={b.unload} disabled={!!b.busy} className="btn px-2 py-1 text-xs">
+          {b.busy === 'unloading' ? 'UNLOADING… APPROVE IN WALLET' : 'UNLOAD EVERYTHING BACK TO MY WALLET'}
+        </button>
       )}
       {b.receipt && (
         <div className="flex items-center gap-2 text-xs">
@@ -1548,20 +1933,38 @@ export function DoubleO() {
           </a>
         </div>
       )}
-      {b.error && <p className="text-xs text-hot">⚠ {b.error}</p>}
     </div>
   );
 
-  const modePick = (
-    <div className="grid w-full grid-cols-2 gap-2">
-      <button onClick={() => setLive(false)} className={`inset px-3 py-2 text-left ${!live ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}>
-        <div className="font-bold">PRACTICE</div>
-        <div className="text-xs">Free play. Nothing goes on chain.</div>
-      </button>
-      <button onClick={() => setLive(true)} className={`inset px-3 py-2 text-left ${live ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}>
-        <div className="font-bold">LIVE · ${sym}</div>
-        <div className="text-xs">{armed ? `Every bullet is 1 $${sym} in a real tx. ${Math.floor(b.tokenAmmo)} loaded.` : 'Load tokens first (below).'}</div>
-      </button>
+  const agentPanel = (
+    <div className="inset flex w-full flex-col gap-2 bg-black/60 p-2 text-left text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-xs font-bold tracking-widest text-dim" htmlFor="doubleo-name">
+          AGENT NAME
+        </label>
+        <input
+          id="doubleo-name"
+          value={name}
+          maxLength={16}
+          onChange={(e) => {
+            setName(e.target.value);
+            try {
+              localStorage.setItem('doubleo:name', e.target.value);
+            } catch {
+              /* private mode */
+            }
+          }}
+          className="inset w-40 bg-input px-2 py-0.5 text-hot"
+        />
+        <button onClick={() => setVersus((v) => !v)} className={`btn px-2 py-0.5 text-xs ${versus ? 'btn-on' : ''}`} title="Agents with VERSUS on can shoot each other (V in game)">
+          VERSUS {versus ? 'ON' : 'OFF'}
+        </button>
+      </div>
+      <p className="text-xs text-dim">
+        {realtimeConfigured()
+          ? 'Co-op: everyone in the same mission plays it together; objectives and bosses count for the whole squad. VERSUS: agents who both switch it on can shoot each other. In LIVE each hit sends your token to their gun.'
+          : 'Multiplayer is offline on this server: solo missions only.'}
+      </p>
     </div>
   );
 
@@ -1577,6 +1980,30 @@ export function DoubleO() {
               <div className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-hot" />
             </div>
             {hurt && <div className="pointer-events-none absolute inset-0 bg-red-600/30" />}
+            {/* Squad (multiplayer) */}
+            {net.agents.length > 1 && (
+              <div className="pointer-events-none absolute bottom-16 left-2 flex flex-col gap-0.5 text-xs">
+                {net.agents.map((a, i) => (
+                  <span key={i} className={`inset w-fit bg-black/70 px-2 ${a.me ? 'text-hot' : 'text-accent'}`}>
+                    {a.name}
+                    {a.host ? ' ★' : ''}
+                    {a.vs ? ' · VERSUS' : ''}
+                  </span>
+                ))}
+              </div>
+            )}
+            {versus && <div className="pointer-events-none absolute bottom-16 right-2 inset bg-black/70 px-2 text-xs font-bold text-hot">VERSUS ON (V)</div>}
+            {toasts.length > 0 && (
+              <div className="pointer-events-none absolute left-1/2 top-24 flex -translate-x-1/2 flex-col items-center gap-1">
+                {toasts.map((t) => (
+                  <div key={t.id} className="inset flex items-center gap-2 border-fg bg-black/85 px-3 py-1 text-sm text-hot">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {t.icon && <img src={t.icon} alt="" className="h-5 w-5 rounded" />}
+                    {t.text}
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Objective + compass */}
             <div className="pointer-events-none absolute left-2 top-2 flex max-w-[60%] flex-col gap-1">
               <div className="inset bg-black/75 px-2 py-1 text-xs sm:text-sm">
@@ -1715,22 +2142,40 @@ export function DoubleO() {
                   {LEVELS.map((lv, i) => (
                     <button
                       key={lv.id}
-                      disabled={!ready}
-                      onClick={() => start(i)}
-                      className="inset flex flex-col gap-1 bg-black/60 px-3 py-3 text-left hover:border-fg disabled:opacity-50"
+                      onClick={() => setLevel(i)}
+                      onDoubleClick={() => ready && startMode(i, false)}
+                      className={`inset flex flex-col gap-1 bg-black/60 px-3 py-3 text-left hover:border-fg ${level === i ? 'border-fg' : ''}`}
                     >
                       <span className="text-xs text-dim">
                         {lv.codename} {done.includes(lv.id) && <span className="text-[#60ff90]">✓ complete</span>}
                       </span>
-                      <span className="text-lg font-bold text-hot">{lv.name}</span>
+                      <span className="text-lg font-bold text-hot">
+                        {level === i ? '▸ ' : ''}
+                        {lv.name}
+                      </span>
                       <span className="text-xs text-dim">{lv.brief}</span>
-                      <span className="mt-1 text-xs text-accent">▶ {live && armed ? `LIVE · $${sym}` : 'PRACTICE'}</span>
+                      {(counts[lv.id] ?? 0) > 0 && (
+                        <span className="text-xs text-[#60ff90]">
+                          ● {counts[lv.id]} agent{counts[lv.id] === 1 ? '' : 's'} in this mission
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
-                {modePick}
+                <div className="flex flex-wrap items-center gap-2">
+                  {armed && (
+                    <button onClick={() => startMode(level, true)} disabled={!ready} className="btn-fire animate-pulse">
+                      ▶ PLAY LIVE · ${sym}
+                    </button>
+                  )}
+                  <button onClick={() => startMode(level, false)} disabled={!ready} className={armed ? 'btn px-4 py-2 font-bold' : 'btn-fire'}>
+                    ▶ PLAY PRACTICE
+                  </button>
+                  <span className="text-xs text-dim">mission: {L.name}</span>
+                </div>
+                {agentPanel}
                 <p className="text-left text-xs text-dim">
-                  WASD move · Shift run · mouse aim · click / Space fire · Esc pause. Phone: left stick moves, drag right side to aim, FIRE button. Follow the green arrow to
+                  Click a mission to pick it, then PLAY. WASD move · Shift run · mouse aim · click / Space fire · V versus · Esc pause. Phone: left stick moves, drag right side to aim, FIRE button. Follow the green arrow to
                   the objective.
                 </p>
               </div>
@@ -1749,6 +2194,7 @@ export function DoubleO() {
               <img src="/arcade/doubleo/kweg.webp" alt="" className="h-24 w-auto rounded" />
               <p className="max-w-sm text-left text-sm text-accent">“Splendid work, {AGENT.replace('Special ', '')}. Your licence to blast has been renewed.” · M</p>
             </div>
+            {debrief.squad.length > 1 && <p className="text-sm text-accent">SQUAD: {debrief.squad.join(' · ')}</p>}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
               <Stat label="TIME" value={fmtTime(debrief.secs)} />
               <Stat label="ACCURACY" value={`${debrief.shots ? Math.round((debrief.hits / debrief.shots) * 100) : 0}%`} />

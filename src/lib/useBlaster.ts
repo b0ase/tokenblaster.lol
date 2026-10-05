@@ -151,12 +151,15 @@ export function useBlaster() {
   );
 
   // Token ammo: poll the gun's token balance while in token mode.
+  const lastLoad = useRef(0);
   const refreshTokens = useCallback(async () => {
     const g = gun.current;
     if (!g || !token) return;
     try {
       const base = await g.tokenAmmo(token.id);
-      setTokenAmmo(Number(base) / 10 ** token.dec);
+      const v = Number(base) / 10 ** token.dec;
+      // Right after a load the indexer can lag and report a stale (lower) balance: keep ours.
+      setTokenAmmo((x) => (Date.now() - lastLoad.current < 60_000 && v < x ? x : v));
     } catch {
       /* keep the last known balance */
     }
@@ -199,6 +202,7 @@ export function useBlaster() {
         g.adoptTokenCoin(token.id, tx, 0, amt);
         if (fuel > 0) await g.load(tx);
         setAmmo(g.sats);
+        lastLoad.current = Date.now();
         setTokenAmmo((x) => x + n);
         setReceipt({ text: `Loaded ${n.toLocaleString()} $${token.sym} into your gun${fuel ? ` with ${fuel.toLocaleString()} sats of fuel` : ''}`, txid: tx.id('hex') });
         walletTokens(wallet)
