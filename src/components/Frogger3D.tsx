@@ -17,6 +17,14 @@ import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { chibiClips } from '@/lib/chibiAnims';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
+import { useBlaster } from '@/lib/useBlaster';
+import { WalletChooser } from './WalletChooser';
+
+/** Where paid moves go: 1 sat per hop / shot to TokenBlaster. The player's gun pays the network fee too. */
+const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
+const PER_ACTION = 1;
+const EST_FEE = 26; // sats: ~260-byte tx at 100 sat/kB (GorillaPool ARC minimum)
+const LOADS = [1_000, 10_000, 100_000];
 import { buildGun, GUNS } from '@/lib/arenaHD';
 
 const CHARS = [
@@ -65,6 +73,63 @@ const PAINTS = ['#d81b2a', '#f2f2f2', '#111216', '#1e5bd8', '#f5b700', '#2bb673'
 export function Frogger3D() {
   const mount = useRef<HTMLDivElement>(null);
   const feed = useChainFeed();
+  const b = useBlaster();
+  const [paid, setPaid] = useState(false);
+  const [onChain, setOnChain] = useState(0);
+  const [lastTx, setLastTx] = useState<string | null>(null);
+  const [payErr, setPayErr] = useState<string | null>(null);
+  const [needSats, setNeedSats] = useState(false);
+  // What the game loop needs to know about paying, without re-running the 3D effect.
+  const payRef = useRef({ paid: false, sats: 0, queued: 0 });
+  useEffect(() => {
+    payRef.current.paid = paid && Boolean(HOUSE);
+    payRef.current.sats = b.ammo;
+  }, [paid, b.ammo]);
+  const queue = useRef<string[][]>([]);
+  const draining = useRef(false);
+  const counter = useRef(0);
+  const fireBatchRef = useRef(b.fireBatch);
+  useEffect(() => {
+    fireBatchRef.current = b.fireBatch;
+  }, [b.fireBatch]);
+  /** One real transaction per action: tag + 1 sat to the house + the network fee, chained in batches. */
+  const drain = useRef(async () => {
+    if (draining.current) return;
+    draining.current = true;
+    while (queue.current.length) {
+      const batch = queue.current.slice(0, 40);
+      try {
+        const txids = await fireBatchRef.current(counter.current + 1, batch, { address: HOUSE, sats: PER_ACTION });
+        counter.current += txids.length;
+        queue.current.splice(0, txids.length);
+        payRef.current.queued = queue.current.length;
+        setOnChain((n) => n + txids.length);
+        if (txids.length) setLastTx(txids[txids.length - 1]);
+        setPayErr(null);
+        if (!txids.length) throw new Error('Out of sats: load more to keep moving.');
+      } catch (e) {
+        setPayErr(e instanceof Error ? e.message : String(e));
+        queue.current.length = 0;
+        payRef.current.queued = 0;
+        break;
+      }
+    }
+    draining.current = false;
+  });
+  /** Ask to pay for an action; false = can't (empty gun), so the game refuses the move. */
+  const payFor = useRef((action: string[]) => {
+    const pr = payRef.current;
+    if (!pr.paid) return true; // practice mode: free
+    if (pr.sats - (pr.queued + 1) * (PER_ACTION + EST_FEE) < 0) {
+      setNeedSats(true);
+      return false;
+    }
+    setNeedSats(false);
+    queue.current.push(['frogger', ...action]);
+    pr.queued = queue.current.length;
+    void drain.current();
+    return true;
+  });
   const feedRef = useRef(feed);
   useEffect(() => {
     feedRef.current = feed;
@@ -948,6 +1013,7 @@ export function Frogger3D() {
     const sparkMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#9fe4ff').multiplyScalar(3), toneMapped: false, transparent: true });
     const fire = () => {
       if (dead || lifeLeft <= 0 || weaponIdx < 0 || ammo <= 0) return;
+      if (!payFor.current(['zap', GUNS[weaponIdx]?.id ?? 'gun'])) return; // 1 sat per shot
       // The vehicle bearing down on the next lane you step into (or the one you're in).
       const ahead = vehicles
         .filter((v) => !v.stalled && v.g.position.z < pos.z + 0.5 && v.g.position.z > pos.z - LANE_W * 1.6 && v.g.position.x < pos.x + v.len)
@@ -970,6 +1036,7 @@ export function Frogger3D() {
     };
     const move = (dx: number, dz: number) => {
       if (lifeLeft <= 0 || dead || party) return;
+      if (!payFor.current(['hop', dz < 0 ? 'n' : dz > 0 ? 's' : dx < 0 ? 'w' : 'e'])) return; // 1 sat per hop
       setStarted(true);
       target = new THREE.Vector3(Math.max(-ROAD_HALF + 6, Math.min(ROAD_HALF - 6, target.x + dx * STEP)), 0, Math.max(GOAL_Z, Math.min(START_Z, target.z + dz * STEP)));
       heading = Math.atan2(dx, dz);
@@ -1483,6 +1550,53 @@ export function Frogger3D() {
           <span className="text-hot">{best}</span>
         </div>
       </div>
+      <div className="inset mt-2 flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+        <span className="text-dim">MODE:</span>
+        <button onClick={() => setPaid(false)} className={`btn ${!paid ? 'btn-on' : ''}`}>
+          PRACTICE · free
+        </button>
+        <button onClick={() => setPaid(true)} disabled={!HOUSE} title={HOUSE ? undefined : 'Paid play is not switched on yet'} className={`btn ${paid ? 'btn-on' : ''} disabled:opacity-40`}>
+          PAID · every hop &amp; shot is a real tx
+        </button>
+        {paid && (
+          <>
+            <span className="text-dim">
+              {PER_ACTION} sat to TokenBlaster + ~{EST_FEE} sats network fee per action ·{' '}
+              <span className="text-hot">{Math.floor(b.ammo / (PER_ACTION + EST_FEE)).toLocaleString()} actions</span> loaded ({b.ammo.toLocaleString()} sats)
+            </span>
+            {!b.wallet ? (
+              <button onClick={b.connectWallet} disabled={!!b.busy} className="btn btn-on">
+                {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
+              </button>
+            ) : (
+              LOADS.map((n) => (
+                <button key={n} onClick={() => b.load(n, `Chain Frogger: ${n.toLocaleString()} sats of moves`)} disabled={!!b.busy} className="btn">
+                  {b.busy === 'loading' ? 'APPROVE…' : `LOAD ${n.toLocaleString()} sats`}
+                </button>
+              ))
+            )}
+            {b.wallet && b.ammo > 0 && (
+              <button onClick={b.unload} disabled={!!b.busy} className="btn">
+                UNLOAD
+              </button>
+            )}
+            <span className="text-dim">
+              on chain: <span className="text-hot">{onChain.toLocaleString()}</span>
+              {lastTx && (
+                <>
+                  {' · '}
+                  <a href={`https://whatsonchain.com/tx/${lastTx}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                    last tx ↗
+                  </a>
+                </>
+              )}
+            </span>
+          </>
+        )}
+      </div>
+      {paid && needSats && <p className="mt-1 text-sm text-hot">Out of sats: load more to keep moving.</p>}
+      {(payErr || b.error) && <p className="mt-1 text-sm text-hot">⚠ {payErr ?? b.error}</p>}
+      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
       {killer && (
         <p className="mt-2 text-sm text-dim">
           Run over by a {KINDS.find((k) => k.id === killer.kind)?.label.toLowerCase()}
