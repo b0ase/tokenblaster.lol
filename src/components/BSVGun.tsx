@@ -79,7 +79,7 @@ export function BSVGun() {
   return (
     <div className="flex flex-col gap-3">
       <section className="panel overflow-hidden p-0">
-        <GunView firing={firing} />
+        <GunView firing={firing} onFire={() => void fire()} />
       </section>
       <section className="panel">
         <div className="panel-header">

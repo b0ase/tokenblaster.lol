@@ -1,8 +1,9 @@
 'use client';
 
 /**
- * Side view of the arena's 3D minigun for the BSVGun page. Barrel spins up and the muzzle flashes
- * while `firing` is true.
+ * The arena's 3D minigun for the BSVGun page. It follows the pointer (mouse or finger) around the
+ * window and tilts with it; click/tap fires. While `firing`, the barrel spins, the muzzle flashes and
+ * tracers spray wherever the gun points.
  */
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
@@ -11,12 +12,14 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildGun, GUNS } from '@/lib/arenaHD';
 
-export function GunView({ firing }: { firing: boolean }) {
+export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const fire = useRef(firing);
+  const fireCb = useRef(onFire);
   useEffect(() => {
     fire.current = firing;
-  }, [firing]);
+    fireCb.current = onFire;
+  }, [firing, onFire]);
 
   useEffect(() => {
     const el = host.current;
@@ -44,8 +47,25 @@ export function GunView({ firing }: { firing: boolean }) {
     scene.add(rim);
     const camera = new THREE.PerspectiveCamera(28, 2, 0.01, 50);
 
+    // rig: follows the pointer. holder: turns the gun side-on, sways and shakes.
+    const rig = new THREE.Group();
+    scene.add(rig);
     const holder = new THREE.Group();
-    scene.add(holder);
+    rig.add(holder);
+    let reach = { x: 0, y: 0 }; // how far the rig may travel from the centre (world units)
+    let size = 0.5; // the gun's radius, for tracer speed
+    const want = new THREE.Vector2(); // pointer, -1..1
+    const onMove = (e: PointerEvent) => {
+      const b = el.getBoundingClientRect();
+      want.set(((e.clientX - b.left) / b.width) * 2 - 1, -(((e.clientY - b.top) / b.height) * 2 - 1));
+    };
+    const onDown = (e: PointerEvent) => {
+      onMove(e);
+      // Mouse click fires. A finger only steers (dragging on a phone shouldn't start a storm).
+      if (e.pointerType === 'mouse' && !fire.current) fireCb.current?.();
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerdown', onDown);
     const flash = new THREE.PointLight('#ffb070', 0, 3);
     const flare = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), new THREE.MeshBasicMaterial({ color: '#ffd090', transparent: true, opacity: 0 }));
     let held: ReturnType<typeof buildGun> | null = null;
@@ -62,9 +82,28 @@ export function GunView({ firing }: { firing: boolean }) {
       holder.rotation.y = -Math.PI / 2;
       const box = new THREE.Box3().setFromObject(holder, true);
       const r = box.getSize(new THREE.Vector3()).length() / 2;
-      camera.position.set(0, r * 0.25, r * 1.5);
+      size = r;
+      camera.position.set(0, 0, r * 3.2);
       camera.lookAt(0, 0, 0);
+      fit();
     });
+    // Tracers: a pool of thin glowing bolts.
+    const tracerGeo = new THREE.BoxGeometry(1, 1, 1);
+    const tracerMat = new THREE.MeshBasicMaterial({ color: '#ffb070', transparent: true, opacity: 0.95 });
+    const tracers = Array.from({ length: 160 }, () => {
+      const m = new THREE.Mesh(tracerGeo, tracerMat);
+      m.visible = false;
+      scene.add(m);
+      return { m, v: new THREE.Vector3(), life: 0 };
+    });
+    let nextTracer = 0;
+    let emit = 0;
+    const fit = () => {
+      // Half the visible area at the gun's depth, less a margin so the gun stays on screen.
+      const d = camera.position.z;
+      const hh = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * d;
+      reach = { x: Math.max(0, hh * camera.aspect - size * 0.9), y: Math.max(0, hh - size * 0.45) };
+    };
 
     const resize = () => {
       const w = el.clientWidth;
@@ -72,6 +111,7 @@ export function GunView({ firing }: { firing: boolean }) {
       renderer.setSize(w, h);
       camera.aspect = w / Math.max(1, h);
       camera.updateProjectionMatrix();
+      fit();
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -93,20 +133,58 @@ export function GunView({ firing }: { firing: boolean }) {
       flash.intensity = on ? 8 : 0;
       (flare.material as THREE.MeshBasicMaterial).opacity = on ? 0.9 : 0;
       flare.scale.setScalar(on ? 1 + Math.random() : 1);
+      // Follow the pointer, tilting with the movement (nose up when moving up, a lean when moving fast).
+      const tx = want.x * reach.x;
+      const ty = want.y * reach.y;
+      const vx = (tx - rig.position.x) * Math.min(1, dt * 8);
+      const vy = (ty - rig.position.y) * Math.min(1, dt * 8);
+      rig.position.x += vx;
+      rig.position.y += vy;
+      rig.rotation.z += (want.y * 0.35 + (vy / Math.max(1e-3, dt)) * 0.02 - rig.rotation.z) * Math.min(1, dt * 6);
+      rig.rotation.y += (-want.x * 0.25 - rig.rotation.y) * Math.min(1, dt * 6);
       // Idle sway; shake while firing.
-      holder.position.set(fire.current ? (Math.random() - 0.5) * 0.006 : 0, Math.sin(t * 1.3) * 0.01 + (fire.current ? (Math.random() - 0.5) * 0.006 : 0), 0);
+      const shake = fire.current ? 0.006 : 0;
+      holder.position.set((Math.random() - 0.5) * shake, Math.sin(t * 1.3) * 0.01 + (Math.random() - 0.5) * shake, 0);
       holder.rotation.x = Math.sin(t * 0.7) * 0.04;
+      // Tracers out of the muzzle, along the barrel.
+      if (held && fire.current) {
+        emit += dt * 40;
+        held.group.updateMatrixWorld(true);
+        const from = held.group.localToWorld(held.muzzle.clone());
+        const dir = held.group.localToWorld(held.muzzle.clone().add(new THREE.Vector3(0, 0, -1))).sub(from).normalize();
+        while (emit >= 1) {
+          emit--;
+          const tr = tracers[nextTracer++ % tracers.length];
+          tr.m.visible = true;
+          tr.m.position.copy(from);
+          const spread = new THREE.Vector3((Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.06);
+          tr.v.copy(dir).add(spread).normalize().multiplyScalar(size * 9);
+          tr.m.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), tr.v.clone().normalize());
+          tr.m.scale.set(size * 0.35, size * 0.012, size * 0.012);
+          tr.life = 0.7;
+        }
+      }
+      for (const tr of tracers) {
+        if (!tr.m.visible) continue;
+        tr.life -= dt;
+        if (tr.life <= 0) tr.m.visible = false;
+        else tr.m.position.addScaledVector(tr.v, dt);
+      }
       renderer.render(scene, camera);
     };
     tick();
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerdown', onDown);
+      tracerGeo.dispose();
+      tracerMat.dispose();
       pmrem.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
   }, []);
 
-  return <div ref={host} className="h-48 w-full sm:h-64" aria-label="3D minigun" />;
+  return <div ref={host} className="h-72 w-full cursor-crosshair touch-none sm:h-96" aria-label="3D minigun: move to aim, click to fire" />;
 }
