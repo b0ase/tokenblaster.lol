@@ -15,7 +15,7 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
-import { PaidPanel } from './PaidPanel';
+import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
 
 const N = 20; // grid cells per side
 const C = 16; // px per cell
@@ -35,7 +35,7 @@ type HUD = { score: number; length: number; speed: number };
 export function TokenSnake() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const feed = useChainFeed();
-  const pp = usePaidPlay('Out of sats: load more to keep turning.');
+  const pp = usePaidPlay('Out of sats: load more to keep turning.', 'snake');
   const payFor = pp.payFor;
   const feedRef = useRef(feed);
   useEffect(() => {
@@ -313,13 +313,12 @@ export function TokenSnake() {
           <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute right-2 top-1 text-xs text-dim">chain: {feed.status}</div>
+        <ModeBadge pp={pp} action="turn" actions="turns" />
         {phase === 'ready' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 px-3 text-center">
             <p className="text-2xl font-bold text-hot">TOKEN SNAKE</p>
             <p className="text-xs text-dim">Eat the live chain. Arrows / WASD or swipe to turn. Token food is collected as loot; gold blasts are worth the most.</p>
-            <button onClick={() => control.current?.restart()} className="btn-fire">
-              START
-            </button>
+            <PlayButtons pp={pp} game="Token Snake" action="turn" actions="turns" onStart={() => control.current?.restart()} />
           </div>
         )}
         {phase === 'over' && (
@@ -329,9 +328,7 @@ export function TokenSnake() {
               Score {hud.score.toLocaleString()} · length {hud.length}. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
-            <button onClick={() => control.current?.restart()} className="btn-fire">
-              AGAIN
-            </button>
+            <PlayButtons pp={pp} game="Token Snake" action="turn" actions="turns" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
           </div>
         )}
       </div>

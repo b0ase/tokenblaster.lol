@@ -19,7 +19,7 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
-import { PaidPanel } from './PaidPanel';
+import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
 
 export const KWEG_ID = '17ee7fcc9c5764dc9983af912e044da8d11f26db17a5f68a0757a250db5cf983_0';
 const W = 960;
@@ -401,7 +401,7 @@ function drawRival(ctx: CanvasRenderingContext2D, id: RivalId, x: number, y: num
 export function KwegExpedition() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const feed = useChainFeed();
-  const pp = usePaidPlay('Out of sats: load more to keep pinging.');
+  const pp = usePaidPlay('Out of sats: load more to keep pinging.', 'kweg');
   const payFor = pp.payFor;
   const feedRef = useRef(feed);
   useEffect(() => {
@@ -1273,6 +1273,7 @@ export function KwegExpedition() {
           <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute bottom-[12%] right-2 rounded bg-white/80 px-2 py-0.5 font-sans text-[11px] text-[#1d1d2b]">chain: {feed.status}</div>
+        <ModeBadge pp={pp} action="sonar ping" actions="sonar pings" />
         {phase === 'ready' && (
           <div className={overlay}>
             <p className="font-sans text-2xl font-black sm:text-4xl">KWEG&apos;S EXPEDITION</p>
@@ -1280,9 +1281,7 @@ export function KwegExpedition() {
               Professor Doctor Sir Kweg S Wong esq. races three rivals to Satoshi&apos;s submarine coordinates. Arrows / WASD or drag to steer · SPACE = sonar ping (finds hidden $KWEG
               and elephants) · X = patent-stamp dash.
             </p>
-            <button onClick={() => control.current?.restart()} className={bigBtn}>
-              BEGIN EXPEDITION
-            </button>
+            <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><PlayButtons pp={pp} game="Kweg's Expedition" action="sonar ping" actions="sonar pings" onStart={() => control.current?.restart()} practiceLabel="▶ BEGIN · PRACTICE" liveLabel="▶ BEGIN · LIVE" /></div>
           </div>
         )}
         {card && (phase === 'card' || phase === 'over' || phase === 'won') && (
@@ -1299,9 +1298,13 @@ export function KwegExpedition() {
                 </div>
               </>
             )}
-            <button onClick={() => (phase === 'card' ? control.current?.next() : control.current?.restart())} className={bigBtn}>
-              {phase === 'card' ? 'ONWARD' : 'AGAIN'}
-            </button>
+            {phase === 'card' ? (
+              <button onClick={() => control.current?.next()} className={bigBtn}>
+                ONWARD
+              </button>
+            ) : (
+              <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><PlayButtons pp={pp} game="Kweg's Expedition" action="sonar ping" actions="sonar pings" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" /></div>
+            )}
           </div>
         )}
       </div>

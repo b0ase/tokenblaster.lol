@@ -15,7 +15,7 @@ import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { usePaidPlay } from '@/lib/usePaidPlay';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
-import { PaidPanel } from './PaidPanel';
+import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
 import { HoldButton } from './HoldButton';
 
 const W = 320;
@@ -55,7 +55,7 @@ type HUD = { score: number; lives: number; wave: number; left: number };
 export function MempoolInvaders() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const feed = useChainFeed();
-  const pp = usePaidPlay('Out of sats: load more to keep shooting.');
+  const pp = usePaidPlay('Out of sats: load more to keep shooting.', 'invaders');
   const payFor = pp.payFor;
   const feedRef = useRef(feed);
   useEffect(() => {
@@ -484,13 +484,12 @@ export function MempoolInvaders() {
           <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute right-2 top-1 text-xs text-dim">chain: {feed.status}</div>
+        <ModeBadge pp={pp} action="shot" actions="shots" />
         {phase === 'ready' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 px-3 text-center">
             <p className="text-2xl font-bold text-hot">MEMPOOL INVADERS</p>
             <p className="text-xs text-dim">Every invader is a live transaction. ←/→ or A/D to move, SPACE / ↑ / W to fire. Shoot gold token invaders and catch the token they drop.</p>
-            <button onClick={() => control.current?.restart()} className="btn-fire">
-              START
-            </button>
+            <PlayButtons pp={pp} game="Mempool Invaders" action="shot" actions="shots" onStart={() => control.current?.restart()} />
           </div>
         )}
         {phase === 'over' && (
@@ -500,9 +499,7 @@ export function MempoolInvaders() {
               Score {hud.score.toLocaleString()} · wave {hud.wave}. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
-            <button onClick={() => control.current?.restart()} className="btn-fire">
-              AGAIN
-            </button>
+            <PlayButtons pp={pp} game="Mempool Invaders" action="shot" actions="shots" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
           </div>
         )}
       </div>
