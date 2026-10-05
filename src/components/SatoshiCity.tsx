@@ -1677,8 +1677,7 @@ export function SatoshiCity() {
               SATOSHI CITY
             </p>
             <p className="max-w-xl bg-black/70 px-3 py-1 text-sm text-fg">
-              An island city where every car on the road is a real BSV transaction, live from mainnet. Steal one. Deliver the next block before it&apos;s orphaned. Points
-              only, bragging rights, no money.
+              An island city where every car on the road is a real BSV transaction, live from mainnet. Steal one. Deliver the next block before it&apos;s orphaned.
             </p>
             <div className="grid max-w-xl grid-cols-2 gap-x-4 gap-y-0.5 bg-black/70 px-3 py-2 text-left text-xs text-dim">
               <span className="text-fg">WASD / arrows</span>
