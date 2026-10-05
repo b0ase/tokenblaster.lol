@@ -30,6 +30,9 @@ export default function DoubleOPage() {
       </header>
       <DoubleO />
       <HighScoresPanel games={['doubleo-facility', 'doubleo-tower', 'doubleo-vault', 'doubleo-farm', 'doubleo-yacht']} titles={['Facility', 'Tower', 'Vault', 'Hash Farm', 'Yacht']} sorts={['score', 'time']} label="REKT" />
+      <p className="text-center text-xs text-muted">
+        Characters (CC BY 4.0, via Sketchfab): &ldquo;Business Man&rdquo; by manoeldarochadeoliveira, &ldquo;Mob_Suit&rdquo; by xdddddqwue12h31, &ldquo;Evil Robot&rdquo; by charliecatling. Villains are cartoon parodies.
+      </p>
     </main>
   );
 }

@@ -21,6 +21,9 @@ const MODELS = [
   { id: 'miyuki_parts', label: 'Miyuki split into parts (Tripo segmentation)', url: '/arena/models/npg/miyuki_parts.glb' },
   ...MONSTERS.map((m) => ({ id: m.id, label: m.id === 'miyuki' ? 'Miyuki (Ninja Punk Girls)' : m.id, url: m.url })),
   ...GUNS.map((g) => ({ id: g.id, label: `gun: ${g.name}`, url: g.url })),
+  { id: 'doubleo_agent', label: 'Double-O: agent (Business Man)', url: '/arena/models/doubleo/agent.glb' },
+  { id: 'doubleo_goon', label: 'Double-O: goon (Mob Suit)', url: '/arena/models/doubleo/goon.glb' },
+  { id: 'doubleo_bot', label: 'Double-O: guard bot (Evil Robot)', url: '/arena/models/doubleo/bot.glb' },
 ];
 
 // NPG 3D part cards (hair from Anything.world; masks/horns from Tripo, listed in parts.json).

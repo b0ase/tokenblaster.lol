@@ -22,7 +22,7 @@ import { useBlaster } from '@/lib/useBlaster';
 import { proveSocialX, verifySocialX, type SocialProof } from '@/lib/socialId';
 import type { WalletInterface } from '@bsv/sdk';
 import { AmmoStrip } from './AmmoStrip';
-import { buildAgent, buildRig, CAST, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
+import { buildAgent, buildRig, CAST, loadCastModels, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
 import { Grid } from '@/lib/doubleo/grid';
 import { DOORS, LEVELS, SIZE, SOLID, type Level } from '@/lib/doubleo/levels';
 import { AGENT } from '@/lib/doubleo/names';
@@ -1237,6 +1237,11 @@ export function DoubleO() {
           a.root.position.y = t * t * 2.2;
           a.root.rotation.y += dt * (4 + t * 6);
           if (t > 3) a.root.visible = false;
+        } else if (a.rig?.die?.()) {
+          // Rigged model with a death clip: let it play, then sink away.
+          a.rig.anim?.(dt, 0, false);
+          if (t > 2.5) a.root.position.y -= dt * 0.8;
+          if (t > 4) a.root.visible = false;
         } else {
           a.root.rotation.x = 0;
           const tipTo = -Math.PI / 2;
@@ -1888,6 +1893,32 @@ export function DoubleO() {
           camera.rotation.set(pitch, yaw, 0, 'YXZ');
           camera.updateMatrixWorld();
         },
+        /** Put the camera `dist` in front of actor i (along its facing) looking at it. */
+        viewActor: (i: number, dist = 3) => {
+          const a = actors[i];
+          if (!a) return;
+          const ry = a.root.rotation.y;
+          const p = a.root.position;
+          camera.position.set(p.x + Math.sin(ry) * dist, EYE, p.z + Math.cos(ry) * dist);
+          const d = p.clone().setY(a.cast.height * 0.55).sub(camera.position);
+          yaw = Math.atan2(-d.x, -d.z);
+          pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+          camera.rotation.set(pitch, yaw, 0, 'YXZ');
+          camera.updateMatrixWorld();
+        },
+        /** Put the camera `dist` in front of remote agent `id` looking at it. */
+        viewAgent: (id: string, dist = 3) => {
+          const r = remotes.get(id);
+          if (!r) return;
+          const p = r.rig.root.position;
+          const ry = r.rig.root.rotation.y;
+          camera.position.set(p.x + Math.sin(ry) * dist, EYE, p.z + Math.cos(ry) * dist);
+          const d = p.clone().setY(1.1).sub(camera.position);
+          yaw = Math.atan2(-d.x, -d.z);
+          pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+          camera.rotation.set(pitch, yaw, 0, 'YXZ');
+          camera.updateMatrixWorld();
+        },
         aimAtAgent: (id: string) => {
           const r = remotes.get(id);
           if (!r) return;
@@ -1909,8 +1940,8 @@ export function DoubleO() {
       };
     }
 
-    loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p)))
-      .then((a) => {
+    Promise.all([loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p))), loadCastModels()])
+      .then(([a]) => {
         if (disposed) return;
         assets = a;
         held = buildGun(gunDef, a.guns[gunDef.id]);

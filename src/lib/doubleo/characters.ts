@@ -4,7 +4,10 @@
  */
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { BRIAN, BRIAN_CO, CZ_SHORT, MICHAEL, SAM } from './names';
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { BRIAN, BRIAN_CO, CZ_SHORT, MICHAEL, SAM, SAM_CO } from './names';
 
 export type Kind = 'bot' | 'goon' | 'kingpin' | 'custodian' | 'hoarder' | 'partyboy';
 
@@ -45,6 +48,10 @@ export type Rig = {
   muzzle: THREE.Object3D; // where shots leave
   button: THREE.Group | null; // the CZ boss's WITHDRAW button: pops off when hit
   phase: number;
+  /** Rigged-model characters: drive the animation mixer instead of swinging box limbs. */
+  anim?: (dt: number, speed: number, aim: boolean) => void;
+  /** Rigged-model characters: play the death clip (false if the model has none). */
+  die?: () => boolean;
 };
 
 const std = (color: string, extra: Partial<THREE.MeshStandardMaterialParameters> = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1, ...extra });
@@ -120,9 +127,174 @@ function limb(w: number, h: number, d: number, mat: THREE.Material, pivotY: numb
   return g;
 }
 
+// ── Rigged models (credits: docs/doubleo-models.md) ──────────────────────────────
+type ModelId = 'agent' | 'goon' | 'bot';
+type ModelDef = {
+  url: string;
+  height: number;
+  facing: number; // extra yaw so the model faces +Z
+  clips: { idle: string; walk: string; run: string; death?: string; attack?: string };
+};
+const MODELS: Record<ModelId, ModelDef> = {
+  agent: { url: '/arena/models/doubleo/agent.glb', height: 1.9, facing: 0, clips: { idle: 'Rig|idle', walk: 'Rig|walk', run: 'Rig|run' } },
+  goon: { url: '/arena/models/doubleo/goon.glb', height: 1.85, facing: 0, clips: { idle: 'idle_patrol', walk: 'walk_patrol', run: 'run', death: 'death_1' } },
+  bot: { url: '/arena/models/doubleo/bot.glb', height: 2.1, facing: 0, clips: { idle: 'Armature|idol', walk: 'Armature|walk.001', run: 'Armature|walk.001', death: 'Armature|death .001' } }, // 'thwamp' leaps about: no good mid-fight
+};
+const loaded: Partial<Record<ModelId, GLTF>> = {};
+let loading: Promise<void> | null = null;
+
+/** Load the rigged cast once (henchmen + agents). Failures leave the procedural rigs in place. */
+export function loadCastModels(): Promise<void> {
+  loading ??= (async () => {
+    const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    await Promise.all(
+      (Object.keys(MODELS) as ModelId[]).map(async (id) => {
+        try {
+          loaded[id] = await gl.loadAsync(MODELS[id].url);
+        } catch {
+          /* keep the box rig */
+        }
+      }),
+    );
+  })();
+  return loading;
+}
+
+function findBone(root: THREE.Object3D, ...names: string[]) {
+  let hit: THREE.Object3D | null = null;
+  root.traverse((o) => {
+    if (!hit && (o as THREE.Bone).isBone && names.some((n) => o.name.toLowerCase().includes(n))) hit = o;
+  });
+  return hit as THREE.Object3D | null;
+}
+
+/** A Rig backed by a rigged glTF: same interface, so AI, hits and multiplayer don't care. */
+function modelRig(id: ModelId, gltf: GLTF, def: CastDef, agent?: string): Rig {
+  const md = MODELS[id];
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const model = cloneSkinned(gltf.scene); // skinned: a plain clone would keep the original's bones
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model, true);
+  const size = box.getSize(new THREE.Vector3());
+  const height = agent ? md.height : def.height;
+  const k = height / Math.max(0.001, size.y);
+  model.scale.multiplyScalar(k);
+  const c = box.getCenter(new THREE.Vector3()).multiplyScalar(k);
+  model.position.set(-c.x, -box.min.y * k, -c.z);
+  model.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    m.frustumCulled = false; // skinned bounds lie when animated
+    if (agent) {
+      // Each player's agent: a dark spy suit that picks up their colour.
+      const tint = (mat: THREE.Material) => {
+        const n = mat.clone() as THREE.MeshStandardMaterial;
+        n.color?.set('#84849a').lerp(new THREE.Color(agent), 0.22); // one texture for suit and face: darken gently
+        return n;
+      };
+      m.material = Array.isArray(m.material) ? m.material.map(tint) : tint(m.material);
+    } else {
+      // The goon's Thompson ships untextured (white): make it gunmetal.
+      for (const mat of (Array.isArray(m.material) ? m.material : [m.material]) as THREE.MeshStandardMaterial[])
+        if (mat.name === 'Gun_Thompson' && !mat.map) {
+          mat.color.set('#1c1c1f');
+          mat.metalness = 0.7;
+          mat.roughness = 0.35;
+        }
+    }
+  });
+  const turn = new THREE.Group();
+  turn.rotation.y = md.facing;
+  turn.add(model);
+  body.add(turn);
+
+  const eyes: THREE.Mesh[] = [];
+  model.updateMatrixWorld(true);
+  /** World units → a bone's local units (rigs often carry an armature scale like 0.01). */
+  const u = (bone: THREE.Object3D, v: number) => v / Math.max(1e-6, bone.getWorldScale(new THREE.Vector3()).x);
+  const chest = findBone(model, 'spine2', 'spine_02', 'chest', 'spine1', 'spine');
+  if (agent && chest) {
+    // Lapel pin in the player's colour, so squads can tell agents apart at a glance.
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(u(chest, 0.05), 12, 8), glow(agent, 2.5));
+    pin.position.set(u(chest, 0.1), u(chest, 0.05), u(chest, 0.14));
+    chest.add(pin);
+  }
+  if (id === 'goon' && chest) {
+    // The gag survives: a paper wallet pinned to the thug's chest.
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(u(chest, 0.26), u(chest, 0.26)), new THREE.MeshStandardMaterial({ map: paperTex(), roughness: 0.9, side: THREE.DoubleSide }));
+    sheet.position.set(0, 0, u(chest, 0.17));
+    chest.add(sheet);
+  }
+  if (id === 'bot') {
+    // Its own eye material glows red.
+    model.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for (const mat of mats as THREE.MeshStandardMaterial[]) if (mat.name === 'eyes' && mat.emissive) {
+        mat.emissive.set('#ff2a1a');
+        mat.emissiveIntensity = 3;
+      }
+    });
+  }
+
+  const mixer = new THREE.AnimationMixer(model);
+  const actions = new Map(gltf.animations.map((cl) => [cl.name, mixer.clipAction(cl)] as const));
+  let current: THREE.AnimationAction | null = null;
+  const play = (name: string | undefined, once = false) => {
+    const next = name ? actions.get(name) : undefined;
+    if (!next || next === current) return Boolean(next);
+    next.reset();
+    next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
+    next.clampWhenFinished = once;
+    next.play();
+    if (current) current.crossFadeTo(next, 0.2, false);
+    current = next;
+    return true;
+  };
+  play(md.clips.idle);
+  let dead = false;
+
+  const w = 0.9 * (height / 1.9);
+  const hitbox = new THREE.Mesh(new THREE.BoxGeometry(w, height, w), new THREE.MeshBasicMaterial({ visible: false }));
+  hitbox.position.y = height / 2;
+  root.add(hitbox);
+  const muzzle = new THREE.Object3D();
+  muzzle.position.set(0.3, height * 0.62, 0.55);
+  root.add(muzzle);
+  const empty = () => new THREE.Group();
+
+  return {
+    root,
+    body,
+    legs: [empty(), empty()],
+    arms: [empty(), empty()],
+    head: empty(),
+    hitbox,
+    eyes,
+    beams: [],
+    muzzle,
+    button: null,
+    phase: Math.random() * 6,
+    anim: (dt, speed, aim) => {
+      if (!dead) play(aim && md.clips.attack ? md.clips.attack : speed > 0.6 ? md.clips.run : speed > 0.05 ? md.clips.walk : md.clips.idle);
+      mixer.update(dt * (speed > 0.6 && md.clips.run === md.clips.walk ? 1.6 : 1));
+    },
+    die: () => {
+      dead = true;
+      return play(md.clips.death, true);
+    },
+  };
+}
+
 /** Build one character facing +Z, feet at y = 0, scaled to its def height. */
 export function buildRig(kind: Kind, agent?: string): Rig {
   const def = CAST[kind];
+  const mid: ModelId | null = agent ? 'agent' : kind === 'bot' || kind === 'goon' ? kind : null;
+  const gltf = mid ? loaded[mid] : undefined;
+  if (mid && gltf) return modelRig(mid, gltf, def, agent);
   const root = new THREE.Group();
   const body = new THREE.Group();
   root.add(body);
@@ -159,7 +331,7 @@ export function buildRig(kind: Kind, agent?: string): Rig {
   const torso = new THREE.Mesh(rbox(0.62 + belly, 0.72, 0.36 + belly, 0.1), suit);
   torso.position.y = 1.24;
   inner.add(torso);
-  if (agent || (kind !== 'goon' && kind !== 'bot' && kind !== 'hoarder')) {
+  if (agent || (kind !== 'goon' && kind !== 'bot' && kind !== 'hoarder' && kind !== 'partyboy')) {
     // Shirt and tie.
     const shirt = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.5, 0.02), std(p.shirt));
     shirt.position.set(0, 1.32, 0.19 + belly / 2);
@@ -292,6 +464,113 @@ export function buildRig(kind: Kind, agent?: string): Rig {
     muzzle.position.set(0, 1.85 * s, 0.4 * s);
   }
 
+  // ── Boss detail: faces, necks, tailoring and signature props (cartoon parody, no likenesses) ──
+  if (def.boss) {
+    const dark = std('#1a1410', { roughness: 0.9 });
+    // Neck.
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.14, 16), skin);
+    neck.position.y = 1.62;
+    inner.add(neck);
+    // Ears and nose.
+    for (const x of [-0.21, 0.21]) {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 10), skin);
+      ear.scale.set(0.5, 1, 0.8);
+      ear.position.set(x, 0.22, 0);
+      head.add(ear);
+    }
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.09, 12), skin);
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, 0.2, 0.22);
+    head.add(nose);
+    // Eyes (the hoarder's glow already; the rest get cartoon eyes under any shades).
+    if (kind !== 'hoarder' && kind !== 'kingpin') {
+      for (const x of [-0.075, 0.075]) {
+        const white = new THREE.Mesh(new THREE.SphereGeometry(0.038, 14, 10), std('#ffffff', { roughness: 0.3 }));
+        white.position.set(x, 0.27, 0.18);
+        head.add(white);
+        const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.018, 10, 8), dark);
+        pupil.position.set(x, 0.27, 0.215);
+        head.add(pupil);
+      }
+    }
+    // Eyebrows: cartoon-angry, or worried for the custodian.
+    for (const sgn of [-1, 1]) {
+      const brow = new THREE.Mesh(rbox(0.09, 0.02, 0.02, 0.008), std(kind === 'custodian' ? '#8a8a8a' : '#2a1a10'));
+      brow.position.set(sgn * 0.075, 0.33, 0.19);
+      brow.rotation.z = sgn * (kind === 'custodian' ? 0.25 : -0.3);
+      head.add(brow);
+    }
+    // Mouth: a grin (or a nervous line for the custodian).
+    const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 20, kind === 'custodian' ? 0.6 : Math.PI), dark);
+    mouth.rotation.z = kind === 'custodian' ? Math.PI * 1.35 : Math.PI;
+    mouth.position.set(0, 0.13, 0.2);
+    head.add(mouth);
+    // Tailoring: lapels for the suits, a belt for everyone.
+    if (kind === 'kingpin' || kind === 'custodian') {
+      for (const sgn of [-1, 1]) {
+        const lapel = new THREE.Mesh(rbox(0.1, 0.36, 0.03, 0.01), std(kind === 'kingpin' ? '#7a5f12' : '#44484e', { roughness: 0.5 }));
+        lapel.position.set(sgn * (0.13 + belly / 4), 1.38, 0.19 + belly / 2);
+        lapel.rotation.z = sgn * 0.35;
+        inner.add(lapel);
+      }
+    }
+    const belt = new THREE.Mesh(rbox(0.64 + belly, 0.07, 0.38 + belly, 0.03), std('#151515', { roughness: 0.4 }));
+    belt.position.y = 0.9;
+    inner.add(belt);
+    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.06, 0.02), std('#d4a843', { metalness: 0.9, roughness: 0.25 }));
+    buckle.position.set(0, 0.9, 0.2 + belly / 2);
+    inner.add(buckle);
+  }
+  if (kind === 'custodian' && !agent) {
+    // Left hand: a support-ticket clipboard.
+    const board = new THREE.Mesh(rbox(0.28, 0.36, 0.02, 0.01), std('#6b4a2a'));
+    board.position.set(0, -0.82, 0.12);
+    board.rotation.x = -0.4;
+    arms[0].add(board);
+    const ticket = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.3), new THREE.MeshBasicMaterial({ map: textTex('TICKET #48213', '#111', '#f4f4f4', 256, 64) }));
+    ticket.position.set(0, 0, 0.012);
+    board.add(ticket);
+  }
+  if (kind === 'hoarder') {
+    // He stands on a pile he will never spend.
+    const coin = new THREE.CylinderGeometry(0.11, 0.11, 0.025, 18);
+    const gold = std('#f2a900', { metalness: 0.9, roughness: 0.3 });
+    for (let i = 0; i < 26; i++) {
+      const c = new THREE.Mesh(coin, gold);
+      const a = (i * 2.4) % (Math.PI * 2);
+      const r = 0.25 + (i % 5) * 0.08;
+      c.position.set(Math.cos(a) * r, 0.02 + (i % 3) * 0.03, Math.sin(a) * r);
+      c.rotation.set(Math.random() * 0.6, 0, Math.random() * 0.6);
+      inner.add(c);
+    }
+  }
+  if (kind === 'partyboy' && !agent) {
+    // Big curly hair.
+    const hairMat = std('#2b1a12', { roughness: 0.95 });
+    for (let i = 0; i < 22; i++) {
+      const curl = new THREE.Mesh(new THREE.SphereGeometry(0.075 + (i % 3) * 0.015, 10, 8), hairMat);
+      const a = (i / 22) * Math.PI * 2;
+      const up = i % 2 ? 0.36 : 0.3;
+      curl.position.set(Math.cos(a) * 0.19, up + Math.sin(i) * 0.03, Math.sin(a) * 0.19 - 0.02);
+      head.add(curl);
+    }
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), hairMat);
+    crown.scale.set(1, 0.6, 1);
+    crown.position.y = 0.38;
+    head.add(crown);
+    // Cargo shorts over bare shins, and a slogan tee.
+    for (const l of legs) {
+      const shorts = new THREE.Mesh(rbox(0.28, 0.4, 0.3, 0.06), std('#6b6a4a', { roughness: 0.9 }));
+      shorts.position.y = -0.2;
+      l.add(shorts);
+      const shin = l.children[0] as THREE.Mesh;
+      if (shin?.isMesh) shin.material = skin;
+    }
+    const tee = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.18), new THREE.MeshBasicMaterial({ map: textTex(SAM_CO.toUpperCase(), '#ffffff', '#5a6a3a', 256, 96), transparent: true }));
+    tee.position.set(0, 1.3, 0.185);
+    inner.add(tee);
+  }
+
   // Shots test this box.
   const w = 0.9 * s;
   const hitbox = new THREE.Mesh(new THREE.BoxGeometry(w, def.height, w), new THREE.MeshBasicMaterial({ visible: false }));
@@ -303,6 +582,7 @@ export function buildRig(kind: Kind, agent?: string): Rig {
 
 /** Walk/aim/idle pose. `speed` 0..1 (fraction of a run), `aim` raises the gun arm. */
 export function poseRig(r: Rig, dt: number, speed: number, aim: boolean, now: number) {
+  if (r.anim) return r.anim(dt, speed, aim);
   r.phase += dt * (4 + speed * 8) * (speed > 0.05 ? 1 : 0);
   const sw = Math.sin(r.phase) * 0.7 * Math.min(1, speed * 1.5);
   r.legs[0].rotation.x = sw;
