@@ -257,7 +257,7 @@ export function AmmoStrip({
             </button>
           </>
         ) : (
-          <p className="text-xs text-dim">Load {sats ? 'ammo' : 'tokens'} to play LIVE, or play practice for free.</p>
+          <p className="text-xs text-dim">Load {sats ? 'ammo' : 'tokens'} to play LIVE, or play practice (nothing on chain).</p>
         )}
       </div>
       {onPractice && (

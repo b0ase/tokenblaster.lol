@@ -26,7 +26,7 @@ export default function DoubleOPage() {
             </Link>
           </span>
         </div>
-        <p className="mt-1 text-dim">Licensed to blast. Five missions, parody villains, and a gadget gun that fires your tokens: practice for free, or go LIVE and every bullet is a real transaction.</p>
+        <p className="mt-1 text-dim">Licensed to blast. Five missions, parody villains, and a gadget gun that fires your tokens: practice off-chain, or go LIVE and every bullet is a real transaction.</p>
       </header>
       <DoubleO />
       <HighScoresPanel games={['doubleo-facility', 'doubleo-tower', 'doubleo-vault', 'doubleo-farm', 'doubleo-yacht']} titles={['Facility', 'Tower', 'Vault', 'Hash Farm', 'Yacht']} sorts={['score', 'time']} label="REKT" />
