@@ -35,16 +35,16 @@ export default function Home() {
             <p className="text-hot sm:text-lg">Load your tokens. Blast them at the chain.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/blast" className="btn-fire">
+            <Link href="/blast" className="btn-fire inline-flex h-12 w-40 items-center justify-center !px-0 !py-0 !text-base">
               BLAST NOW
             </Link>
-            <Link href="/arcade/bsvgun" className="btn btn-on px-4 py-2">
+            <Link href="/arcade/bsvgun" className="btn-fire inline-flex h-12 w-40 items-center justify-center !px-0 !py-0 !text-base">
               BSVGUN
             </Link>
-            <Link href="/arena" className="btn btn-on px-4 py-2">
+            <Link href="/arena" className="btn-fire inline-flex h-12 w-40 items-center justify-center !px-0 !py-0 !text-base">
               ARENA
             </Link>
-            <Link href="/arcade" className="btn px-4 py-2">
+            <Link href="/arcade" className="btn-fire inline-flex h-12 w-40 items-center justify-center !px-0 !py-0 !text-base">
               ARCADE
             </Link>
             <GitHubLink />
