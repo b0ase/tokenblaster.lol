@@ -5,8 +5,8 @@ const description = 'The 1Sat Ordnance store: buy game weapons as real 1Sat ordi
 export const metadata = {
   title: 'Store · 1Sat Ordnance · TokenBlaster.lol',
   description,
-  openGraph: { title: '1SAT ORDNANCE STORE: draw your weapon.', description, url: '/1satordnance/store', images: ['/1satordnance/opengraph-image.jpg'] },
-  twitter: { card: 'summary_large_image', title: '1SAT ORDNANCE STORE: draw your weapon.', description, images: ['/1satordnance/opengraph-image.jpg'] },
+  openGraph: { title: '1SAT ORDNANCE STORE: draw your weapon.', description, url: '/1satordnance/store' },
+  twitter: { card: 'summary_large_image', title: '1SAT ORDNANCE STORE: draw your weapon.', description },
 };
 
 export default function OrdnanceStorePage() {
