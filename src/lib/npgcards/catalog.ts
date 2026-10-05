@@ -1,0 +1,48 @@
+// Starter pool: 40 NPG element cards (art in public/arcade/npg-cards/cards, from ninjapunkgirls.com).
+import type { RawCard } from './engine';
+
+export const CARD_IMG_BASE = '/arcade/npg-cards/cards/';
+
+// [id, name, layer, rarity, character, team, [str, spd, skl, sta, stl, sty]]
+export const RAW_CARDS: RawCard[] = [
+  ["07_001_Right-Weapon_Boxing-Glove", "BOXING GLOVE", "Right-Weapon", "Uncommon", "Yamarashii", "Erobot", [2, 0, 1, 1, 1, 1]],
+  ["07_002_Right-Weapon_Thrasher", "THRASHER", "Right-Weapon", "Common", "Hikaru", "Erobot", [0, 2, 1, 1, 2, 0]],
+  ["07_003_Right-Weapon_Red-Axe", "RED AXE", "Right-Weapon", "Uncommon", "Phi-Phi", "Erobot", [0, 0, 2, 0, 0, 1]],
+  ["08_001_Left-Weapon_Paddle", "PADDLE", "Left-Weapon", "Mythical", "Miyuki", "Erobot", [2, 0, 0, 0, 0, 1]],
+  ["08_003_Left-Weapon_Big-Knife", "BIG KNIFE", "Left-Weapon", "Epic", "Joy", "Erobot", [1, 0, 1, 2, 2, 2]],
+  ["08_004_Left-Weapon_Black-Ax", "BLACK AX", "Left-Weapon", "Common", "Scarlet", "Erobot", [0, 0, 1, 1, 2, 2]],
+  ["09_001_Horns_Phi-Phi-Horn", "HORN", "Horns", "Uncommon", "Phi-Phi", "Erobot", [0, 2, 0, 0, 0, 0]],
+  ["09_003_Horns_Small", "SMALL", "Horns", "Rare", "universal", "Erobot", [2, 2, 1, 2, 1, 0]],
+  ["10_001_Hair_Red-Stripe", "RED STRIPE", "Hair", "Uncommon", "Miyuki", "Erobot", [1, 2, 1, 2, 2, 1]],
+  ["10_004_Hair_Pink-Bob", "PINK BOB", "Hair", "Common", "Joy", "Erobot", [2, 2, 1, 2, 2, 0]],
+  ["10_005_Hair_Black-Fringe", "BLACK FRINGE", "Hair", "Uncommon", "Scarlet", "Erobot", [1, 0, 0, 0, 0, 2]],
+  ["11_001_Mask_Yama-Mask", "YAMA MASK", "Mask", "Epic", "Yamarashii", "Erobot", [0, 1, 2, 0, 2, 1]],
+  ["11_007_Mask_Studded", "STUDDED", "Mask", "Uncommon", "universal", "neutral", [1, 1, 1, 0, 1, 2]],
+  ["11_009_Mask_Miami-Sunglasses", "MIAMI SUNGLASSES", "Mask", "Uncommon", "universal", "neutral", [1, 0, 2, 2, 2, 0]],
+  ["12_002_Top_Body-Suit", "BODY", "Top", "Legendary", "Aika", "NPG", [1, 0, 1, 1, 1, 0]],
+  ["12_003_Top_Clothes", "CLOTHES", "Top", "Mythical", "Kimiko", "NPG", [0, 2, 2, 1, 1, 1]],
+  ["13_013_Boots_Kimiko-Boots", "BOOTS", "Boots", "Mythical", "Kimiko", "NPG", [1, 0, 1, 2, 1, 0]],
+  ["13_016_Boots_Strappy-Sandals", "STRAPPY SANDALS", "Boots", "Common", "universal", "neutral", [1, 1, 1, 1, 1, 0]],
+  ["15_003_Collar_Gold-Chain", "GOLD CHAIN", "Collar", "Rare", "universal", "neutral", [0, 2, 1, 0, 1, 0]],
+  ["16_000_Bra_Nipple-Hearts", "NIPPLE HEARTS", "Bra", "Common", "universal", "neutral", [0, 0, 1, 0, 1, 0]],
+  ["16_008_Bra_Ayumi-Bra", "BRA", "Bra", "Rare", "Ayumi", "NPG", [0, 0, 1, 2, 1, 0]],
+  ["18_009_Face_Blue-eyes", "BLUE EYES", "Face", "Epic", "universal", "NPG", [0, 0, 0, 1, 2, 0]],
+  ["19_026_Underwear_Kinky-Straps", "KINKY STRAPS", "Underwear", "Epic", "universal", "neutral", [0, 1, 2, 2, 2, 2]],
+  ["19_029_Underwear_Starry-Cincher", "STARRY CINCHER", "Underwear", "Common", "universal", "neutral", [1, 1, 0, 1, 2, 2]],
+  ["24_011_Rear-Hair_Scraps", "SCRAPS", "Rear-Hair", "Mythical", "universal", "neutral", [1, 1, 1, 2, 2, 2]],
+  ["14_001_Jewellery_Silver-Earring", "SILVER EARRING", "Jewellery", "Common", "universal", "neutral", [1, 0, 1, 2, 0, 2]],
+  ["14_004_Jewellery_Small-Earring", "SMALL EARRING", "Jewellery", "Legendary", "universal", "neutral", [1, 2, 0, 2, 0, 0]],
+  ["15_001_Collar_Neck-Corset", "NECK CORSET", "Collar", "Legendary", "Joy", "Erobot", [2, 2, 1, 2, 0, 0]],
+  ["17_007_Shorts_Shorts", "SHORTS", "Shorts", "Rare", "Ayumi", "NPG", [1, 2, 0, 0, 2, 0]],
+  ["17_008_Shorts_Shorts", "SHORTS", "Shorts", "Mythical", "Kazuyo", "NPG", [2, 2, 1, 0, 1, 0]],
+  ["18_001_Face_Miyuki-Face", "FACE", "Face", "Legendary", "Miyuki", "Erobot", [0, 1, 1, 0, 0, 0]],
+  ["20_001_Arms_Gloves", "GLOVES", "Arms", "Mythical", "Miyuki", "Erobot", [2, 2, 2, 1, 0, 0]],
+  ["20_002_Arms_Armour", "ARMOUR", "Arms", "Rare", "Hikaru", "Erobot", [0, 1, 0, 1, 1, 1]],
+  ["21_001_Body_Miyuki-Body", "BODY", "Body", "Epic", "Miyuki", "Erobot", [0, 1, 1, 2, 2, 2]],
+  ["21_001_Body_Miyuki", "MIYUKI", "Body", "Epic", "Miyuki", "Erobot", [0, 1, 1, 2, 2, 2]],
+  ["22_001_Back_Cape", "CAPE", "Back", "Mythical", "Yamarashii", "Erobot", [1, 0, 0, 2, 1, 1]],
+  ["22_002_Back_Wings", "WINGS", "Back", "Legendary", "Peggy", "Erobot", [1, 0, 0, 1, 0, 1]],
+  ["23_001_Rear-Horns_Miyuki-Horn", "HORN", "Rear-Horns", "Common", "Miyuki", "Erobot", [0, 1, 0, 1, 2, 0]],
+  ["23_002_Rear-Horns_Hikaru-Horns", "HORNS", "Rear-Horns", "Rare", "Hikaru", "Erobot", [2, 2, 2, 2, 0, 2]],
+  ["24_001_Rear-Hair_Black-Bouffant", "BLACK BOUFFANT", "Rear-Hair", "Common", "Miyuki", "Erobot", [2, 2, 0, 0, 2, 0]],
+];
