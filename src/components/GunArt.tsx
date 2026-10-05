@@ -88,7 +88,10 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
       {live && <canvas ref={canvas} className="absolute inset-0 h-full w-full" />}
       <span className="pointer-events-none absolute bottom-2 right-2 bg-black/60 px-1 text-[10px] text-dim">
         {live ? (
-          'click / hold to test fire · demo, nothing on chain'
+          <>
+            <span className="hidden sm:inline">click / hold to test fire · demo, nothing on chain</span>
+            <span className="sm:hidden">tap / hold to fire · demo</span>
+          </>
         ) : (
           <>
             <span className="hidden sm:inline">hover</span>
