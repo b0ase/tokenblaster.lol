@@ -6,9 +6,12 @@ loudness-normalised (ffmpeg loudnorm, target -16 LUFS / -1.5 dBTP), edge silence
 
 | File | Title | Source site | Original file |
 |------|-------|-------------|---------------|
-| doubleo/shadow-steps.m4a | Shadow Steps | CherryX.space | cherry-xxx/public/music/Shadow Steps.wav |
-| doubleo/factory-darkness.m4a | Kōjō no Yami (Factory Darkness) | CherryX.space | cherry-xxx/public/music/Kōjō no Yami (Factory Darkness).wav |
-| doubleo/digital-ghosts.m4a | Digital Ghosts | b0ase.com | b0ase.com/public/music/Digital Ghosts.mp3 |
+| doubleo/hidden-blade.m4a | Echoes of the Hidden Blade | VexVoid.com | b0ase.com/_archive/folders/VexVoid-Discography/Echoes of the Hidden Blade.mp3 |
+| doubleo/silent-blade.m4a | Echoes of the Silent Blade | VexVoid.com | b0ase.com/_archive/folders/VexVoid-Discography/Echoes of the Silent Blade.mp3 |
+| doubleo/shadows-in-the-smoke.m4a | Shadows in the Smoke | VexVoid.com | b0ase.com/_archive/folders/VexVoid-Discography/Shadows in the Smoke.mp3 |
+| doubleo/four-ton-shadow.m4a | Four Ton Shadow | VexVoid.com | b0ase.com/_archive/folders/VexVoid-Discography/Four Ton Shadow.mp3 |
+| doubleo/ghost-in-the-echoes.m4a | Ghost in the Echoes | VexVoid.com | b0ase.com/_archive/folders/VexVoid-Discography/Ghost in the Echoes.mp3 |
+| doubleo/shadow-steps.m4a | Shadow Steps | VexVoid.com | b0ase.com/_archive/folders/VexVoid-Discography/Shadow Steps.mp3 |
 | arena/shibuya-mosh-pit.m4a | Shibuya Mosh Pit | NPG-X.com | npgx/public/music/albums/tokyo-gutter-punk/03-a.mp3 |
 | arena/chrome-fist.m4a | Chrome Fist | NPG-X.com | npgx/public/music/albums/neon-blood-riot/02-a.mp3 |
 | arena/harajuku-chainsaw.m4a | Harajuku Chainsaw | NPG-X.com | npgx/public/music/albums/tokyo-gutter-punk/08-a.mp3 |

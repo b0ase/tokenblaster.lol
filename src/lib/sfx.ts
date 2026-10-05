@@ -514,9 +514,12 @@ function stopSeq() {
 export type Song = { src: string; title: string; site: string };
 const S = (dir: string, file: string, title: string, site: string): Song => ({ src: `/music/${dir}/${file}.m4a`, title, site });
 const SPY = [
-  S('doubleo', 'shadow-steps', 'Shadow Steps', 'CherryX.space'),
-  S('doubleo', 'factory-darkness', 'Kōjō no Yami (Factory Darkness)', 'CherryX.space'),
-  S('doubleo', 'digital-ghosts', 'Digital Ghosts', 'b0ase.com'),
+  S('doubleo', 'hidden-blade', 'Echoes of the Hidden Blade', 'VexVoid.com'),
+  S('doubleo', 'silent-blade', 'Echoes of the Silent Blade', 'VexVoid.com'),
+  S('doubleo', 'shadows-in-the-smoke', 'Shadows in the Smoke', 'VexVoid.com'),
+  S('doubleo', 'four-ton-shadow', 'Four Ton Shadow', 'VexVoid.com'),
+  S('doubleo', 'ghost-in-the-echoes', 'Ghost in the Echoes', 'VexVoid.com'),
+  S('doubleo', 'shadow-steps', 'Shadow Steps', 'VexVoid.com'),
 ];
 const PUNK = [
   S('arena', 'shibuya-mosh-pit', 'Shibuya Mosh Pit', 'NPG-X.com'),
