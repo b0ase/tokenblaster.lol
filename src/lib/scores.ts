@@ -12,6 +12,7 @@ export const SCORE_GAMES = {
   'doubleo-tower': { title: 'Double-O Kweg · Tower', tag: 'doubleo', sort: 'score' },
   'doubleo-vault': { title: 'Double-O Kweg · Vault', tag: 'doubleo', sort: 'score' },
   npgcards: { title: 'Ninja Punk Girls: Card Battle', tag: 'npgcards', sort: 'score' },
+  npg: { title: 'Ninja Punk Girls: Erobot Uprising', tag: 'npg', sort: 'score' },
 } as const;
 export type ScoreGame = keyof typeof SCORE_GAMES;
 export const isScoreGame = (g: string | null): g is ScoreGame => !!g && Object.prototype.hasOwnProperty.call(SCORE_GAMES, g);
