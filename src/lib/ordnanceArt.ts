@@ -11,7 +11,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { GUNS } from './arenaHD';
 import { RARITY_COLOR, type Ordnance } from './ordnance';
-import { tintGun } from './ordnanceGun';
+import { brandGun, tintGun } from './ordnanceGun';
 
 let renderer: THREE.WebGLRenderer | null = null;
 const envs = new WeakMap<THREE.WebGLRenderer, THREE.Texture>(); // a PMREM texture belongs to one GL context
@@ -34,54 +34,6 @@ function model(base: string) {
 function setup(r: THREE.WebGLRenderer) {
   r.toneMapping = THREE.ACESFilmicToneMapping;
   r.outputColorSpace = THREE.SRGBColorSpace;
-}
-
-let logoTex: Promise<THREE.Texture> | null = null;
-/** The PNEEs logo as a texture (for the PNEE Shotgun's stock). */
-function pneeLogo() {
-  logoTex ??= new THREE.TextureLoader().loadAsync('/ordnance/pnee-logo.png').then((t) => {
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  });
-  return logoTex;
-}
-
-/** Brand marks on a weapon's model (only the PNEE Shotgun so far): a logo on each side of the stock. */
-async function brand(o: Ordnance, gun: THREE.Object3D, dim: THREE.Vector3) {
-  if (o.id !== 'pnee-shotgun') return;
-  const tex = await pneeLogo();
-  const long = dim.x >= dim.z ? 'x' : 'z';
-  const side = long === 'x' ? 'z' : 'x';
-  const size = Math.max(dim.x, dim.z) * 0.1;
-  // Which end is the butt? The stock is the deep end: compare vertical spread in each end fifth.
-  gun.updateMatrixWorld(true);
-  const ends = { lo: [Infinity, -Infinity, 0], hi: [Infinity, -Infinity, 0] }; // y min, y max, |side| max
-  const v = new THREE.Vector3();
-  gun.traverse((n) => {
-    const m = n as THREE.Mesh;
-    const pos = m.isMesh ? (m.geometry.getAttribute('position') as THREE.BufferAttribute | undefined) : undefined;
-    if (!pos) return;
-    for (let i = 0; i < pos.count; i += 3) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
-      const e = v[long] < -dim[long] * 0.3 ? ends.lo : v[long] > dim[long] * 0.3 ? ends.hi : null;
-      if (e) {
-        e[0] = Math.min(e[0], v.y);
-        e[1] = Math.max(e[1], v.y);
-        e[2] = Math.max(e[2], Math.abs(v[side]));
-      }
-    }
-  });
-  const butt = ends.lo[1] - ends.lo[0] >= ends.hi[1] - ends.hi[0] ? -1 : 1;
-  const stock = butt < 0 ? ends.lo : ends.hi;
-  const yMid = (stock[0] + stock[1]) / 2;
-  for (const sgn of [1, -1]) {
-    const m = new THREE.Mesh(new THREE.CircleGeometry(size / 2, 48), new THREE.MeshStandardMaterial({ map: tex, transparent: true, metalness: 0.3, roughness: 0.4, polygonOffset: true, polygonOffsetFactor: -2 }));
-    m.position[long] = butt * dim[long] * 0.38;
-    m.position.y = yMid;
-    m.position[side] = sgn * (stock[2] + size * 0.02);
-    m.rotation.y = side === 'z' ? (sgn > 0 ? 0 : Math.PI) : sgn > 0 ? Math.PI / 2 : -Math.PI / 2;
-    gun.add(m);
-  }
 }
 
 /** A weapon's scene: backdrop, lights, the tinted (and branded) model on a pivot, and a camera. */
@@ -121,7 +73,7 @@ async function buildScene(o: Ordnance, r: THREE.WebGLRenderer) {
   gun.position.sub(box.getCenter(new THREE.Vector3()));
   const holder = new THREE.Group(); // centred gun, so brand marks sit in the same frame as its bounds
   holder.add(gun);
-  await brand(o, holder, dim);
+  await brandGun(holder, o.id);
   const pivot = new THREE.Group();
   pivot.add(holder);
   // Longest axis across the frame, turned three-quarters toward the camera.

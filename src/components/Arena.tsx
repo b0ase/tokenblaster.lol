@@ -23,7 +23,7 @@ import { ORDNANCE, type Ordnance } from '@/lib/ordnance';
 import { GunArt } from './GunArt';
 import type { GunDef } from '@/lib/arenaHD';
 import { useOrdnance } from '@/lib/useOrdnance';
-import { tintGun } from '@/lib/ordnanceGun';
+import { brandGun, tintGun } from '@/lib/ordnanceGun';
 
 /** Stock guns, then the 1Sat Ordnance guns (built on a stock model; locked unless the wallet holds the ordinal). */
 const ALL_GUNS: (GunDef & { ordnance?: Ordnance })[] = [
@@ -548,6 +548,7 @@ export function Arena() {
         for (const def of ALL_GUNS) {
           const h = buildGun(def, a.guns[GUNS.find((g) => g.url === def.url)?.id ?? def.id]);
           tintGun(h.group, def.ordnance?.tint);
+          void brandGun(h.group, def.ordnance?.id);
           h.group.visible = false;
           gun.add(h.group);
           held.push(h);
