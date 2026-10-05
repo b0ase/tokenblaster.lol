@@ -21,6 +21,7 @@ const GAMES: Game[] = [
   { href: '/arcade/kweg', tag: 'kweg', title: "Kweg's Expedition", version: 'V1', img: '/arcade/kweg.jpg', blurb: "Pilot Professor Kweg's pachyderm submarine through the live chain: sonar for hidden $KWEG, patent-dash obstacles, outrace three parody rivals to Satoshi's submarine coordinates.", status: 'live' },
   { href: '/arcade/snake', tag: 'snake', title: 'Token Snake', version: 'V1', img: '/arcade/snake.jpg', blurb: 'Snake where the food is the live chain: every bite is a real transaction, token transfers are token food you collect, blasts are gold.', status: 'live' },
   { href: '/arcade/city', title: 'Satoshi City', version: 'V1', img: '/arcade/city.jpg', blurb: 'Open-world island city where every car on the road is a live mainnet transaction. Walk, carjack, drift, deliver the next block against the clock.', status: 'live' },
+  { href: '/arcade/npg-cards', tag: 'npgcards', title: 'Ninja Punk Girls: Card Battle', version: 'V1', img: '/arcade/npg-cards.jpg', blurb: 'Turn-based card battle: pick your NPG girl, build a deck of NPG element cards (stats from their six attributes), fight the AI or a friend online. LIVE mode: every card played is a transaction.', status: 'live' },
   { title: 'Ninja Punk Girls', img: '/arcade/npg.jpg', blurb: 'The NPG cards come alive in 3D: build your girl from her cards, then take her into the fight.', status: 'soon' },
   { title: 'Token Rally', img: '/arcade/rally.jpg', blurb: 'Race the tokens moving on chain right now.', status: 'soon' },
 ];
