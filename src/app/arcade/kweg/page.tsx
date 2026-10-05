@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HighScoresPanel } from '@/components/HighScores';
 import { KwegExpedition } from '@/components/KwegExpedition';
 
 const description =
@@ -33,6 +34,7 @@ export default function KwegPage() {
         </p>
       </header>
       <KwegExpedition />
+      <HighScoresPanel games={['kweg']} />
     </main>
   );
 }

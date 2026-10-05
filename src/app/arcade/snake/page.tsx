@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HighScoresPanel } from '@/components/HighScores';
 import { TokenSnake } from '@/components/TokenSnake';
 
 const description = 'Snake on the live BSV chain: every bite is a real transaction hitting the network, token transfers are token food you collect, blasts are gold.';
@@ -24,6 +25,7 @@ export default function SnakePage() {
         <p className="mt-1 text-dim">Eat mainnet as it happens. Every bite is a transaction that just hit the network; token food is collected as loot.</p>
       </header>
       <TokenSnake />
+      <HighScoresPanel games={['snake']} />
     </main>
   );
 }

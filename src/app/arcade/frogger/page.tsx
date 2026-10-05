@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HighScoresPanel } from '@/components/HighScores';
 import { Frogger3D as Frogger } from '@/components/Frogger3D';
 
 const description = 'Frogger where the traffic is the BSV mainnet, live: every car is a real transaction. Cross the chain.';
@@ -24,6 +25,7 @@ export default function FroggerPage() {
         <p className="mt-1 text-dim">Every car is a real BSV transaction, live from mainnet. Lanes are what each one carries; token transfers show their token.</p>
       </header>
       <Frogger />
+      <HighScoresPanel games={['frogger']} label="CROSSINGS" />
     </main>
   );
 }

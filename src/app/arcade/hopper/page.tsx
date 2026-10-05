@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HighScoresPanel } from '@/components/HighScores';
 import { BlockHopper } from '@/components/BlockHopper';
 
 const description = 'A fast side-scrolling platformer built from the live BSV chain: every transaction is ground, blasts are coins, token transfers are enemies, blocks are checkpoints.';
@@ -24,6 +25,7 @@ export default function HopperPage() {
         <p className="mt-1 text-dim">Run and jump across mainnet as it happens. Every platform ahead of you is a real transaction that just hit the network.</p>
       </header>
       <BlockHopper />
+      <HighScoresPanel games={['hopper']} />
     </main>
   );
 }

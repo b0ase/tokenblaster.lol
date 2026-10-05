@@ -14,6 +14,7 @@ import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { usePaidPlay } from '@/lib/usePaidPlay';
+import { HighScores, useRunClock } from './HighScores';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
 import { HoldButton } from './HoldButton';
@@ -72,6 +73,7 @@ export function MempoolInvaders() {
   const [lastRun, setLastRun] = useState<Haul>({});
   const [hud, setHud] = useState<HUD>({ score: 0, lives: 3, wave: 1, left: 0 });
   const [phase, setPhase] = useState<'ready' | 'play' | 'over'>('ready');
+  const runSecs = useRunClock(phase === 'play');
   const [best, setBest] = useState(0);
   const [fromChain, setFromChain] = useState(0);
   const control = useRef<{ restart: () => void; key: (k: string, down: boolean) => void } | null>(null);
@@ -509,6 +511,7 @@ export function MempoolInvaders() {
               Score {hud.score.toLocaleString()} · wave {hud.wave}. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
+            <HighScores game="invaders" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} />
             <PlayButtons pp={pp} game="Mempool Invaders" action="shot" actions="shots" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
           </div>
         )}

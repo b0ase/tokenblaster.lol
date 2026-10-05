@@ -19,6 +19,7 @@ import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
+import { HighScores, useRunClock } from './HighScores';
 
 /** Where paid moves go: 1 sat per hop / shot to TokenBlaster. The player's gun pays the network fee too. */
 const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
@@ -144,6 +145,7 @@ export function Frogger3D() {
   const [partyOn, setParty] = useState<null | { n: number; level: number }>(null);
   const [over, setOver] = useState(false);
   const [started, setStarted] = useState(false);
+  const runSecs = useRunClock(started && !over);
   const [clock, setClock] = useState('');
   const control = useRef<{ move: (dx: number, dz: number) => void; restart: () => void; skip: () => void; fire: () => void; setChar: (id: CharId) => void; setWeapon: (i: number) => void } | null>(null);
   const [ammoLeft, setAmmoLeft] = useState(AMMO_PER_CROSSING);
@@ -1537,6 +1539,7 @@ export function Frogger3D() {
             <p className="text-sm text-fg">
               You crossed {score} times. Best: {best}.
             </p>
+            <HighScores game="frogger" score={score} secs={runSecs} live={paid} txid={lastTx} label="CROSSINGS" />
             <button onClick={() => control.current?.restart()} className="btn-fire">
               AGAIN
             </button>

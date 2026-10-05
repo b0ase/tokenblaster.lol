@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HighScoresPanel } from '@/components/HighScores';
 import { MempoolInvaders } from '@/components/MempoolInvaders';
 
 const description = 'Space Invaders on the live BSV chain: every invader is a real transaction hitting the network, token transfers wear their token and drop it when shot.';
@@ -24,6 +25,7 @@ export default function InvadersPage() {
         <p className="mt-1 text-dim">Hold the line against mainnet. Every invader is a transaction that just hit the network; shoot the gold ones for their tokens.</p>
       </header>
       <MempoolInvaders />
+      <HighScoresPanel games={['invaders']} />
     </main>
   );
 }

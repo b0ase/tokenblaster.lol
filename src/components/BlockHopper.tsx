@@ -18,6 +18,7 @@ import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { usePaidPlay } from '@/lib/usePaidPlay';
+import { HighScores, useRunClock } from './HighScores';
 import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
 import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
@@ -78,6 +79,7 @@ export function BlockHopper() {
 
   const [hud, setHud] = useState<HUD>({ score: 0, lives: 3, dist: 0, coins: 0, speed: 0 });
   const [phase, setPhase] = useState<'ready' | 'play' | 'over'>('ready');
+  const runSecs = useRunClock(phase === 'play');
   const [best, setBest] = useState(0);
   const [fromChain, setFromChain] = useState(0);
   const control = useRef<{ restart: () => void; key: (k: string, down: boolean) => void } | null>(null);
@@ -700,6 +702,7 @@ export function BlockHopper() {
               Score {hud.score.toLocaleString()} · {hud.dist.toLocaleString()} m · {hud.coins} coins. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
+            <HighScores game="hopper" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} />
             <PlayButtons pp={pp} game="Block Hopper" action="jump" actions="jumps" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
           </div>
         )}

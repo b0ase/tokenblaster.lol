@@ -13,6 +13,7 @@ import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { usePaidPlay } from '@/lib/usePaidPlay';
+import { HighScores, useRunClock } from './HighScores';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
@@ -52,6 +53,7 @@ export function TokenSnake() {
   const [lastRun, setLastRun] = useState<Haul>({});
   const [hud, setHud] = useState<HUD>({ score: 0, length: 4, speed: 1 });
   const [phase, setPhase] = useState<'ready' | 'play' | 'over'>('ready');
+  const runSecs = useRunClock(phase === 'play');
   const [best, setBest] = useState(0);
   const [eaten, setEaten] = useState(0);
   const control = useRef<{ restart: () => void; key: (k: string, down: boolean) => void } | null>(null);
@@ -334,6 +336,7 @@ export function TokenSnake() {
               Score {hud.score.toLocaleString()} · length {hud.length}. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
+            <HighScores game="snake" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} />
             <PlayButtons pp={pp} game="Token Snake" action="turn" actions="turns" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
           </div>
         )}

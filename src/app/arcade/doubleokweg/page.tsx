@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HighScoresPanel } from '@/components/HighScores';
 import { DoubleO } from '@/components/DoubleO';
 import { GitHubLink } from '@/components/GitHubLink';
 
@@ -28,6 +29,7 @@ export default function DoubleOPage() {
         <p className="mt-1 text-dim">Licensed to blast. Three missions, parody villains, and a gadget gun that fires your tokens: practice for free, or go LIVE and every bullet is a real transaction.</p>
       </header>
       <DoubleO />
+      <HighScoresPanel games={['doubleo-facility', 'doubleo-tower', 'doubleo-vault']} titles={['Facility', 'Tower', 'Vault']} sorts={['score', 'time']} label="REKT" />
     </main>
   );
 }

@@ -17,6 +17,7 @@ import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { usePaidPlay } from '@/lib/usePaidPlay';
+import { HighScores, useRunClock } from './HighScores';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
@@ -418,6 +419,7 @@ export function KwegExpedition() {
   const [lastRun, setLastRun] = useState<Haul>({});
   const [hud, setHud] = useState<HUD>({ score: 0, kweg: 0, hull: HULL, stage: 0, ping: 1, dash: 1 });
   const [phase, setPhase] = useState<Phase>('ready');
+  const runSecs = useRunClock(phase === 'play' || phase === 'card');
   const [card, setCard] = useState<{ title: string; text: string } | null>(null);
   const [best, setBest] = useState(0);
   const control = useRef<{ restart: () => void; next: () => void; key: (k: string, down: boolean) => void } | null>(null);
@@ -1311,6 +1313,7 @@ export function KwegExpedition() {
                 <div className="font-sans text-xs">
                   <LootLine haul={lastRun} />
                 </div>
+                <HighScores game="kweg" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} meta={{ stage: hud.stage + 1 }} />
               </>
             )}
             {phase === 'card' ? (

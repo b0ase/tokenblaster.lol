@@ -25,6 +25,8 @@ import { Grid } from '@/lib/doubleo/grid';
 import { LEVELS, SIZE, type Level } from '@/lib/doubleo/levels';
 import { AGENT } from '@/lib/doubleo/names';
 import { WalletChooser } from './WalletChooser';
+import { HighScores } from './HighScores';
+import type { ScoreGame } from '@/lib/scores';
 import { GameAudio } from '@/components/SoundToggle';
 import { sfx as playSfx } from '@/lib/sfx';
 
@@ -2103,6 +2105,7 @@ export function DoubleO() {
                 last tx {hud.last.slice(0, 16)}… ↗
               </a>
             )}
+            <HighScores key={`${debrief.level}-${debrief.secs}`} game={`doubleo-${LEVELS[debrief.level].id}` as ScoreGame} score={debrief.kills} secs={debrief.secs} live={debrief.live} txid={hud.last} label="REKT" sorts={['score', 'time']} meta={{ shots: debrief.shots, hits: debrief.hits }} />
             <div className="flex flex-wrap justify-center gap-2">
               {debrief.level + 1 < LEVELS.length && (
                 <button onClick={() => start(debrief.level + 1)} className="btn-fire">
