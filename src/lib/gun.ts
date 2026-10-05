@@ -639,15 +639,23 @@ export class Gun {
 
   /** Unspent outputs at the gun's address, confirmed or not (WhatsOnChain). */
   private async coinsOnChain(): Promise<{ tx: Transaction; vout: number }[]> {
-    // WOC sees mempool spends straight away; GorillaPool's index can lag. Retry WOC first.
-    for (let i = 0; i < 4; i++) {
-      try {
-        return await this.coinsWoc();
-      } catch {
-        await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    // Our server asks WOC (it sees mempool spends at once and doesn't rate-limit servers like it
+    // does browsers). Never fall back to GorillaPool's lagging index: stale coins mean double spends.
+    try {
+      const r = await fetch(`/api/coins?address=${this.address}`, { cache: 'no-store' });
+      if (r.ok) {
+        const list = (await r.json()) as { vout: number; hex: string }[];
+        const cache = new Map<string, Transaction>();
+        return list.map((c) => {
+          const tx = cache.get(c.hex) ?? Transaction.fromHex(c.hex);
+          cache.set(c.hex, tx);
+          return { tx, vout: c.vout };
+        });
       }
+    } catch {
+      /* fall through to asking WOC from the browser */
     }
-    return this.coinsGp();
+    return this.coinsWoc();
   }
 
   private async coinsGp(): Promise<{ tx: Transaction; vout: number }[]> {
