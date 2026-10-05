@@ -29,7 +29,11 @@ export function useChainFeed(cap = 400) {
     };
     const offStatus = subscribeStatus(setStatus);
     const offTx = subscribeTx(push);
+    // Dev only: inject a fake tx to test games, e.g. dispatchEvent(new CustomEvent('tokenblaster:test-tx', { detail: {...} })).
+    const onTest = (e: Event) => push((e as CustomEvent<FeedTx>).detail);
+    if (process.env.NODE_ENV !== 'production') window.addEventListener('tokenblaster:test-tx', onTest);
     return () => {
+      window.removeEventListener('tokenblaster:test-tx', onTest);
       offStatus();
       offTx();
     };

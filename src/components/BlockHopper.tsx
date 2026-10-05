@@ -19,6 +19,9 @@ import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { useBlaster } from '@/lib/useBlaster';
 import { WalletChooser } from './WalletChooser';
+import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
+import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
+import { LootHud, LootLine, LootPanel } from './LootPanel';
 
 const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
 const PER_ACTION = 1;
@@ -48,8 +51,9 @@ const KIND_COLOR = Object.fromEntries(KINDS.map((k) => [k.id, k.color])) as Reco
 
 type Seg = { x0: number; y0: number; x1: number; y1: number; color: string; label: string; checkpoint?: boolean; tx?: string };
 type Coin = { x: number; y: number; got: boolean };
-type Enemy = { x: number; y: number; seg: Seg; dir: number; dead: number; icon: HTMLImageElement | null; tokenId?: string; sym: string };
+type Enemy = { x: number; y: number; seg: Seg; dir: number; dead: number; icon: HTMLImageElement | null; tokenId?: string; sym: string; loot: Loot | null };
 type Spring = { x: number; seg: Seg; t: number };
+type Pickup = { x: number; y: number; vy: number; seg: Seg | null; loot: Loot; got: boolean; born: number };
 
 type HUD = { score: number; lives: number; dist: number; coins: number; speed: number };
 
@@ -119,6 +123,14 @@ export function BlockHopper() {
   useEffect(() => {
     feedRef.current = feed;
   });
+  const loot = useLoot('hopper');
+  const [lastRun, setLastRun] = useState<Haul>({});
+  const lootRef = useRef(loot);
+  useEffect(() => {
+    lootRef.current = loot;
+  });
+  // Leaving mid-run still banks what was grabbed.
+  useEffect(() => () => lootRef.current.end(), []);
 
   const [hud, setHud] = useState<HUD>({ score: 0, lives: 3, dist: 0, coins: 0, speed: 0 });
   const [phase, setPhase] = useState<'ready' | 'play' | 'over'>('ready');
@@ -165,6 +177,7 @@ export function BlockHopper() {
     let coins: Coin[] = [];
     let enemies: Enemy[] = [];
     let springs: Spring[] = [];
+    let pickups: Pickup[] = [];
     let cursor = { x: 0, y: 180 };
     let chainN = 0;
     let rng = 1;
@@ -232,7 +245,10 @@ export function BlockHopper() {
         coins.push({ x: (s.x0 + s.x1) / 2, y: s.y0 - 40, got: false });
       } else if (f.kind === 'token') {
         const m = f.token ? tokenMeta(f.token) : null;
-        enemies.push({ x: (s.x0 + s.x1) / 2, y: s.y0, seg: s, dir: rand() < 0.5 ? -1 : 1, dead: 0, icon: m?.icon ?? null, tokenId: f.token, sym: m?.sym ?? f.token?.slice(0, 6) ?? 'TOKEN' });
+        const l = lootFrom(f);
+        enemies.push({ x: (s.x0 + s.x1) / 2, y: s.y0, seg: s, dir: rand() < 0.5 ? -1 : 1, dead: 0, icon: m?.icon ?? null, tokenId: f.token, sym: m?.sym ?? f.token?.slice(0, 6) ?? 'TOKEN', loot: l });
+        // The transfer itself floats above its platform as a token to grab.
+        if (l) pickups.push({ x: s.x0 + Math.min(40, len / 4), y: s.y0 - 34 - rand() * 16, vy: 0, seg: null, loot: l, got: false, born: chainN });
       } else if (f.kind === 'social') {
         springs.push({ x: s.x1 - 24, seg: s, t: 0 });
       }
@@ -243,6 +259,7 @@ export function BlockHopper() {
       coins = [];
       enemies = [];
       springs = [];
+      pickups = [];
       popups = [];
       trail = [];
       cursor = { x: -60, y: 180 };
@@ -289,6 +306,8 @@ export function BlockHopper() {
       if (lives <= 0) {
         state = 'over';
         setPhase('over');
+        setLastRun({ ...lootRef.current.run });
+        lootRef.current.end();
         setBest((bst) => Math.max(bst, score));
         return;
       }
@@ -426,10 +445,34 @@ export function BlockHopper() {
             p.vy = keys.jump ? -JMP : -4.5;
             score += 50;
             popup(e.x, e.y - 24, `+50 ${e.sym}`);
+            // A stomped token enemy drops its token.
+            if (e.loot) pickups.push({ x: e.x, y: e.y - 14, vy: -3, seg: e.seg, loot: e.loot, got: false, born: chainN });
           } else hurt();
         }
       }
       enemies = enemies.filter((e) => e.dead !== -1 && e.seg.x1 > cam.x - 200);
+
+      // Token pickups: dropped ones fall back to their platform; touch to collect.
+      for (const k of pickups) {
+        if (k.got) continue;
+        if (k.seg) {
+          k.vy = Math.min(k.vy + GRV, 6);
+          k.y += k.vy;
+          const gy = surfaceY(k.seg, Math.max(k.seg.x0, Math.min(k.seg.x1, k.x))) - 18;
+          if (k.y > gy) {
+            k.y = gy;
+            k.seg = null;
+          }
+        }
+        if (Math.abs(k.x - p.x) < 13 && Math.abs(k.y - (p.y - 8)) < 16) {
+          k.got = true;
+          k.loot = refreshLoot(k.loot);
+          lootRef.current.pickup(k.loot);
+          score += 100;
+          popup(k.x, k.y - 14, `+1 ${k.loot.sym}`);
+        }
+      }
+      pickups = pickups.filter((k) => !k.got && k.x > cam.x - 300);
 
       // Trail at speed.
       const speed = p.ground ? Math.abs(p.gsp) : Math.hypot(p.vx, p.vy);
@@ -572,6 +615,14 @@ export function BlockHopper() {
         ctx.fillStyle = '#ffe9a0';
         if (w > 2) ctx.fillRect(Math.round(c.x - w / 2) + 1, Math.round(c.y - 3), 1, 3);
       }
+      // Token pickups (bobbing, glowing).
+      for (const k of pickups) {
+        if (k.x < cam.x - 20 || k.x > cam.x + W + 20) continue;
+        drawLoot(ctx, k.loot, k.x, k.y + (k.seg ? 0 : Math.sin(t / 220 + k.x * 0.07) * 3), 14, t);
+      }
+      ctx.font = '8px monospace';
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
       // Enemies.
       for (const e of enemies) {
         const ex = Math.round(e.x);
@@ -633,6 +684,8 @@ export function BlockHopper() {
     };
     control.current = {
       restart: () => {
+        lootRef.current.end();
+        setLastRun({});
         reset();
         state = 'play';
         setPhase('play');
@@ -674,6 +727,7 @@ export function BlockHopper() {
           <span>{'♥'.repeat(Math.max(0, hud.lives))}</span>
           <span className="hidden sm:inline">{hud.dist.toLocaleString()} m</span>
           <span className="hidden sm:inline">SPD {hud.speed}</span>
+          <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute right-2 top-1 text-xs text-dim">
           chain: {feed.status}
@@ -693,6 +747,7 @@ export function BlockHopper() {
             <p className="text-sm text-fg">
               Score {hud.score.toLocaleString()} · {hud.dist.toLocaleString()} m · {hud.coins} coins. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
+            <LootLine haul={lastRun} />
             <button onClick={() => control.current?.restart()} className="btn-fire">
               AGAIN
             </button>
@@ -729,7 +784,7 @@ export function BlockHopper() {
           onContextMenu={(e) => e.preventDefault()} className="btn-fire h-14 min-w-0 flex-1 !px-2">JUMP</button>
       </div>
       <p className="mt-2 text-xs text-muted">
-        The level is mainnet, live: {fromChain.toLocaleString()} real transactions have become ground so far. Width is tx size; data and inscriptions are slopes, blasts drop coins, token transfers walk out as enemies wearing their token, social posts are springs, new blocks are checkpoints.
+        The level is mainnet, live: {fromChain.toLocaleString()} real transactions have become ground so far. Width is tx size; data and inscriptions are slopes, blasts drop coins, token transfers walk out as enemies wearing their token and float up as token coins to grab (stomp the enemy and it drops one too), social posts are springs, new blocks are checkpoints.
       </p>
       <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
         <div className="inset px-2 py-1">
@@ -745,6 +800,7 @@ export function BlockHopper() {
           <span className="text-hot">{Math.max(best, hud.score).toLocaleString()}</span>
         </div>
       </div>
+      <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
       <div className="inset mt-2 flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
         <span className="text-dim">MODE:</span>
         <button onClick={() => setPaid(false)} className={`btn ${!paid ? 'btn-on' : ''}`}>
