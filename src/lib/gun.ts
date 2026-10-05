@@ -10,6 +10,8 @@ const ARC_URL = 'https://arc.gorillapool.io';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
 const STORE = 'tokenblaster.gun';
+/** ARC took it AND it's headed for a block (an orphan = its parent is missing/spent: it will never mine). */
+const good = (r?: { status?: string; txStatus?: string }) => r?.status === 'success' && !/ORPHAN|REJECT|DOUBLE/i.test(r.txStatus ?? '');
 export const TAG = 'tokenblaster.lol';
 /** Well-known unspendable address: tokens sent here are burned for good. */
 export const BURN_ADDRESS = '1BitcoinEaterAddressDontSendf59kuE';
@@ -167,7 +169,7 @@ export class Gun {
    * (@bsv/sdk flags ARC's `competingTxs: null` as a failure) is checked against ARC's own status.
    */
   private async broadcastChain(txs: Transaction[]): Promise<{ accepted: number; why?: string }> {
-    let results: { status?: string; description?: string; code?: string | number }[] = [];
+    let results: { status?: string; txStatus?: string; description?: string; code?: string | number }[] = [];
     try {
       results = (await Promise.race([
         this.arc.broadcastMany(txs),
@@ -177,7 +179,7 @@ export class Gun {
       results = [{ description: e instanceof Error ? e.message : String(e) }];
     }
     let accepted = 0;
-    while (accepted < txs.length && results[accepted]?.status === 'success') accepted++;
+    while (accepted < txs.length && good(results[accepted])) accepted++;
     if (accepted < txs.length) {
       if (await this.known(txs[txs.length - 1].id('hex'))) accepted = txs.length;
       else while (accepted < txs.length && (await this.known(txs[accepted].id('hex')))) accepted++;
@@ -275,10 +277,11 @@ export class Gun {
     const breathe = () => new Promise((r) => setTimeout(r, 0)); // let the page paint while we sign
     return this.exclusive(async () => {
       this.refresh();
-      // Sats left spread over lanes by an earlier storm: gather them back first.
-      if (this.sats < total * STORM_FEE) {
-        onStatus('Gathering the gun\'s sats…');
-        const coins = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
+      // Always start from what the chain says the gun holds: the saved coin can be stale (spent).
+      {
+        onStatus('Reading the gun\'s coins from the chain…');
+        const coins = await this.coinsOnChain();
+        if (!coins.length) throw new Error('The gun is empty on chain. Load it first.');
         if (coins.length > 1) {
           const tx = new Transaction();
           for (const c of coins.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
@@ -288,7 +291,7 @@ export class Gun {
           await this.send(tx);
           this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
           this.save();
-        } else if (coins.length === 1 && (coins[0].tx.outputs[coins[0].vout].satoshis ?? 0) > this.sats) {
+        } else {
           this.coin = coins[0];
           this.save();
         }
@@ -368,7 +371,7 @@ export class Gun {
           await Promise.all(
             groups.slice(g, g + 4).map(async (ids) => {
               const txs = ids.flatMap((i) => chains[i]);
-              let results: { status?: string; description?: string; code?: string | number }[] = [];
+              let results: { status?: string; txStatus?: string; description?: string; code?: string | number }[] = [];
               try {
                 results = (await Promise.race([
                   this.arc.broadcastMany(txs),
@@ -381,7 +384,7 @@ export class Gun {
               for (const i of ids) {
                 const c = chains[i];
                 let k = 0;
-                while (k < c.length && results[at + k]?.status === 'success') k++;
+                while (k < c.length && good(results[at + k])) k++;
                 if (k < c.length) {
                   const r = results[at + k];
                   if (r?.description) lastWhy = `${r.description}${r.code ? ` (code ${r.code})` : ''}`;
