@@ -76,7 +76,7 @@ export const ORDNANCE: Ordnance[] = [
   },
   {
     id: 'minigun-of-the-mempool',
-    name: 'Minigun of the Mempool',
+    name: 'Mempool MiniGun',
     tagline: '45 shots a second, all unconfirmed.',
     description: 'Spins up faster than a fee spike. Every barrel is a different node with a different opinion about what you just fired.',
     base: 'minigun',
