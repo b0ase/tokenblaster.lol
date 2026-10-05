@@ -1474,6 +1474,8 @@ export function DoubleO() {
     let hostId = myId;
     let lastPose = 0;
     let lastState = 0;
+    let lastStateIn = 0; // when the host's world state last arrived
+    let lastElect = 0;
     const isHost = () => hostId === myId;
     const pushNet = (status?: NetInfo['status']) =>
       setNet((nInfo) => ({
@@ -1483,7 +1485,12 @@ export function DoubleO() {
     const elect = () => {
       // Candidates: me, plus agents whose poses are arriving (a presence entry can outlive a closed tab).
       const grace = Date.now() - joinedAt < 3000;
-      const list = Object.values(roster).filter((m) => m && m.id && (m.id === myId || grace || remotes.has(m.id)));
+      // Only agents heard from in the last 2s can host: a closed, frozen or throttled tab can't run the world.
+      const fresh = (id: string) => {
+        const r = remotes.get(id);
+        return Boolean(r && r.seen && performance.now() - r.seen < 2000);
+      };
+      const list = Object.values(roster).filter((m) => m && m.id && (m.id === myId || (grace && !remotes.has(m.id)) || fresh(m.id)));
       if (!list.some((m) => m.id === myId)) list.push({ id: myId, t: joinedAt });
       list.sort((a, b2) => a.t - b2.t || (a.id < b2.id ? -1 : 1));
       const was = hostId;
@@ -1583,7 +1590,10 @@ export function DoubleO() {
             rm.act = d.act;
             rm.seen = now;
             if (fresh || changed) pushNet();
-          } else if (event === 'state') applyState(raw as { o: number; p: number; k: string; a: number[] });
+          } else if (event === 'state') {
+            lastStateIn = now;
+            applyState(raw as { o: number; p: number; k: string; a: number[] });
+          }
           else if (event === 'ehit') {
             const d = raw as { i: number; p: number[] };
             const a = actors[d.i];
@@ -1634,6 +1644,12 @@ export function DoubleO() {
       if (now - lastPose > 100) {
         lastPose = now;
         room.broadcast('pose', { id: myId, x: +camera.position.x.toFixed(2), z: +camera.position.z.toFixed(2), yaw: +yaw.toFixed(3), name: me.current.name, vs: me.current.vs, gun: me.current.gun, act: running && health > 0 });
+      }
+      // Re-elect every second, and at once if the host's world updates stop (someone else takes over).
+      if (rosterReady && (now - lastElect > 1000 || (!isHost() && lastStateIn && now - lastStateIn > 1500))) {
+        lastElect = now;
+        if (!isHost() && lastStateIn && now - lastStateIn > 1500) lastStateIn = now; // one takeover attempt per stall
+        elect();
       }
       if (isHost() && rosterReady && grid && now - lastState > 100) {
         lastState = now;
