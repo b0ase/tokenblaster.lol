@@ -401,3 +401,82 @@ export function gunArtUrl(o: Ordnance): Promise<string> {
   }
   return p;
 }
+
+/**
+ * Share image for a weapon's page: its poster render on the left, name, tagline, rarity, price and
+ * the store URL on the right (1200×630 jpg data URL). Used by /1satordnance/render.
+ */
+export async function gunOgDataUrl(o: Ordnance, priceLabel: string, slug: string): Promise<string> {
+  const art = await new Promise<HTMLCanvasElement>((res, rej) => {
+    queue = queue.then(async () => {
+      try {
+        const src = await draw(o, 630);
+        const c = document.createElement('canvas');
+        c.width = c.height = 630;
+        c.getContext('2d')!.drawImage(src, 0, 0);
+        res(c);
+      } catch (e) {
+        rej(e);
+      }
+    });
+  });
+  const c = document.createElement('canvas');
+  c.width = 1200;
+  c.height = 630;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#0b0b0d';
+  g.fillRect(0, 0, 1200, 630);
+  g.drawImage(art, 570, 0);
+  const fade = g.createLinearGradient(560, 0, 680, 0);
+  fade.addColorStop(0, '#0b0b0d');
+  fade.addColorStop(1, 'rgba(11,11,13,0)');
+  g.fillStyle = fade;
+  g.fillRect(560, 0, 120, 630);
+  const rc = RARITY_COLOR[o.rarity];
+  g.fillStyle = '#ffd24d';
+  g.font = 'bold 26px Menlo, "Courier New", monospace';
+  g.fillText('1SAT ORDNANCE', 56, 78);
+  g.fillStyle = '#f5b800';
+  let size = 92;
+  g.font = `900 ${size}px "Arial Black", Impact, sans-serif`;
+  while (g.measureText(o.name.toUpperCase()).width > 520 && size > 40) g.font = `900 ${(size -= 4)}px "Arial Black", Impact, sans-serif`;
+  g.fillText(o.name.toUpperCase(), 52, 190);
+  g.fillStyle = '#fff1dc';
+  g.font = 'bold 30px Menlo, "Courier New", monospace';
+  const words = o.tagline.split(' ');
+  let line = '';
+  let y = 262;
+  for (const w of words) {
+    if (g.measureText(line + w).width > 500) {
+      g.fillText(line.trim(), 56, y);
+      y += 40;
+      line = '';
+    }
+    line += w + ' ';
+  }
+  g.fillText(line.trim(), 56, y);
+  g.strokeStyle = rc;
+  g.fillStyle = rc;
+  g.lineWidth = 4;
+  g.font = 'bold 28px Menlo, "Courier New", monospace';
+  const tag = `${o.rarity.toUpperCase()} · ${priceLabel}`;
+  const tw = g.measureText(tag).width + 32;
+  g.strokeRect(56, 420, tw, 52);
+  g.fillText(tag, 72, 456);
+  g.fillStyle = '#fff1dc';
+  g.font = 'bold 24px Menlo, "Courier New", monospace';
+  g.fillText('TOKENBLASTER.LOL/1SATORDNANCE/STORE/', 56, 540);
+  g.fillStyle = '#f5b800';
+  g.fillText(slug.toUpperCase(), 56, 574);
+  g.strokeStyle = '#7a5c00';
+  g.lineWidth = 2;
+  g.strokeRect(16, 16, 1168, 598);
+  return c.toDataURL('image/jpeg', 0.88);
+}
+
+/** Card image data URL at a given size (for pre-rendering). */
+export function gunCardDataUrl(o: Ordnance, size = 768): Promise<string> {
+  const job = queue.then(async () => (await draw(o, size)).toDataURL('image/webp', 0.86));
+  queue = job.catch(() => undefined);
+  return job;
+}

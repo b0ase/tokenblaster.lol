@@ -6,10 +6,11 @@
  * Nothing is signed here; the buyer approves in their own wallet. The issue counts once
  * /api/ordnance/issued has checked the payment on chain.
  */
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { P2PKH, PublicKey, Transaction } from '@bsv/sdk';
 import { inscriptionScript } from '@/lib/inscribe';
-import { ORDNANCE, RARITY_COLOR, ordnanceMap, priceOf, type Ordnance, type Rarity } from '@/lib/ordnance';
+import { ORDNANCE, RARITY_COLOR, ordnanceMap, priceOf, slugOf, type Ordnance, type Rarity } from '@/lib/ordnance';
 import { gunArtFile } from '@/lib/ordnanceArt';
 import { formatUsd, usd } from '@/lib/pricing';
 import { resetStoreIssued, useOrdnance } from '@/lib/useOrdnance';
@@ -21,7 +22,7 @@ const PROTOCOL: [1, string] = [1, '1sat ordnance'];
 const RARITIES: Rarity[] = ['common', 'rare', 'epic', 'legendary'];
 const bsv = (sats: number) => `${(sats / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} BSV`;
 
-export function OrdnanceStore() {
+export function OrdnanceStore({ only }: { only?: string } = {}) {
   const w = useWalletConnect();
   const [nonce, setNonce] = useState(0);
   const { owned } = useOrdnance(w.wallet, [], nonce);
@@ -31,6 +32,7 @@ export function OrdnanceStore() {
   const [sort, setSort] = useState<'price' | 'rarity' | 'name'>('rarity');
   const [buying, setBuying] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ id: string; ok: boolean; text: string; txid?: string } | null>(null);
+  const [bought, setBought] = useState<{ o: Ordnance; n: number; txid: string } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -48,10 +50,10 @@ export function OrdnanceStore() {
   }, [nonce]);
 
   const list = useMemo(() => {
-    const l = ORDNANCE.filter((o) => filter === 'all' || o.rarity === filter);
+    const l = ORDNANCE.filter((o) => (only ? o.id === only : filter === 'all' || o.rarity === filter));
     const r = (o: Ordnance) => RARITIES.indexOf(o.rarity);
     return [...l].sort((a, b) => (sort === 'price' ? priceOf(a) - priceOf(b) : sort === 'name' ? a.name.localeCompare(b.name) : r(b) - r(a) || a.name.localeCompare(b.name)));
-  }, [filter, sort]);
+  }, [filter, sort, only]);
 
   const buy = async (o: Ordnance) => {
     if (!w.wallet || !HOUSE) return;
@@ -82,6 +84,7 @@ export function OrdnanceStore() {
       });
       const txid = r.txid ?? (r.tx ? Transaction.fromAtomicBEEF(r.tx).id('hex') : '');
       setMsg({ id: o.id, ok: true, text: `Issued: ${o.name} #${n} is in your wallet. It unlocks in the games once the 1Sat index picks it up (usually a few seconds).`, txid });
+      setBought({ o, n, txid });
       resetStoreIssued();
       setTimeout(() => setNonce((x) => x + 1), 8000);
     } catch (e) {
@@ -94,14 +97,14 @@ export function OrdnanceStore() {
   return (
     <>
       <section className="panel flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1">
+        <div className={only ? 'hidden' : 'flex flex-wrap gap-1'}>
           {(['all', ...RARITIES] as const).map((r) => (
             <button key={r} onClick={() => setFilter(r)} className={`btn px-2 py-1 text-xs uppercase ${filter === r ? 'btn-on' : ''}`} style={r !== 'all' ? { color: RARITY_COLOR[r] } : undefined}>
               {r} {r === 'all' ? ORDNANCE.length : ORDNANCE.filter((o) => o.rarity === r).length}
             </button>
           ))}
         </div>
-        <label className="ml-auto flex items-center gap-1 text-xs text-dim">
+        <label className={only ? 'hidden' : 'ml-auto flex items-center gap-1 text-xs text-dim'}>
           sort
           <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="border border-[var(--border-dim)] bg-input px-1 py-0.5 text-hot">
             <option value="rarity">rarity</option>
@@ -122,7 +125,7 @@ export function OrdnanceStore() {
       {w.error && <p className="text-xs text-hot">⚠ {w.error}</p>}
       {!HOUSE && <p className="panel text-hot">The quartermaster is out: the store has no house address configured, so nothing can be bought right now.</p>}
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <section className={only ? 'grid gap-3' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'}>
         {list.map((o) => {
           const sold = issued?.[o.id]?.length ?? 0;
           const out = sold >= o.edition;
@@ -138,7 +141,13 @@ export function OrdnanceStore() {
                 {mine && <span className="absolute right-2 top-2 border border-[#60ff90] bg-black/70 px-1.5 text-xs font-bold text-[#60ff90]">IN YOUR WALLET</span>}
               </div>
               <div className="panel-header">
-                <span className="panel-title">&gt; {o.name}</span>
+                {only ? (
+                  <h1 className="panel-title">&gt; {o.name}</h1>
+                ) : (
+                  <Link href={`/1satordnance/store/${slugOf(o)}`} className="panel-title hover:underline">
+                    &gt; {o.name}
+                  </Link>
+                )}
                 <span className="text-xs text-dim">{issued ? `${sold}/${o.edition} issued` : `ed. ${o.edition}`}</span>
               </div>
               <p className="text-accent">{o.tagline}</p>
@@ -190,6 +199,46 @@ export function OrdnanceStore() {
         })}
       </section>
       {w.chooserEl}
+      {bought && <Issued o={bought.o} n={bought.n} txid={bought.txid} onClose={() => setBought(null)} />}
     </>
+  );
+}
+
+/** After a purchase: the gun, its edition, proof on chain, and where to use it / share it. */
+function Issued({ o, n, txid, onClose }: { o: Ordnance; n: number; txid: string; onClose: () => void }) {
+  const url = `https://www.tokenblaster.lol/1satordnance/store/${slugOf(o)}`;
+  const tweet = `Just drew my ${o.name} #${n}: a real 1Sat ordinal gun. ${o.tagline}`;
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-3" role="dialog" aria-modal="true" aria-label={`${o.name} issued`} onClick={onClose}>
+      <div className="panel w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="panel-header">
+          <span className="panel-title">&gt; WEAPON ISSUED</span>
+          <button onClick={onClose} className="text-dim hover:text-hot" aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="-mx-2.5 aspect-square overflow-hidden bg-black">
+          <GunArt o={o} spin className="h-full w-full object-cover" />
+        </div>
+        <p className="mt-2 text-lg font-bold text-hot">
+          {o.name} #{n}
+        </p>
+        <p className="text-sm text-dim">It&apos;s in your wallet now as a 1Sat ordinal. It unlocks in the games as soon as the 1Sat index sees it (usually seconds).</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm">
+          <Link href="/arena" className="btn-fire !px-2 !py-2 !text-sm">
+            PLAY IT IN THE ARENA
+          </Link>
+          <Link href="/arcade/doubleokweg" className="btn-fire !px-2 !py-2 !text-sm">
+            DOUBLE-O KWEG
+          </Link>
+          <a href={`https://x.com/intent/post?text=${encodeURIComponent(tweet)}&url=${encodeURIComponent(url)}`} target="_blank" rel="noopener noreferrer" className="btn px-2 py-2">
+            SHARE ON X
+          </a>
+          <a href={`https://whatsonchain.com/tx/${txid}`} target="_blank" rel="noopener noreferrer" className="btn px-2 py-2">
+            VIEW ON CHAIN ↗
+          </a>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { Ordnance } from '@/lib/ordnance';
+import { cardPath, type Ordnance } from '@/lib/ordnance';
 import { gunArtUrl, spinGun, type LiveGun } from '@/lib/ordnanceArt';
 
 /** Only one card is live at a time (each live card holds a WebGL context). */
@@ -13,7 +13,8 @@ let closeOther: (() => void) | null = null;
  * holding on it fires a demo burst (nothing on chain, no token).
  */
 export function GunArt({ o, className = '', spin = false }: { o: Ordnance; className?: string; spin?: boolean }) {
-  const [src, setSrc] = useState<string | null>(o.image ?? null);
+  // Pre-rendered poster card (fast); falls back to rendering in the browser if it's missing.
+  const [src, setSrc] = useState<string | null>(o.image ?? cardPath(o));
   const [live, setLive] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -21,14 +22,15 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
   const gun = useRef<LiveGun | null>(null);
   const wantFire = useRef(false);
 
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
-    if (o.image) return;
+    if (o.image || !failed) return;
     let alive = true;
     gunArtUrl(o).then((u) => alive && setSrc(u)).catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [o]);
+  }, [o, failed]);
 
   useEffect(() => {
     if (!live || !canvas.current) return;
@@ -59,7 +61,7 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
 
   const still = src ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={`${o.name} art`} className={className} loading="lazy" />
+    <img src={src} alt={`${o.name} art`} className={className} loading="lazy" onError={() => setFailed(true)} />
   ) : (
     <div className={`${className} animate-pulse bg-[var(--active-bg)]`} />
   );

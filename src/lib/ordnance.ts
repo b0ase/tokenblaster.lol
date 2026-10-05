@@ -52,6 +52,12 @@ export const PRICE_SATS: Record<Rarity, number> = { common: 1_000_000, rare: 5_0
 export const priceOf = (o: Ordnance) => PRICE_SATS[o.rarity];
 
 /** Site path of a weapon's 3D model. */
+/** URL slug for a weapon's own store page: its name, e.g. "BIG BLOCKER" → big-blocker. */
+export const slugOf = (o: { name: string }) => o.name.toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+export const bySlug = (slug: string) => ORDNANCE.find((o) => slugOf(o) === slug);
+/** Pre-rendered poster card (768², webp) and share image (1200×630, jpg), made by /1satordnance/render. */
+export const cardPath = (o: { id: string }) => `/ordnance/cards/${o.id}.webp`;
+export const ogPath = (o: { id: string }) => `/ordnance/cards/${o.id}-og.jpg`;
 export const modelPath = (o: Ordnance) => `/arena/models/guns/${o.model ?? o.base}.glb`;
 export const modelUrl = (o: Ordnance) => `https://www.tokenblaster.lol${modelPath(o)}`;
 
@@ -141,7 +147,6 @@ export const ORDNANCE: Ordnance[] = [
     base: 'plasmarifle',
     stats: { fireMs: 45, pellets: 2, spread: 0.012, bolt: '#ffd700', kick: 0.5 },
     tint: '#ffc830',
-    image: '/ordnance/safu-blaster.webp',
     edition: 21,
     rarity: 'legendary',
     origin: '',

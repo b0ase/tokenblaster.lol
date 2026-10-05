@@ -58,7 +58,7 @@ export default function Home() {
 
       <Link href="/1satordnance/store" className="panel group flex flex-wrap items-center gap-3 hover:border-fg">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/ordnance/safu-blaster.webp" alt="" className="h-20 w-20 border border-[var(--border-dim)] object-cover" />
+        <img src="/ordnance/cards/safu-blaster.webp" alt="" className="h-20 w-20 border border-[var(--border-dim)] object-cover" />
         <div className="min-w-[14rem] flex-1">
           <p className="font-bold text-hot group-hover:underline">NEW · 1SAT ORDNANCE STORE: 22 guns you actually own</p>
           <p className="text-dim">Buy a game weapon as a real 1Sat ordinal, inscribed straight into your wallet. Hold it and it unlocks in Double-O Kweg and the Arena. Shows up in 3D in bWalletX.</p>
