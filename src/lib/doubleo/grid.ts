@@ -1,4 +1,4 @@
-/** Grid world for a Double-O Satoshi level: collision, doors, line of sight and BFS paths. */
+/** Grid world for a Double-O Kweg level: collision, doors, line of sight and BFS paths. */
 import { DOORS, LOW, SIZE, SOLID, type Level } from './levels';
 
 export type Door = { x: number; z: number; open: number; locked: boolean; alongX: boolean };

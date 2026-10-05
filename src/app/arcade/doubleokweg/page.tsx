@@ -4,10 +4,10 @@ import { GitHubLink } from '@/components/GitHubLink';
 
 const description = 'A GoldenEye-style 3D spy shooter. Special Agent Kweg Wong fires PNEE (or any token in your wallet) at cartoon crypto villains: every bullet is one token in a real BSV transaction.';
 export const metadata = {
-  title: 'Double-O Satoshi · TokenBlaster.lol',
+  title: 'Double-O Kweg · TokenBlaster.lol',
   description,
-  openGraph: { title: 'Double-O Satoshi', description, url: '/arcade/doubleosatoshi' },
-  twitter: { card: 'summary_large_image', title: 'Double-O Satoshi', description },
+  openGraph: { title: 'Double-O Kweg', description, url: '/arcade/doubleokweg' },
+  twitter: { card: 'summary_large_image', title: 'Double-O Kweg', description },
 };
 
 export default function DoubleOPage() {
@@ -16,7 +16,7 @@ export default function DoubleOPage() {
       <header className="panel">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h1 className="text-2xl font-bold text-hot">
-            Double-O Satoshi<span className="blink">_</span>
+            Double-O Kweg<span className="blink">_</span>
           </h1>
           <span className="flex items-center gap-3">
             <GitHubLink />
