@@ -33,17 +33,17 @@ export const AMMO: Record<Ammo, AmmoDef> = {
   grenade: { kind: 'grenade', sym: 'NADES', name: 'Grenades', blurb: 'Lobbed rounds for the KWEG Grenade Launcher. Patent pending.', icon: '/ordnance/ammo/nades.svg', color: '#40d070', id: '', supply: BigInt(1_000_000_000), dec: 0 },
 };
 
-/** Real tokens a specific gun insists on. PNEE's token id isn't pinned here yet, so it matches by ticker. */
+/** Real tokens a specific gun insists on, matched by token id (never by ticker). PNEE: 2 decimals, 1 unit = 1 US cent. */
 export type RealAmmo = { sym: string; id: string; name: string; buyUrl: string | null };
-export const PNEE: RealAmmo = { sym: 'PNEE', id: '', name: 'PNEE', buyUrl: 'https://bwalletx.com/pnees' };
+export const PNEE: RealAmmo = { sym: 'PNEE', id: '1599c4e49a28c7791295f50613e1545aa9246dd592ae8b8f696b81916a475ae4_0', name: 'PNEE', buyUrl: 'https://bwalletx.com/pnees' };
 const OVERRIDE: Record<string, RealAmmo> = { 'pnee-shotgun': PNEE };
 
 export type AmmoRule = { label: string; sym: string; ids: string[]; real: RealAmmo | null; def: AmmoDef | null };
 
 /**
  * What an ordnance gun may fire in LIVE play, or null if it fires anything (a stock gun, or its
- * ammo hasn't been minted yet). `ids` are the accepted BSV-21 token ids; a real token without a
- * pinned id (PNEE) is matched by its ticker instead.
+ * ammo hasn't been minted yet). `ids` are the accepted BSV-21 token ids (a real token with no
+ * pinned id would fall back to its ticker; PNEE is pinned).
  */
 export function requiredAmmo(ordnanceId: string | undefined): AmmoRule | null {
   if (!ordnanceId) return null;
