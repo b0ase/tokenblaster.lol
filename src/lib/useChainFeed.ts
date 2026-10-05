@@ -25,7 +25,16 @@ export function useChainFeed(cap = 400) {
       const f = classify(tx.id, tx.hex, tx.mined);
       if (!f) return;
       if (f.token) tokenMeta(f.token); // fetch its name/icon early
-      if (queue.current.length < cap) queue.current.push(f);
+      // Rolling buffer, per kind: always keep the newest of each kind, so one flood (e.g. a
+      // spam burst of data txs) can't fill the queue and starve the other lanes or go stale.
+      const q = queue.current;
+      q.push(f);
+      // Each kind keeps at most its share (oldest of that kind goes first), then the total cap.
+      let same = 0;
+      for (const x of q) if (x.kind === f.kind) same++;
+      if (same > Math.ceil(cap / 6)) q.splice(q.findIndex((x) => x.kind === f.kind), 1);
+      if (q.length > cap) q.shift();
+      (window as unknown as { __tbFeed?: unknown }).__tbFeed = { waiting: q.length, kinds: q.reduce<Record<string, number>>((m, x) => ((m[x.kind] = (m[x.kind] ?? 0) + 1), m), {}) };
     };
     let stop: (() => void) | undefined;
     let cancelled = false;

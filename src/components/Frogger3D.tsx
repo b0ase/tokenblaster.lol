@@ -1097,7 +1097,8 @@ export function Frogger3D() {
         const entry = vehicles.filter((v) => v.lane === i).reduce((m, v) => Math.min(m, dir > 0 ? v.g.position.x + ROAD_HALF - v.len / 2 : ROAD_HALF - v.g.position.x - v.len / 2), Infinity);
         const minGap = Math.max(9, 26 - level * 2); // room to cross; tightens as you level up
         if (entry < minGap) return;
-        const f = feedRef.current.take((t) => t.kind === kind || (kind === 'payment' && t.kind === 'blast'));
+        // This lane's kind if one is waiting; after a dry spell, any live tx keeps the road moving.
+        const f = feedRef.current.take((t) => t.kind === kind || (kind === 'payment' && t.kind === 'blast')) ?? (now - nextAt[i] > 6000 ? feedRef.current.take() : null);
         if (!f) return;
         sampled++;
         nextAt[i] = now + (1200 + Math.random() * 2600) / (1 + (level - 1) * 0.15);
