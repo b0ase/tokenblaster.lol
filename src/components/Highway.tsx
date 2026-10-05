@@ -96,7 +96,7 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
       const w = (c.width = c.clientWidth * dpr);
       const h = (c.height = c.clientHeight * dpr);
       const lane = h / KINDS.length;
-      ctx.fillStyle = '#050202';
+      ctx.fillStyle = '#060607';
       ctx.fillRect(0, 0, w, h);
       ctx.strokeStyle = '#3a1010';
       ctx.setLineDash([20 * dpr, 16 * dpr]);
@@ -134,7 +134,7 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
           const sz = car.h * 0.9;
           if (meta.icon?.complete && meta.icon.naturalWidth) ctx.drawImage(meta.icon, car.x + 2 * dpr, car.y + (car.h - sz) / 2, sz, sz);
           ctx.font = `bold ${Math.max(9, car.h / dpr / 2.2) * dpr}px monospace`;
-          ctx.fillStyle = '#0a0404';
+          ctx.fillStyle = '#0b0b0d';
           ctx.fillText(`$${meta.sym}`, car.x + sz + 5 * dpr, car.y + car.h * 0.62, Math.max(0, car.w - sz - 7 * dpr));
         }
       }

@@ -65,10 +65,10 @@ export function StackBuilder() {
     const key = new THREE.DirectionalLight('#fff2e6', 2);
     key.position.set(2, 4, 3);
     scene.add(key);
-    const rim = new THREE.DirectionalLight('#ff5a48', 1.4);
+    const rim = new THREE.DirectionalLight('#f5b800', 1.4);
     rim.position.set(-3, 2, -3);
     scene.add(rim);
-    const grid = new THREE.GridHelper(6, 12, '#5a1a14', '#2a0a0a');
+    const grid = new THREE.GridHelper(6, 12, '#5a1a14', '#1a1300');
     scene.add(grid);
 
     const loader = new GLTFLoader();
@@ -437,7 +437,7 @@ function FitSliders({ label, card, fit, onChange }: { label: string; card: strin
             step={0.005}
             value={fit[k] ?? 0}
             onChange={(e) => onChange({ ...fit, [k]: Number(e.target.value) })}
-            className="w-32 accent-[#ff5a48]"
+            className="w-32 accent-[#f5b800]"
           />
         </label>
       ))}

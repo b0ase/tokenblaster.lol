@@ -49,7 +49,7 @@ export default function OrdnancePage() {
           </div>
           <div className="relative mx-auto aspect-square w-full max-w-[22rem]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/ordnance/safu-blaster.webp" alt="The SAFU Blaster, a gold legendary 1Sat Ordnance weapon" className="h-full w-full border border-[var(--border)] object-cover shadow-[0_0_40px_rgba(255,90,72,0.25)]" />
+            <img src="/ordnance/safu-blaster.webp" alt="The SAFU Blaster, a gold legendary 1Sat Ordnance weapon" className="h-full w-full border border-[var(--border)] object-cover shadow-[0_0_40px_rgba(245,184,0,0.25)]" />
           </div>
         </div>
       </header>

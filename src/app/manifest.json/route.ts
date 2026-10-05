@@ -10,8 +10,8 @@ const manifest = {
   short_name: 'TokenBlaster',
   start_url: '/arena',
   display: 'standalone',
-  background_color: '#0a0404',
-  theme_color: '#0a0404',
+  background_color: '#0b0b0d',
+  theme_color: '#0b0b0d',
   icons: [
     { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
     { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },

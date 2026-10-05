@@ -103,7 +103,7 @@ export const ORDNANCE: Ordnance[] = [
 ];
 
 export const isMinted = (o: Ordnance) => Boolean(o.origin);
-export const RARITY_COLOR: Record<Rarity, string> = { common: '#e0958a', rare: '#6ae0ff', epic: '#c070ff', legendary: '#ffd700' };
+export const RARITY_COLOR: Record<Rarity, string> = { common: '#c9b37a', rare: '#6ae0ff', epic: '#c070ff', legendary: '#ffd700' };
 
 /** 1Sat MAP metadata for one edition of a weapon (collectionItem). */
 export function ordnanceMap(o: Ordnance, mintNumber: number, collectionId = ORDNANCE_COLLECTION): Record<string, string> {

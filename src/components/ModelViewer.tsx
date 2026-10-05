@@ -119,14 +119,14 @@ export function ModelViewer() {
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
     scene.add(key);
-    const rim = new THREE.DirectionalLight('#ff5a48', 1.6);
+    const rim = new THREE.DirectionalLight('#f5b800', 1.6);
     rim.position.set(-4, 3, -4);
     scene.add(rim);
     const floor = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.MeshStandardMaterial({ color: '#1e0c0a', roughness: 0.85 }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     scene.add(floor);
-    const grid = new THREE.GridHelper(12, 24, '#5a1a14', '#2a0a0a');
+    const grid = new THREE.GridHelper(12, 24, '#5a1a14', '#1a1300');
     grid.position.y = 0.002;
     scene.add(grid);
 
@@ -393,7 +393,7 @@ export function ModelViewer() {
                 ui.current.seek = Number(e.target.value);
                 setTime(Number(e.target.value));
               }}
-              className="min-w-40 flex-1 accent-[#ff5a48]"
+              className="min-w-40 flex-1 accent-[#f5b800]"
               aria-label="Scrub animation"
             />
             <span className="w-24 text-right tabular-nums text-dim">
@@ -418,7 +418,7 @@ export function ModelViewer() {
             </button>
             <label className="flex items-center gap-1 text-xs text-dim">
               explode
-              <input type="range" min={0} max={2.5} step={0.01} value={explode} onChange={(e) => setExplode(Number(e.target.value))} className="w-28 accent-[#ff5a48]" />
+              <input type="range" min={0} max={2.5} step={0.01} value={explode} onChange={(e) => setExplode(Number(e.target.value))} className="w-28 accent-[#f5b800]" />
             </label>
           </>
         )}

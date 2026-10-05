@@ -264,7 +264,7 @@ export function Arena() {
       x.fillStyle = 'rgba(10,4,4,0.75)';
       x.fillRect(0, 0, 256, 48);
       x.font = 'bold 26px monospace';
-      x.fillStyle = '#ffd0c0';
+      x.fillStyle = '#ffe58a';
       x.textAlign = 'center';
       x.fillText(text.slice(0, 16), 128, 33);
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
@@ -328,11 +328,11 @@ export function Arena() {
     const paintBadge = (img: HTMLImageElement | null) => {
       const c = badgeCanvas.getContext('2d')!;
       c.clearRect(0, 0, 64, 64);
-      c.fillStyle = '#ff5a48';
+      c.fillStyle = '#f5b800';
       c.beginPath();
       c.arc(32, 32, 30, 0, Math.PI * 2);
       c.fill();
-      c.fillStyle = '#0a0404';
+      c.fillStyle = '#0b0b0d';
       c.beginPath();
       c.arc(32, 32, 26, 0, Math.PI * 2);
       c.fill();
