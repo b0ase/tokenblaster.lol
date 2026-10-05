@@ -19,7 +19,9 @@ import { Room, realtimeConfigured } from '@/lib/realtime';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GameAudio } from '@/components/SoundToggle';
 import Link from 'next/link';
-import { ORDNANCE, type Ordnance } from '@/lib/ordnance';
+import { ORDNANCE, ammoOf, type Ammo, type Ordnance } from '@/lib/ordnance';
+import { BLAST_RADIUS, isMinigunOrdnance, makeAmmoFx } from '@/lib/ammoFx';
+import { AMMO_SFX, minigun, sfx as playSfx } from '@/lib/sfx';
 import { ammoAccepts, requiredAmmo } from '@/lib/ammo';
 import { GunArt } from './GunArt';
 import type { GunDef } from '@/lib/arenaHD';
@@ -229,6 +231,10 @@ export function Arena() {
     // ── Guns: real models (loaded below), held by the camera; 1-4 switches ──
     const gun = new THREE.Group(); // holder: bob and recoil move this
     camera.add(gun);
+    // Soft fill on the held gun so dark models (lever actions, revolvers) still read in the corridor.
+    const gunFill = new THREE.PointLight('#fff1dc', 0, 1.6, 2);
+    gunFill.position.set(0.05, 0.05, -0.2);
+    camera.add(gunFill);
     const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false }));
     flash.scale.set(0.3, 0.3, 0.3);
     flash.visible = false;
@@ -253,11 +259,16 @@ export function Arena() {
       gunIdx = i;
       held.forEach((h, k) => (h.group.visible = k === i));
       gunRest.set(...held[i].def.pos);
+      gunFill.intensity = ALL_GUNS[i]?.ordnance ? 1.6 : 0;
       flash.position.copy(held[i].muzzle);
       setWeapon(i);
     };
     const boltMats = new Map(ALL_GUNS.map((g) => [g.id, new THREE.LineBasicMaterial({ color: new THREE.Color(g.bolt).multiplyScalar(4), toneMapped: false })]));
     const bolts: { line: THREE.Line; born: number }[] = [];
+    // Ordnance guns fire their own ammo (tracers, pellets, beams, plasma, rockets, grenades).
+    const ammoFx = makeAmmoFx(scene, 0);
+    let lastShotCast = 0;
+    let whining = false;
 
     // ── Game state (filled in once assets load) ──
     const walls: THREE.Mesh[] = [];
@@ -311,6 +322,12 @@ export function Arena() {
               r.yaw = d.yaw;
               r.gun = d.gun;
               r.seen = performance.now();
+            } else if (event === 'shot') {
+              // Another player's ordnance shot: draw the same projectile (visual only).
+              const d = p as { id: string; k: Ammo; c: string; f: number[]; t: number[] };
+              if (d.id === myId || !Array.isArray(d.f) || !Array.isArray(d.t)) return;
+              const from = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
+              for (let i = 0; i + 2 < d.t.length && i < 60; i += 3) ammoFx.fire(d.k, from, new THREE.Vector3(d.t[i], d.t[i + 1], d.t[i + 2]), d.c);
             } else if (event === 'hit') {
               const d = p as { to: string; from: string; n: number; tokens: boolean; sym?: string; icon?: string | null };
               if (d.to !== myId) return;
@@ -805,6 +822,38 @@ export function Arena() {
       setHud((h) => ({ ...h, heat }));
       draining = false;
     };
+    /** One point of damage (or `dmg`) to a monster; true when it dies. */
+    const hurtMob = (mob: Mob, now: number, dmg = 1) => {
+      mob.hp -= dmg;
+      sfx?.hit();
+      let killed = false;
+      if (mob.hp <= 0) {
+        killed = true;
+        mob.state = 'dying';
+        if (mob.m.has('death')) mob.m.play('death', { once: true, fade: 0.08 });
+        sfx?.die();
+      } else if (mob.m.has('hit')) {
+        mob.state = 'hit';
+        mob.m.play('hit', { once: true, fade: 0.05 });
+      }
+      mob.since = now;
+      return killed;
+    };
+    /** Rocket / grenade going off: area damage, 2 at the centre falling to 1 at the edge. */
+    const blast = (at: THREE.Vector3, radius: number) => {
+      const now = performance.now();
+      playSfx('explosion', 0.8);
+      sparkAt(at, '#ffb070');
+      muzzleLight.intensity = Math.max(muzzleLight.intensity, 30);
+      let kills = 0;
+      for (const mob of mobs) {
+        if (mob.state === 'dying' || mob.state === 'dead' || !mob.m.root.visible) continue;
+        const d = mob.m.root.position.distanceTo(new THREE.Vector3(at.x, mob.m.root.position.y, at.z));
+        if (d > radius) continue;
+        if (hurtMob(mob, now, d < radius / 2 ? 2 : 1)) kills++;
+      }
+      if (kills) setHud((h) => ({ ...h, kills: h.kills + kills }));
+    };
     /** Monsters with no attack animation lunge at you instead. */
     const lunge = (mob: Mob, now: number) => {
       mob.m.body.userData.lunge = now;
@@ -822,7 +871,9 @@ export function Arena() {
       // Only fire shots the gun can pay for, counting the ones already queued for the chain.
       const L = live.current;
       const canPay = L.tokenMode ? Math.min(Math.floor(L.tokens), Math.floor(L.ammo / TOKEN_FEE)) - heat : Math.floor(L.ammo / FEE_PER_SHOT) - heat;
-      if (!live.current.armed || canPay < g.pellets) {
+      // Dev builds only: ?devfire fires without ammo and sends nothing to the chain (to check visuals).
+      const devFire = process.env.NODE_ENV !== 'production' && window.location.search.includes('devfire');
+      if (!devFire && (!live.current.armed || canPay < g.pellets)) {
         if (now - lastShot > 300) {
           lastShot = now;
           sfx?.click();
@@ -833,7 +884,11 @@ export function Arena() {
       if (heat + g.pellets > MAX_HEAT) return;
       setEmpty(false);
       lastShot = now;
-      sfx?.shoot();
+      const ord = ALL_GUNS[gunIdx]?.ordnance;
+      const kind: Ammo | null = ord ? ammoOf(ord) : null;
+      if (kind) playSfx(AMMO_SFX[kind], 0.7);
+      else sfx?.shoot();
+      const ends: number[] = [];
       const from = held[gunIdx] ? held[gunIdx].group.localToWorld(held[gunIdx].muzzle.clone()) : camera.position.clone();
       const boxes = [...mobs.filter((m) => m.state !== 'dying' && m.state !== 'dead' && m.m.root.visible).map((m) => m.m.hitbox), ...[...remotes.values()].map((r) => r.m.hitbox)];
       let kills = 0;
@@ -842,9 +897,15 @@ export function Arena() {
         raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * g.spread * 2, (Math.random() - 0.5) * g.spread * 2), camera);
         const first = raycaster.intersectObjects([...walls, ...boxes], false)[0];
         const end = first ? first.point : camera.position.clone().addScaledVector(raycaster.ray.direction, 40);
-        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), boltMats.get(g.id));
-        scene.add(line);
-        bolts.push({ line, born: now });
+        const explosive = kind === 'rocket' || kind === 'grenade';
+        if (kind) {
+          ends.push(+end.x.toFixed(2), +end.y.toFixed(2), +end.z.toFixed(2));
+          ammoFx.fire(kind, from, end, g.bolt, explosive ? { onBlast: (at) => blast(at, BLAST_RADIUS[kind] ?? 2.5) } : undefined);
+        } else {
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), boltMats.get(g.id));
+          scene.add(line);
+          bolts.push({ line, born: now });
+        }
         if (coinReady && flyers.length < 60) {
           const s = new THREE.Sprite(flyMat);
           s.scale.setScalar(0.12);
@@ -854,28 +915,18 @@ export function Arena() {
         }
         const mob = first && mobs.find((m) => m.m.hitbox === first.object && m.state !== 'dying' && m.state !== 'dead');
         let killed = false;
-        if (first) sparkAt(first.point, mob ? '#c8ffd0' : g.bolt);
-        if (mob) {
-          mob.hp--;
-          sfx?.hit();
-          if (mob.hp <= 0) {
-            killed = true;
-            kills++;
-            mob.state = 'dying';
-            if (mob.m.has('death')) mob.m.play('death', { once: true, fade: 0.08 });
-            sfx?.die();
-          } else if (mob.m.has('hit')) {
-            mob.state = 'hit';
-            mob.m.play('hit', { once: true, fade: 0.05 });
-          }
-          mob.since = now;
-        }
+        // Explosive rounds do their damage when they go off (see blast); everything else hits now.
+        if (first && !explosive) sparkAt(first.point, mob ? '#c8ffd0' : g.bolt);
+        if (mob && !explosive) {
+          killed = hurtMob(mob, now);
+          if (killed) kills++;
+        } else if (mob) killed = mob.hp <= 2; // the blast will take it: count the shot as a kill on chain
         const foe = first && [...remotes.entries()].find(([, r]) => r.m.hitbox === first.object);
         if (foe) {
           sparkAt(first!.point, '#ffd04a');
           sfx?.hit();
-          queue.push({ extra: ['arena', 'player', foe[0]], to: foe[1].gun || undefined, target: foe[0] });
-        } else queue.push({ extra: ['arena', mob ? (killed ? 'kill' : 'hit') : 'miss'] });
+          if (!devFire) queue.push({ extra: ['arena', 'player', foe[0]], to: foe[1].gun || undefined, target: foe[0] });
+        } else if (!devFire) queue.push({ extra: ['arena', mob ? (killed ? 'kill' : 'hit') : 'miss'] });
       }
       heat = queue.length;
       // Spent coin out of the ejection port (gun's right side), tumbling up and back.
@@ -897,6 +948,10 @@ export function Arena() {
         if (casings.length > MAX_CASINGS) scene.remove(casings.shift()!.m);
       }
       setHud((h) => ({ ...h, shots: h.shots + g.pellets, kills: h.kills + kills, heat }));
+      if (kind && room && now - lastShotCast > 60) {
+        lastShotCast = now;
+        room.broadcast('shot', { id: myId, k: kind, c: g.bolt, f: [+from.x.toFixed(2), +from.y.toFixed(2), +from.z.toFixed(2)], t: ends });
+      }
       flash.visible = true;
       flash.material.rotation = Math.random() * Math.PI;
       muzzleLight.intensity = 25 * g.kick;
@@ -987,6 +1042,13 @@ export function Arena() {
       gun.rotation.x = recoil * 0.12;
 
       if (trigger) shoot(now);
+      ammoFx.update(dt);
+      // Minigun-type ordnance whines while the trigger is held.
+      const whine = trigger && ready && !deadUntil && isMinigunOrdnance(ALL_GUNS[gunIdx]?.ordnance?.id);
+      if (whine !== whining) {
+        whining = whine;
+        minigun(whine);
+      }
       const hg = held[gunIdx];
       if (hg?.spin && hg.mixer) {
         hg.spin.timeScale += ((trigger ? 3 : 0) - hg.spin.timeScale) * Math.min(1, dt * 5);
@@ -1202,6 +1264,8 @@ export function Arena() {
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      minigun(false);
+      ammoFx.dispose();
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
       window.removeEventListener('mouseup', onUp);
@@ -1384,13 +1448,14 @@ export function Arena() {
           </button>
         )}
         {playing && (
-          <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1">
+          // Weapon switcher: bottom-left and compact, clear of the held gun (lower right).
+          <div className="absolute bottom-3 left-3 flex max-w-[42%] flex-wrap gap-1">
             {ALL_GUNS.map((g, i) =>
               i >= GUNS.length && !owned.has(g.id) ? null : (
                 <button
                   key={g.id}
                   onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
-                  className={`btn px-2 py-1 text-xs ${i === weapon ? 'btn-on' : 'opacity-70'}`}
+                  className={`btn px-1.5 py-0.5 text-[10px] ${i === weapon ? 'btn-on' : 'opacity-60'}`}
                 >
                   {g.key && <span className="text-dim">{g.key}</span>} {g.name}
                 </button>
@@ -1555,7 +1620,7 @@ export function Arena() {
         <Cell label={tokenMode ? 'TOKENS' : 'AMMO'} value={shotsLeft.toLocaleString()} sub={tokenMode ? `$${b.token?.sym ?? ''} · ${ammoNow.toLocaleString()} sats fuel` : `sats shots · tag only`} />
         <Cell label="ON CHAIN" value={`${hud.onChain.toLocaleString()} / ${hud.shots.toLocaleString()}`} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
-        <Cell label={`${GUNS[weapon]?.key} ${GUNS[weapon]?.name.toUpperCase()}`} value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} sub="heat" />
+        <Cell label={`${ALL_GUNS[weapon]?.key ? `${ALL_GUNS[weapon].key} ` : '★ '}${(ALL_GUNS[weapon]?.name ?? '').toUpperCase()}`} value={`${Math.round((hud.heat / MAX_HEAT) * 100)}%`} sub="heat" />
         <button onClick={cycleToken} title="Switch token (T)" className="inset flex items-center justify-center gap-2 px-2 py-1 hover:border-fg">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {icon ? <img src={icon} alt="" className="h-8 w-8" /> : null}

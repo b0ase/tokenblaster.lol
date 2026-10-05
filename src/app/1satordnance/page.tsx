@@ -43,6 +43,9 @@ export default function OrdnancePage() {
               <Link href="/1satordnance/store" className="btn-fire">
                 ENTER THE STORE
               </Link>
+              <Link href="/1satordnance/ammo" className="btn px-4 py-2 font-bold">
+                GET AMMO
+              </Link>
               <a href="#catalogue" className="btn px-4 py-2 font-bold">
                 CATALOGUE
               </a>

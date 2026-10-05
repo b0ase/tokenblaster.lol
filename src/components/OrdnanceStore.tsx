@@ -12,6 +12,7 @@ import { P2PKH, PublicKey, Transaction } from '@bsv/sdk';
 import { inscriptionScript } from '@/lib/inscribe';
 import { ORDNANCE, RARITY_COLOR, ordnanceMap, priceOf, slugOf, type Ordnance, type Rarity } from '@/lib/ordnance';
 import { gunArtFile } from '@/lib/ordnanceArt';
+import { ammoFor } from '@/lib/ammo';
 import { formatUsd, usd } from '@/lib/pricing';
 import { resetStoreIssued, useOrdnance } from '@/lib/useOrdnance';
 import { GunArt } from './GunArt';
@@ -152,6 +153,13 @@ export function OrdnanceStore({ only }: { only?: string } = {}) {
               </div>
               <p className="text-accent">{o.tagline}</p>
               <p className="mt-1 flex-1 text-sm text-dim">{o.description}</p>
+              <p className="mt-1 text-xs text-dim">
+                Fires ${ammoFor(o.id).sym}
+                {ammoFor(o.id).real ? ' (real token)' : ''} ·{' '}
+                <Link href="/1satordnance/ammo" className="underline hover:text-hot">
+                  get ammo
+                </Link>
+              </p>
               <dl className="mt-2 grid grid-cols-3 gap-1 text-center text-xs">
                 <div className="inset bg-black/50 p-1">
                   <dt className="text-dim">RATE</dt>

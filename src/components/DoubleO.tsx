@@ -32,9 +32,11 @@ import { WalletChooser } from './WalletChooser';
 import { HighScores } from './HighScores';
 import type { ScoreGame } from '@/lib/scores';
 import { GameAudio } from '@/components/SoundToggle';
-import { sfx as playSfx } from '@/lib/sfx';
+import { AMMO_SFX, minigun, sfx as playSfx } from '@/lib/sfx';
+import { BLAST_RADIUS, isMinigunOrdnance, makeAmmoFx } from '@/lib/ammoFx';
+import { ammoAccepts, requiredAmmo } from '@/lib/ammo';
 import Link from 'next/link';
-import { ORDNANCE, RARITY_COLOR } from '@/lib/ordnance';
+import { ORDNANCE, RARITY_COLOR, ammoOf, type Ammo } from '@/lib/ordnance';
 import { useOrdnance } from '@/lib/useOrdnance';
 import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
 import { gunDefFor, loadGunModel } from '@/lib/ordnanceModels';
@@ -192,21 +194,27 @@ export function DoubleO() {
     return () => clearTimeout(t);
   }, [jam]);
 
-  // Ammo: always whole tokens. Pick PNEE automatically when the wallet has it.
+  // Ammo: always whole tokens. Pick PNEE automatically when the wallet has it. A Q Branch ordnance gun
+  // fires only its own ammo in LIVE (PNEE Shotgun: real PNEE; the rest: their minted ammo token).
+  const ammoRule = requiredAmmo(gearOk ?? undefined);
   const autoPicked = useRef(false);
   useEffect(() => {
     if (!b.tokens.length) return;
-    if (!autoPicked.current) {
+    if (ammoRule && !ammoAccepts(ammoRule, b.token)) {
+      const match = b.tokens.find((t) => ammoAccepts(ammoRule, t));
+      if (match) b.setToken(match);
+    } else if (!autoPicked.current) {
       autoPicked.current = true;
       const pnee = b.tokens.find((t) => /pnee/i.test(t.sym));
       if (pnee) b.setToken(pnee);
     }
     if (b.mode !== 'tokens') b.setMode('tokens');
-  }, [b.tokens, b.mode, b]);
+  }, [b.tokens, b.mode, b, ammoRule]);
+  const ammoOk = ammoAccepts(ammoRule, b.token);
 
   const sym = b.token?.sym ?? 'PNEE';
   const icon = iconUrl(b.token?.icon ?? null);
-  const armed = Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE;
+  const armed = Boolean(b.token) && ammoOk && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE;
   const inMission = screen === 'play' || screen === 'paused';
   useEffect(() => {
     lobby.current?.track({ m: inMission ? LEVELS[level].id : null });
@@ -346,6 +354,9 @@ export function DoubleO() {
     const coinMats = [rimMat, faceMat, faceMat];
     type Flyer = { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; target: Actor | null; point: THREE.Vector3 };
     const flyers: Flyer[] = [];
+    // Q Branch ordnance fires its own ammo (tracers, pellets, beams, plasma, rockets, grenades).
+    const ammoFx = makeAmmoFx(scene, 0);
+    let whining = false;
     type Loose = { m: THREE.Mesh; v: THREE.Vector3; spin: number; born: number };
     const loose: Loose[] = [];
     const burstCoins = (p: THREE.Vector3, n: number) => {
@@ -1055,6 +1066,19 @@ export function DoubleO() {
       if (a.hp <= 0) killActor(a, now, point, mine);
     };
 
+    /** Rocket / grenade going off: everyone in the radius takes a hit (two near the centre). */
+    const blast = (at: THREE.Vector3, radius: number) => {
+      const now = performance.now();
+      playSfx('explosion', 0.8);
+      muzzleLight.intensity = Math.max(muzzleLight.intensity, 30);
+      for (const a of actors) {
+        if (a.state === 'dying') continue;
+        const d = Math.hypot(a.root.position.x - at.x, a.root.position.z - at.z);
+        if (d > radius) continue;
+        hitActor(a, a.root.position.clone().setY(1.2), now);
+        if (d < radius / 2) hitActor(a, a.root.position.clone().setY(1.2), now);
+      }
+    };
     const shoot = (now: number) => {
       if (!running || now - lastShot < fireMs) return;
       if (now < jammedUntil) {
@@ -1079,7 +1103,10 @@ export function DoubleO() {
       }
       setEmpty(false);
       lastShot = now;
-      sfx?.shoot();
+      const ord = armed ? ORDNANCE.find((o) => o.id === armed) : undefined;
+      const kind: Ammo | null = ord ? ammoOf(ord) : null;
+      if (kind) playSfx(AMMO_SFX[kind], 0.7);
+      else sfx?.shoot();
       stats.shots++;
       const from = held ? held.group.localToWorld(held.muzzle.clone()) : camera.position.clone();
       raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * 0.01, (Math.random() - 0.5) * 0.01), camera);
@@ -1092,11 +1119,22 @@ export function DoubleO() {
       const foe = hit ? foes.find(([, r]) => r.rig.hitbox === hit.object) : undefined;
       if (target || foe) stats.hits++;
       if (foe && room && !liveMode) room.broadcast('phit', { to: foe[0], from: me.current.name, n: 1, tokens: false });
-      room?.broadcast('shot', { f: [from.x, from.y, from.z], t: [end.x, end.y, end.z] });
-      const m = new THREE.Mesh(coinGeo, coinMats);
-      m.position.copy(from);
-      scene.add(m);
-      flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone() });
+      room?.broadcast('shot', { f: [from.x, from.y, from.z], t: [end.x, end.y, end.z], k: kind ?? undefined, c: ord?.stats.bolt });
+      if (kind && ord) {
+        const explosive = kind === 'rocket' || kind === 'grenade';
+        ammoFx.fire(
+          kind,
+          from,
+          end,
+          ord.stats.bolt,
+          explosive ? { onBlast: (at) => blast(at, BLAST_RADIUS[kind] ?? 2.5) } : { onHit: (at) => (target ? hitActor(target, at, performance.now()) : undefined) },
+        );
+      } else {
+        const m = new THREE.Mesh(coinGeo, coinMats);
+        m.position.copy(from);
+        scene.add(m);
+        flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone() });
+      }
       // Noise wakes up anyone nearby.
       for (const a of actors)
         if (a.state === 'patrol' && a.root.position.distanceTo(camera.position) < 14) {
@@ -1605,10 +1643,14 @@ export function DoubleO() {
             const from = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
             for (let k = 0; k + 2 < d.d.length; k += 3) spawnBolt(from, new THREE.Vector3(d.d[k], d.d[k + 1], d.d[k + 2]), a, cast.shotColor, a?.kind === 'hoarder' ? 0.22 : 0.3, cast.shotSpeed, cast.damage, now);
           } else if (event === 'shot') {
-            const d = raw as { f: number[]; t: number[] };
-            const m = new THREE.Mesh(coinGeo, coinMats);
+            const d = raw as { f: number[]; t: number[]; k?: Ammo; c?: string };
             const f = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
             const t = new THREE.Vector3(d.t[0], d.t[1], d.t[2]);
+            if (d.k) {
+              ammoFx.fire(d.k, f, t, d.c ?? '#ffd27a'); // their ordnance round (visual; damage comes from the host)
+              return;
+            }
+            const m = new THREE.Mesh(coinGeo, coinMats);
             m.position.copy(f);
             scene.add(m);
             flyers.push({ m, from: f, to: t, t: 0, dur: Math.max(0.05, f.distanceTo(t) / 50), target: null, point: t.clone() });
@@ -1728,6 +1770,12 @@ export function DoubleO() {
       camera.position.y = EYE + (moving ? Math.sin(walkPhase) * 0.035 : 0);
 
       if (trigger || input.current.fire) shoot(now);
+      ammoFx.update(dt);
+      const whine = Boolean((trigger || input.current.fire) && running && isMinigunOrdnance(armed ?? undefined));
+      if (whine !== whining) {
+        whining = whine;
+        minigun(whine);
+      }
 
       // Pickups.
       for (const p of pickups) {
@@ -2053,6 +2101,8 @@ export function DoubleO() {
       disposed = true;
       clearInterval(bg);
       cancelAnimationFrame(raf);
+      minigun(false);
+      ammoFx.dispose();
       leaveMission();
       engine.current = null;
       window.removeEventListener('keydown', onKey);
@@ -2369,6 +2419,14 @@ export function DoubleO() {
                     </Link>
                   </div>
                   <p className="text-xs text-dim">Hold a 1Sat Ordnance ordinal in your wallet and Q issues it to you here.</p>
+                  {ammoRule && (
+                    <p className={`text-xs ${ammoOk ? 'text-dim' : 'text-hot'}`}>
+                      {ammoOk ? `Loaded with $${ammoRule.sym}.` : `This gun fires $${ammoRule.sym} only in LIVE.`}{' '}
+                      <Link href="/1satordnance/ammo" className="underline hover:text-hot">
+                        Get ammo ›
+                      </Link>
+                    </p>
+                  )}
                 </div>
                 <p className="text-left text-xs text-dim">
                   Click a mission to pick it, then PLAY. WASD move · Shift run · mouse aim · click / Space fire · V versus · Esc pause. Phone: left stick moves, drag right side to aim, FIRE button. Follow the green arrow to

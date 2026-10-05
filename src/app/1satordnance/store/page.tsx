@@ -25,6 +25,12 @@ export default function OrdnanceStorePage() {
         <p className="mt-2 max-w-2xl text-dim">
           Draw your weapon, soldier. Every gun is issued as a 1Sat ordinal inscribed straight into your wallet, in one transaction your wallet shows you first: the inscription to you, the price to TokenBlaster, the network fee to the miners. Hold it and it unlocks in Double-O Kweg and the Arena.
         </p>
+        <p className="mt-2 text-sm">
+          In LIVE play each gun fires its own ammo token.{' '}
+          <Link href="/1satordnance/ammo" className="font-bold text-hot underline">
+            Get ammo ›
+          </Link>
+        </p>
       </header>
       <OrdnanceStore />
       <p className="text-center text-[10px] text-muted">

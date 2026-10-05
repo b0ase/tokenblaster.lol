@@ -17,7 +17,8 @@ import { useEffect } from 'react';
 
 export type SfxName =
   | 'shot' | 'laser' | 'coin' | 'token' | 'jump' | 'spring' | 'stomp' | 'explosion' | 'rekt' | 'hit'
-  | 'hurt' | 'gameover' | 'level' | 'click' | 'sonar' | 'stamp' | 'pickup' | 'start';
+  | 'hurt' | 'gameover' | 'level' | 'click' | 'sonar' | 'stamp' | 'pickup' | 'start'
+  | 'shotgun' | 'beam' | 'plasma' | 'rocket' | 'grenade';
 export type Track = 'doubleo' | 'arena' | 'gun' | 'hopper' | 'invaders' | 'snake' | 'kweg' | 'frogger' | 'city';
 
 const LS = 'tb.audio';
@@ -321,6 +322,28 @@ export function sfx(name: SfxName, vol = 1) {
       tone('sine', 1320, 1300, t + 0.35, 0.6, 0.1 * v, o); // echo
       break;
     }
+    case 'shotgun':
+      noise(t, 0.28, 1 * v, 'lowpass', 2200, 140, o);
+      tone('sine', 140, 38, t, 0.22, 0.7 * v, o);
+      noise(t + 0.02, 0.08, 0.5 * v, 'bandpass', 3800, 1200, o);
+      break;
+    case 'beam':
+      tone('sine', 2400, 900, t, 0.18, 0.28 * v, o);
+      tone('sawtooth', 1200, 300, t, 0.12, 0.12 * v, o);
+      noise(t, 0.05, 0.25 * v, 'highpass', 6000, 3000, o);
+      break;
+    case 'plasma':
+      tone('square', 900, 160, t, 0.16, 0.22 * v, o);
+      tone('sine', 1800, 400, t, 0.12, 0.18 * v, o);
+      break;
+    case 'rocket':
+      noise(t, 0.6, 0.6 * v, 'bandpass', 500, 1600, o);
+      tone('sawtooth', 90, 220, t, 0.45, 0.2 * v, o);
+      break;
+    case 'grenade':
+      tone('sine', 180, 60, t, 0.16, 0.6 * v, o);
+      noise(t, 0.1, 0.4 * v, 'lowpass', 900, 200, o);
+      break;
     case 'stamp':
       noise(t, 0.12, 0.9 * v, 'lowpass', 900, 120, o);
       tone('sine', 160, 50, t, 0.15, 0.6 * v, o);
@@ -328,6 +351,16 @@ export function sfx(name: SfxName, vol = 1) {
       break;
   }
 }
+
+/** The firing sound for an ammo type (1Sat Ordnance guns). */
+export const AMMO_SFX: Record<'bullet' | 'pellet' | 'laser' | 'plasma' | 'rocket' | 'grenade', SfxName> = {
+  bullet: 'shot',
+  pellet: 'shotgun',
+  laser: 'beam',
+  plasma: 'plasma',
+  rocket: 'rocket',
+  grenade: 'grenade',
+};
 
 // ── Minigun (continuous, one persistent voice) ──
 let mg: { spin: OscillatorNode; spinG: GainNode; rat: AudioBufferSourceNode; ratG: GainNode; ratF: BiquadFilterNode; lfo: OscillatorNode } | null = null;
