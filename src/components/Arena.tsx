@@ -691,6 +691,7 @@ export function Arena() {
     const queue: Shot[] = [];
     let draining = false;
     let jammedUntil = 0;
+    let fails = 0;
     const drain = async () => {
       if (draining) return;
       draining = true;
@@ -715,9 +716,18 @@ export function Arena() {
           const isTok = live.current.tokenMode;
           setRecent((r) => [...txids.map((t) => ({ txid: t, token: isTok })).reverse(), ...r].slice(0, 6));
           setChainError(null);
-          if (txids.length < (live.current.tokenMode ? Math.min(25, batch.length) : batch.length)) throw new Error('Out of ammo.');
+          fails = 0;
+          if (!txids.length) throw new Error('Out of ammo.');
         } catch (e) {
-          setChainError(e instanceof Error ? e.message : String(e));
+          const msg = e instanceof Error ? e.message : String(e);
+          // Empty gun = a real stop. Anything else (slow ARC, a stale coin) gets retried quietly first.
+          const empty = /out of|empty|no tokens|no sats|load/i.test(msg);
+          if (!empty && ++fails <= 3) {
+            await new Promise((ok) => setTimeout(ok, 1000 * fails));
+            continue;
+          }
+          fails = 0;
+          setChainError(msg);
           queue.length = 0;
           jammedUntil = performance.now() + 4000; // shots that didn't reach the chain don't get to keep playing
           setJam(e instanceof Error ? e.message : String(e));

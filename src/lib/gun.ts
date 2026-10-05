@@ -160,6 +160,30 @@ export class Gun {
     }
   }
 
+  /**
+   * Broadcast an ordered chain and return how many ARC really took. A slow ARC or a false error
+   * (@bsv/sdk flags ARC's `competingTxs: null` as a failure) is checked against ARC's own status.
+   */
+  private async broadcastChain(txs: Transaction[]): Promise<{ accepted: number; why?: string }> {
+    let results: { status?: string; description?: string; code?: string | number }[] = [];
+    try {
+      results = (await Promise.race([
+        this.arc.broadcastMany(txs),
+        new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 20 s.')), 20_000)),
+      ])) as typeof results;
+    } catch (e) {
+      results = [{ description: e instanceof Error ? e.message : String(e) }];
+    }
+    let accepted = 0;
+    while (accepted < txs.length && results[accepted]?.status === 'success') accepted++;
+    if (accepted < txs.length) {
+      if (await this.known(txs[txs.length - 1].id('hex'))) accepted = txs.length;
+      else while (accepted < txs.length && (await this.known(txs[accepted].id('hex')))) accepted++;
+    }
+    const r = results[accepted];
+    return { accepted, why: r ? `${r.description ?? 'no response'}${r.code ? ` (code ${r.code})` : ''}` : undefined };
+  }
+
   /** True when ARC reports the tx as on its way into (or already in) a block. */
   private async known(txid: string): Promise<boolean> {
     try {
@@ -198,41 +222,34 @@ export class Gun {
   async fireBatch(token: string, startN: number, extras: string[][], pay?: { address: string; sats: number }): Promise<string[]> {
     return this.exclusive(async () => {
       this.refresh();
-      if (!this.coin) throw new Error('The gun is empty. Load it first.');
-      const chain: Transaction[] = [];
-      let prev = this.coin;
-      for (let i = 0; i < extras.length; i++) {
-        const tx = new Transaction();
-        tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
-        if (pay) tx.addOutput({ lockingScript: new P2PKH().lock(pay.address), satoshis: pay.sats });
-        tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-        await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-        await tx.sign();
-        const changeVout = tx.outputs.length - 1;
-        if ((tx.outputs[changeVout].satoshis ?? 0) < 1) break; // out of ammo: send what we have
-        chain.push(tx);
-        prev = { tx, vout: changeVout };
-      }
-      if (!chain.length) throw new Error('Out of ammo.');
-      const results = (await Promise.race([
-        this.arc.broadcastMany(chain),
-        new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 20 s.')), 20_000)),
-      ])) as { status?: string; description?: string }[];
-      // A chain is only as good as its first failure: everything after it spends a missing coin.
-      // @bsv/sdk 2.8.11 marks ARC's `competingTxs: null` as "invalid competing transaction
-      // identifiers" even when ARC took the tx, so check ARC directly before calling anything failed.
-      // The chain is ordered: if ARC has the last tx it has them all.
+      let chain: Transaction[] = [];
       let accepted = 0;
-      while (accepted < chain.length && results[accepted]?.status === 'success') accepted++;
-      if (accepted < chain.length) {
-        if (await this.known(chain[chain.length - 1].id('hex'))) accepted = chain.length;
-        else while (accepted < chain.length && (await this.known(chain[accepted].id('hex')))) accepted++;
+      let why: string | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!this.coin) throw new Error('The gun is empty. Load it first.');
+        chain = [];
+        let prev = this.coin;
+        for (let i = 0; i < extras.length; i++) {
+          const tx = new Transaction();
+          tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+          tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
+          if (pay) tx.addOutput({ lockingScript: new P2PKH().lock(pay.address), satoshis: pay.sats });
+          tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+          await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+          await tx.sign();
+          const changeVout = tx.outputs.length - 1;
+          if ((tx.outputs[changeVout].satoshis ?? 0) < 1) break; // out of ammo: send what we have
+          chain.push(tx);
+          prev = { tx, vout: changeVout };
+        }
+        if (!chain.length) throw new Error('Out of ammo.');
+        ({ accepted, why } = await this.broadcastChain(chain));
+        if (accepted) break;
+        // Nothing went through: our coin is probably stale. Re-read it from the chain and try again.
+        await new Promise((ok) => setTimeout(ok, 700 * (attempt + 1)));
+        await this.resync().catch(() => undefined);
       }
-      if (accepted === 0) {
-        await this.resync();
-        throw new Error(`ARC rejected the batch: ${results[0]?.description ?? 'no response'}`);
-      }
+      if (!accepted) throw new Error(`ARC rejected the batch: ${why ?? 'no response'}`);
       const last = chain[accepted - 1];
       this.coin = { tx: Transaction.fromHex(last.toHex()), vout: last.outputs.length - 1 };
       this.save();
@@ -292,51 +309,52 @@ export class Gun {
   async fireTokens(id: string, per: bigint, startN: number, extras: string[][], to = BURN_ADDRESS): Promise<string[]> {
     return this.exclusive(async () => {
       this.refresh();
-      if (!this.coin) throw new Error('No sats in the gun for fees. Load some first.');
-      const start = await this.tokenCoin(id);
-      if (!start || start.amt < per) throw new Error('No tokens in the gun. Send some to its address first.');
-      const chain: { tx: Transaction; tok: TokCoin | null; sats: { tx: Transaction; vout: number } }[] = [];
-      let tok: TokCoin = start;
-      let sats = this.coin;
-      for (let i = 0; i < extras.length && tok.amt >= per; i++) {
-        const rest = tok.amt - per;
-        const tx = new Transaction();
-        tx.addInput({ sourceTransaction: tok.tx, sourceOutputIndex: tok.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-        tx.addInput({ sourceTransaction: sats.tx, sourceOutputIndex: sats.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-        tx.addOutput({ lockingScript: bsv21(id, per, to), satoshis: 1 });
-        if (rest > BigInt(0)) tx.addOutput({ lockingScript: bsv21(id, rest, this.address), satoshis: 1 });
-        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, id, String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
-        tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-        await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-        await tx.sign();
-        const changeVout = tx.outputs.length - 1;
-        if ((tx.outputs[changeVout].satoshis ?? 0) < 1) break; // out of sats for fees
-        const nextTok: TokCoin | null = rest > BigInt(0) ? { id, tx, vout: 1, amt: rest } : null;
-        chain.push({ tx, tok: nextTok, sats: { tx, vout: changeVout } });
-        sats = { tx, vout: changeVout };
-        if (!nextTok) break;
-        tok = nextTok;
-      }
-      if (!chain.length) throw new Error('Out of sats for fees.');
-      // First bullet after a load spends the wallet's load tx: make sure ARC has it (rebroadcast if not).
-      if (this.loadTx) {
-        const parent = this.loadTx;
-        if (!(await this.known(parent.id('hex')))) await this.send(parent).catch(() => undefined);
-        this.loadTx = null;
-      }
-      const results = (await Promise.race([
-        this.arc.broadcastMany(chain.map((c) => c.tx)),
-        new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 20 s.')), 20_000)),
-      ])) as { status?: string; description?: string; code?: string | number; more?: unknown }[];
+      type Link = { tx: Transaction; tok: TokCoin | null; sats: { tx: Transaction; vout: number } };
+      let chain: Link[] = [];
+      let start: TokCoin | null = null;
       let accepted = 0;
-      while (accepted < chain.length && results[accepted]?.status === 'success') accepted++;
-      if (accepted === 0) {
-        this.tok = null;
-        await this.resync();
-        const r = results[0];
-        console.warn('[tokenblaster] ARC rejected token shot', chain[0].tx.id('hex'), r);
-        throw new Error(`ARC rejected the token shots: ${r?.description ?? 'no response'}${r?.code ? ` (code ${r.code})` : ''} · tx ${chain[0].tx.id('hex').slice(0, 12)}…`);
+      let why: string | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!this.coin) throw new Error('No sats in the gun for fees. Load some first.');
+        start = await this.tokenCoin(id);
+        if (!start || start.amt < per) throw new Error('No tokens in the gun. Load some first.');
+        chain = [];
+        let tok: TokCoin = start;
+        let sats = this.coin;
+        for (let i = 0; i < extras.length && tok.amt >= per; i++) {
+          const rest = tok.amt - per;
+          const tx = new Transaction();
+          tx.addInput({ sourceTransaction: tok.tx, sourceOutputIndex: tok.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+          tx.addInput({ sourceTransaction: sats.tx, sourceOutputIndex: sats.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+          tx.addOutput({ lockingScript: bsv21(id, per, to), satoshis: 1 });
+          if (rest > BigInt(0)) tx.addOutput({ lockingScript: bsv21(id, rest, this.address), satoshis: 1 });
+          tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, id, String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
+          tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+          await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+          await tx.sign();
+          const changeVout = tx.outputs.length - 1;
+          if ((tx.outputs[changeVout].satoshis ?? 0) < 1) break; // out of sats for fees
+          const nextTok: TokCoin | null = rest > BigInt(0) ? { id, tx, vout: 1, amt: rest } : null;
+          chain.push({ tx, tok: nextTok, sats: { tx, vout: changeVout } });
+          sats = { tx, vout: changeVout };
+          if (!nextTok) break;
+          tok = nextTok;
+        }
+        if (!chain.length) throw new Error('Out of sats for fees.');
+        // The first bullet after a load spends the wallet's load tx: make sure ARC has it.
+        if (this.loadTx && !(await this.known(this.loadTx.id('hex')))) await this.send(this.loadTx).catch(() => undefined);
+        ({ accepted, why } = await this.broadcastChain(chain.map((c) => c.tx)));
+        if (accepted) break;
+        console.warn('[tokenblaster] token shot not accepted, retrying', chain[0].tx.id('hex'), why);
+        await new Promise((ok) => setTimeout(ok, 800 * (attempt + 1)));
+        // Only drop our token coin if it was really spent elsewhere; otherwise keep it (the index lags).
+        if (/DOUBLE_SPEND|competing|spent|missing/i.test(why ?? '')) {
+          this.tok = null;
+          await this.resync().catch(() => undefined);
+        }
       }
+      if (!accepted || !start) throw new Error(`ARC rejected the token shots: ${why ?? 'no response'}`);
+      this.loadTx = null;
       this.spentTok.add(`${start.tx.id('hex')}_${start.vout}`);
       for (const c of chain.slice(0, accepted - 1)) if (c.tok) this.spentTok.add(`${c.tx.id('hex')}_1`);
       const last = chain[accepted - 1];
