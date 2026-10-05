@@ -10,7 +10,7 @@ const GAMES = [
   { href: '/arcade/invaders', img: '/arcade/invaders.jpg', title: 'Mempool Invaders', tag: 'V1 · shooter', blurb: 'Live transactions march down as invaders. Shoot the gold token invaders and catch the BSV-21 token they drop.' },
   { href: '/arcade/snake', img: '/arcade/snake.jpg', title: 'Token Snake', tag: 'V1 · snake', blurb: 'Eat the live chain: every bite is a transaction. Token transfers are token food you collect, TokenBlaster blasts are gold.' },
   { href: '/arcade/city', img: '/arcade/city.jpg', title: 'Satoshi City', tag: 'V1 · open world', blurb: 'Open-world island city where every car on the road is a live mainnet transaction. Walk, carjack, drift, deliver the next block.' },
-  { href: '/arcade', img: '/arcade/npg.jpg', title: 'More in the Arcade', tag: 'coming soon', blurb: 'Ninja Punk Girls in 3D, Token Rally, plus links to other builders’ BSV games.' },
+  { href: '/arcade/kweg', img: '/arcade/kweg.jpg', title: "Kweg's Expedition", tag: 'V1 · side-scroller', blurb: "Pilot Professor Kweg's pachyderm submarine through mainnet: sonar pings find hidden $KWEG, and three parody rivals race you to Satoshi's submarine coordinates." },
 ];
 
 const STACK = [
