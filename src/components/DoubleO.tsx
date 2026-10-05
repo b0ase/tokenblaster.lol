@@ -34,7 +34,7 @@ import { sfx as playSfx } from '@/lib/sfx';
 import Link from 'next/link';
 import { ORDNANCE, RARITY_COLOR } from '@/lib/ordnance';
 import { useOrdnance } from '@/lib/useOrdnance';
-import { tintGun } from '@/lib/ordnanceGun';
+import { brandGun, tintGun } from '@/lib/ordnanceGun';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -1183,7 +1183,10 @@ export function DoubleO() {
         const def = o ? { ...(GUNS.find((g) => g.id === o.base) ?? gunDef), ...o.stats, fireMs: Math.max(o.stats.fireMs, 60) } : gunDef;
         if (held) gunHolder.remove(held.group);
         held = buildGun(def, assets.guns[o ? o.base : gunDef.id]);
-        if (o) tintGun(held.group, o.tint);
+        if (o) {
+          tintGun(held.group, o.tint);
+          void brandGun(held.group, o.id);
+        }
         gunHolder.add(held.group);
         flash.position.copy(held.muzzle);
         fireMs = o ? def.fireMs : FIRE_MS;
