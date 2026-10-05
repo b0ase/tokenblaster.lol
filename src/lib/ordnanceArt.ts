@@ -5,31 +5,17 @@
  * weapon's tinted glTF on a dark gold backdrop. Used for store cards and as the inscription file.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { GUNS } from './arenaHD';
+import { buildGun } from './arenaHD';
 import { RARITY_COLOR, type Ordnance } from './ordnance';
-import { brandGun, tintGun } from './ordnanceGun';
+import { brandGun, tintAmount, tintGun } from './ordnanceGun';
+import { gunDefFor, loadGunModel } from './ordnanceModels';
 
 let renderer: THREE.WebGLRenderer | null = null;
 const envs = new WeakMap<THREE.WebGLRenderer, THREE.Texture>(); // a PMREM texture belongs to one GL context
-const models = new Map<string, Promise<THREE.Object3D>>();
 const urls = new Map<string, Promise<string>>();
 let queue: Promise<unknown> = Promise.resolve();
 
-function model(base: string) {
-  let p = models.get(base);
-  if (!p) {
-    const def = GUNS.find((g) => g.id === base);
-    if (!def) throw new Error(`No gun model ${base}`);
-    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-    p = loader.loadAsync(def.url).then((g) => g.scene);
-    models.set(base, p);
-  }
-  return p;
-}
 
 function setup(r: THREE.WebGLRenderer) {
   r.toneMapping = THREE.ACESFilmicToneMapping;
@@ -64,26 +50,24 @@ async function buildScene(o: Ordnance, r: THREE.WebGLRenderer) {
   rim.position.set(-4, 2, -4);
   scene.add(rim);
 
-  const gun = cloneSkinned(await model(o.base)); // the minigun is rigged: a plain clone keeps the original's bones
-  tintGun(gun, o.tint, 0.7);
-  if (o.base === 'minigun') gun.rotation.y = Math.PI / 2; // modelled barrel-first: turn it side-on
-  gun.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(gun);
-  const dim = box.getSize(new THREE.Vector3());
-  gun.position.sub(box.getCenter(new THREE.Vector3()));
-  const holder = new THREE.Group(); // centred gun, so brand marks sit in the same frame as its bounds
-  holder.add(gun);
+  // Same builder as the games: barrel down -Z, centred, the weapon's own flip/roll fixes applied.
+  const def = gunDefFor(o);
+  const held = buildGun(def, await loadGunModel(def.url));
+  const holder = held.group;
+  tintGun(holder, o.tint, tintAmount(o));
   await brandGun(holder, o.id);
+  holder.updateMatrixWorld(true);
+  const dim = new THREE.Box3().setFromObject(holder, true).getSize(new THREE.Vector3());
   const pivot = new THREE.Group();
   pivot.add(holder);
-  // Longest axis across the frame, turned three-quarters toward the camera.
-  const baseY = (dim.z > dim.x ? Math.PI / 2 : 0) - 0.6;
+  // Side-on, muzzle to the right, turned a little toward the camera.
+  const baseY = -Math.PI / 2 + 0.45;
   pivot.rotation.set(0.18, baseY, 0);
   scene.add(pivot);
 
   const rad = Math.max(dim.x, dim.y, dim.z);
   const cam = new THREE.PerspectiveCamera(30, 1, rad / 100, rad * 100);
-  cam.position.set(0, rad * 0.15, rad * 2.1);
+  cam.position.set(0, rad * 0.12, rad * 2.0);
   cam.lookAt(0, 0, 0);
   return { scene, pivot, cam, baseY, dispose: () => bg.dispose() };
 }

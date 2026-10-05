@@ -1,6 +1,9 @@
 /** Three.js side of 1Sat Ordnance: give an ordnance gun its own finish (gold SAFU, red laser…). */
 import * as THREE from 'three';
 
+/** How strongly to tint: its own textured model only gets a hint of its finish; stock models get the full colour. */
+export const tintAmount = (o: { model?: string; fit?: { tint?: number } }) => o.fit?.tint ?? (o.model ? 0.22 : 0.65);
+
 export function tintGun(group: THREE.Object3D, color: string | undefined, amount = 0.65) {
   if (!color) return;
   const c = new THREE.Color(color);
@@ -10,7 +13,7 @@ export function tintGun(group: THREE.Object3D, color: string | undefined, amount
     const tint = (mat: THREE.Material) => {
       const n = mat.clone() as THREE.MeshStandardMaterial;
       if (n.color) n.color.lerp(c, amount);
-      if ('metalness' in n) n.metalness = Math.max(n.metalness, 0.7);
+      if ('metalness' in n && amount >= 0.5) n.metalness = Math.max(n.metalness, 0.7); // a full recolour reads as a metal finish
       if (n.emissive) n.emissive.lerp(c, 0.12);
       return n;
     };

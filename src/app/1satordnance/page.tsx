@@ -139,6 +139,9 @@ export default function OrdnancePage() {
         </div>
       </section>
 
+      <p className="text-center text-[10px] text-muted">
+        Weapon models: CC BY 4.0 from Sketchfab by Ashe52, TastyTony, Pepego, johanpindeville, alcorerain, pasquill, Zverev, irons, valterjherson1, Waseem963 and Bl4ckGh0st (recoloured). Full list in docs/ordnance-models.md on GitHub.
+      </p>
       <footer className="flex flex-wrap justify-center gap-x-4 gap-y-1 py-3 text-xs text-muted">
         <Link href="/" className="hover:text-hot">home</Link>
         <Link href="/arcade" className="hover:text-hot">arcade</Link>

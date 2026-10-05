@@ -21,7 +21,15 @@ export type Ordnance = {
   stats: { fireMs: number; pellets: number; spread: number; bolt: string; kick: number };
   /** Finish on the 3D model (blended into its materials). */
   tint?: string;
-  /** Hand-made inscription art (square). Without it the store renders the tinted 3D model. */
+  /**
+   * Its own 3D model: `public/arena/models/guns/<model>.glb` (credits in docs/ordnance-models.md).
+   * Without one it uses the stock `base` model. `fit` tunes how it is held: `flip` turns a model
+   * whose barrel points back at you, `roll` (radians, about the barrel) rights an upside-down or
+   * sideways model, `length` is its size in first person.
+   */
+  model?: string;
+  fit?: { flip?: boolean; roll?: number; length?: number; tint?: number };
+  /** Hand-made inscription art (square). Without it the store renders the 3D model. */
   image?: string;
   edition: number;
   rarity: Rarity;
@@ -33,6 +41,29 @@ export type Ordnance = {
 export const PRICE_SATS: Record<Rarity, number> = { common: 1_000_000, rare: 5_000_000, epic: 25_000_000, legendary: 100_000_000 };
 export const priceOf = (o: Ordnance) => PRICE_SATS[o.rarity];
 
+/** Site path of a weapon's 3D model. */
+export const modelPath = (o: Ordnance) => `/arena/models/guns/${o.model ?? o.base}.glb`;
+export const modelUrl = (o: Ordnance) => `https://www.tokenblaster.lol${modelPath(o)}`;
+
+/** Store weapons with their own model file (named after the weapon); the rest use their base. */
+const OWN_MODEL = new Set(['sat-stacker', 'op-return', 'nlocktime', 'p2pkh-pistolero', 'utxo-thumper', 'merkle-mauler', 'bitcoin-schema-sniper', 'block-reward', 'teranode-cannon', 'double-spend', 'fee-spike', 'hashpower-howitzer', 'genesis-blaster', 'craig-cannon', 'satoshi-sidearm', 'big-block']);
+
+/** Per-model fixes, checked by eye in the store renders and the Arena (see `fit` on Ordnance). */
+const FIT: Record<string, Ordnance['fit']> = {
+  'big-block': { flip: true },
+  'satoshi-sidearm': { flip: true, length: 0.42 },
+  'fee-spike': { flip: true },
+  'block-reward': { flip: true },
+  'bitcoin-schema-sniper': { flip: true, length: 0.85 },
+  'teranode-cannon': { flip: true },
+  nlocktime: { flip: true, length: 0.8 },
+  'p2pkh-pistolero': { flip: true, length: 0.42 },
+  'genesis-blaster': { length: 0.42 },
+  'op-return': { length: 0.45 },
+  'utxo-thumper': { tint: 0.65 }, // untextured white: wear the full finish
+  'hashpower-howitzer': { tint: 0.65 }, // untextured white
+};
+
 /** Origin of the "1Sat Ordnance" collection inscription. Empty until minted. */
 export const ORDNANCE_COLLECTION = '';
 export const ORDNANCE_COLLECTION_NAME = '1Sat Ordnance';
@@ -41,26 +72,28 @@ export const ORDNANCE_APP = 'tokenblaster.lol';
 export const ORDNANCE: Ordnance[] = [
   {
     id: 'pnee-shotgun',
+    model: 'pnee-shotgun',
+    fit: { flip: true },
     name: 'PNEE Shotgun',
     tagline: 'Ten pellets of pure PNEE.',
     description: 'A sawed-off that sprays ten pellets of PNEE per pull. Close range only. Recommended by four out of five maximalists who were standing too close.',
     base: 'sawedoff',
     stats: { fireMs: 520, pellets: 10, spread: 0.1, bolt: '#ffd27a', kick: 1.8 },
     tint: '#c08040',
-    image: '/ordnance/pnee-shotgun.webp',
     edition: 210,
     rarity: 'common',
     origin: '',
   },
   {
     id: 'kweg-grenade-launcher',
+    model: 'kweg-grenade-launcher',
+    fit: { tint: 0.5, length: 0.62 }, // flat colours: lean on the finish
     name: 'KWEG Grenade Launcher',
     tagline: 'Patent pending. Patent denied.',
     description: "Professor Kweg's quad-barrel lobber. Fires six fat plasma rounds that land somewhere near the target, like a pachyderm submarine parking.",
     base: 'quadplasma',
     stats: { fireMs: 420, pellets: 6, spread: 0.06, bolt: '#60ff90', kick: 1.4 },
     tint: '#40d070',
-    image: '/ordnance/kweg-grenade-launcher.webp',
     edition: 100,
     rarity: 'rare',
     origin: '',
@@ -86,7 +119,6 @@ export const ORDNANCE: Ordnance[] = [
     base: 'minigun',
     stats: { fireMs: 22, pellets: 1, spread: 0.05, bolt: '#ff8040', kick: 0.2 },
     tint: '#ff6a30',
-    image: '/ordnance/minigun-of-the-mempool.webp',
     edition: 50,
     rarity: 'epic',
     origin: '',
@@ -125,6 +157,7 @@ export const ORDNANCE: Ordnance[] = [
     ['big-block', 'BIG BLOCK', 'Unbounded.', 'A minigun with no block size limit. It does not stop. It does not cap. It scales.', 'minigun', [16, 1, 0.045, '#f5b800', 0.18], '#ffd24d', 21, 'legendary'],
   ] as const).map(([id, name, tagline, description, base, [fireMs, pellets, spread, bolt, kick], tint, edition, rarity]) => ({
     id, name, tagline, description, base, stats: { fireMs, pellets, spread, bolt, kick }, tint, edition, rarity, origin: '',
+    ...(OWN_MODEL.has(id) ? { model: id, fit: FIT[id] } : {}),
   })),
 ];
 
@@ -135,7 +168,7 @@ export const RARITY_COLOR: Record<Rarity, string> = { common: '#c9b37a', rare: '
 export function ordnanceMap(o: Ordnance, mintNumber: number, collectionId = ORDNANCE_COLLECTION): Record<string, string> {
   const traits = [
     { name: 'Rarity', value: o.rarity },
-    { name: 'Base', value: o.base },
+    { name: 'Model', value: o.model ?? o.base },
     { name: 'Rate of fire', value: `${Math.round(1000 / o.stats.fireMs)}/s` },
     { name: 'Pellets', value: String(o.stats.pellets) },
     { name: 'Spread', value: String(o.stats.spread) },
@@ -152,7 +185,7 @@ export function ordnanceMap(o: Ordnance, mintNumber: number, collectionId = ORDN
     weapon: o.id,
     collection: ORDNANCE_COLLECTION_NAME,
     // For 3D display cabinets (bWalletX): the glTF this gun is built on, and its finish.
-    model: `https://www.tokenblaster.lol/arena/models/guns/${o.base}.glb`,
+    model: modelUrl(o),
     tint: o.tint ?? '',
   };
 }

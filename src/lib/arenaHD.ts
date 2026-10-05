@@ -134,6 +134,7 @@ export type GunDef = {
   spread: number;
   length: number; // model length in camera space
   flip?: boolean; // the model's barrel ends up pointing at you: turn it round
+  roll?: number; // radians about the barrel: rights a model that comes out upside-down or on its side
   pos: [number, number, number]; // where it sits in front of the camera
   bolt: string; // tracer / bolt colour
   spin?: string; // animation to play while firing
@@ -296,8 +297,11 @@ export function buildGun(def: GunDef, gltf: GLTF): HeldGun {
   else if (raw.y >= raw.x && raw.y >= raw.z) turn.rotation.x = Math.PI / 2;
   if (def.flip) turn.rotation.y += Math.PI;
   turn.add(model);
+  const rolled = new THREE.Group(); // barrel is along -Z here, so z is the roll axis
+  rolled.rotation.z = def.roll ?? 0;
+  rolled.add(turn);
   const group = new THREE.Group();
-  group.add(turn);
+  group.add(rolled);
   const longest = Math.max(raw.x, raw.y, raw.z);
   const scale = def.length / Math.max(1e-6, longest);
   turn.scale.setScalar(scale);

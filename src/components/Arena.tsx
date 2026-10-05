@@ -23,12 +23,13 @@ import { ORDNANCE, type Ordnance } from '@/lib/ordnance';
 import { GunArt } from './GunArt';
 import type { GunDef } from '@/lib/arenaHD';
 import { useOrdnance } from '@/lib/useOrdnance';
-import { brandGun, tintGun } from '@/lib/ordnanceGun';
+import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
+import { gunDefFor, loadGunModel } from '@/lib/ordnanceModels';
 
 /** Stock guns, then the 1Sat Ordnance guns (built on a stock model; locked unless the wallet holds the ordinal). */
 const ALL_GUNS: (GunDef & { ordnance?: Ordnance })[] = [
   ...GUNS,
-  ...ORDNANCE.map((o) => ({ ...(GUNS.find((g) => g.id === o.base) ?? GUNS[0]), ...o.stats, id: o.id, name: o.name, key: '', ordnance: o })),
+  ...ORDNANCE.map((o) => ({ ...gunDefFor(o), ordnance: o })),
 ];
 
 /** 1 = wall. The player starts at S. Rows from HALL_Z down are the horde hall. */
@@ -235,8 +236,10 @@ export function Arena() {
       }
       return gunIdx;
     };
+    let upgradeGun = (i: number) => void i; // swaps in an ordnance gun's own model (set once assets load)
     const selectGun = (i: number) => {
       if (!held[i] || !unlocked(i)) return;
+      upgradeGun(i);
       gunIdx = i;
       held.forEach((h, k) => (h.group.visible = k === i));
       gunRest.set(...held[i].def.pos);
@@ -545,14 +548,38 @@ export function Arena() {
           const inHall = phone ? Math.floor((def.horde ?? 0) / 2) : (def.horde ?? 0);
           for (let i = 0; i < inHall; i++) make(def, true);
         }
-        for (const def of ALL_GUNS) {
-          const h = buildGun(def, a.guns[GUNS.find((g) => g.url === def.url)?.id ?? def.id]);
-          tintGun(h.group, def.ordnance?.tint);
-          void brandGun(h.group, def.ordnance?.id);
+        const dress = (h: HeldGun, o: Ordnance | undefined) => {
+          if (o) tintGun(h.group, o.tint, tintAmount(o));
+          void brandGun(h.group, o?.id);
+        };
+        ALL_GUNS.forEach((def, i) => {
+          const o = def.ordnance;
+          // Stock models are preloaded; an ordnance gun with its own model holds the stock one until its file arrives.
+          const stock = GUNS.find((g) => g.id === (o?.base ?? def.id)) ?? GUNS[0];
+          const h = buildGun(o?.model ? { ...def, url: stock.url, flip: stock.flip, roll: undefined, length: stock.length, spin: stock.spin } : def, a.guns[stock.id]);
+          dress(h, o);
           h.group.visible = false;
           gun.add(h.group);
           held.push(h);
-        }
+        });
+        const upgraded = new Set<number>();
+        upgradeGun = (i) => {
+          const def = ALL_GUNS[i];
+          const o = def?.ordnance;
+          if (!o?.model || upgraded.has(i)) return;
+          upgraded.add(i);
+          void loadGunModel(def.url)
+              .then((gltf) => {
+                const own = buildGun(def, gltf);
+                dress(own, o);
+                own.group.visible = held[i].group.visible;
+                gun.remove(held[i].group);
+                gun.add(own.group);
+                held[i] = own;
+                if (i === gunIdx) flash.position.copy(own.muzzle);
+              })
+              .catch(() => upgraded.delete(i));
+        };
         selectGun(gunIdx);
         // Pictures of each gun for the picker: render them once, side-on, off screen.
         try {
@@ -1390,7 +1417,9 @@ export function Arena() {
                     onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
                     className={`inset flex flex-col items-center bg-black/60 px-2 py-2 text-sm ${i === weapon ? 'border-fg text-hot' : 'text-dim opacity-80 hover:text-hot hover:opacity-100'}`}
                   >
-                    {gunThumbs[i] ? (
+                    {g.ordnance ? (
+                      <GunArt o={g.ordnance} className="h-24 w-48 object-contain" />
+                    ) : gunThumbs[i] ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={gunThumbs[i]} alt="" className="h-24 w-48 object-contain" />
                     ) : (

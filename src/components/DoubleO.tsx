@@ -14,7 +14,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
-import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type ArenaAssets, type HeldGun } from '@/lib/arenaHD';
+import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type ArenaAssets, type GunDef, type HeldGun } from '@/lib/arenaHD';
 import { TOKEN_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import { Room, realtimeConfigured } from '@/lib/realtime';
@@ -34,7 +34,9 @@ import { sfx as playSfx } from '@/lib/sfx';
 import Link from 'next/link';
 import { ORDNANCE, RARITY_COLOR } from '@/lib/ordnance';
 import { useOrdnance } from '@/lib/useOrdnance';
-import { brandGun, tintGun } from '@/lib/ordnanceGun';
+import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
+import { gunDefFor, loadGunModel } from '@/lib/ordnanceModels';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -266,6 +268,7 @@ export function DoubleO() {
     camera.add(gunHolder);
     const gunDef = { ...(GUNS.find((g) => g.id === 'plasmarifle') ?? GUNS[0]), fireMs: FIRE_MS };
     let held: HeldGun | null = null;
+    let armed: string | null = null; // ordnance id currently issued (null = the gadget gun)
     let fireMs = FIRE_MS;
     const gunRest = new THREE.Vector3(...gunDef.pos);
     {
@@ -1180,15 +1183,29 @@ export function DoubleO() {
       arm: (id) => {
         if (!assets) return;
         const o = ORDNANCE.find((x) => x.id === id);
-        const def = o ? { ...(GUNS.find((g) => g.id === o.base) ?? gunDef), ...o.stats, fireMs: Math.max(o.stats.fireMs, 60) } : gunDef;
-        if (held) gunHolder.remove(held.group);
-        held = buildGun(def, assets.guns[o ? o.base : gunDef.id]);
-        if (o) {
-          tintGun(held.group, o.tint);
-          void brandGun(held.group, o.id);
+        const def = o ? { ...gunDefFor(o), fireMs: Math.max(o.stats.fireMs, 60) } : gunDef;
+        const hold = (gltf: GLTF, d: GunDef) => {
+          if (held) gunHolder.remove(held.group);
+          held = buildGun(d, gltf);
+          if (o) {
+            tintGun(held.group, o.tint, tintAmount(o));
+            void brandGun(held.group, o.id);
+          }
+          gunHolder.add(held.group);
+          flash.position.copy(held.muzzle);
+        };
+        const stock = GUNS.find((g) => g.id === (o ? o.base : gunDef.id)) ?? gunDef;
+        // Hold the stock model at once; an ordnance gun with its own model swaps it in when the file arrives.
+        hold(assets.guns[stock.id], o?.model ? { ...def, url: stock.url, flip: stock.flip, roll: undefined, length: stock.length, spin: stock.spin } : def);
+        if (o?.model) {
+          const want = id;
+          void loadGunModel(def.url)
+            .then((gltf) => {
+              if (armed === want) hold(gltf, def);
+            })
+            .catch(() => undefined);
         }
-        gunHolder.add(held.group);
-        flash.position.copy(held.muzzle);
+        armed = id;
         fireMs = o ? def.fireMs : FIRE_MS;
       },
     };

@@ -27,6 +27,9 @@ export default function OrdnanceStorePage() {
         </p>
       </header>
       <OrdnanceStore />
+      <p className="text-center text-[10px] text-muted">
+        Weapon models: CC BY 4.0 from Sketchfab by Ashe52, TastyTony, Pepego, johanpindeville, alcorerain, pasquill, Zverev, irons, valterjherson1, Waseem963 and Bl4ckGh0st (recoloured). Full list in docs/ordnance-models.md on GitHub.
+      </p>
     </main>
   );
 }

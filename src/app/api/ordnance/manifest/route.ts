@@ -1,4 +1,4 @@
-import { ORDNANCE, ORDNANCE_APP, ORDNANCE_COLLECTION, ORDNANCE_COLLECTION_NAME, priceOf } from '@/lib/ordnance';
+import { ORDNANCE, ORDNANCE_APP, ORDNANCE_COLLECTION, ORDNANCE_COLLECTION_NAME, modelUrl, priceOf } from '@/lib/ordnance';
 
 const SITE = 'https://www.tokenblaster.lol';
 
@@ -20,8 +20,8 @@ export function GET() {
         description: o.description,
         edition: o.edition,
         priceSats: priceOf(o),
-        model: `${SITE}/arena/models/guns/${o.base}.glb`,
-        modelBase: o.base,
+        model: modelUrl(o),
+        modelBase: o.model ?? o.base,
         tint: o.tint ?? null,
         bolt: o.stats.bolt,
         image: o.image ? `${SITE}${o.image}` : null,
