@@ -305,7 +305,8 @@ export class Gun {
       onStatus(`Splitting the gun into ${lanesN} lanes…`);
       const split = new Transaction();
       split.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-      const each = Math.floor(budget / lanesN);
+      // Each lane gets what its blasts need (+ margin); the rest stays in the gun as change.
+      const each = Math.min(Math.floor(budget / lanesN), perLane * (STORM_FEE + 2) + 100);
       for (let i = 0; i < lanesN; i++) split.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
       split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
       await split.fee(new SatoshisPerKilobyte(FEE_RATE));
