@@ -376,12 +376,12 @@ function Dial({ idx, amount, setIdx, price, sats }: { idx: number; amount: numbe
             <path
               key={i}
               d={`M ${p(a0, 52)} A 52 52 0 0 1 ${p(a1, 52)} L ${p(a1, 40)} A 40 40 0 0 0 ${p(a0, 40)} Z`}
-              fill={lit ? (i > segs * 0.75 ? '#ffe58a' : i > segs * 0.4 ? '#ffd24d' : '#f5b800') : '#1a1300'}
+              fill={lit ? (i > segs * 0.75 ? '#ffd0c0' : i > segs * 0.4 ? '#ff9a85' : '#ff5a48') : '#2a0a0a'}
             />
           );
         })}
-        <line x1="0" y1="0" x2="0" y2="-36" stroke="#ffe58a" strokeWidth="2.5" transform={`rotate(${angle})`} style={{ transition: 'transform .3s' }} />
-        <circle r="5" fill="#f5b800" />
+        <line x1="0" y1="0" x2="0" y2="-36" stroke="#ffd0c0" strokeWidth="2.5" transform={`rotate(${angle})`} style={{ transition: 'transform .3s' }} />
+        <circle r="5" fill="#ff5a48" />
       </svg>
       <div className="flex items-center gap-2">
         <button onClick={() => setIdx(Math.max(0, idx - 1))} disabled={idx === 0} className="btn" aria-label="Smaller pack">
@@ -430,7 +430,7 @@ function GunCanvas({ shots, firing, icon }: { shots: React.RefObject<number>; fi
       const w = (c.width = c.clientWidth * dpr);
       const h = (c.height = c.clientHeight * dpr);
       const u = h / 24; // pixel unit
-      ctx.fillStyle = '#060607';
+      ctx.fillStyle = '#050202';
       ctx.fillRect(0, 0, w, h);
       const gx = w * 0.08;
       const gy = h * 0.5;
@@ -441,17 +441,17 @@ function GunCanvas({ shots, firing, icon }: { shots: React.RefObject<number>; fi
         ctx.fillStyle = col;
         ctx.fillRect(gx + x * u, gy + y * u, ww * u, hh * u);
       };
-      px(0, -3, 12, 6, '#3a2e08');
+      px(0, -3, 12, 6, '#4a1414');
       px(12, -2, 10, 3, '#6a3632');
-      px(1, -2, 4, 2, '#f5b800');
-      px(4, -5, 6, 2, '#7a5c00');
-      px(3, 3, 3, 6, '#2a2000');
-      px(7, 3, 3, 4, '#1a1300');
-      for (let k = 0; k < 3; k++) px(13 + k * 3, -2, 1, 3, '#1a1300');
+      px(1, -2, 4, 2, '#ff5a48');
+      px(4, -5, 6, 2, '#8a2222');
+      px(3, 3, 3, 6, '#3a0c0c');
+      px(7, 3, 3, 4, '#2a0a0a');
+      for (let k = 0; k < 3; k++) px(13 + k * 3, -2, 1, 3, '#2a0a0a');
       // New blasts → new tracers.
       for (; seen < shots.current; seen++) bullets.push({ x: muzzle, y: gy - 0.5 * u + (Math.random() - 0.5) * u });
-      if (firingRef.current && Math.floor(t / 60) % 2) px(22, -3, 3, 5, '#ffe58a');
-      ctx.fillStyle = '#ffe58a';
+      if (firingRef.current && Math.floor(t / 60) % 2) px(22, -3, 3, 5, '#ffd0c0');
+      ctx.fillStyle = '#ffd0c0';
       for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.x += 18 * dpr;
@@ -463,7 +463,7 @@ function GunCanvas({ shots, firing, icon }: { shots: React.RefObject<number>; fi
       }
       // Target: hex ring with the token's icon; flashes on hit.
       const flash = t - hit < 90;
-      ctx.strokeStyle = flash ? '#ffe58a' : '#7a5c00';
+      ctx.strokeStyle = flash ? '#ffd0c0' : '#8a2222';
       ctx.lineWidth = 2 * dpr;
       ctx.beginPath();
       for (let k = 0; k <= 6; k++) {
@@ -473,7 +473,7 @@ function GunCanvas({ shots, firing, icon }: { shots: React.RefObject<number>; fi
       ctx.stroke();
       if (img.current) ctx.drawImage(img.current, tx - 3.5 * u, gy - 3.5 * u, 7 * u, 7 * u);
       else {
-        ctx.fillStyle = flash ? '#ffe58a' : '#3a2e08';
+        ctx.fillStyle = flash ? '#ffd0c0' : '#4a1414';
         ctx.fillRect(tx - u, gy - u, 2 * u, 2 * u);
       }
       raf = requestAnimationFrame(frame);
@@ -496,9 +496,9 @@ function BlastChart({ series }: { series: Point[] }) {
     const dpr = devicePixelRatio;
     const w = (c.width = c.clientWidth * dpr);
     const h = (c.height = c.clientHeight * dpr);
-    ctx.fillStyle = '#060607';
+    ctx.fillStyle = '#050202';
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = '#1a1300';
+    ctx.strokeStyle = '#2a0a0a';
     ctx.lineWidth = 1;
     for (let i = 1; i < 4; i++) {
       ctx.beginPath();
@@ -528,8 +528,8 @@ function BlastChart({ series }: { series: Point[] }) {
       ctx.fillStyle = color;
       ctx.fillText(`${key} ${lastP[key].toLocaleString()}`, w - 66 * dpr, h - 8 * dpr - (lastP[key] / max) * (h - 24 * dpr));
     };
-    line('fired', '#f5b800');
-    line('landed', '#ffe58a');
+    line('fired', '#ff5a48');
+    line('landed', '#ffd0c0');
   }, [series]);
   return <canvas ref={canvas} className="inset h-40 w-full" aria-label="Blasts fired and landed this session" />;
 }

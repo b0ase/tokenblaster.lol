@@ -142,9 +142,9 @@ export function Frogger() {
       }
 
       // Road.
-      ctx.fillStyle = '#060607';
+      ctx.fillStyle = '#050202';
       ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#17191e';
+      ctx.fillStyle = '#1a0b0b';
       ctx.fillRect(0, 0, w, row);
       ctx.fillRect(0, h - row, w, row);
       ctx.strokeStyle = '#3a1010';
@@ -165,7 +165,7 @@ export function Frogger() {
       // Cars.
       for (const car of cars) {
         const kind = car.f.kind === 'blast' ? 'blast' : LANES[car.lane - 1];
-        const col = KINDS.find((k) => k.id === kind)?.color ?? '#f5b800';
+        const col = KINDS.find((k) => k.id === kind)?.color ?? '#ff5a48';
         const x = car.x * cell;
         const y = car.lane * row + row * 0.18;
         const cw = car.w * cell - 4 * dpr;
@@ -178,7 +178,7 @@ export function Frogger() {
         if (meta) {
           const s = ch * 0.8;
           if (meta.icon?.complete && meta.icon.naturalWidth) ctx.drawImage(meta.icon, x + 3 * dpr, y + (ch - s) / 2, s, s);
-          ctx.fillStyle = '#0b0b0d';
+          ctx.fillStyle = '#0a0404';
           ctx.font = `bold ${Math.max(9, ch / dpr / 2.4) * dpr}px monospace`;
           ctx.fillText(`$${meta.sym}`, x + s + 6 * dpr, y + ch * 0.6, Math.max(0, cw - s - 8 * dpr));
         }
@@ -195,7 +195,7 @@ export function Frogger() {
       ctx.ellipse(fx, fy, fr, fr * 0.85, 0, 0, Math.PI * 2);
       ctx.fill();
       if (!splat) {
-        ctx.fillStyle = '#0b0b0d';
+        ctx.fillStyle = '#0a0404';
         ctx.beginPath();
         ctx.arc(fx - fr * 0.4, fy - fr * 0.45, fr * 0.18, 0, Math.PI * 2);
         ctx.arc(fx + fr * 0.4, fy - fr * 0.45, fr * 0.18, 0, Math.PI * 2);

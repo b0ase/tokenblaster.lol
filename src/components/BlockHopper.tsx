@@ -158,18 +158,18 @@ export function BlockHopper() {
       const br = blocksRef.current.pending.shift();
       if (br) {
         gap(30, 60, 30);
-        const s = addSeg(360, 0, '#ffe58a', `BLOCK #${br.height.toLocaleString()} · ${br.txCount.toLocaleString()} txs · ${br.miner}`, { checkpoint: true });
+        const s = addSeg(360, 0, '#ffd0c0', `BLOCK #${br.height.toLocaleString()} · ${br.txCount.toLocaleString()} txs · ${br.miner}`, { checkpoint: true });
         for (let i = 0; i < 8; i++) coins.push({ x: s.x0 + 60 + i * 30, y: s.y0 - 30 - Math.sin(i / 7 * Math.PI) * 30, got: false });
         return;
       }
       const f: FeedTx | null = feedRef.current.take();
       if (!f) {
         gap(24, 50, 25);
-        addSeg(70 + rand() * 60, 0, '#3a2e08', 'mempool quiet…');
+        addSeg(70 + rand() * 60, 0, '#4a1414', 'mempool quiet…');
         return;
       }
       chainN++;
-      const color = KIND_COLOR[f.kind] ?? '#f5b800';
+      const color = KIND_COLOR[f.kind] ?? '#ff5a48';
       const len = Math.max(56, Math.min(320, 48 + f.bytes / 6));
       const label = `${f.kind} · ${f.id.slice(0, 8)} · ${f.bytes}B`;
       gap(20, 30 + Math.min(80, len / 3), 45);
@@ -210,7 +210,7 @@ export function BlockHopper() {
       trail = [];
       cursor = { x: -60, y: 180 };
       rng = (Date.now() & 0xffff) + 1;
-      addSeg(380, 0, '#f5b800', 'START · Block Hopper');
+      addSeg(380, 0, '#ff5a48', 'START · Block Hopper');
       Object.assign(p, { x: 40, y: 180, vx: 0, vy: 0, gsp: 0, ground: segs[0], coyote: 0, buffer: 0, jumping: false, face: 1, invuln: 0 });
       cam = { x: 40 - W * 0.35, y: 180 - H * 0.6, lead: 0 };
       lives = 3;
@@ -465,24 +465,24 @@ export function BlockHopper() {
       const px = Math.round(x);
       const py = Math.round(y);
       if (ball) {
-        ctx.fillStyle = '#ffe58a';
+        ctx.fillStyle = '#ffd0c0';
         ctx.fillRect(px - 6, py - 14, 12, 12);
         ctx.fillRect(px - 7, py - 12, 14, 8);
-        ctx.fillStyle = '#f5b800';
+        ctx.fillStyle = '#ff5a48';
         const r = Math.floor(p.anim) % 4;
         ctx.fillRect(px - 4 + (r % 2) * 4, py - 12 + (r >> 1) * 4, 4, 4);
       } else {
         const f = p.face;
-        ctx.fillStyle = '#ffe58a'; // body
+        ctx.fillStyle = '#ffd0c0'; // body
         ctx.fillRect(px - 5, py - 16, 10, 10);
-        ctx.fillStyle = '#f5b800'; // visor
+        ctx.fillStyle = '#ff5a48'; // visor
         ctx.fillRect(px + (f > 0 ? 0 : -5), py - 13, 5, 3);
-        ctx.fillStyle = '#ffd24d'; // spikes
+        ctx.fillStyle = '#ff9a85'; // spikes
         ctx.fillRect(px - 5 - f * 3, py - 15, 3, 2);
         ctx.fillRect(px - 5 - f * 4, py - 11, 3, 2);
         // legs: run cycle
         const ph = Math.floor(p.anim) % 4;
-        ctx.fillStyle = '#ffe58a';
+        ctx.fillStyle = '#ffd0c0';
         const run = Math.abs(p.gsp) > 0.3;
         ctx.fillRect(px - 4 + (run ? [0, 2, 0, -2][ph] : 0), py - 6, 3, 6);
         ctx.fillRect(px + 1 + (run ? [0, -2, 0, 2][ph] : 0), py - 6, 3, 6);
@@ -492,7 +492,7 @@ export function BlockHopper() {
 
     const draw = (t: number) => {
       const sx = shake ? (Math.random() * 2 - 1) * 3 : 0;
-      ctx.fillStyle = '#060607';
+      ctx.fillStyle = '#050202';
       ctx.fillRect(0, 0, W, H);
       // Parallax: far grid of "blocks".
       ctx.fillStyle = '#140606';
@@ -507,7 +507,7 @@ export function BlockHopper() {
         ctx.fillRect(bx, H - 40 - ((i * 37) % 50), 44, 80);
       }
       // Scanlines.
-      ctx.fillStyle = 'rgba(245,184,0,0.03)';
+      ctx.fillStyle = 'rgba(255,90,72,0.03)';
       for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
 
       ctx.save();
@@ -517,7 +517,7 @@ export function BlockHopper() {
       ctx.textBaseline = 'top';
       for (const s of segs) {
         if (s.x1 < cam.x - 10 || s.x0 > cam.x + W + 10) continue;
-        ctx.fillStyle = s.checkpoint ? '#2a2000' : '#17191e';
+        ctx.fillStyle = s.checkpoint ? '#3a0c0c' : '#1a0b0b';
         ctx.beginPath();
         ctx.moveTo(s.x0, s.y0);
         ctx.lineTo(s.x1, s.y1);
@@ -527,7 +527,7 @@ export function BlockHopper() {
         ctx.fill();
         // Brick pattern on flat stretches.
         if (s.y0 === s.y1) {
-          ctx.fillStyle = '#1a1300';
+          ctx.fillStyle = '#2a0a0a';
           for (let by = s.y0 + 8; by < s.y0 + 60; by += 8) for (let bx = s.x0 + ((by / 8) % 2) * 8; bx < s.x1 - 2; bx += 16) ctx.fillRect(Math.round(bx), by, 1, 7);
         }
         ctx.strokeStyle = s.color;
@@ -536,7 +536,7 @@ export function BlockHopper() {
         ctx.moveTo(s.x0, s.y0 + 1);
         ctx.lineTo(s.x1, s.y1 + 1);
         ctx.stroke();
-        ctx.strokeStyle = '#7a5c00';
+        ctx.strokeStyle = '#8a2222';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(s.x0 + 0.5, s.y0);
@@ -545,7 +545,7 @@ export function BlockHopper() {
         ctx.lineTo(s.x1 - 0.5, s.y1 + 400);
         ctx.stroke();
         if (s.label && s.x1 - s.x0 > 70) {
-          ctx.fillStyle = s.checkpoint ? '#ffe58a' : '#8a8a86';
+          ctx.fillStyle = s.checkpoint ? '#ffd0c0' : '#b06e66';
           ctx.fillText(s.label.slice(0, Math.floor((s.x1 - s.x0 - 8) / 5)), s.x0 + 4, Math.max(s.y0, s.y1) + 6);
         }
       }
@@ -553,9 +553,9 @@ export function BlockHopper() {
       for (const sp of springs) {
         const sy = surfaceY(sp.seg, sp.x);
         const hgt = sp.t > 0 ? 12 : 6;
-        ctx.fillStyle = '#ffd24d';
+        ctx.fillStyle = '#ff9a85';
         for (let i = 0; i < hgt; i += 3) ctx.fillRect(sp.x - 5 + (i % 6 ? 2 : 0), sy - i - 2, 8, 1);
-        ctx.fillStyle = '#ffe58a';
+        ctx.fillStyle = '#ffd0c0';
         ctx.fillRect(sp.x - 7, sy - hgt - 3, 14, 3);
       }
       // Coins.
@@ -589,10 +589,10 @@ export function BlockHopper() {
             /* broken icon: keep the box */
           }
         } else {
-          ctx.fillStyle = '#ffe58a';
+          ctx.fillStyle = '#ffd0c0';
           ctx.fillText(e.sym.slice(0, 2), ex - 5, ey - 13);
         }
-        ctx.fillStyle = '#ffe58a';
+        ctx.fillStyle = '#ffd0c0';
         ctx.fillRect(ex - 6 + (Math.floor(t / 120) % 2) * 2, ey - 1, 3, 1);
         ctx.fillRect(ex + 3 - (Math.floor(t / 120) % 2) * 2, ey - 1, 3, 1);
       }
@@ -601,7 +601,7 @@ export function BlockHopper() {
       trail.forEach((q, i) => drawPlayer(q.x, q.y, ((i + 1) / trail.length) * 0.35, ball));
       if (state !== 'over' && (p.invuln === 0 || Math.floor(t / 80) % 2 === 0)) drawPlayer(p.x, p.y, 1, ball);
       // Popups.
-      ctx.fillStyle = '#ffe58a';
+      ctx.fillStyle = '#ffd0c0';
       for (const q of popups) ctx.fillText(q.text, Math.round(q.x - q.text.length * 2.5), Math.round(q.y - (50 - q.t) * 0.5));
       ctx.restore();
     };

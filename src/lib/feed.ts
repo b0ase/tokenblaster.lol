@@ -9,10 +9,10 @@ export type TxKind = 'blast' | 'token' | 'inscription' | 'social' | 'data' | 'pa
 export const KINDS: { id: TxKind; label: string; color: string }[] = [
   { id: 'blast', label: 'TokenBlaster blast', color: '#ffffff' },
   { id: 'token', label: 'BSV-20/21 token', color: '#d4a843' },
-  { id: 'inscription', label: 'Ordinal inscription', color: '#f5b800' },
-  { id: 'social', label: 'Social (B / MAP)', color: '#ffd24d' },
+  { id: 'inscription', label: 'Ordinal inscription', color: '#ff5a48' },
+  { id: 'social', label: 'Social (B / MAP)', color: '#ff9a85' },
   { id: 'data', label: 'Other data', color: '#b0302a' },
-  { id: 'payment', label: 'Payment', color: '#ffe58a' },
+  { id: 'payment', label: 'Payment', color: '#ffd0c0' },
 ];
 
 /** Finer app/protocol detection than `kind` (which drives game lanes): for the dashboard. */
@@ -23,14 +23,14 @@ export const APPS: { id: AppId; label: string; color: string }[] = [
   { id: 'txblaster', label: 'TXBLASTER 🔥', color: '#ff7a00' },
   { id: 'bsv21', label: 'BSV-21', color: '#d4a843' },
   { id: 'bsv20', label: 'BSV-20', color: '#b08a30' },
-  { id: 'ordinal', label: '1Sat ordinal', color: '#f5b800' },
-  { id: 'twetch', label: 'Twetch', color: '#ffd24d' },
+  { id: 'ordinal', label: '1Sat ordinal', color: '#ff5a48' },
+  { id: 'twetch', label: 'Twetch', color: '#ff9a85' },
   { id: 'treechat', label: 'TreeChat', color: '#e86ab0' },
   { id: 'map', label: 'MAP', color: '#c07060' },
-  { id: 'b', label: 'B://', color: '#c9b37a' },
+  { id: 'b', label: 'B://', color: '#e0958a' },
   { id: 'aip', label: 'AIP', color: '#a05a8a' },
   { id: 'opreturn', label: 'OP_RETURN', color: '#b0302a' },
-  { id: 'payment', label: 'Payment', color: '#ffe58a' },
+  { id: 'payment', label: 'Payment', color: '#ffd0c0' },
 ];
 export const APP_COLOR = Object.fromEntries(APPS.map((a) => [a.id, a.color])) as Record<AppId, string>;
 

@@ -96,7 +96,7 @@ export function TokenSnake() {
         return;
       }
       chainN++;
-      foods.push({ ...at, kind: f.kind, color: KIND_COLOR[f.kind] ?? '#f5b800', loot: lootFrom(f), label: `${f.kind} ${f.id.slice(0, 8)}`, born: ticks });
+      foods.push({ ...at, kind: f.kind, color: KIND_COLOR[f.kind] ?? '#ff5a48', loot: lootFrom(f), label: `${f.kind} ${f.id.slice(0, 8)}`, born: ticks });
     };
 
     const reset = () => {
@@ -175,14 +175,14 @@ export function TokenSnake() {
     };
 
     const draw = (now: number) => {
-      ctx.fillStyle = '#060607';
+      ctx.fillStyle = '#050202';
       ctx.fillRect(0, 0, W, W);
       ctx.fillStyle = '#140606';
       for (let i = 1; i < N; i++) {
         ctx.fillRect(i * C, 0, 1, W);
         ctx.fillRect(0, i * C, W, 1);
       }
-      ctx.fillStyle = 'rgba(245,184,0,0.03)';
+      ctx.fillStyle = 'rgba(255,90,72,0.03)';
       for (let y = 0; y < W; y += 3) ctx.fillRect(0, y, W, 1);
       // Food.
       for (const f of foods) {
@@ -204,13 +204,13 @@ export function TokenSnake() {
       // Snake.
       const flash = deadFlash > 0 && Math.floor(deadFlash / 4) % 2 === 0;
       snake.forEach((s, i) => {
-        ctx.fillStyle = flash ? '#ffffff' : i === 0 ? '#ffe58a' : i % 2 ? '#f5b800' : '#d23c30';
+        ctx.fillStyle = flash ? '#ffffff' : i === 0 ? '#ffd0c0' : i % 2 ? '#ff5a48' : '#d23c30';
         ctx.fillRect(s.x * C + 1, s.y * C + 1, C - 2, C - 2);
       });
       if (snake.length) {
         const h = snake[0];
         const [dx, dy] = VEC[dir];
-        ctx.fillStyle = '#060607';
+        ctx.fillStyle = '#050202';
         const ex = h.x * C + C / 2 + dx * 3;
         const ey = h.y * C + C / 2 + dy * 3;
         ctx.fillRect(ex - 1 - dy * 3, ey - 1 - dx * 3, 2, 2);

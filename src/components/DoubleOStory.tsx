@@ -207,7 +207,7 @@ export function Dialogue({ lines, title, onDone, doneLabel = 'GO' }: { lines: Li
   return (
     <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 px-4" onClick={advance} role="dialog" aria-label={title}>
       <p className="text-xs tracking-widest text-dim">{title}</p>
-      <div className="flex w-full max-w-2xl items-start gap-3 border-2 bg-[#0b0b0d] p-3 shadow-[6px_6px_0_rgba(245,184,0,0.35)]" style={{ borderColor: sp.color }}>
+      <div className="flex w-full max-w-2xl items-start gap-3 border-2 bg-[#0a0404] p-3 shadow-[6px_6px_0_rgba(255,90,72,0.35)]" style={{ borderColor: sp.color }}>
         <Portrait who={line.who} size={112} />
         <div className="min-w-0 flex-1 text-left">
           <p className="font-bold tracking-widest" style={{ color: sp.color }}>

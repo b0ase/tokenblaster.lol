@@ -61,7 +61,7 @@ function NowPlayingBanner({ song }: { song: Song | null }) {
   }, [song]);
   if (!shown) return null;
   return (
-    <div className="pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2 border border-[var(--border)] bg-black/85 px-4 py-2 text-center shadow-[0_0_24px_rgba(245,184,0,0.25)]">
+    <div className="pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2 border border-[var(--border)] bg-black/85 px-4 py-2 text-center shadow-[0_0_24px_rgba(255,90,72,0.25)]">
       <p className="text-[10px] tracking-widest text-dim">NOW PLAYING</p>
       <p className="text-base font-bold text-hot">♪ {shown.title}</p>
       <p className="text-xs text-accent">{shown.site}</p>

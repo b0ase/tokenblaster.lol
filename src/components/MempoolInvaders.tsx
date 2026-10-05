@@ -111,9 +111,9 @@ export function MempoolInvaders() {
     const stars = Array.from({ length: 50 }, (_, i) => ({ x: (i * 73) % W, y: (i * 151) % H, s: (i % 3) + 1 }));
 
     const fromTx = (f: FeedTx | null): Inv => {
-      if (!f) return { kind: 'payment', color: '#3a2e08', loot: null, alive: true, label: 'mempool quiet', x: 0, y: 0, quiet: true };
+      if (!f) return { kind: 'payment', color: '#4a1414', loot: null, alive: true, label: 'mempool quiet', x: 0, y: 0, quiet: true };
       chainN++;
-      return { kind: f.kind, color: KIND_COLOR[f.kind] ?? '#f5b800', loot: lootFrom(f), alive: true, label: `${f.kind} ${f.id.slice(0, 8)}`, x: 0, y: 0 };
+      return { kind: f.kind, color: KIND_COLOR[f.kind] ?? '#ff5a48', loot: lootFrom(f), alive: true, label: `${f.kind} ${f.id.slice(0, 8)}`, x: 0, y: 0 };
     };
 
     const buildWave = () => {
@@ -177,7 +177,7 @@ export function MempoolInvaders() {
       lives--;
       shake = 14;
       sfx('rekt');
-      booms.push({ x: pl.x, y: PY, t: 30, color: '#ffe58a' });
+      booms.push({ x: pl.x, y: PY, t: 30, color: '#ffd0c0' });
       invuln = 100;
       if (lives <= 0) gameOver();
     };
@@ -350,28 +350,28 @@ export function MempoolInvaders() {
 
     const drawInv = (v: Inv, x: number, y: number, t: number) => {
       const f = Math.floor(frame / 30) % 2;
-      sprite(v.kind, x, y, v.quiet ? '#3a2e08' : v.loot ? '#d4a843' : v.color, f);
+      sprite(v.kind, x, y, v.quiet ? '#4a1414' : v.loot ? '#d4a843' : v.color, f);
       if (v.loot) drawLoot(ctx, v.loot, x + 11, y + 6, 11, t);
     };
 
     const draw = (t: number) => {
       ctx.save();
       if (shake) ctx.translate((Math.random() * 2 - 1) * 2, (Math.random() * 2 - 1) * 2);
-      ctx.fillStyle = '#060607';
+      ctx.fillStyle = '#050202';
       ctx.fillRect(-4, -4, W + 8, H + 8);
       for (const s of stars) {
         ctx.fillStyle = s.s === 3 ? '#3a1010' : '#200808';
         ctx.fillRect(s.x, (s.y + frame * s.s * 0.15) % H, s.s, s.s);
       }
-      ctx.fillStyle = 'rgba(245,184,0,0.03)';
+      ctx.fillStyle = 'rgba(255,90,72,0.03)';
       for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
       // Ground line.
-      ctx.fillStyle = '#7a5c00';
+      ctx.fillStyle = '#8a2222';
       ctx.fillRect(0, PY + 10, W, 1);
 
       for (const v of invs) if (v.alive) drawInv(v, ox + v.x, oy + v.y, t);
       for (const d of divers) {
-        ctx.fillStyle = 'rgba(245,184,0,0.15)';
+        ctx.fillStyle = 'rgba(255,90,72,0.15)';
         ctx.fillRect(Math.round(d.x) + 10, 0, 2, Math.max(0, d.y));
         drawInv(d, d.x, d.y, t);
       }
@@ -381,13 +381,13 @@ export function MempoolInvaders() {
         ctx.fillRect(ux - 10, 18, 20, 4);
         ctx.fillRect(ux - 6, 14, 12, 4);
         ctx.fillRect(ux - 13, 22, 26, 3);
-        ctx.fillStyle = '#f5b800';
+        ctx.fillStyle = '#ff5a48';
         if (Math.floor(frame / 6) % 2) for (let i = -9; i <= 9; i += 6) ctx.fillRect(ux + i, 23, 2, 1);
       }
       // Shots and bombs.
-      ctx.fillStyle = '#ffe58a';
+      ctx.fillStyle = '#ffd0c0';
       for (const s of shots) ctx.fillRect(Math.round(s.x) - 1, Math.round(s.y), 2, 7);
-      ctx.fillStyle = '#f5b800';
+      ctx.fillStyle = '#ff5a48';
       for (const s of bombs) {
         const z = Math.floor(s.y / 4) % 2;
         ctx.fillRect(Math.round(s.x) - 1 + z, Math.round(s.y), 2, 3);
@@ -397,10 +397,10 @@ export function MempoolInvaders() {
       // Player ship.
       if (lives > 0 && (invuln === 0 || Math.floor(frame / 5) % 2 === 0)) {
         const x = Math.round(pl.x);
-        ctx.fillStyle = '#f5b800';
+        ctx.fillStyle = '#ff5a48';
         ctx.fillRect(x - 11, PY + 2, 22, 6);
         ctx.fillRect(x - 8, PY - 1, 16, 3);
-        ctx.fillStyle = '#ffe58a';
+        ctx.fillStyle = '#ffd0c0';
         ctx.fillRect(x - 2, PY - 7, 4, 6);
         ctx.fillRect(x - 1, PY - 9, 2, 2);
       }
@@ -415,14 +415,14 @@ export function MempoolInvaders() {
       ctx.font = '8px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#ffe58a';
+      ctx.fillStyle = '#ffd0c0';
       for (const q of popups) ctx.fillText(q.text, q.x, q.y - (45 - q.t) * 0.4);
       if (banner > 0 && state === 'play') {
         ctx.font = 'bold 16px monospace';
-        ctx.fillStyle = '#f5b800';
+        ctx.fillStyle = '#ff5a48';
         ctx.fillText(`WAVE ${wave}`, W / 2, H / 2);
         ctx.font = '8px monospace';
-        ctx.fillStyle = '#8a8a86';
+        ctx.fillStyle = '#b06e66';
         ctx.fillText(`${invs.filter((v) => !v.quiet).length} live txs in formation`, W / 2, H / 2 + 16);
       }
       ctx.restore();

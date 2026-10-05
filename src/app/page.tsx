@@ -32,7 +32,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-gradient-to-r from-[var(--bg)] via-[var(--bg)]/85 to-transparent" />
         <div className="relative flex flex-col gap-2 py-1 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-3xl font-bold text-fg drop-shadow-[0_0_14px_rgba(245,184,0,0.5)] sm:text-5xl">
+            <h1 className="text-3xl font-bold text-fg drop-shadow-[0_0_14px_rgba(255,90,72,0.5)] sm:text-5xl">
               TokenBlaster<span className="text-hot">.lol</span>
               <span className="blink">_</span>
             </h1>
@@ -52,7 +52,7 @@ export default function Home() {
               ARCADE
             </Link>
             <Link href="/launch" className="btn-fire inline-flex h-12 w-40 items-center justify-center !px-0 !py-0 !text-base">
-              LAUNCH A COIN
+              BLASTPAD
             </Link>
             <GitHubLink />
           </div>
