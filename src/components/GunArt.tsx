@@ -69,7 +69,24 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
   return (
     <div
       ref={box}
-      className="relative h-full w-full cursor-crosshair touch-pan-y select-none"
+      className="relative h-full w-full cursor-crosshair touch-pan-y select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--text)]"
+      // Keyboard: focus shows the live model, Space/Enter test-fires (held = burst).
+      tabIndex={0}
+      role="button"
+      aria-label={`${o.name}: 3D view. Press Space or Enter to test-fire (demo only, nothing on chain).`}
+      onFocus={() => setLive(true)}
+      onBlur={() => {
+        trigger(false);
+        setLive(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== ' ' && e.key !== 'Enter') return;
+        e.preventDefault();
+        if (!e.repeat) trigger(true);
+      }}
+      onKeyUp={(e) => {
+        if (e.key === ' ' || e.key === 'Enter') trigger(false);
+      }}
       // Mouse: live while hovering, click/hold fires. Touch/pen: first tap goes live, then tap/hold fires.
       onPointerEnter={(e) => e.pointerType === 'mouse' && setLive(true)}
       onPointerLeave={(e) => {

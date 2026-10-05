@@ -145,11 +145,11 @@ export function SoundToggle({ className = '' }: { className?: string }) {
           </span>
           <label className="flex items-center gap-2">
             <span className="w-8 text-dim">music</span>
-            <input className="flex-1" type="range" min={0} max={1} step={0.05} value={p.music} onChange={(e) => setVolumes({ music: Number(e.target.value) })} />
+            <input aria-label="Music volume" className="flex-1" type="range" min={0} max={1} step={0.05} value={p.music} onChange={(e) => setVolumes({ music: Number(e.target.value) })} />
           </label>
           <label className="flex items-center gap-2">
             <span className="w-8 text-dim">sfx</span>
-            <input className="flex-1" type="range" min={0} max={1} step={0.05} value={p.sfx} onChange={(e) => setVolumes({ sfx: Number(e.target.value) })} />
+            <input aria-label="Sound effects volume" className="flex-1" type="range" min={0} max={1} step={0.05} value={p.sfx} onChange={(e) => setVolumes({ sfx: Number(e.target.value) })} />
           </label>
         </span>
       )}
