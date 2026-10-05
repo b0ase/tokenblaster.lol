@@ -29,6 +29,10 @@ import { HighScores } from './HighScores';
 import type { ScoreGame } from '@/lib/scores';
 import { GameAudio } from '@/components/SoundToggle';
 import { sfx as playSfx } from '@/lib/sfx';
+import Link from 'next/link';
+import { ORDNANCE, RARITY_COLOR } from '@/lib/ordnance';
+import { useOrdnance } from '@/lib/useOrdnance';
+import { tintGun } from '@/lib/ordnanceGun';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -56,7 +60,7 @@ type Hud = {
   arrow: number; // radians, 0 = straight ahead
 };
 type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[] };
-type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void };
+type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void };
 type NetInfo = { status: 'off' | 'connecting' | 'live'; agents: { name: string; host: boolean; me: boolean; vs: boolean }[] };
 /** Level-map letters for each cast kind (also the wire format for the host's actor list). */
 const KIND_CODE: Record<string, string> = { bot: 'g', goon: 'p', hazmat: 'h', kingpin: 'K', custodian: 'U', hoarder: 'L' };
@@ -92,6 +96,15 @@ export function DoubleO() {
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
+  /** Q Branch: the 1Sat Ordnance gun Kweg carries (null = the standard gadget gun). Owned ordinals only. */
+  const { owned: ownedOrdnance } = useOrdnance(b.wallet);
+  const [gear, setGear] = useState<string | null>(null);
+  const gearRef = useRef<string | null>(null);
+  const gearOk = gear && ownedOrdnance.has(gear) ? gear : null;
+  useEffect(() => {
+    gearRef.current = gearOk;
+    engine.current?.arm(gearOk);
+  }, [gearOk]);
   const input = useRef({ sx: 0, sy: 0, fire: false });
   const [screen, setScreen] = useState<Screen>('menu');
   const [level, setLevel] = useState(0);
@@ -246,6 +259,7 @@ export function DoubleO() {
     camera.add(gunHolder);
     const gunDef = { ...(GUNS.find((g) => g.id === 'plasmarifle') ?? GUNS[0]), fireMs: FIRE_MS };
     let held: HeldGun | null = null;
+    let fireMs = FIRE_MS;
     const gunRest = new THREE.Vector3(...gunDef.pos);
     {
       const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.42), new THREE.MeshStandardMaterial({ color: '#0d0d10', roughness: 0.7 }));
@@ -920,7 +934,7 @@ export function DoubleO() {
     };
 
     const shoot = (now: number) => {
-      if (!running || now - lastShot < FIRE_MS) return;
+      if (!running || now - lastShot < fireMs) return;
       if (now < jammedUntil) {
         if (now - lastShot > 300) {
           lastShot = now;
@@ -1081,6 +1095,17 @@ export function DoubleO() {
         setScreen('menu');
       },
       leave: () => leaveMission(),
+      arm: (id) => {
+        if (!assets) return;
+        const o = ORDNANCE.find((x) => x.id === id);
+        const def = o ? { ...(GUNS.find((g) => g.id === o.base) ?? gunDef), ...o.stats, fireMs: Math.max(o.stats.fireMs, 60) } : gunDef;
+        if (held) gunHolder.remove(held.group);
+        held = buildGun(def, assets.guns[o ? o.base : gunDef.id]);
+        if (o) tintGun(held.group, o.tint);
+        gunHolder.add(held.group);
+        flash.position.copy(held.muzzle);
+        fireMs = o ? def.fireMs : FIRE_MS;
+      },
     };
 
     // ── AI ──
@@ -1764,6 +1789,7 @@ export function DoubleO() {
         held = buildGun(gunDef, a.guns[gunDef.id]);
         gunHolder.add(held.group);
         flash.position.copy(held.muzzle);
+        if (gearRef.current) engine.current?.arm(gearRef.current);
         // Menu backdrop: mission 1, nobody playing.
         buildLevel(0);
         running = false;
@@ -2072,6 +2098,31 @@ export function DoubleO() {
                   <span className="text-xs text-dim">mission: {L.name}</span>
                 </div>
                 {agentPanel}
+                <div className="inset flex flex-col gap-2 bg-black/60 p-2 text-left">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-sm font-bold text-hot">Q BRANCH · 1Sat Ordnance</span>
+                    <Link href="/1satordnance" className="text-xs text-accent underline hover:text-hot">
+                      what&apos;s this? ›
+                    </Link>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    <button onClick={() => setGear(null)} className={`btn px-2 py-1 text-xs ${!gearOk ? 'btn-on' : 'opacity-70'}`}>
+                      Gadget gun
+                    </button>
+                    {ORDNANCE.map((o) =>
+                      ownedOrdnance.has(o.id) ? (
+                        <button key={o.id} onClick={() => setGear(o.id)} className={`btn px-2 py-1 text-xs ${gearOk === o.id ? 'btn-on' : 'opacity-80'}`} style={{ color: RARITY_COLOR[o.rarity] }}>
+                          {o.name}
+                        </button>
+                      ) : (
+                        <Link key={o.id} href="/1satordnance" className="btn px-2 py-1 text-xs opacity-50 hover:opacity-90" title="Locked: own this 1Sat ordinal to unlock it">
+                          🔒 {o.name}
+                        </Link>
+                      ),
+                    )}
+                  </div>
+                  <p className="text-xs text-dim">Hold a 1Sat Ordnance ordinal in your wallet and Q issues it to you here.</p>
+                </div>
                 <p className="text-left text-xs text-dim">
                   Click a mission to pick it, then PLAY. WASD move · Shift run · mouse aim · click / Space fire · V versus · Esc pause. Phone: left stick moves, drag right side to aim, FIRE button. Follow the green arrow to
                   the objective.

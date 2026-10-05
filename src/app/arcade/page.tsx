@@ -49,6 +49,16 @@ export default function ArcadePage() {
         <p className="mt-1 text-dim">{description}</p>
       </header>
 
+      <Link href="/1satordnance" className="panel group flex flex-wrap items-center gap-3 hover:border-fg">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/ordnance/safu-blaster.webp" alt="" className="h-16 w-16 border border-[var(--border-dim)] object-cover" />
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-hot group-hover:underline">NEW · 1SAT ORDNANCE: weapons you actually own</p>
+          <p className="text-dim">Game guns as real 1Sat ordinals. Hold one in your wallet and it unlocks in Double-O Kweg and the Arena.</p>
+        </div>
+        <span className="text-hot">[SEE THE GUNS]</span>
+      </Link>
+
       <h2 className="text-lg font-bold text-hot">TokenBlaster games</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {GAMES.map((g) => {

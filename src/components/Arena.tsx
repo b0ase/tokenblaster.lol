@@ -18,6 +18,17 @@ import { WalletChooser } from './WalletChooser';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GameAudio } from '@/components/SoundToggle';
+import Link from 'next/link';
+import { ORDNANCE, type Ordnance } from '@/lib/ordnance';
+import type { GunDef } from '@/lib/arenaHD';
+import { useOrdnance } from '@/lib/useOrdnance';
+import { tintGun } from '@/lib/ordnanceGun';
+
+/** Stock guns, then the 1Sat Ordnance guns (built on a stock model; locked unless the wallet holds the ordinal). */
+const ALL_GUNS: (GunDef & { ordnance?: Ordnance })[] = [
+  ...GUNS,
+  ...ORDNANCE.map((o) => ({ ...(GUNS.find((g) => g.id === o.base) ?? GUNS[0]), ...o.stats, id: o.id, name: o.name, key: '', ordnance: o })),
+];
 
 /** 1 = wall. The player starts at S. Rows from HALL_Z down are the horde hall. */
 const MAP = [
@@ -100,6 +111,11 @@ type Hud = { kills: number; shots: number; onChain: number; heat: number; health
  */
 export function Arena() {
   const b = useBlaster();
+  const { owned } = useOrdnance(b.wallet);
+  const ownedRef = useRef(owned);
+  useEffect(() => {
+    ownedRef.current = owned;
+  }, [owned]);
   const mount = useRef<HTMLDivElement>(null);
   const [hud, setHud] = useState<Hud>({ kills: 0, shots: 0, onChain: 0, heat: 0, health: 100, last: null });
   const [recent, setRecent] = useState<{ txid: string; token: boolean }[]>([]);
@@ -210,15 +226,23 @@ export function Arena() {
     const startGun = Math.max(0, GUNS.findIndex((g) => g.key === new URLSearchParams(window.location.search).get('gun')));
     let gunIdx = startGun;
     const gunRest = new THREE.Vector3(...GUNS[gunIdx].pos);
+    const unlocked = (i: number) => i < GUNS.length || ownedRef.current.has(ALL_GUNS[i]?.id);
+    const nextGun = (step: number) => {
+      for (let k = 1; k <= held.length; k++) {
+        const i = (gunIdx + step * k + held.length * k) % held.length;
+        if (unlocked(i)) return i;
+      }
+      return gunIdx;
+    };
     const selectGun = (i: number) => {
-      if (!held[i]) return;
+      if (!held[i] || !unlocked(i)) return;
       gunIdx = i;
       held.forEach((h, k) => (h.group.visible = k === i));
       gunRest.set(...held[i].def.pos);
       flash.position.copy(held[i].muzzle);
       setWeapon(i);
     };
-    const boltMats = new Map(GUNS.map((g) => [g.id, new THREE.LineBasicMaterial({ color: new THREE.Color(g.bolt).multiplyScalar(4), toneMapped: false })]));
+    const boltMats = new Map(ALL_GUNS.map((g) => [g.id, new THREE.LineBasicMaterial({ color: new THREE.Color(g.bolt).multiplyScalar(4), toneMapped: false })]));
     const bolts: { line: THREE.Line; born: number }[] = [];
 
     // ── Game state (filled in once assets load) ──
@@ -520,8 +544,9 @@ export function Arena() {
           const inHall = phone ? Math.floor((def.horde ?? 0) / 2) : (def.horde ?? 0);
           for (let i = 0; i < inHall; i++) make(def, true);
         }
-        for (const def of GUNS) {
-          const h = buildGun(def, a.guns[def.id]);
+        for (const def of ALL_GUNS) {
+          const h = buildGun(def, a.guns[GUNS.find((g) => g.url === def.url)?.id ?? def.id]);
+          tintGun(h.group, def.ordnance?.tint);
           h.group.visible = false;
           gun.add(h.group);
           held.push(h);
@@ -649,11 +674,11 @@ export function Arena() {
       }
     };
     const onFireButton = (e: Event) => (trigger = (e as CustomEvent<boolean>).detail !== false);
-    const onCycle = () => selectGun((gunIdx + 1) % held.length);
+    const onCycle = () => selectGun(nextGun(1));
     const onPickWeapon = (e: Event) => selectGun((e as CustomEvent<number>).detail);
     const onWheel = (e: WheelEvent) => {
       if (!held.length || Math.abs(e.deltaY) < 10) return;
-      selectGun((gunIdx + (e.deltaY > 0 ? 1 : held.length - 1)) % held.length);
+      selectGun(nextGun(e.deltaY > 0 ? 1 : -1));
     };
     window.addEventListener('arena:cycle', onCycle);
     window.addEventListener('arena:weapon', onPickWeapon);
@@ -1308,15 +1333,17 @@ export function Arena() {
         )}
         {playing && (
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1">
-            {GUNS.map((g, i) => (
-              <button
-                key={g.id}
-                onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
-                className={`btn px-2 py-1 text-xs ${i === weapon ? 'btn-on' : 'opacity-70'}`}
-              >
-                <span className="text-dim">{g.key}</span> {g.name}
-              </button>
-            ))}
+            {ALL_GUNS.map((g, i) =>
+              i >= GUNS.length && !owned.has(g.id) ? null : (
+                <button
+                  key={g.id}
+                  onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
+                  className={`btn px-2 py-1 text-xs ${i === weapon ? 'btn-on' : 'opacity-70'}`}
+                >
+                  {g.key && <span className="text-dim">{g.key}</span>} {g.name}
+                </button>
+              ),
+            )}
           </div>
         )}
         {!playing && (
@@ -1342,7 +1369,18 @@ export function Arena() {
             <div className="w-full max-w-5xl">
               <p className="mb-2 text-left text-base font-bold text-hot">PICK A GUN</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {GUNS.map((g, i) => (
+                {ALL_GUNS.map((g, i) => {
+                  const locked = i >= GUNS.length && !owned.has(g.id);
+                  if (locked)
+                    return (
+                      <Link key={g.id} href="/1satordnance" className="inset relative flex flex-col items-center bg-black/60 px-2 py-2 text-sm text-dim opacity-60 hover:opacity-100" title="Locked: own this 1Sat ordinal to unlock it">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={g.ordnance?.image} alt="" className="h-24 w-48 object-contain grayscale" />
+                        <div className="font-bold">🔒 {g.name}</div>
+                        <div className="text-xs text-accent">1Sat Ordnance · get it ›</div>
+                      </Link>
+                    );
+                  return (
                   <button
                     key={g.id}
                     onClick={() => window.dispatchEvent(new CustomEvent('arena:weapon', { detail: i }))}
@@ -1355,14 +1393,19 @@ export function Arena() {
                       <div className="h-24 w-48" />
                     )}
                     <div className="font-bold">
-                      {g.key} · {g.name}
+                      {g.key ? `${g.key} · ` : '★ '}
+                      {g.name}
                     </div>
                     <div>
                       {Math.round(1000 / g.fireMs)}/s{g.pellets > 1 ? ` · ${g.pellets} pellets` : ''}
                     </div>
                   </button>
-                ))}
+                  );
+                })}
               </div>
+              <p className="mt-1 text-left text-xs text-dim">
+                🔒 guns are <Link href="/1satordnance" className="underline hover:text-hot">1Sat Ordnance</Link>: real ordinals. Hold one in your wallet and it unlocks here.
+              </p>
             </div>
 
             <div className="w-full max-w-xl">

@@ -41,3 +41,24 @@ in the player's browser, and the CLI blaster reads `BLASTER_WIF` from the enviro
 3. Arcade games on live traffic.
 
 No entry fees or prize pools: free entry, bragging rights (gambling rules and App Store).
+
+## 1Sat Ordnance (weapons as 1Sat ordinals)
+
+`/1satordnance` is the shop/promo page. Catalogue: `src/lib/ordnance.ts`. Ownership: `src/lib/useOrdnance.ts`
+(wallet's `1sat`/`ordinals` baskets, plus GorillaPool `GET /api/txos/address/{addr}/unspent`, matched by origin or
+collection + weapon). Owned guns unlock in Double-O Kweg (Q Branch on the menu) and the Arena gun picker.
+Dev check without owning anything: `?ordnance=all` or `?ordnance=pnee-shotgun,safu-blaster` (dev builds, or
+`NEXT_PUBLIC_TB_ADMIN=1`).
+
+### Minting (owner, from your own wallet; no server key is involved)
+
+1. Run the site with `NEXT_PUBLIC_TB_ADMIN=1` (or open `/1satordnance/mint?qbranch=1`). The page is not linked.
+2. Connect your BRC-100 wallet (bWallet / Yours). Pick **Collection** and press inscribe; approve in the wallet.
+   Copy the shown origin (`<txid>_0`) into `ORDNANCE_COLLECTION` in `src/lib/ordnance.ts`.
+3. For each weapon: pick it, set the edition number, paste the collection origin, inscribe, approve in the wallet.
+   Edition #1's origin goes into that weapon's `origin` field (the card flips from COMING SOON to MINTED).
+   Later editions are recognised by collection + weapon name, no code change needed.
+4. Blank "send to" keeps the ordinal in your wallet (derived key, `1sat` basket); or type an ordinals address.
+5. Art is `public/ordnance/<id>.webp` (1024², ~30–60 KB each); MAP: app `tokenblaster.lol`, type `ord`,
+   subType `collectionItem`, collection `1Sat Ordnance`, traits in `subTypeData`. Every inscription is a real
+   mainnet transaction and pays its network fee. Commit + deploy after filling the origins.
