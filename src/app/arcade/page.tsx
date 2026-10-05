@@ -13,6 +13,7 @@ type Game = { href?: string; title: string; blurb: string; status: 'live' | 'soo
 const GAMES: Game[] = [
   { href: '/arena', title: 'Arena', version: 'V1', img: '/arcade/arena.jpg', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: every bullet is a real transaction. Multiplayer: hit a player and your token lands in their gun.', status: 'live' },
   { href: '/arcade/frogger', title: 'Chain Frogger', version: 'V2', img: '/arcade/frogger.jpg', blurb: 'A 3D city crossing where every vehicle is a live mainnet transaction, one way from sender to receiver. Pick a character, arm up, zap traffic.', status: 'live' },
+  { href: '/arcade/city', title: 'Satoshi City', version: 'V1', img: '/arcade/city.jpg', blurb: 'Open-world island city where every car on the road is a live mainnet transaction. Walk, carjack, drift, deliver the next block against the clock.', status: 'live' },
   { title: 'Ninja Punk Girls', img: '/arcade/npg.jpg', blurb: 'The NPG cards come alive in 3D: build your girl from her cards, then take her into the fight.', status: 'soon' },
   { title: 'Token Rally', img: '/arcade/rally.jpg', blurb: 'Race the tokens moving on chain right now.', status: 'soon' },
 ];
