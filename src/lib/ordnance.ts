@@ -21,13 +21,17 @@ export type Ordnance = {
   stats: { fireMs: number; pellets: number; spread: number; bolt: string; kick: number };
   /** Finish on the 3D model (blended into its materials). */
   tint?: string;
-  /** The inscription art (square). */
-  image: string;
+  /** Hand-made inscription art (square). Without it the store renders the tinted 3D model. */
+  image?: string;
   edition: number;
   rarity: Rarity;
-  /** Inscription origin outpoint. Empty until minted. */
+  /** Inscription origin outpoint of the owner-minted edition #1. Empty if none. */
   origin: string;
 };
+
+/** Store price per rarity, in sats (BSV ~$20 when set: 0.01 / 0.05 / 0.25 / 1 BSV). */
+export const PRICE_SATS: Record<Rarity, number> = { common: 1_000_000, rare: 5_000_000, epic: 25_000_000, legendary: 100_000_000 };
+export const priceOf = (o: Ordnance) => PRICE_SATS[o.rarity];
 
 /** Origin of the "1Sat Ordnance" collection inscription. Empty until minted. */
 export const ORDNANCE_COLLECTION = '';
@@ -100,6 +104,28 @@ export const ORDNANCE: Ordnance[] = [
     rarity: 'legendary',
     origin: '',
   },
+  // ---- Store stock (issued from /1satordnance/store; art is rendered from the tinted model) ----
+  ...([
+    ['sat-stacker', 'Sat Stacker', 'Stack sats. Stack bodies.', 'A plasma MG that never sells. Holds the trigger through every dip and every top.', 'plasmarifle', [60, 1, 0.014, '#ffb000', 0.4], '#e0a020', 300, 'common'],
+    ['dust-sweeper', 'Dust Sweeper', 'Cleans up every last satoshi.', 'Sawed-off tuned for consolidating dust. Eight pellets, one UTXO at the end.', 'sawedoff', [560, 8, 0.09, '#d0c0a0', 1.5], '#9a8a70', 300, 'common'],
+    ['op-return', 'OP_RETURN', 'Data goes in. Nothing comes back.', 'Provably unspendable rounds. Whatever it hits is written on chain forever.', 'plasmarifle', [70, 1, 0.01, '#9ae0ff', 0.35], '#5a8aa0', 300, 'common'],
+    ['nlocktime', 'nLockTime', 'Fires when it feels like it.', 'Every round is time-locked to the next block. Slow, steady, final.', 'quadplasma', [380, 4, 0.03, '#a0ffd0', 1.0], '#50a080', 250, 'common'],
+    ['p2pkh-pistolero', 'P2PKH Pistolero', 'Pay to public key hash. Or else.', 'The standard issue. Everyone has one, and it always works.', 'plasmarifle', [80, 1, 0.012, '#ffd27a', 0.3], '#b08850', 400, 'common'],
+    ['utxo-thumper', 'UTXO Thumper', 'One input, many outputs.', 'Splits every shell into a spray of fresh outputs. Wallets hate it.', 'sawedoff', [500, 12, 0.12, '#ffa060', 1.9], '#a06030', 250, 'common'],
+    ['merkle-mauler', 'Merkle Mauler', 'Proof of hit.', 'Four bolts hashed in pairs until only one answer is left: you lose.', 'quadplasma', [200, 4, 0.025, '#80ff80', 0.9], '#30a040', 120, 'rare'],
+    ['bitcoin-schema-sniper', 'Schema Sniper', 'One shot. Properly formatted.', 'Tight as a MAP key. Barely any spread, all the metadata.', 'plasmarifle', [140, 1, 0.002, '#60c0ff', 0.8], '#3070c0', 120, 'rare'],
+    ['block-reward', 'Block Reward', 'Halving every few seasons.', 'Belt-fed and generous, for now. Fire rate halves when the sequel comes out.', 'minigun', [30, 1, 0.04, '#ffd84a', 0.25], '#c09020', 100, 'rare'],
+    ['teranode-cannon', 'Teranode Cannon', 'A million rounds a second. Allegedly.', 'Horizontally scaled quad plasma. The benchmarks are incredible.', 'quadplasma', [110, 4, 0.04, '#40e0ff', 0.9], '#2090c0', 100, 'rare'],
+    ['double-spend', 'Double Spend', 'Fires twice. Only one counts.', 'Two pellets leave, the miners pick one. The other was never there.', 'sawedoff', [260, 2, 0.02, '#ff60a0', 1.0], '#b03070', 100, 'rare'],
+    ['fee-spike', 'Fee Spike', 'Priced out? Not you.', 'Fires faster the busier the chain gets. On BSV that just means very fast.', 'minigun', [26, 1, 0.05, '#ff7a1a', 0.2], '#d05010', 60, 'epic'],
+    ['hashpower-howitzer', 'Hashpower Howitzer', '51% of the room. Every time.', 'Six barrels of raw SHA-256. Rewrites whatever history you were having.', 'quadplasma', [300, 6, 0.05, '#ff3e9d', 1.6], '#a01860', 50, 'epic'],
+    ['genesis-blaster', 'Genesis Blaster', 'The Times 03/Jan/2009.', 'Restored to the original protocol. Plasma rounds etched with a headline about banks.', 'plasmarifle', [40, 2, 0.01, '#fff1dc', 0.5], '#e8e0c8', 40, 'epic'],
+    ['craig-cannon', 'Peer-to-Peer Cannon', 'Cash, electronic, aimed.', 'Section five of the whitepaper, in shotgun form. Nodes accept it by working on extending it.', 'sawedoff', [380, 14, 0.13, '#ffe58a', 2.0], '#c8a040', 40, 'epic'],
+    ['satoshi-sidearm', "Satoshi's Sidearm", 'Nobody knows who carried it.', 'Untouched since 2010. Every bolt is signed with a key nobody has ever moved.', 'plasmarifle', [35, 2, 0.006, '#ffffff', 0.4], '#f5b800', 21, 'legendary'],
+    ['big-block', 'BIG BLOCK', 'Unbounded.', 'A minigun with no block size limit. It does not stop. It does not cap. It scales.', 'minigun', [16, 1, 0.045, '#f5b800', 0.18], '#ffd24d', 21, 'legendary'],
+  ] as const).map(([id, name, tagline, description, base, [fireMs, pellets, spread, bolt, kick], tint, edition, rarity]) => ({
+    id, name, tagline, description, base, stats: { fireMs, pellets, spread, bolt, kick }, tint, edition, rarity, origin: '',
+  })),
 ];
 
 export const isMinted = (o: Ordnance) => Boolean(o.origin);
@@ -125,6 +151,9 @@ export function ordnanceMap(o: Ordnance, mintNumber: number, collectionId = ORDN
     subTypeData: JSON.stringify(subTypeData),
     weapon: o.id,
     collection: ORDNANCE_COLLECTION_NAME,
+    // For 3D display cabinets (bWalletX): the glTF this gun is built on, and its finish.
+    model: `https://www.tokenblaster.lol/arena/models/guns/${o.base}.glb`,
+    tint: o.tint ?? '',
   };
 }
 

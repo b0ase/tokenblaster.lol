@@ -20,6 +20,7 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GameAudio } from '@/components/SoundToggle';
 import Link from 'next/link';
 import { ORDNANCE, type Ordnance } from '@/lib/ordnance';
+import { GunArt } from './GunArt';
 import type { GunDef } from '@/lib/arenaHD';
 import { useOrdnance } from '@/lib/useOrdnance';
 import { tintGun } from '@/lib/ordnanceGun';
@@ -1371,11 +1372,13 @@ export function Arena() {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {ALL_GUNS.map((g, i) => {
                   const locked = i >= GUNS.length && !owned.has(g.id);
+                  // Show a taste of the locked ordnance; the rest live in the store tile below.
+                  if (locked && ALL_GUNS.slice(GUNS.length, i).filter((x) => !owned.has(x.id)).length >= 3) return null;
                   if (locked)
                     return (
-                      <Link key={g.id} href="/1satordnance" className="inset relative flex flex-col items-center bg-black/60 px-2 py-2 text-sm text-dim opacity-60 hover:opacity-100" title="Locked: own this 1Sat ordinal to unlock it">
+                      <Link key={g.id} href="/1satordnance/store" className="inset relative flex flex-col items-center bg-black/60 px-2 py-2 text-sm text-dim opacity-60 hover:opacity-100" title="Locked: own this 1Sat ordinal to unlock it">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={g.ordnance?.image} alt="" className="h-24 w-48 object-contain grayscale" />
+                        {g.ordnance && <GunArt o={g.ordnance} className="h-24 w-48 object-contain grayscale" />}
                         <div className="font-bold">🔒 {g.name}</div>
                         <div className="text-xs text-accent">1Sat Ordnance · get it ›</div>
                       </Link>
@@ -1402,6 +1405,11 @@ export function Arena() {
                   </button>
                   );
                 })}
+                <Link href="/1satordnance/store" className="inset flex flex-col items-center justify-center bg-black/60 px-2 py-2 text-sm text-hot hover:border-fg">
+                  <div className="text-3xl">🛒</div>
+                  <div className="font-bold">1Sat Ordnance store</div>
+                  <div className="text-xs text-accent">{ALL_GUNS.length - GUNS.length} weapons you can own ›</div>
+                </Link>
               </div>
               <p className="mt-1 text-left text-xs text-dim">
                 🔒 guns are <Link href="/1satordnance" className="underline hover:text-hot">1Sat Ordnance</Link>: real ordinals. Hold one in your wallet and it unlocks here.

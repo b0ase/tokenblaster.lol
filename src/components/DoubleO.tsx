@@ -2109,17 +2109,14 @@ export function DoubleO() {
                     <button onClick={() => setGear(null)} className={`btn px-2 py-1 text-xs ${!gearOk ? 'btn-on' : 'opacity-70'}`}>
                       Gadget gun
                     </button>
-                    {ORDNANCE.map((o) =>
-                      ownedOrdnance.has(o.id) ? (
-                        <button key={o.id} onClick={() => setGear(o.id)} className={`btn px-2 py-1 text-xs ${gearOk === o.id ? 'btn-on' : 'opacity-80'}`} style={{ color: RARITY_COLOR[o.rarity] }}>
-                          {o.name}
-                        </button>
-                      ) : (
-                        <Link key={o.id} href="/1satordnance" className="btn px-2 py-1 text-xs opacity-50 hover:opacity-90" title="Locked: own this 1Sat ordinal to unlock it">
-                          🔒 {o.name}
-                        </Link>
-                      ),
-                    )}
+                    {ORDNANCE.filter((o) => ownedOrdnance.has(o.id)).map((o) => (
+                      <button key={o.id} onClick={() => setGear(o.id)} className={`btn px-2 py-1 text-xs ${gearOk === o.id ? 'btn-on' : 'opacity-80'}`} style={{ color: RARITY_COLOR[o.rarity] }}>
+                        {o.name}
+                      </button>
+                    ))}
+                    <Link href="/1satordnance/store" className="btn px-2 py-1 text-xs opacity-70 hover:opacity-100" title="Own a 1Sat Ordnance ordinal to unlock it here">
+                      🔒 {ORDNANCE.filter((o) => !ownedOrdnance.has(o.id)).length} more in the store ›
+                    </Link>
                   </div>
                   <p className="text-xs text-dim">Hold a 1Sat Ordnance ordinal in your wallet and Q issues it to you here.</p>
                 </div>

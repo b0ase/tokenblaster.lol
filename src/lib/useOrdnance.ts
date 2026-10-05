@@ -17,8 +17,26 @@ const norm = (op: string) => op.replace('.', '_');
 
 type Txo = { outpoint: string; spend?: string; origin?: { outpoint?: string; data?: { map?: Record<string, unknown> } } | null };
 
+/** Verified store issues (origin outpoint → weapon id), from /api/ordnance/issued. */
+let issuedP: Promise<Map<string, string>> | null = null;
+export function storeIssued(): Promise<Map<string, string>> {
+  issuedP ??= fetch('/api/ordnance/issued')
+    .then((r) => (r.ok ? r.json() : { issued: {} }))
+    .then((j: { issued?: Record<string, string[]> }) => new Map(Object.entries(j.issued ?? {}).flatMap(([id, os]) => os.map((o) => [norm(o), id] as const))))
+    .catch(() => {
+      issuedP = null;
+      return new Map<string, string>();
+    });
+  return issuedP;
+}
+
+/** Forget the cached store issues (after a purchase). */
+export const resetStoreIssued = () => {
+  issuedP = null;
+};
+
 /** Weapon a txo is an edition of, if any. */
-function weaponFor(t: Txo): Ordnance | undefined {
+function weaponFor(t: Txo, issued: Map<string, string>): Ordnance | undefined {
   const origin = t.origin?.outpoint ? norm(t.origin.outpoint) : '';
   const map = t.origin?.data?.map ?? {};
   let collectionId = '';
@@ -29,6 +47,8 @@ function weaponFor(t: Txo): Ordnance | undefined {
   } catch {
     /* not JSON */
   }
+  const bought = origin ? issued.get(origin) : undefined;
+  if (bought) return ORDNANCE.find((o) => o.id === bought);
   return ORDNANCE.find(
     (o) =>
       (o.origin && norm(o.origin) === origin) ||
@@ -39,12 +59,13 @@ function weaponFor(t: Txo): Ordnance | undefined {
 /** Weapons held at these addresses, per the GorillaPool index. */
 export async function ordnanceAtAddresses(addresses: string[]): Promise<Set<string>> {
   const owned = new Set<string>();
+  const issued = await storeIssued();
   for (const a of addresses.filter(Boolean)) {
     for (let offset = 0; offset < 5000; offset += 500) {
       const r = await fetch(`${API}/txos/address/${a}/unspent?limit=500&offset=${offset}&bsv20=false`);
       if (!r.ok) throw new Error(`GorillaPool ${r.status}`);
       const txos = (await r.json()) as Txo[];
-      for (const t of txos) if (!t.spend) { const w = weaponFor(t); if (w) owned.add(w.id); }
+      for (const t of txos) if (!t.spend) { const w = weaponFor(t, issued); if (w) owned.add(w.id); }
       if (txos.length < 500) break;
     }
   }
@@ -55,7 +76,8 @@ export async function ordnanceAtAddresses(addresses: string[]): Promise<Set<stri
 export async function ordnanceInWallet(wallet: WalletInterface): Promise<Set<string>> {
   const owned = new Set<string>();
   const minted = ORDNANCE.filter((o) => o.origin);
-  if (!minted.length && !ORDNANCE_COLLECTION) return owned;
+  const issued = await storeIssued();
+  if (!minted.length && !ORDNANCE_COLLECTION && !issued.size) return owned;
   for (const basket of ['1sat', 'ordinals', 'ordnance']) {
     const r = await wallet.listOutputs({ basket, includeTags: true, includeCustomInstructions: true, limit: 1000 }).catch(() => null);
     if (!r) continue;
@@ -63,6 +85,7 @@ export async function ordnanceInWallet(wallet: WalletInterface): Promise<Set<str
       if (o.spendable === false) continue;
       const text = `${(o.tags ?? []).join(' ')} ${o.customInstructions ?? ''} ${o.outpoint}`.replace(/\./g, '_');
       for (const w of minted) if (text.includes(norm(w.origin))) owned.add(w.id);
+      for (const [origin, id] of issued) if (text.includes(origin)) owned.add(id);
       for (const w of ORDNANCE) if (ORDNANCE_COLLECTION && text.includes(norm(ORDNANCE_COLLECTION)) && text.includes(`weapon:${w.id}`)) owned.add(w.id);
     }
   }
@@ -95,7 +118,7 @@ export const saveOrdinalAddresses = (a: string[]) => {
 };
 
 /** Owned weapon ids for a connected wallet (plus any ordinals addresses the player added). */
-export function useOrdnance(wallet: { client: WalletInterface; address: string } | null, extraAddresses: string[] = []) {
+export function useOrdnance(wallet: { client: WalletInterface; address: string } | null, extraAddresses: string[] = [], nonce = 0) {
   const [owned, setOwned] = useState<Set<string>>(() => new Set());
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,7 +126,7 @@ export function useOrdnance(wallet: { client: WalletInterface; address: string }
   useEffect(() => {
     let cancelled = false;
     const sim = simulatedOrdnance();
-    const anyMinted = Boolean(ORDNANCE_COLLECTION) || ORDNANCE.some((o) => o.origin);
+    const anyMinted = true; // store issues can exist with nothing owner-minted
     if (sim || (!wallet && !extraKey) || !anyMinted) {
       void Promise.resolve().then(() => !cancelled && setOwned(sim ?? new Set()));
       return () => {
@@ -128,6 +151,6 @@ export function useOrdnance(wallet: { client: WalletInterface; address: string }
     return () => {
       cancelled = true;
     };
-  }, [wallet, extraKey]);
+  }, [wallet, extraKey, nonce]);
   return { owned, checking, error };
 }

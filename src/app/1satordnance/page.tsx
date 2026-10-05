@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { GunArt } from '@/components/GunArt';
 import { OrdnanceArsenal } from '@/components/OrdnanceArsenal';
 import { ORDNANCE, isMinted } from '@/lib/ordnance';
 
@@ -14,8 +15,8 @@ const FAQ: { q: string; a: string }[] = [
   { q: 'What is 1Sat Ordnance?', a: 'A collection of game weapons minted as 1Sat Ordinals on Bitcoin SV. Each gun is an inscription: the art and its metadata live on chain, in a 1-satoshi output that only your key can spend.' },
   { q: 'How does a gun unlock in the games?', a: 'Connect your wallet in Double-O Kweg or the Arena. We read the ordinals your wallet holds (from the wallet itself and the GorillaPool 1Sat index). If one of them is an Ordnance inscription, that gun appears unlocked in the weapon picker. Sell or send it and it locks again.' },
   { q: 'Can I trade them?', a: 'Yes. They are standard 1Sat ordinals, so any 1Sat marketplace or wallet that shows ordinals can list, buy and send them. Nobody needs our permission, including us.' },
-  { q: 'What does it cost?', a: 'This is BSV: every mint, transfer and in-game shot is a real transaction and pays its network fee. Mint prices for each drop are announced when it goes live.' },
-  { q: 'When do they drop?', a: 'Weapons marked COMING SOON are designed but not minted yet. When one is inscribed its origin appears here and the card switches to MINTED.' },
+  { q: 'What does it cost?', a: 'Each weapon has a price by rarity, shown in the store. You pay it and the network fee in one transaction from your own wallet, which inscribes the gun straight to you. Transfers and in-game shots are real transactions too and pay their fee.' },
+  { q: 'How do I get one?', a: 'Open the store, connect your wallet and press BUY. Your wallet shows the transaction (the inscription to you plus the price to TokenBlaster) and you approve it there. Once it is indexed the gun unlocks.' },
   { q: 'Does the gun change the stats?', a: 'Yes. Each weapon has its own rate of fire, pellets, spread and bolt colour, used by the Arena and (for rate of fire and the model) Double-O Kweg.' },
 ];
 
@@ -39,8 +40,11 @@ export default function OrdnancePage() {
               Every gun is a real 1Sat ordinal inscription in your wallet. Own it and it unlocks in Double-O Kweg and the Arena. Sell it, send it, trade it on any 1Sat marketplace: it&apos;s yours, not a row in our database.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <a href="#catalogue" className="btn-fire">
-                SEE THE CATALOGUE
+              <Link href="/1satordnance/store" className="btn-fire">
+                ENTER THE STORE
+              </Link>
+              <a href="#catalogue" className="btn px-4 py-2 font-bold">
+                CATALOGUE
               </a>
               <a href="#arsenal" className="btn px-4 py-2 font-bold">
                 MY ARSENAL
@@ -75,12 +79,11 @@ export default function OrdnancePage() {
             return (
               <article key={o.id} className="panel flex flex-col">
                 <div className="relative -mx-2.5 -mt-2.5 mb-2 aspect-square overflow-hidden border-b border-[var(--border-dim)] bg-black">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={o.image} alt={`${o.name} inscription art`} className="h-full w-full object-cover" loading="lazy" />
+                  <GunArt o={o} className="h-full w-full object-cover" />
                   </div>
                 <div className="panel-header">
                   <span className="panel-title">&gt; {o.name}</span>
-                  <span className={`text-xs font-bold ${minted ? 'text-[#60ff90]' : 'text-hot'}`}>{minted ? 'MINTED' : 'COMING SOON'}</span>
+                  <Link href={`/1satordnance/store#${o.id}`} className="text-xs font-bold text-[#60ff90] hover:underline">BUY ›</Link>
                 </div>
                 <p className="mt-1 text-accent">{o.tagline}</p>
                 <p className="mt-1 flex-1 text-sm text-dim">{o.description}</p>

@@ -50,6 +50,14 @@ collection + weapon). Owned guns unlock in Double-O Kweg (Q Branch on the menu) 
 Dev check without owning anything: `?ordnance=all` or `?ordnance=pnee-shotgun,safu-blaster` (dev builds, or
 `NEXT_PUBLIC_TB_ADMIN=1`).
 
+### Store (`/1satordnance/store`)
+
+Buyers' wallets inscribe the gun to themselves and pay `priceOf(weapon)` (by rarity, `PRICE_SATS` in
+`src/lib/ordnance.ts`) to `NEXT_PUBLIC_TB_HOUSE_ADDRESS` in one transaction. `/api/ordnance/issued` finds
+them on GorillaPool (MAP app + weapon) and only counts origins whose tx paid the house; the games use the
+same list. Weapons without hand-made art are rendered from their tinted model (`src/lib/ordnanceArt.ts`).
+`/api/ordnance/manifest` is the public catalogue for wallets (see docs/handoff-bwalletx-3d-cabinet.md).
+
 ### Minting (owner, from your own wallet; no server key is involved)
 
 1. Run the site with `NEXT_PUBLIC_TB_ADMIN=1` (or open `/1satordnance/mint?qbranch=1`). The page is not linked.

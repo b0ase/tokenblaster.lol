@@ -8,6 +8,7 @@ import { connect, type Wallet } from '@/lib/wallet';
 import { ORDNANCE, RARITY_COLOR, isMinted } from '@/lib/ordnance';
 import { saveOrdinalAddresses, savedOrdinalAddresses, useOrdnance } from '@/lib/useOrdnance';
 import { WalletChooser } from './WalletChooser';
+import { GunArt } from './GunArt';
 
 /** Connect a wallet the light way (no gun): in-app wallet, else remembered, else the chooser. */
 export function useWalletConnect() {
@@ -71,8 +72,7 @@ export function OrdnanceArsenal() {
         <div className="grid gap-2 py-2 sm:grid-cols-2 lg:grid-cols-3">
           {mine.map((o) => (
             <div key={o.id} className="inset flex items-center gap-3 bg-black/60 p-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={o.image} alt="" className="h-16 w-16 object-contain" />
+              <GunArt o={o} className="h-16 w-16 object-contain" />
               <div>
                 <p className="font-bold text-hot">{o.name}</p>
                 <p className="text-xs" style={{ color: RARITY_COLOR[o.rarity] }}>
