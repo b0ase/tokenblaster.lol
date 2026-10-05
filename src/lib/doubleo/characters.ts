@@ -4,9 +4,9 @@
  */
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { BRIAN, BRIAN_CO, CZ_SHORT, MICHAEL } from './names';
+import { BRIAN, BRIAN_CO, CZ_SHORT, MICHAEL, SAM } from './names';
 
-export type Kind = 'bot' | 'goon' | 'kingpin' | 'custodian' | 'hoarder';
+export type Kind = 'bot' | 'goon' | 'kingpin' | 'custodian' | 'hoarder' | 'partyboy';
 
 export type CastDef = {
   kind: Kind;
@@ -30,6 +30,7 @@ export const CAST: Record<Kind, CastDef> = {
   kingpin: { kind: 'kingpin', name: CZ_SHORT, hp: 45, speed: 2.2, height: 2.9, boss: true, fireMs: 1300, shotSpeed: 10, shotColor: '#7ad8ff', damage: 9, volley: 5, quip: ['FUNDS ARE SAFU!', 'WITHDRAWALS PAUSED!', 'FUNDS ARE SAFU!'], grab: `${CZ_SHORT.toUpperCase()} SEIZES!` },
   custodian: { kind: 'custodian', name: BRIAN, hp: 32, speed: 2.4, height: 2.6, boss: true, fireMs: 1100, shotSpeed: 11, shotColor: '#e8e8ff', damage: 9, volley: 3, quip: ['YOUR ACCOUNT IS UNDER REVIEW!', 'PLEASE VERIFY YOUR ID', 'TICKET #48213 RECEIVED'] },
   hoarder: { kind: 'hoarder', name: MICHAEL, hp: 32, speed: 2.8, height: 2.5, boss: true, fireMs: 1600, shotSpeed: 17, shotColor: '#ff2030', damage: 11, volley: 2, quip: ["I'LL JUST BUY MORE!", 'NEVER SELLING!', "I'LL JUST BUY MORE!"] },
+  partyboy: { kind: 'partyboy', name: SAM, hp: 40, speed: 2.6, height: 2.5, boss: true, fireMs: 1000, shotSpeed: 13, shotColor: '#40e0ff', damage: 9, volley: 4, quip: ['IT WAS A ROUNDING ERROR!', 'THE BACKDOOR WAS A FEATURE!', 'I DONT RECALL!'] },
 };
 
 export type Rig = {
@@ -139,6 +140,7 @@ export function buildRig(kind: Kind, agent?: string): Rig {
     kingpin: { suit: '#9c7a1a', legs: '#7a5f12', skin: '#e7b08a', shirt: '#111111' },
     custodian: { suit: '#5c6168', legs: '#3c4046', skin: '#d8a888', shirt: '#f4f4f4' },
     hoarder: { suit: '#e8741c', legs: '#2a2a2e', skin: '#e0b090', shirt: '#e8741c' },
+    partyboy: { suit: '#5a6a3a', legs: '#2a3a5a', skin: '#e8b898', shirt: '#7a8a5a' },
   };
   const p = agent ? { suit: '#0d0d10', legs: '#0d0d10', skin: '#e2b48e', shirt: '#f4f4f4' } : palette[kind];
   const suit = kind === 'goon' && !agent ? new THREE.MeshStandardMaterial({ map: paperTex(), roughness: 0.9 }) : std(p.suit, kind === 'kingpin' ? { metalness: 0.45, roughness: 0.55 } : kind === 'bot' ? { metalness: 0.7, roughness: 0.35 } : {});

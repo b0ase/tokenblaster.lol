@@ -1,17 +1,18 @@
 /**
- * Double-O Kweg: the three missions. Each map is a grid of SIZE-unit cells.
+ * Double-O Kweg: the five missions. Each map is a grid of SIZE-unit cells.
  *
  *   #  wall            .  floor           S  start            X  exit
  *   D  door (opens when anyone walks up)  Q  locked door (opens once the objective before the boss is done)
  *   C  crate           T  casino table    W  withdrawal desk  $  slot machine    V  pile of IOUs
  *   +  medkit          a  body armour     1 2  objective spots
+ *   o  gold sat coin (score)   i  intel file (secret collectible)   k  adrenaline (8s speed boost)
  *   g  guard bot       p  paper-wallet goon   h  hazmat tech (Arena model)
- *   K  CZ boss   U  BRIAN boss   L  MICHAEL boss   (parody names live in names.ts)
+ *   K  CZ boss   U  BRIAN boss   L  MICHAEL boss   Y  SAM boss (the yacht)   (parody names live in names.ts)
  *
  * Bosses are cartoon parody characters (parody names only; no real names, photos or logos).
  */
 
-import { BRIAN, BRIAN_CO, CZ, CZ_EXCHANGE, MICHAEL } from './names';
+import { BRIAN, BRIAN_CO, CZ, CZ_EXCHANGE, MICHAEL, MINER, SAM, SAM_CO } from './names';
 
 export const SIZE = 4;
 
@@ -50,18 +51,18 @@ export const LEVELS: Level[] = [
     brief: 'A secret bunker mining fake blocks. Get into the server room, plant a real BSV node in their mainframe and get out before the guard bots wake up.',
     map: [
       '########################',
-      '#S..#......C.....#.....#',
-      '#...D......C..g..D..1..#',
-      '#...#............#.....#',
+      '#So.#....o.C.....#....i#',
+      '#..oD.....oC..g..D..1..#',
+      '#...#........o...#.....#',
       '##D######D####...###D###',
-      '#.....#.....#..........#',
+      '#oo...#.....#.....ooo..#',
       '#.C...#..h..#..CC...p..#',
       '#.....D.....D..........#',
-      '#..g..#.....#..CC......#',
+      '#..gi.#.....#..CC......#',
       '###D###########D########',
-      '#.......#.......#......#',
+      '#o......#.oo....#.....i#',
       '#..C....D...g...D...2..#',
-      '#..C....#.......#......#',
+      '#..C.o..#.....o.#....o.#',
       '#.+...g.#..a....#..h..X#',
       '########################',
     ],
@@ -83,22 +84,22 @@ export const LEVELS: Level[] = [
     brief: `${CZ} runs the ${CZ_EXCHANGE} casino and calls it an exchange. Withdrawals have been "paused for maintenance" for 400 days. Unfreeze the desks and take him down.`,
     map: [
       '##########################',
-      '#S....#.......$.$.$......#',
-      '#.....D..................#',
-      '#.....#..T...T....T..p...#',
+      '#S....#.o.....$.$.$.....i#',
+      '#o....D...o.o...o........#',
+      '#..o..#..T...T....T..p...#',
       '###D###..................#',
-      '#.....#..T...T....T......#',
-      '#..p..#.........g........#',
+      '#...o.#..T...T....T..o...#',
+      '#k.p..#.........g........#',
       '#.....######D#####D#######',
-      '#.+...#......#.....#.....#',
+      '#.+...#..o...#.....#....o#',
       '#.....D..p...#..a..D..1..#',
-      '#.....#......#.....#.....#',
+      '#.....#....o.#..i..#.....#',
       '####D##########D######D###',
-      '#........................#',
+      '#.o...o...o...o...o......#',
       '#..$..W.W.W.W.W.W.W...$..#',
-      '#..........2.............#',
-      '#....p.......K.......g...#',
-      '#..$...................X.#',
+      '#..........2............i#',
+      '#o...p.......K.......g...#',
+      '#..$..o................X.#',
       '##########################',
     ],
     objectives: [
@@ -121,22 +122,22 @@ export const LEVELS: Level[] = [
     brief: `Deep under the city ${BRIAN} of ${BRIAN_CO} guards a vault of IOUs, and ${MICHAEL} sits on a pile he will never spend. Crack the vault, beat them both, escape.`,
     map: [
       '########################',
-      '#S...#........#........#',
-      '#....D...g....D...p....#',
-      '#....#........#........#',
+      '#S...#.o......#..o.....#',
+      '#.o..D...g....D...p....#',
+      '#....#......o.#.......i#',
       '##D#####D##########D####',
-      '#......#.......#.......#',
-      '#..V...#...1...#..g....#',
-      '#......D.......D.......#',
+      '#....k.#.......#.......#',
+      '#..V..i#...1...#..g....#',
+      '#.o....D..o..o.D.....o.#',
       '#.p....#.......#..a....#',
       '####Q###########Q#######',
-      '#......................#',
+      '#....o....o....o....o..#',
       '#..V..............V....#',
       '#.......U......L.......#',
-      '#..V..............V....#',
+      '#..V........i.....V....#',
       '#.+..................+.#',
       '#####D##############D###',
-      '#..........X...........#',
+      '#o.........X..........o#',
       '########################',
     ],
     objectives: [
@@ -148,6 +149,83 @@ export const LEVELS: Level[] = [
     signs: [
       { at: [11, 4], text: 'VAULT', face: 's' },
       { at: [11, 9], text: 'NOT YOUR KEYS', face: 's' },
+    ],
+  },
+  {
+    id: 'farm',
+    name: 'The Hash Farm',
+    codename: 'MISSION 4',
+    brief: `${MINER} built a mining farm that only mines empty blocks. Reach the cooling plant, flip the farm to big blocks, and get out before the rigs cook you.`,
+    map: [
+      '############################',
+      '#S..o.#..C.C.C.C.C.C..#....#',
+      '#.....D...............D..i.#',
+      '#..o..#..C.C.C.C.C.C..#....#',
+      '###D###...............###D##',
+      '#.....#..C.C.C.C.C.C..#....#',
+      '#.k...D......g........D..1.#',
+      '#.....#..C.C.C.C.C.C..#....#',
+      '####D######D######D####D####',
+      '#o...o.#.......#.........o.#',
+      '#.......D...h..D...p.......#',
+      '#..CC..#.......#.....CC....#',
+      '#..CC..#..o.o..#..g..CC..i.#',
+      '###D#############D######D####',
+      '#....................o.....#',
+      '#..o..C.......2.......C..o.#',
+      '#.+...C...............C..a.#',
+      '#i....p......g.......h....X#',
+      '############################',
+    ],
+    objectives: [
+      { kind: 'goto', at: '1', text: 'Find the cooling plant' },
+      { kind: 'plant', at: '2', text: 'Flip the farm to big blocks', secs: 3.5 },
+      { kind: 'goto', at: 'X', text: 'Get out through the loading bay' },
+    ],
+    theme: { wall: 'corrugated_iron_02', trim: 'metal_grate_rusty', floor: 'concrete_floor_worn_001', ceiling: '#0d1410', fog: '#040806', light: '#7affc0', ambient: 0.5 },
+    signs: [
+      { at: [12, 0], text: 'EMPTY BLOCKS ONLY', face: 's' },
+      { at: [25, 4], text: 'COOLING', face: 's' },
+      { at: [10, 13], text: 'CONTROL ROOM', face: 'n' },
+    ],
+  },
+  {
+    id: 'yacht',
+    name: 'The Yacht',
+    codename: 'MISSION 5',
+    brief: `${SAM} of ${SAM_CO} is throwing a party on a yacht bought with customer deposits. Board it, recover the backdoor ledger, and settle the bill with the host.`,
+    map: [
+      '##########################',
+      '#S..o..#.....$.....#.....#',
+      '#......D...........D..i..#',
+      '#..o...#..T....T...#.....#',
+      '####D###...........###D###',
+      '#......#..T....T...#.....#',
+      '#.k..p.#.....g.....#..1..#',
+      '#......######D######.....#',
+      '#..o...#...........#.o...#',
+      '###D####...o...o...####D##',
+      '#......D...........D.....#',
+      '#..i...#.....2.....#..+..#',
+      '#......#...........#..a..#',
+      '####Q################Q####',
+      '#........................#',
+      '#..o....h....Y.......p.o.#',
+      '#.....$....$.....$.......#',
+      '#..i.........X...........#',
+      '##########################',
+    ],
+    objectives: [
+      { kind: 'goto', at: '1', text: 'Get below deck' },
+      { kind: 'plant', at: '2', text: 'Copy the backdoor ledger', secs: 3 },
+      { kind: 'boss', text: `Settle the bill with ${SAM}` },
+      { kind: 'goto', at: 'X', text: 'Jump to the speedboat' },
+    ],
+    theme: { wall: 'painted_metal_shutter', trim: 'metal_plate', floor: null, carpet: '#0e2a4a', ceiling: '#0a1420', fog: '#03070c', light: '#ffe7b0', ambient: 0.65 },
+    signs: [
+      { at: [13, 0], text: 'VIP DECK', face: 's' },
+      { at: [21, 4], text: 'BELOW DECK', face: 's' },
+      { at: [13, 13], text: 'CUSTOMER FUNDS (SPENT)', face: 's' },
     ],
   },
 ];

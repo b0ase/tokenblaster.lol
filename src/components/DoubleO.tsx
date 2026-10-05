@@ -2,7 +2,7 @@
 
 /**
  * Double-O Kweg: a GoldenEye-style first-person spy shooter. Special Agent Kweg Wong fires
- * PNEE (or any token from the wallet) at cartoon parody villains across three missions.
+ * PNEE (or any token from the wallet) at cartoon parody villains across five missions.
  * PRACTICE is free play, nothing on chain. LIVE: every bullet is one whole token in a real
  * transaction (tagged doubleo/<level>/shot), queued and sent in batches like the Arena.
  */
@@ -24,7 +24,7 @@ import type { WalletInterface } from '@bsv/sdk';
 import { AmmoStrip } from './AmmoStrip';
 import { buildAgent, buildRig, CAST, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
 import { Grid } from '@/lib/doubleo/grid';
-import { LEVELS, SIZE, type Level } from '@/lib/doubleo/levels';
+import { DOORS, LEVELS, SIZE, SOLID, type Level } from '@/lib/doubleo/levels';
 import { AGENT } from '@/lib/doubleo/names';
 import { WalletChooser } from './WalletChooser';
 import { HighScores } from './HighScores';
@@ -60,13 +60,18 @@ type Hud = {
   last: string | null;
   dist: number;
   arrow: number; // radians, 0 = straight ahead
+  sats: number;
+  satsTotal: number;
+  intel: number;
+  intelTotal: number;
+  boost: number; // seconds of adrenaline left
 };
-type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[] };
+type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[]; sats: number; satsTotal: number; intel: number; intelTotal: number };
 type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void };
 type NetInfo = { status: 'off' | 'connecting' | 'live'; agents: { name: string; host: boolean; me: boolean; vs: boolean }[] };
 /** Level-map letters for each cast kind (also the wire format for the host's actor list). */
 const KIND_CODE: Record<string, string> = { bot: 'g', goon: 'p', hazmat: 'h', kingpin: 'K', custodian: 'U', hoarder: 'L' };
-const CODE_KIND: Record<string, Kind | 'hazmat'> = { g: 'bot', p: 'goon', h: 'hazmat', K: 'kingpin', U: 'custodian', L: 'hoarder' };
+const CODE_KIND: Record<string, Kind | 'hazmat'> = { g: 'bot', p: 'goon', h: 'hazmat', K: 'kingpin', U: 'custodian', L: 'hoarder', Y: 'partyboy' };
 const TINTS = ['#ff4060', '#40c0ff', '#60ff90', '#ffb040', '#c070ff', '#ff70d0', '#f0f040'];
 const tintFor = (id: string) => TINTS[[...id].reduce((n, c) => n + c.charCodeAt(0), 0) % TINTS.length];
 const loadName = () => {
@@ -77,7 +82,7 @@ const loadName = () => {
   }
 };
 
-const HUD0: Hud = { health: 100, armor: 0, obj: '', objIdx: 0, objTotal: 0, progress: null, bosses: [], shots: 0, hits: 0, kills: 0, onChain: 0, heat: 0, last: null, dist: 0, arrow: 0 };
+const HUD0: Hud = { health: 100, armor: 0, obj: '', objIdx: 0, objTotal: 0, progress: null, bosses: [], shots: 0, hits: 0, kills: 0, onChain: 0, heat: 0, last: null, dist: 0, arrow: 0, sats: 0, satsTotal: 0, intel: 0, intelTotal: 0, boost: 0 };
 
 const loadDone = (): string[] => {
   try {
@@ -392,7 +397,8 @@ export function DoubleO() {
     let objIdx = 0;
     let progress = 0;
     let elapsed = 0;
-    let stats = { shots: 0, hits: 0, kills: 0, onChain: 0 };
+    let stats = { shots: 0, hits: 0, kills: 0, onChain: 0, sats: 0, intel: 0 };
+    let boostUntil = 0; // elapsed-seconds when the adrenaline wears off
     let yaw = 0;
     let pitch = 0;
     let walkPhase = 0;
@@ -401,7 +407,7 @@ export function DoubleO() {
     const walls: THREE.Object3D[] = []; // shot blockers
     type DoorMesh = { key: string; mesh: THREE.Mesh };
     const doorMeshes: DoorMesh[] = [];
-    type Pickup = { mesh: THREE.Object3D; kind: '+' | 'a'; taken: boolean };
+    type Pickup = { mesh: THREE.Object3D; kind: '+' | 'a' | 'o' | 'i' | 'k'; taken: boolean; y: number };
     const pickups: Pickup[] = [];
     let beacon: THREE.Group | null = null;
 
@@ -573,11 +579,37 @@ export function DoubleO() {
         g.add(pl);
       }
 
+      // Set dressing: pipes and cable trays under the ceiling, every few floor cells.
+      const pipeMat = new THREE.MeshStandardMaterial({ color: '#4a4f57', metalness: 0.8, roughness: 0.45 });
+      const trayMat = new THREE.MeshStandardMaterial({ color: '#23262b', metalness: 0.6, roughness: 0.6 });
+      const pipeGeo = new THREE.CylinderGeometry(0.09, 0.09, SIZE, 8);
+      grid.rows.forEach((r, z) =>
+        [...r].forEach((c, x) => {
+          if (SOLID.has(c) || DOORS.has(c) || c === '#') return;
+          const cx = (x + 0.5) * SIZE;
+          const cz = (z + 0.5) * SIZE;
+          if ((x * 7 + z * 3) % 5 === 0) {
+            for (const off of [-0.25, 0.05, 0.35]) {
+              const pipe = new THREE.Mesh(pipeGeo, pipeMat);
+              pipe.rotation.z = Math.PI / 2;
+              pipe.position.set(cx, WALL_H - 0.35, cz + off);
+              g.add(pipe);
+            }
+          } else if ((x * 3 + z * 5) % 7 === 0) {
+            const tray = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, SIZE), trayMat);
+            tray.position.set(cx - 0.6, WALL_H - 0.3, cz);
+            g.add(tray);
+          }
+        }),
+      );
+
       // Props.
       const crateMat = assets.material('corrugated_iron_02', [1, 1]);
       const felt = new THREE.MeshStandardMaterial({ color: '#0f5a2c', roughness: 0.9 });
       const gold = new THREE.MeshStandardMaterial({ color: '#c9a227', metalness: 0.9, roughness: 0.3 });
       const wood = new THREE.MeshStandardMaterial({ color: '#5a3518', roughness: 0.7 });
+      const coinGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.05, 20);
+      const coinMat = new THREE.MeshStandardMaterial({ color: '#f5b800', metalness: 0.9, roughness: 0.25, emissive: new THREE.Color('#5a3c00') });
       const ice = new THREE.MeshStandardMaterial({ color: '#9fe8ff', transparent: true, opacity: 0.55, roughness: 0.1, emissive: new THREE.Color('#2a6a80') });
       const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, block = true) => {
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -638,7 +670,47 @@ export function DoubleO() {
             }
             p.position.set(cx, 0.6, cz);
             g.add(p);
-            pickups.push({ mesh: p, kind: c, taken: false });
+            pickups.push({ mesh: p, kind: c, taken: false, y: 0.6 });
+          } else if (c === 'o') {
+            // A ring of gold sat coins on the cell (each one collectable).
+            for (let k = 0; k < 3; k++) {
+              const coin = new THREE.Mesh(coinGeo, coinMat);
+              coin.rotation.x = Math.PI / 2;
+              const holder = new THREE.Group();
+              holder.add(coin);
+              const a2 = (k / 3) * Math.PI * 2 + x;
+              holder.position.set(cx + Math.cos(a2) * 0.9, 1, cz + Math.sin(a2) * 0.9);
+              g.add(holder);
+              pickups.push({ mesh: holder, kind: 'o', taken: false, y: 1 });
+            }
+          } else if (c === 'i') {
+            const p = new THREE.Group();
+            const folder = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 0.42), new THREE.MeshStandardMaterial({ color: '#c8a24a', roughness: 0.8 }));
+            p.add(folder);
+            const stamp = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.09, 0.1), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff3030').multiplyScalar(2.5), toneMapped: false }));
+            p.add(stamp);
+            const glow = new THREE.PointLight('#ffd060', 3, 4, 2);
+            glow.position.y = 0.4;
+            p.add(glow);
+            const tag = nameTag('INTEL', '#ffd060');
+            tag.scale.multiplyScalar(0.5);
+            tag.position.y = 0.7;
+            p.add(tag);
+            p.position.set(cx, 0.9, cz);
+            g.add(p);
+            pickups.push({ mesh: p, kind: 'i', taken: false, y: 0.9 });
+          } else if (c === 'k') {
+            const p = new THREE.Group();
+            const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.6, 12), new THREE.MeshBasicMaterial({ color: new THREE.Color('#40ff80').multiplyScalar(2.5), toneMapped: false }));
+            tube.rotation.z = Math.PI / 2;
+            p.add(tube);
+            const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.12, 12), new THREE.MeshStandardMaterial({ color: '#e0e0e0', metalness: 0.8 }));
+            cap.rotation.z = Math.PI / 2;
+            cap.position.x = 0.34;
+            p.add(cap);
+            p.position.set(cx, 0.8, cz);
+            g.add(p);
+            pickups.push({ mesh: p, kind: 'k', taken: false, y: 0.8 });
           } else if (c === 'X') {
             const pad = new THREE.Mesh(new THREE.BoxGeometry(SIZE * 0.8, 0.06, SIZE * 0.8), new THREE.MeshBasicMaterial({ color: new THREE.Color('#40ff80').multiplyScalar(1.6), toneMapped: false }));
             pad.position.set(cx, 0.03, cz);
@@ -697,7 +769,7 @@ export function DoubleO() {
       g.add(beacon);
 
       // Cast.
-      const kinds: Record<string, Kind | 'hazmat'> = { g: 'bot', p: 'goon', h: 'hazmat', K: 'kingpin', U: 'custodian', L: 'hoarder' };
+      const kinds: Record<string, Kind | 'hazmat'> = { g: 'bot', p: 'goon', h: 'hazmat', K: 'kingpin', U: 'custodian', L: 'hoarder', Y: 'partyboy' };
       grid.rows.forEach((r, z) => [...r].forEach((c, x) => kinds[c] && spawnActor(kinds[c], x, z)));
 
       // Player.
@@ -718,7 +790,8 @@ export function DoubleO() {
       objIdx = 0;
       progress = 0;
       elapsed = 0;
-      stats = { shots: 0, hits: 0, kills: 0, onChain: 0 };
+      stats = { shots: 0, hits: 0, kills: 0, onChain: 0, sats: 0, intel: 0 };
+      boostUntil = 0;
       queue.length = 0;
       heat = 0;
       pushHud();
@@ -736,6 +809,8 @@ export function DoubleO() {
       return new THREE.Vector3(c.x, 0, c.z);
     };
 
+    const intelTotal = () => pickups.filter((p) => p.kind === 'i').length;
+    const satsTotal = () => pickups.filter((p) => p.kind === 'o').length;
     const pushHud = () => {
       const tgt = objTarget();
       let dist = 0;
@@ -764,6 +839,11 @@ export function DoubleO() {
         heat,
         dist,
         arrow,
+        sats: stats.sats,
+        satsTotal: satsTotal(),
+        intel: stats.intel,
+        intelTotal: intelTotal(),
+        boost: Math.max(0, boostUntil - elapsed),
       }));
     };
 
@@ -812,7 +892,7 @@ export function DoubleO() {
         saveDone(ids);
         setDone(ids);
         const squad = [me.current.name, ...[...remotes.values()].map((r) => r.name)];
-        setDebrief({ level: lvlIdx, secs: elapsed, shots: stats.shots, hits: stats.hits, kills: stats.kills, onChain: stats.onChain, live: liveMode, sym: live_.current.sym, squad });
+        setDebrief({ level: lvlIdx, secs: elapsed, shots: stats.shots, hits: stats.hits, kills: stats.kills, onChain: stats.onChain, live: liveMode, sym: live_.current.sym, squad, sats: stats.sats, satsTotal: satsTotal(), intel: stats.intel, intelTotal: intelTotal() });
         setScreen('debrief');
         playSfx('level');
         leaveMission();
@@ -1552,7 +1632,7 @@ export function DoubleO() {
       const s = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0) + input.current.sx;
       if (k.has('ArrowLeft')) yaw += 2.2 * dt;
       if (k.has('ArrowRight')) yaw -= 2.2 * dt;
-      const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? 8 : 5.5) * dt;
+      const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? 8 : 5.5) * (elapsed < boostUntil ? 1.5 : 1) * dt;
       const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       const mv = fwd.multiplyScalar(f).add(right.multiplyScalar(s));
@@ -1572,16 +1652,32 @@ export function DoubleO() {
       // Pickups.
       for (const p of pickups) {
         if (p.taken) continue;
-        p.mesh.rotation.y += dt * 1.5;
-        if (Math.hypot(p.mesh.position.x - camera.position.x, p.mesh.position.z - camera.position.z) < 1.3) {
+        p.mesh.rotation.y += dt * (p.kind === 'o' ? 3 : 1.5);
+        p.mesh.position.y = p.y + Math.sin(now / 400 + p.mesh.position.x) * 0.08;
+        if (Math.hypot(p.mesh.position.x - camera.position.x, p.mesh.position.z - camera.position.z) < (p.kind === 'o' ? 1 : 1.3)) {
           if (p.kind === '+' && health >= 100) continue;
           if (p.kind === 'a' && armor >= 100) continue;
           p.taken = true;
           p.mesh.visible = false;
-          if (p.kind === '+') health = Math.min(100, health + 40);
-          else armor = Math.min(100, armor + 60);
           sfx?.pickup();
-          popup(p.kind === '+' ? '+40 HEALTH' : '+60 BODY ARMOUR', p.mesh.position.clone().setY(1.6), '#80ffb0');
+          const at = p.mesh.position.clone().setY(1.6);
+          if (p.kind === '+') {
+            health = Math.min(100, health + 40);
+            popup('+40 HEALTH', at, '#80ffb0');
+          } else if (p.kind === 'a') {
+            armor = Math.min(100, armor + 60);
+            popup('+60 BODY ARMOUR', at, '#80ffb0');
+          } else if (p.kind === 'o') {
+            stats.sats++;
+            popup('+1 SAT', at, '#ffd24d');
+          } else if (p.kind === 'i') {
+            stats.intel++;
+            popup(`INTEL ${stats.intel}/${intelTotal()}`, at, '#ffd060');
+          } else {
+            boostUntil = elapsed + 8;
+            popup('ADRENALINE!', at, '#40ff80');
+          }
+          pushHud();
         }
       }
 
@@ -2019,6 +2115,13 @@ export function DoubleO() {
                   <div className="h-full bg-[#60b0ff]" style={{ width: `${hud.armor}%` }} />
                 </div>
               </div>
+              <div className="inset bg-black/75 px-2 py-1 text-center">
+                <div className="text-dim">LOOT</div>
+                <div className="font-bold tabular-nums">
+                  <span className="text-[#ffd24d]">● {hud.sats}</span> <span className="text-[#ffd060]">INTEL {hud.intel}/{hud.intelTotal}</span>
+                  {hud.boost > 0 && <span className="text-[#40ff80]"> ⚡{Math.ceil(hud.boost)}</span>}
+                </div>
+              </div>
               <div className="inset bg-black/75 px-2 py-1 text-right">
                 <div className="text-dim">{live ? `$${sym}` : 'PRACTICE'}</div>
                 <div className="font-bold tabular-nums text-hot">{live ? `${tokensLeft} · ${hud.onChain} on chain` : `${hud.shots} fired`}</div>
@@ -2172,10 +2275,12 @@ export function DoubleO() {
               <p className="max-w-sm text-left text-sm text-accent">“Splendid work, {AGENT.replace('Special ', '')}. Your licence to blast has been renewed.” · M</p>
             </div>
             {debrief.squad.length > 1 && <p className="text-sm text-accent">SQUAD: {debrief.squad.join(' · ')}</p>}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Stat label="TIME" value={fmtTime(debrief.secs)} />
               <Stat label="ACCURACY" value={`${debrief.shots ? Math.round((debrief.hits / debrief.shots) * 100) : 0}%`} />
               <Stat label="REKT" value={String(debrief.kills)} />
+              <Stat label="SATS FOUND" value={`${debrief.sats}/${debrief.satsTotal}`} />
+              <Stat label="INTEL" value={`${debrief.intel}/${debrief.intelTotal}`} sub={debrief.intelTotal && debrief.intel === debrief.intelTotal ? 'ALL FOUND' : undefined} />
               <Stat label={`$${debrief.sym} FIRED`} value={String(debrief.live ? debrief.shots : 0)} sub={debrief.live ? undefined : 'practice'} />
               <Stat label="ON CHAIN" value={String(debrief.live ? hud.onChain : 0)} />
             </div>

@@ -11,6 +11,8 @@ export const SCORE_GAMES = {
   'doubleo-facility': { title: 'Double-O Kweg · Facility', tag: 'doubleo', sort: 'score' },
   'doubleo-tower': { title: 'Double-O Kweg · Tower', tag: 'doubleo', sort: 'score' },
   'doubleo-vault': { title: 'Double-O Kweg · Vault', tag: 'doubleo', sort: 'score' },
+  'doubleo-farm': { title: 'Double-O Kweg · Hash Farm', tag: 'doubleo', sort: 'score' },
+  'doubleo-yacht': { title: 'Double-O Kweg · Yacht', tag: 'doubleo', sort: 'score' },
   npgcards: { title: 'Ninja Punk Girls: Card Battle', tag: 'npgcards', sort: 'score' },
   npg: { title: 'Ninja Punk Girls: Erobot Uprising', tag: 'npg', sort: 'score' },
 } as const;

@@ -12,7 +12,7 @@ export const metadata = {
 type Game = { href?: string; title: string; blurb: string; status: 'live' | 'soon'; img: string; version?: string; /** game name in its blasts' OP_RETURN */ tag?: string };
 /** Ours: built and run on tokenblaster.lol. */
 const GAMES: Game[] = [
-  { href: '/arcade/doubleokweg', tag: 'doubleo', title: 'Double-O Kweg', version: 'V1', img: '/arcade/doubleo.jpg', blurb: 'GoldenEye-style spy shooter: Special Agent Kweg Wong fires PNEE at parody crypto villains across three missions. LIVE mode: every bullet is one token on chain.', status: 'live' },
+  { href: '/arcade/doubleokweg', tag: 'doubleo', title: 'Double-O Kweg', version: 'V1', img: '/arcade/doubleo.jpg', blurb: 'GoldenEye-style spy shooter: Special Agent Kweg Wong fires PNEE at parody crypto villains across five missions. LIVE mode: every bullet is one token on chain.', status: 'live' },
   { href: '/arcade/bsvgun', tag: 'bsvgun', title: 'BSVGun', version: 'V1', img: '/arcade/bsvgun.jpg', blurb: 'TeraGun-style mass blaster: fire 50,000 real BSV transactions in one go, tagged for your token, straight onto the leaderboard.', status: 'live' },
   { href: '/arena', tag: 'arena', title: 'Arena', version: 'V1', img: '/arcade/arena.jpg', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: every bullet is a real transaction. Multiplayer: hit a player and your token lands in their gun.', status: 'live' },
   { href: '/arcade/frogger', tag: 'frogger', title: 'Chain Frogger', version: 'V2', img: '/arcade/frogger.jpg', blurb: 'A 3D city crossing where every vehicle is a live mainnet transaction, one way from sender to receiver. Pick a character, arm up, zap traffic.', status: 'live' },
