@@ -277,7 +277,6 @@ export class Gun {
     stop: () => boolean = () => false,
     onStatus: (s: string) => void = () => undefined,
   ): Promise<number> {
-    const breathe = () => new Promise((r) => setTimeout(r, 0)); // let the page paint while we sign
     return this.exclusive(async () => {
       this.refresh();
       // Always start from what the chain says the gun holds: the saved coin can be stale (spent).
@@ -321,107 +320,52 @@ export class Gun {
       // From here the gun's money is spread over the lanes; save the change so Unload/reload can find it all.
       this.coin = { tx: base, vout: lanesN };
       this.save();
+      // Fire: every CPU core signs and broadcasts its own share of lanes, in parallel.
+      const cores = Math.max(1, Math.min(lanesN, (navigator.hardwareConcurrency || 4) - 1, 12));
+      onStatus(`Firing on ${cores} cores, ${lanesN} lanes…`);
       let sent = 0;
-      let n = 0;
-      let built = 0;
-      let roundNo = 0;
       let failed: string | null = null;
-      let dry = 0; // rounds in a row where ARC took nothing
-      type Lane = { tx: Transaction; vout: number; left: number; misses: number };
-      let lanes: Lane[] = lanes0.map((l) => ({ ...l, misses: 0 }));
-      while (sent < total && lanes.length && !stop()) {
-        // First round small so blasts show up within seconds; then 25 per lane.
-        const STEP = roundNo++ === 0 ? 3 : 25;
-        onStatus(`Signing round ${roundNo} (${lanes.length} lanes)…`);
-        const chains: Transaction[][] = [];
-        let planned = sent;
-        for (const lane of lanes) {
-          const chain: Transaction[] = [];
-          let prev = { tx: lane.tx, vout: lane.vout };
-          while (chain.length < Math.min(STEP, lane.left) && planned < total && !stop()) {
-            const tx = new Transaction();
-            tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-            tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(++n), 'bsvgun'].map(hex).join(' ')}`), satoshis: 0 });
-            tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-            await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-            if ((tx.outputs[1].satoshis ?? 0) < 1) break;
-            await tx.sign();
-            chain.push(tx);
-            planned++;
-            prev = { tx, vout: 1 };
-            if (++built % 40 === 0) await breathe();
-          }
-          chains.push(chain);
-        }
-        const all = chains.flat();
-        if (!all.length) break;
-        onStatus(`Broadcasting ${all.length.toLocaleString()} transactions…`);
-        // Send in requests of ~500 (whole lanes only, so each chain stays in order), 4 at a time.
-        const groups: number[][] = [];
-        let cur: number[] = [];
-        let size = 0;
-        chains.forEach((c, i) => {
-          if (size + c.length > 500 && cur.length) {
-            groups.push(cur);
-            cur = [];
-            size = 0;
-          }
-          cur.push(i);
-          size += c.length;
-        });
-        if (cur.length) groups.push(cur);
-        const okBy = chains.map(() => 0); // accepted blasts per lane
-        for (let g = 0; g < groups.length; g += 4) {
-          await Promise.all(
-            groups.slice(g, g + 4).map(async (ids) => {
-              const txs = ids.flatMap((i) => chains[i]);
-              let results: { status?: string; txStatus?: string; description?: string; code?: string | number }[] = [];
-              try {
-                results = (await Promise.race([
-                  this.arc.broadcastMany(txs),
-                  new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 30 s.')), 30_000)),
-                ])) as typeof results;
-              } catch (e) {
-                lastWhy = e instanceof Error ? e.message : String(e);
+      const workers: Worker[] = [];
+      await Promise.all(
+        Array.from({ length: cores }, (_, w) => {
+          const mine = lanes0.filter((_, i) => i % cores === w);
+          return new Promise<void>((done) => {
+            // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
+            const wk = new Worker('/storm-worker.js', { type: 'module' });
+            workers.push(wk);
+            const poll = setInterval(() => stop() && wk.postMessage({ type: 'stop' }), 250);
+            wk.onmessage = (e: MessageEvent) => {
+              const m = e.data as { type: string; n?: number; last?: string; text?: string };
+              if (m.type === 'sent') {
+                sent += m.n ?? 0;
+                onProgress(sent, m.last);
+                onStatus(`Firing on ${cores} cores, ${lanesN} lanes…`);
+              } else if (m.type === 'why') {
+                lastWhy = m.text;
+                if (!sent) onStatus(`ARC: ${m.text}`);
+              } else if (m.type === 'done') {
+                clearInterval(poll);
+                wk.terminate();
+                done();
               }
-              let at = 0;
-              for (const i of ids) {
-                const c = chains[i];
-                let k = 0;
-                while (k < c.length && good(results[at + k])) k++;
-                if (k < c.length) {
-                  const r = results[at + k];
-                  if (r?.description) lastWhy = `${r.description}${r.code ? ` (code ${r.code})` : ''}`;
-                  // The SDK misreports some accepted txs; ask ARC about the lane's last blast.
-                  if (await this.known(c[c.length - 1].id('hex'))) k = c.length;
-                }
-                okBy[i] = k;
-                at += c.length;
-              }
-              const got = ids.reduce((s, i) => s + okBy[i], 0);
-              sent += got;
-              const li = ids.findLast((i) => okBy[i] > 0);
-              onProgress(sent, li === undefined ? undefined : chains[li][okBy[li] - 1].id('hex'));
-            }),
-          );
-        }
-        const roundOk = okBy.reduce((a, b) => a + b, 0);
-        dry = roundOk ? 0 : dry + 1;
-        if (dry >= 3) {
-          failed = `ARC is rejecting the blasts: ${lastWhy ?? 'no reason given'}`;
-          break;
-        }
-        if (!roundOk) await new Promise((r) => setTimeout(r, 2000));
-        // Each lane carries on from its last accepted blast (without ancestry, keeps memory flat).
-        lanes = lanes
-          .map((l, i): Lane => {
-            const k = okBy[i];
-            if (!k) return { ...l, left: 0 }; // unknown fate: never re-spend its coin
-            const t = chains[i][k - 1];
-            return { tx: Transaction.fromHex(t.toHex()), vout: 1, left: l.left - k, misses: 0 };
-          })
-          .filter((l) => l.left > 0 && l.misses < 3 && (l.tx.outputs[l.vout].satoshis ?? 0) > STORM_FEE);
-      }
+            };
+            wk.onerror = (e) => {
+              lastWhy = e.message || 'worker crashed';
+              clearInterval(poll);
+              wk.terminate();
+              done();
+            };
+            wk.postMessage({
+              type: 'start',
+              wif: this.key.toWif(),
+              token,
+              step: 50,
+              lanes: mine.map((l, k) => ({ hex: base.toHex(), vout: l.vout, count: l.left, n: (w + k * cores) * perLane + 1 })),
+            });
+          });
+        }),
+      );
+      if (!sent) failed = `ARC took no blasts: ${lastWhy ?? 'no reason given'}`;
       // Merge every lane end (and the split's change) back into one coin.
       onStatus('Merging leftover sats back into the gun…');
       await this.resync().catch(() => undefined);

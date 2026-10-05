@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "pnpm storm:build && next dev",
+    "build": "pnpm storm:build && next build",
+    "storm:build": "esbuild src/workers/storm.ts --bundle --format=esm --target=es2022 --minify --outfile=public/storm-worker.js",
     "start": "next start",
     "lint": "eslint",
     "blast": "tsx blaster/blast.ts",
