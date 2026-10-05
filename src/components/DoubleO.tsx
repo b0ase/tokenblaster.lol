@@ -690,6 +690,7 @@ export function DoubleO() {
             g.add(p);
             pickups.push({ mesh: p, kind: c, taken: false, y: 0.6 });
           } else if (c === 'o') {
+            // TODO(coins): labelled as sats in-game; awaiting the owner's call on what coins are (real sats, a token, or points).
             // A ring of gold sat coins on the cell (each one collectable).
             for (let k = 0; k < 3; k++) {
               const coin = new THREE.Mesh(coinGeo, coinMat);
@@ -893,7 +894,7 @@ export function DoubleO() {
       if (!quiet) sfx?.pickup();
       const at = camera.position.clone().add(new THREE.Vector3(-Math.sin(yaw) * 3, 0.4, -Math.cos(yaw) * 3));
       if (!quiet && objIdx < L.objectives.length - 1) say.current(L.id, 'objective', objIdx);
-      if (!quiet) popup(o.kind === 'plant' ? (L.id === 'tower' ? 'WITHDRAWALS UNFROZEN!' : L.id === 'vault' ? 'VAULT CRACKED!' : 'NODE PLANTED!') : 'OBJECTIVE COMPLETE', at, '#60ff90', true);
+      if (!quiet) popup(o.kind === 'plant' ? ({ tower: 'WITHDRAWALS UNFROZEN!', vault: 'VAULT CRACKED!', farm: 'BIG BLOCKS ONLINE!', yacht: 'LEDGER COPIED!' } as Record<string, string>)[L.id] ?? 'NODE PLANTED!' : 'OBJECTIVE COMPLETE', at, '#60ff90', true);
       if (o.kind === 'plant' && grid) {
         const [x, z] = grid.find(o.at)[0];
         const c = grid.centre(x, z);
@@ -1722,7 +1723,12 @@ export function DoubleO() {
           if (p.kind === 'a' && armor >= 100) continue;
           p.taken = true;
           p.mesh.visible = false;
-          sfx?.pickup();
+          // Each pickup sounds different: coins chink, intel is stamped, armour clunks, adrenaline springs.
+          if (p.kind === 'o') playSfx('coin', 0.6);
+          else if (p.kind === 'i') playSfx('stamp');
+          else if (p.kind === 'a') playSfx('token');
+          else if (p.kind === 'k') playSfx('spring');
+          else sfx?.pickup();
           const at = p.mesh.position.clone().setY(1.6);
           if (p.kind === '+') {
             health = Math.min(100, health + 40);
@@ -1732,7 +1738,7 @@ export function DoubleO() {
             popup('+60 BODY ARMOUR', at, '#80ffb0');
           } else if (p.kind === 'o') {
             stats.sats++;
-            popup('+1 SAT', at, '#ffd24d');
+            popup('+1 SAT', at, '#ffd24d'); // TODO(coins): wording pending the owner's decision
           } else if (p.kind === 'i') {
             stats.intel++;
             popup(`INTEL ${stats.intel}/${intelTotal()}`, at, '#ffd060');

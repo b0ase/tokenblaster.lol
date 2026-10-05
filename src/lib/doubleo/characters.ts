@@ -189,9 +189,29 @@ function modelRig(id: ModelId, gltf: GLTF, def: CastDef, agent?: string): Rig {
     m.frustumCulled = false; // skinned bounds lie when animated
     if (agent) {
       // Each player's agent: a dark spy suit that picks up their colour.
+      // Suit and face share one texture, so the tint is masked in the shader: only the suit's
+      // grey, low-saturation texels darken and take the player's colour; warm skin is left alone.
+      const suitTint = new THREE.Color('#5a5a6a').lerp(new THREE.Color(agent), 0.45);
       const tint = (mat: THREE.Material) => {
         const n = mat.clone() as THREE.MeshStandardMaterial;
-        n.color?.set('#84849a').lerp(new THREE.Color(agent), 0.22); // one texture for suit and face: darken gently
+        n.onBeforeCompile = (sh) => {
+          sh.uniforms.suitTint = { value: suitTint };
+          sh.fragmentShader = sh.fragmentShader
+            .replace('#include <common>', '#include <common>\nuniform vec3 suitTint;')
+            .replace(
+              '#include <map_fragment>',
+              `#include <map_fragment>
+              {
+                vec3 c = diffuseColor.rgb;
+                float mx = max(c.r, max(c.g, c.b));
+                float mn = min(c.r, min(c.g, c.b));
+                float sat = mx > 0.0001 ? (mx - mn) / mx : 0.0;
+                float suit = 1.0 - smoothstep(0.12, 0.28, sat);
+                diffuseColor.rgb = mix(c, c * suitTint * 1.6, suit);
+              }`,
+            );
+        };
+        n.customProgramCacheKey = () => `agent-suit-${agent}`;
         return n;
       };
       m.material = Array.isArray(m.material) ? m.material.map(tint) : tint(m.material);
