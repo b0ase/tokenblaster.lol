@@ -15,6 +15,8 @@ export const TAG = 'tokenblaster.lol';
 export const BURN_ADDRESS = '1BitcoinEaterAddressDontSendf59kuE';
 /** Sats per token bullet: ~823-byte transfer (83 sats at 100 sat/kB) plus two 1-sat outputs. */
 export const TOKEN_FEE = 90;
+/** Sats per BSVGun blast: up to ~300-byte tagged tx at 100 sat/kB. */
+export const STORM_FEE = 30;
 const GP = 'https://ordinals.gorillapool.io/api';
 
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
@@ -254,6 +256,97 @@ export class Gun {
       this.coin = { tx: Transaction.fromHex(last.toHex()), vout: last.outputs.length - 1 };
       this.save();
       return chain.slice(0, accepted).map((t) => t.id('hex'));
+    });
+  }
+
+  /**
+   * Storm: fire `total` blasts as fast as ARC will take them. The coin is split into up to 100
+   * lanes in one transaction, every lane chains its own blasts, and each round sends a few thousand
+   * at once (500 per ARC request, several requests in flight). Lane ends merge back into one coin.
+   * `onProgress(sent, lastTxid)` after every request; `stop()` returning true ends it early.
+   */
+  async storm(token: string, total: number, onProgress: (sent: number, last?: string) => void, stop: () => boolean = () => false): Promise<number> {
+    return this.exclusive(async () => {
+      this.refresh();
+      if (!this.coin) throw new Error('The gun is empty. Load it first.');
+      const lanesN = Math.max(1, Math.min(100, Math.ceil(total / 300)));
+      const perLane = Math.ceil(total / lanesN);
+      const budget = this.sats - 40 - lanesN * 2;
+      if (budget < lanesN * STORM_FEE) throw new Error('Not enough sats loaded for a storm.');
+      // Split into lanes.
+      const split = new Transaction();
+      split.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      const each = Math.floor(budget / lanesN);
+      for (let i = 0; i < lanesN; i++) split.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
+      split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await split.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await split.sign();
+      await this.send(split);
+      const base = Transaction.fromHex(split.toHex());
+      let lanes = Array.from({ length: lanesN }, (_, i) => ({ tx: base, vout: i, left: perLane }));
+      // From here the gun's money is spread over the lanes; save the change so Unload/reload can find it all.
+      this.coin = { tx: base, vout: lanesN };
+      this.save();
+      let sent = 0;
+      let n = 0;
+      const STEP = 25; // blasts per lane per round
+      while (sent < total && lanes.length && !stop()) {
+        const round: Transaction[] = [];
+        const ends: { tx: Transaction; vout: number; left: number }[] = [];
+        for (const lane of lanes) {
+          let prev = { tx: lane.tx, vout: lane.vout };
+          let k = 0;
+          for (; k < Math.min(STEP, lane.left, total - sent - round.length); k++) {
+            const tx = new Transaction();
+            tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+            tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(++n), 'bsvgun'].map(hex).join(' ')}`), satoshis: 0 });
+            tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+            await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+            if ((tx.outputs[1].satoshis ?? 0) < 1) break;
+            await tx.sign();
+            round.push(tx);
+            prev = { tx, vout: 1 };
+          }
+          ends.push({ ...prev, left: lane.left - k });
+        }
+        if (!round.length) break;
+        // Send in requests of 500, a few at a time. Chains stay in order inside each request.
+        const parts: Transaction[][] = [];
+        for (let i = 0; i < round.length; i += 500) parts.push(round.slice(i, i + 500));
+        let ok = 0;
+        for (let i = 0; i < parts.length; i += 4) {
+          const res = await Promise.all(parts.slice(i, i + 4).map((p) => this.broadcastChain(p)));
+          res.forEach((r, j) => {
+            ok += r.accepted;
+            sent += r.accepted;
+            const p = parts[i + j];
+            onProgress(sent, r.accepted ? p[r.accepted - 1].id('hex') : undefined);
+          });
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        if (!ok) break; // ARC took nothing this round: stop rather than spin
+        if (ok < round.length) break; // a lane broke: stop and merge what we have
+        // Next round starts from each lane's last blast, without its ancestry (keeps memory flat).
+        lanes = ends.filter((e) => e.left > 0).map((e) => ({ tx: Transaction.fromHex(e.tx.toHex()), vout: e.vout, left: e.left }));
+      }
+      // Merge every lane end (and the split's change) back into one coin.
+      await this.resync().catch(() => undefined);
+      const coins = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
+      if (coins.length > 1) {
+        const tx = new Transaction();
+        for (const c of coins.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+        tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+        await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+        await tx.sign();
+        try {
+          await this.send(tx);
+          this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
+        } catch {
+          /* the index may lag; Unload sweeps everything at the address anyway */
+        }
+      }
+      this.save();
+      return sent;
     });
   }
 

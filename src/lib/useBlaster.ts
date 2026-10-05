@@ -122,6 +122,20 @@ export function useBlaster() {
     [token],
   );
 
+  /** BSVGun: thousands of blasts in parallel lanes. */
+  const storm = useCallback(
+    async (total: number, onProgress: (sent: number, last?: string) => void, stop?: () => boolean) => {
+      const g = gun.current;
+      if (!g) throw new Error('No gun.');
+      try {
+        return await g.storm(token?.id ?? '', total, onProgress, stop);
+      } finally {
+        setAmmo(g.sats);
+      }
+    },
+    [token],
+  );
+
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
     async (startN: number, extras: string[][], pay?: { address: string; sats: number }) => {
@@ -288,5 +302,5 @@ export function useBlaster() {
     }
   }, [wallet, refreshGun]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }
