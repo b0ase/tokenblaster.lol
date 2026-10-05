@@ -32,7 +32,7 @@ export default function Home() {
         <div className="absolute inset-0 bg-gradient-to-r from-[var(--bg)] via-[var(--bg)]/85 to-transparent" />
         <div className="relative flex flex-col gap-2 py-1 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-3xl font-bold text-fg drop-shadow-[0_0_14px_rgba(255,48,32,0.6)] sm:text-5xl">
+            <h1 className="text-3xl font-bold text-fg drop-shadow-[0_0_14px_rgba(245,184,0,0.5)] sm:text-5xl">
               TokenBlaster<span className="text-hot">.lol</span>
               <span className="blink">_</span>
             </h1>
@@ -55,6 +55,16 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      <Link href="/1satordnance/store" className="panel group flex flex-wrap items-center gap-3 hover:border-fg">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/ordnance/safu-blaster.webp" alt="" className="h-20 w-20 border border-[var(--border-dim)] object-cover" />
+        <div className="min-w-0 flex-1">
+          <p className="font-bold text-hot group-hover:underline">NEW · 1SAT ORDNANCE STORE: 22 guns you actually own</p>
+          <p className="text-dim">Buy a game weapon as a real 1Sat ordinal, inscribed straight into your wallet. Hold it and it unlocks in Double-O Kweg and the Arena. Shows up in 3D in bWalletX.</p>
+        </div>
+        <span className="btn-fire !px-4 !py-2 !text-base">ENTER THE STORE</span>
+      </Link>
 
       <ChainDashboard />
 

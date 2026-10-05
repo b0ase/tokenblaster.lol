@@ -35,7 +35,7 @@ export function Leaderboard({ hero = false }: { hero?: boolean } = {}) {
   const total = tokens?.reduce((n, t) => n + t.blasts, 0) ?? 0;
   const icon = hero ? 'h-9 w-9' : 'h-5 w-5';
   return (
-    <section className={`panel min-w-0 ${hero ? 'border-fg shadow-[0_0_18px_rgba(255,48,32,0.25)]' : ''}`}>
+    <section className={`panel min-w-0 ${hero ? 'border-fg shadow-[0_0_18px_rgba(245,184,0,0.25)]' : ''}`}>
       <div className="panel-header">
         <span className={`panel-title ${hero ? 'text-xl text-hot sm:text-2xl' : ''}`}>{hero ? '> Most blasted tokens' : 'Most blasted tokens'}</span>
         <div className="flex flex-wrap gap-1">
