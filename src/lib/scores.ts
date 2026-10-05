@@ -57,6 +57,7 @@ export async function submitScore(s: { game: ScoreGame; mode: 'practice' | 'live
     p_meta: s.meta,
     p_txid: s.txid,
     p_verified: s.verified,
+    p_secret: process.env.SCORES_SECRET ?? null, // without it, runs are stored but never marked verified
     p_ip_hash: s.ipHash,
   });
   return rows[0] ?? { id: null, ok: false, error: 'no result' };
