@@ -37,6 +37,16 @@ export type Ordnance = {
   origin: string;
 };
 
+/** What a weapon fires: drives the test-fire visuals and sound (and, later, the games). */
+export type Ammo = 'bullet' | 'pellet' | 'laser' | 'plasma' | 'rocket' | 'grenade';
+const AMMO: Record<string, Ammo> = {
+  'pnee-shotgun': 'pellet', 'utxo-thumper': 'pellet', 'double-spend': 'pellet', 'craig-cannon': 'pellet', 'dust-sweeper': 'pellet',
+  'laser-eye-rifle': 'laser', 'bitcoin-schema-sniper': 'laser',
+  'safu-blaster': 'plasma', 'genesis-blaster': 'plasma', 'teranode-cannon': 'plasma',
+  'hashpower-howitzer': 'rocket', 'kweg-grenade-launcher': 'grenade',
+};
+export const ammoOf = (o: { id: string }): Ammo => AMMO[o.id] ?? 'bullet';
+
 /** Store price per rarity, in sats (BSV ~$20 when set: 0.01 / 0.05 / 0.25 / 1 BSV). */
 export const PRICE_SATS: Record<Rarity, number> = { common: 1_000_000, rare: 5_000_000, epic: 25_000_000, legendary: 100_000_000 };
 export const priceOf = (o: Ordnance) => PRICE_SATS[o.rarity];
@@ -58,11 +68,11 @@ const FIT: Record<string, Ordnance['fit']> = {
   'teranode-cannon': { flip: true },
   nlocktime: { flip: true, length: 0.8 },
   'p2pkh-pistolero': { flip: true, length: 0.42 },
-  'genesis-blaster': { length: 0.42 },
+  'genesis-blaster': { flip: true, length: 0.42 },
   'op-return': { length: 0.45, tint: 0.7 }, // finish is near-black: a blacked-out Uzi
   // No UVs: their paint is baked into the GLB materials, so no finish on top.
   'utxo-thumper': { tint: 0 },
-  'hashpower-howitzer': { tint: 0 },
+  'hashpower-howitzer': { tint: 0, flip: true }, // warhead was pointing at you
 };
 
 /** Origin of the "1Sat Ordnance" collection inscription. Empty until minted. */

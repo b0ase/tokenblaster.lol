@@ -320,7 +320,42 @@ export function buildGun(def: GunDef, gltf: GLTF): HeldGun {
       for (const mat of mats) if (mat.emissive) mat.emissiveIntensity = Math.min(mat.emissiveIntensity ?? 1, 0.35);
     }
   });
+  // Muzzle: the middle of the gun's front tip (vertices in the frontmost 4% along -Z), so shots and
+  // flashes leave the barrel rather than a guessed point. Falls back to a guess for odd models.
   const muzzle = new THREE.Vector3(0, size.y * 0.15, -def.length / 2);
+  let skinned = false;
+  model.traverse((n) => {
+    if ((n as THREE.SkinnedMesh).isSkinnedMesh) skinned = true;
+  });
+  // Rigged models (the minigun): raw vertices aren't where they're drawn, so keep the guess.
+  if (!skinned) {
+    group.updateMatrixWorld(true);
+    const v = new THREE.Vector3();
+    const tip: THREE.Vector3[] = [];
+    let front = Infinity;
+    const all: THREE.Vector3[] = [];
+    model.traverse((n) => {
+      const m = n as THREE.Mesh;
+      const pos = m.isMesh ? (m.geometry.getAttribute('position') as THREE.BufferAttribute | undefined) : undefined;
+      if (!pos) return;
+      const step = Math.max(1, Math.floor(pos.count / 4000));
+      for (let i = 0; i < pos.count; i += step) {
+        const p = v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).clone();
+        all.push(p);
+        front = Math.min(front, p.z);
+      }
+    });
+    // Barrels sit in the upper part of a gun; ignore belts, magazines and grips hanging below.
+    const ys = all.map((p) => p.y).sort((a, b) => a - b);
+    const floorY = ys[Math.floor(ys.length * 0.35)] ?? -Infinity;
+    const upper = all.filter((p) => p.y >= floorY);
+    front = upper.reduce((m, p) => Math.min(m, p.z), Infinity);
+    for (const p of upper) if (p.z < front + def.length * 0.04) tip.push(p);
+    if (tip.length) {
+      const c = tip.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(tip.length);
+      muzzle.set(c.x, c.y, front);
+    }
+  }
   let mixer: THREE.AnimationMixer | null = null;
   let spin: THREE.AnimationAction | null = null;
   const clip = def.spin && gltf.animations.find((a) => a.name === def.spin);

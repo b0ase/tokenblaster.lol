@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildGun } from './arenaHD';
-import { RARITY_COLOR, type Ordnance } from './ordnance';
+import { RARITY_COLOR, ammoOf, type Ordnance } from './ordnance';
 import { brandGun, tintAmount, tintGun } from './ordnanceGun';
 import { gunDefFor, loadGunModel } from './ordnanceModels';
 import { installAudio, sfx, unlockAudio } from './sfx';
@@ -126,7 +126,6 @@ function poster(o: Ordnance): HTMLCanvasElement {
 }
 
 const ART_FIX: Record<string, { yaw?: number; pitch?: number }> = {
-  quadplasma: { yaw: Math.PI }, // otherwise its barrels point left on the card
   sawedoff: { pitch: -0.3 }, // held tilted up; level it for the card
 };
 
@@ -156,6 +155,11 @@ async function buildScene(o: Ordnance, r: THREE.WebGLRenderer) {
   const held = buildGun(def, await loadGunModel(def.url));
   const holder = held.group;
   tintGun(holder, o.tint, tintAmount(o));
+  // Dev check (?firetest): an arrow from the muzzle along the firing direction.
+  if (typeof location !== 'undefined' && location.search.includes('firetest')) {
+    const L = held.def.length;
+    holder.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), held.muzzle, L * 0.6, 0xff0000, L * 0.15, L * 0.08));
+  }
   await brandGun(holder, o.id);
   // Card-only fixes for stock models whose in-hand pose doesn't read side-on (games are unaffected).
   const fix = o.model ? undefined : ART_FIX[o.base];
@@ -225,9 +229,33 @@ export function spinGun(o: Ordnance, canvas: HTMLCanvasElement, pointer: { x: nu
     let slide = 0;
     const camZ = s.cam.position.z;
     const len = s.held.def.length;
-    const boltMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(o.stats.bolt).multiplyScalar(2.2), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
-    const boltGeo = new THREE.CapsuleGeometry(len * 0.022, len * 0.28, 4, 8).rotateX(Math.PI / 2);
-    const bolts: { m: THREE.Mesh; v: THREE.Vector3; age: number }[] = [];
+    const ammo = ammoOf(o);
+    const glowMat = (c: string, k: number) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(k), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    // Per ammo: projectile look, speed (gun lengths/s), life (s), gravity, and whether it bursts at the end.
+    const kinds = {
+      bullet: { geo: new THREE.CapsuleGeometry(len * 0.008, len * 0.16, 3, 6), mat: glowMat('#ffe9a0', 2.5), speed: 5, life: 0.35, g: 0, burst: false },
+      pellet: { geo: new THREE.SphereGeometry(len * 0.01, 6, 4), mat: glowMat('#ffd27a', 2.5), speed: 4, life: 0.25, g: 0, burst: false },
+      laser: { geo: new THREE.CylinderGeometry(len * 0.008, len * 0.008, len * 3, 6).translate(0, len * 1.5, 0), mat: glowMat(o.stats.bolt, 3), speed: 0, life: 0.09, g: 0, burst: false },
+      plasma: { geo: new THREE.CapsuleGeometry(len * 0.022, len * 0.28, 4, 8), mat: glowMat(o.stats.bolt, 2.2), speed: 2.6, life: 0.6, g: 0, burst: false },
+      rocket: { geo: new THREE.CapsuleGeometry(len * 0.035, len * 0.18, 4, 8), mat: new THREE.MeshStandardMaterial({ color: '#3d4a2a', metalness: 0.4, roughness: 0.5 }), speed: 1.4, life: 0.9, g: 0, burst: true },
+      grenade: { geo: new THREE.SphereGeometry(len * 0.045, 10, 8), mat: new THREE.MeshStandardMaterial({ color: '#40d070', metalness: 0.3, roughness: 0.5, emissive: '#103018' }), speed: 1.6, life: 0.85, g: 2.2, burst: true },
+    } as const;
+    const k = kinds[ammo];
+    if (ammo !== 'laser') k.geo.rotateX(Math.PI / 2);
+    else k.geo.rotateX(-Math.PI / 2); // beam lies along -Z from the muzzle
+    const smokeMat = new THREE.MeshBasicMaterial({ color: '#c8c2b8', transparent: true, opacity: 0.5, depthWrite: false });
+    const smokeGeo = new THREE.SphereGeometry(len * 0.03, 8, 6);
+    const boomMat = glowMat('#ffb070', 3);
+    const boomGeo = new THREE.SphereGeometry(len * 0.08, 14, 10);
+    type Fx = { m: THREE.Mesh; v: THREE.Vector3; age: number; life: number; kind: 'shot' | 'smoke' | 'boom' };
+    const bolts: Fx[] = [];
+    const spawn = (geo: THREE.BufferGeometry, mat: THREE.Material, at: THREE.Vector3, v: THREE.Vector3, life: number, kind: Fx['kind']) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.copy(at);
+      if (v.lengthSq()) m.lookAt(m.position.clone().add(v));
+      s.holder.add(m);
+      bolts.push({ m, v, age: 0, life, kind });
+    };
     const flash = new THREE.Mesh(new THREE.SphereGeometry(len * 0.05, 12, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffd27a').multiplyScalar(3), toneMapped: false, transparent: true }));
     flash.position.copy(s.held.muzzle);
     flash.visible = false;
@@ -236,27 +264,35 @@ export function spinGun(o: Ordnance, canvas: HTMLCanvasElement, pointer: { x: nu
     light.position.copy(s.held.muzzle);
     s.holder.add(light);
     const shoot = (now: number) => {
+      const at = s.held.muzzle.clone();
       for (let i = 0; i < o.stats.pellets; i++) {
-        const m = new THREE.Mesh(boltGeo, boltMat);
-        m.position.copy(s.held.muzzle).add(new THREE.Vector3(0, 0, -len * 0.1));
         const sp = o.stats.spread * 2;
-        const v = new THREE.Vector3((Math.random() - 0.5) * sp, (Math.random() - 0.5) * sp, -1).normalize().multiplyScalar(len * 2.6);
-        m.lookAt(m.position.clone().add(v));
-        s.holder.add(m);
-        bolts.push({ m, v, age: 0 });
+        const dir = new THREE.Vector3((Math.random() - 0.5) * sp, (Math.random() - 0.5) * sp, -1).normalize();
+        if (ammo === 'laser') {
+          const m = new THREE.Mesh(k.geo, k.mat);
+          m.position.copy(at);
+          s.holder.add(m);
+          bolts.push({ m, v: new THREE.Vector3(), age: 0, life: k.life, kind: 'shot' });
+        } else spawn(k.geo, k.mat, at.clone().addScaledVector(dir, len * 0.05), dir.multiplyScalar(len * k.speed).add(new THREE.Vector3(0, ammo === 'grenade' ? len * 0.9 : 0, 0)), k.life, 'shot');
       }
       flash.visible = true;
       flash.scale.setScalar(0.7 + Math.random() * 0.8);
       light.intensity = 6;
       kick = Math.min(len * 0.08, kick + len * 0.02 * (0.5 + o.stats.kick));
-      sfx(o.stats.pellets > 3 ? 'explosion' : o.base === 'plasmarifle' || o.base === 'quadplasma' ? 'laser' : 'shot', 0.5);
+      sfx(ammo === 'laser' || ammo === 'plasma' ? 'laser' : ammo === 'pellet' ? 'explosion' : ammo === 'rocket' || ammo === 'grenade' ? 'stomp' : 'shot', ammo === 'pellet' ? 0.35 : 0.5);
       if (s.held.spin) s.held.spin.timeScale = 1;
       nextShot = now + Math.max(45, o.stats.fireMs);
     };
     const tick = (now: number) => {
       if (stopped) {
-        boltGeo.dispose();
-        boltMat.dispose();
+        for (const x of Object.values(kinds)) {
+          x.geo.dispose();
+          x.mat.dispose();
+        }
+        smokeGeo.dispose();
+        smokeMat.dispose();
+        boomGeo.dispose();
+        boomMat.dispose();
         return s.dispose();
       }
       const dt = Math.min(0.05, (now - last) / 1000);
@@ -277,13 +313,31 @@ export function spinGun(o: Ordnance, canvas: HTMLCanvasElement, pointer: { x: nu
       for (let i = bolts.length - 1; i >= 0; i--) {
         const b = bolts[i];
         b.age += dt;
-        b.m.position.addScaledVector(b.v, dt);
-        b.m.scale.setScalar(Math.max(0.2, 1 - b.age * 0.8));
-        if (b.age > 0.6) {
+        const f = b.age / b.life;
+        if (b.kind === 'shot') {
+          if (ammo === 'grenade') b.v.y -= len * k.g * dt;
+          b.m.position.addScaledVector(b.v, dt);
+          if (ammo === 'plasma') b.m.scale.setScalar(Math.max(0.2, 1 - f * 0.6));
+          if (ammo === 'laser') (b.m.material as THREE.MeshBasicMaterial).opacity = 1 - f;
+          if (ammo === 'rocket' && Math.random() < 0.7) spawn(smokeGeo, smokeMat, b.m.position.clone(), new THREE.Vector3(0, len * 0.15, 0), 0.5, 'smoke');
+        } else if (b.kind === 'smoke') {
+          b.m.position.addScaledVector(b.v, dt);
+          b.m.scale.setScalar(1 + f * 2.5);
+        } else {
+          b.m.scale.setScalar(0.4 + f * 2.6);
+        }
+        if (b.age > b.life) {
+          if (b.kind === 'shot' && k.burst) {
+            spawn(boomGeo, boomMat, b.m.position.clone(), new THREE.Vector3(), 0.3, 'boom');
+            light.position.copy(b.m.position);
+            light.intensity = 10;
+            sfx('explosion', 0.45);
+          }
           s.holder.remove(b.m);
           bolts.splice(i, 1);
         }
       }
+      if (!bolts.some((b) => b.kind === 'boom')) light.position.copy(s.held.muzzle);
       // Pointer -1..1 across the card swings the gun ~45° either way, with a slow drift on top.
       // While firing it holds steady, side-on, so you can see the shots leave the muzzle.
       const wantYaw = s.baseY + (firing ? 0 : pointer.x * 0.75 + Math.sin(t * 0.8) * 0.2);
