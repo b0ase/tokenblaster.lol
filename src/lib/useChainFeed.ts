@@ -5,10 +5,8 @@
  * (src/lib/feed.ts). Games pull from `take()`; nothing is lost if they fall behind (capped queue).
  */
 import { useEffect, useRef, useState } from 'react';
-import type { ChainStats } from './chain';
-import { classify, type FeedTx } from './feed';
-import { streamSubscription, type JbTx } from './junglebus';
-import { tokenMeta } from './tokenMeta';
+import { subscribeStatus, subscribeTx } from './chainStream';
+import type { FeedTx } from './feed';
 
 const SUBSCRIPTION = process.env.NEXT_PUBLIC_JUNGLEBUS_SUBSCRIPTION_ID ?? '';
 
@@ -17,14 +15,7 @@ export function useChainFeed(cap = 400) {
   const [status, setStatus] = useState<'off' | 'connecting' | 'live' | 'error'>(SUBSCRIPTION ? 'connecting' : 'off');
   useEffect(() => {
     if (!SUBSCRIPTION) return;
-    const ids = new Set<string>();
-    const push = (tx: JbTx) => {
-      if (ids.has(tx.id)) return;
-      ids.add(tx.id);
-      if (ids.size > 5000) ids.clear();
-      const f = classify(tx.id, tx.hex, tx.mined);
-      if (!f) return;
-      if (f.token) tokenMeta(f.token); // fetch its name/icon early
+    const push = (f: FeedTx) => {
       // Rolling buffer, per kind: always keep the newest of each kind, so one flood (e.g. a
       // spam burst of data txs) can't fill the queue and starve the other lanes or go stale.
       const q = queue.current;
@@ -36,17 +27,11 @@ export function useChainFeed(cap = 400) {
       if (q.length > cap) q.shift();
       (window as unknown as { __tbFeed?: unknown }).__tbFeed = { waiting: q.length, kinds: q.reduce<Record<string, number>>((m, x) => ((m[x.kind] = (m[x.kind] ?? 0) + 1), m), {}) };
     };
-    let stop: (() => void) | undefined;
-    let cancelled = false;
-    fetch('/api/chain')
-      .then((r) => r.json())
-      .then((s: ChainStats) => {
-        if (!cancelled) stop = streamSubscription(SUBSCRIPTION, s.height || 0, { onTx: push, onState: setStatus });
-      })
-      .catch(() => setStatus('error'));
+    const offStatus = subscribeStatus(setStatus);
+    const offTx = subscribeTx(push);
     return () => {
-      cancelled = true;
-      stop?.();
+      offStatus();
+      offTx();
     };
   }, [cap]);
   /** Next live transaction (optionally of one kind), or null if none waiting. */

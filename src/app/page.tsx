@@ -1,18 +1,11 @@
 import Link from 'next/link';
 import { GitHubLink } from '@/components/GitHubLink';
-import { Highway } from '@/components/Highway';
-import { Leaderboard } from '@/components/Leaderboard';
+import { ChainDashboard } from '@/components/ChainDashboard';
 
 const GAMES = [
   { href: '/arena', img: '/arcade/arena.jpg', title: 'Arena', tag: 'V1 · multiplayer', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: one token per bullet, one transaction per token. Hit another player and your token lands in their gun.' },
   { href: '/arcade/frogger', img: '/arcade/frogger.jpg', title: 'Chain Frogger', tag: 'V2 · 3D city', blurb: 'Cross a GTA-style avenue where every vehicle is a live mainnet transaction, one way from sender to receiver. Token transfers drive box trucks wearing their logo.' },
   { href: '/arcade', img: '/arcade/npg.jpg', title: 'More in the Arcade', tag: 'coming soon', blurb: 'Ninja Punk Girls in 3D, an open-world city, Token Rally, plus links to other builders’ BSV games.' },
-];
-
-const STEPS = [
-  { n: '01', title: 'Watch the chain', body: 'The live highway streams every BSV transaction from GorillaPool JungleBus and names the tokens moving: icons and $SYMBOLS where explorers just say “tokens”.' },
-  { n: '02', title: 'Load your tokens', body: 'Connect bWallet, bWalletX or Yours. Your real tokens appear, read straight from your wallet. One approval loads the tokens plus the fees to fire them into your gun.' },
-  { n: '03', title: 'Blast them', body: 'Every bullet is a real BSV-21 transfer, its own transaction on chain and on bsv.lol. Unload brings anything you didn’t fire back to your wallet.' },
 ];
 
 const STACK = [
@@ -26,53 +19,36 @@ const STACK = [
 
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-2.5">
-      {/* Hero */}
+    <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-3 p-2.5">
+      {/* Compact hero strip */}
       <header className="panel relative overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/arcade/arena.jpg" alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-25" />
+        <img src="/arcade/arena.jpg" alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-20" />
         <div className="absolute inset-0 bg-gradient-to-r from-[var(--bg)] via-[var(--bg)]/85 to-transparent" />
-        <div className="relative flex flex-col gap-3 py-4 sm:py-8">
-          <div className="flex items-start justify-between gap-2">
-            <h1 className="text-4xl font-bold text-fg drop-shadow-[0_0_14px_rgba(255,48,32,0.6)] sm:text-6xl">
+        <div className="relative flex flex-col gap-2 py-1 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold text-fg drop-shadow-[0_0_14px_rgba(255,48,32,0.6)] sm:text-5xl">
               TokenBlaster<span className="text-hot">.lol</span>
               <span className="blink">_</span>
             </h1>
-            <GitHubLink />
+            <p className="text-hot sm:text-lg">Load your tokens. Blast them at the chain.</p>
           </div>
-          <p className="max-w-2xl text-lg text-hot sm:text-xl">Load your tokens. Blast them at the chain.</p>
-          <p className="max-w-2xl text-dim">
-            A live window on Bitcoin SV, plus games where your wallet’s tokens are the ammo. Every bullet, hop and shot is a real transaction you can find on chain.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/arcade" className="btn-fire">
-              ENTER THE ARCADE
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/blast" className="btn-fire">
+              BLAST NOW
             </Link>
             <Link href="/arena" className="btn btn-on px-4 py-2">
-              PLAY ARENA
+              ARENA
             </Link>
-            <Link href="/blast" className="btn px-4 py-2">
-              BLAST
+            <Link href="/arcade" className="btn px-4 py-2">
+              ARCADE
             </Link>
+            <GitHubLink />
           </div>
         </div>
       </header>
 
-      <Highway />
-
-      {/* How it works */}
-      <section className="grid gap-3 sm:grid-cols-3">
-        {STEPS.map((s) => (
-          <div key={s.n} className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                <span className="text-dim">{s.n}</span> {s.title}
-              </span>
-            </div>
-            <p className="text-dim">{s.body}</p>
-          </div>
-        ))}
-      </section>
+      <ChainDashboard />
 
       {/* Games */}
       <section className="panel">
@@ -100,19 +76,6 @@ export default function Home() {
           ))}
         </div>
       </section>
-
-      <div className="grid gap-3 lg:grid-cols-[2fr_1fr]">
-        <Leaderboard />
-        {/* Blast */}
-        <Link href="/blast" className="panel group hover:border-fg">
-          <div className="panel-header">
-            <span className="panel-title group-hover:text-hot">&gt; Blast</span>
-            <span className="text-dim">[ENTER]</span>
-          </div>
-          <p className="text-dim">The original: load the gun and hold the trigger. Each blast is a tagged transaction for your token, and the leaderboard counts every one the chain confirms.</p>
-          <p className="mt-2 text-sm text-accent">Most blasted tokens, live from our own indexer →</p>
-        </Link>
-      </div>
 
       {/* Wallets + bGames */}
       <section className="grid gap-3 sm:grid-cols-2">

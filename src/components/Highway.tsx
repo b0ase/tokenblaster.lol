@@ -2,28 +2,30 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { ChainStats } from '@/lib/chain';
-import { FEED_EVENT, KINDS, classify, type FeedTx, type TxKind } from '@/lib/feed';
-import { streamSubscription, type JbTx } from '@/lib/junglebus';
+import { subscribeStatus, subscribeTx, type StreamStatus } from '@/lib/chainStream';
+import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { tokenMeta } from '@/lib/tokenMeta';
 
-const SUBSCRIPTION = process.env.NEXT_PUBLIC_JUNGLEBUS_SUBSCRIPTION_ID ?? '';
 const WINDOW_MS = 60_000;
 const LANE: Record<TxKind, number> = Object.fromEntries(KINDS.map((k, i) => [k.id, i])) as Record<TxKind, number>;
 
-type Status = 'off' | 'connecting' | 'live' | 'error';
 
 /**
  * The highway: every car is a real BSV transaction from the GorillaPool JungleBus stream
  * (mempool and newly mined). Lane = what the transaction carries, length = its size.
- * Click a car to open the transaction.
+ * Click a car to open the transaction (or hand it to `onSelect`, e.g. the dashboard inspector).
  */
-export function Highway() {
+export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx) => void; showMovers?: boolean } = {}) {
+  const select = useRef(onSelect);
+  useEffect(() => {
+    select.current = onSelect;
+  }, [onSelect]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const queue = useRef<FeedTx[]>([]);
   const seen = useRef<{ at: number; kind: TxKind; token?: string; amt?: string }[]>([]);
   const [movers, setMovers] = useState<{ id: string; n: number; amt: bigint }[]>([]);
   const [tip, setTip] = useState<ChainStats | null>(null);
-  const [status, setStatus] = useState<Status>(SUBSCRIPTION ? 'connecting' : 'off');
+  const [status, setStatus] = useState<StreamStatus>('connecting');
   const [counts, setCounts] = useState<{ rate: number; byKind: Record<TxKind, number>; now: number } | null>(null);
 
   // Chain tip from GorillaPool.
@@ -42,32 +44,16 @@ export function Highway() {
     };
   }, []);
 
-  // Live transactions from JungleBus.
+  // Live transactions from the page's shared JungleBus stream.
   useEffect(() => {
-    if (!SUBSCRIPTION) return;
-    const ids = new Set<string>();
-    const push = (tx: JbTx) => {
-      if (ids.has(tx.id)) return;
-      ids.add(tx.id);
-      if (ids.size > 5000) ids.clear();
-      const f = classify(tx.id, tx.hex, tx.mined);
-      if (!f) return;
-      window.dispatchEvent(new CustomEvent<FeedTx>(FEED_EVENT, { detail: f }));
+    const offStatus = subscribeStatus(setStatus);
+    const offTx = subscribeTx((f) => {
       seen.current.push({ at: Date.now(), kind: f.kind, token: f.token, amt: f.amt });
-      if (f.token) tokenMeta(f.token); // start fetching its name/icon now
       if (queue.current.length < 300) queue.current.push(f);
-    };
-    let stop: (() => void) | undefined;
-    let cancelled = false;
-    fetch('/api/chain')
-      .then((r) => r.json())
-      .then((s: ChainStats) => {
-        if (!cancelled) stop = streamSubscription(SUBSCRIPTION, s.height || 0, { onTx: push, onState: setStatus });
-      })
-      .catch(() => setStatus('error'));
+    });
     return () => {
-      cancelled = true;
-      stop?.();
+      offStatus();
+      offTx();
     };
   }, []);
 
@@ -164,7 +150,8 @@ export function Highway() {
       const x = (e.clientX - r.left) * devicePixelRatio;
       const y = (e.clientY - r.top) * devicePixelRatio;
       const hit = frame.cars.find((car) => x >= car.x && x <= car.x + car.w && y >= car.y && y <= car.y + car.h);
-      if (hit) window.open(`https://whatsonchain.com/tx/${hit.id}`, '_blank', 'noopener');
+      if (hit && select.current) select.current(hit);
+      else if (hit) window.open(`https://whatsonchain.com/tx/${hit.id}`, '_blank', 'noopener');
     };
     c.addEventListener('click', click);
     raf = requestAnimationFrame(draw);
@@ -208,7 +195,7 @@ export function Highway() {
         ))}
         <span className="text-muted">last 60 s · white underline = mined</span>
       </div>
-      {movers.length > 0 && (
+      {showMovers && movers.length > 0 && (
         <div className="mt-2">
           <p className="text-xs text-dim">TOKENS MOVING NOW (last 60 s)</p>
           <div className="mt-1 grid grid-cols-2 gap-1 sm:grid-cols-4">
