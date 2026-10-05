@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' capacitor://localhost https://localhost" }] }];
   },
+  async redirects() {
+    return [{ source: '/arcade/doubleo', destination: '/arcade/doubleosatoshi', permanent: true }];
+  },
 };
 
 export default nextConfig;

@@ -1,0 +1,33 @@
+import Link from 'next/link';
+import { DoubleO } from '@/components/DoubleO';
+import { GitHubLink } from '@/components/GitHubLink';
+
+const description = 'A GoldenEye-style 3D spy shooter. Special Agent Kweg Wong fires PNEE (or any token in your wallet) at cartoon crypto villains: every bullet is one token in a real BSV transaction.';
+export const metadata = {
+  title: 'Double-O Satoshi · TokenBlaster.lol',
+  description,
+  openGraph: { title: 'Double-O Satoshi', description, url: '/arcade/doubleosatoshi' },
+  twitter: { card: 'summary_large_image', title: 'Double-O Satoshi', description },
+};
+
+export default function DoubleOPage() {
+  return (
+    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-2.5">
+      <header className="panel">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="text-2xl font-bold text-hot">
+            Double-O Satoshi<span className="blink">_</span>
+          </h1>
+          <span className="flex items-center gap-3">
+            <GitHubLink />
+            <Link href="/arcade" className="text-dim hover:text-hot">
+              &lt; Arcade
+            </Link>
+          </span>
+        </div>
+        <p className="mt-1 text-dim">Licensed to blast. Three missions, parody villains, and a gadget gun that fires your tokens: practice for free, or go LIVE and every bullet is a real transaction.</p>
+      </header>
+      <DoubleO />
+    </main>
+  );
+}
