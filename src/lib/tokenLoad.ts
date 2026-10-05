@@ -9,10 +9,10 @@ import { Beef, Hash, P2PKH, PublicKey, Transaction, TransactionSignature, Unlock
 import { bsv21 } from './gun';
 import { tokenCoins } from './tokens';
 
-const ONESAT: WalletProtocol = [0, 'onesat'];
+export const ONESAT: WalletProtocol = [0, 'onesat'];
 
 /** The note the 1Sat wallets write on a token coin (bsv21 basket): the wallet counts it from this. */
-const noteFor = (id: string, amt: bigint, sym: string, dec: number | undefined, keyID: string, icon?: string | null) =>
+export const noteFor = (id: string, amt: bigint, sym: string, dec: number | undefined, keyID: string, icon?: string | null) =>
   JSON.stringify({
     id,
     amt: amt.toString(),

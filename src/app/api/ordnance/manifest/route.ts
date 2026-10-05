@@ -1,3 +1,4 @@
+import { ammoFor } from '@/lib/ammo';
 import { ORDNANCE, ORDNANCE_APP, ORDNANCE_COLLECTION, ORDNANCE_COLLECTION_NAME, modelUrl, priceOf } from '@/lib/ordnance';
 
 const SITE = 'https://www.tokenblaster.lol';
@@ -34,6 +35,8 @@ export function GET() {
         roll: o.fit?.roll ?? 0,
         spin: o.model ? null : (STOCK_SPIN[o.base] ?? null),
         bolt: o.stats.bolt,
+        // What it fires in LIVE play: kind + the BSV-21 ammo token (null until minted; PNEE matches by ticker).
+        ammo: ammoFor(o.id),
         image: o.image ? `${SITE}${o.image}` : null,
         origin: o.origin || null,
       })),

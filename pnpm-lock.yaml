@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@1sat/templates':
+        specifier: 0.0.43
+        version: 0.0.43(@bsv/sdk@2.8.11)
       '@bsv/sdk':
         specifier: ^2.8.11
         version: 2.8.11
@@ -80,6 +83,16 @@ importers:
         version: 8.22.0
 
 packages:
+
+  '@1sat/templates@0.0.43':
+    resolution: {integrity: sha512-y8P6W0YBP5H0G569DelP8RGX7tLBtrA3Og9zIwxSqYcBawvbhoyKy/ReEBcjmOTg6GtIgf3WbEF99HyFL5GNcQ==}
+    peerDependencies:
+      '@bsv/sdk': ^2.6.0
+
+  '@1sat/types@0.0.52':
+    resolution: {integrity: sha512-qlhXz3VvvEcrlMyo6OzEVXXRASEZ3fYpXZANXjPwcfsPMKKNLc8iG2bxPjHie4rp8WlSQl9zxx6qmts/Hg5hDw==}
+    peerDependencies:
+      '@bsv/sdk': ^2.6.0
 
   '@alloc/quick-lru@5.3.0':
     resolution: {integrity: sha512-U4+70Pc5ZS9osnCBCE5Jha/ciHM+Yp+CNMNC/7HvYbNRk1Ldd+f7qO65W5qfhu/TCv+/ozljlXXe9Nj8419DMA==}
@@ -155,6 +168,10 @@ packages:
   '@bsv/sdk@2.8.11':
     resolution: {integrity: sha512-Kt70E52bGTCayebmKQJCmEKCFwwS1MOUJ4Q4mKLCadsktVpZMv4NoWjvEbO7VDIw3g5zo8RMJsTuRy5zFI77og==}
     engines: {node: '>=22'}
+
+  '@cto.af/wtf8@0.0.6':
+    resolution: {integrity: sha512-xp/zbWLXuh2WBxi9tIc+Jep7BAwLu8ETTI8xN68ks10bxOBMISs/jcu9DBEkOeGXLaTKUbA0Y2Ficx/jmmPABg==}
+    engines: {node: '>=20'}
 
   '@dimforge/rapier3d-compat@0.12.0':
     resolution: {integrity: sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==}
@@ -536,6 +553,9 @@ packages:
     engines: {node: '>=20.9.0'}
     cpu: [x64]
     os: [win32]
+
+  '@ipld/dag-cbor@10.0.2':
+    resolution: {integrity: sha512-1eCD4YMTlkx5i36oQUmeAojLS/wu+XCd1Gs31BA0afk0TaVkhnyMofIAT/pi0wV3HS3/G7QSN/1NibhiksMyZQ==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1093,6 +1113,14 @@ packages:
 
   caniuse-lite@1.0.30001814:
     resolution: {integrity: sha512-/Uaf1lAzr59XcMpW0o96WoEfr+VXK2OX4U9AgFoiSHsVJ4HppnIFUjtYzsyDH2+tgANaQb2/oxYGwCPapN1FpA==}
+
+  cbor2@2.4.0:
+    resolution: {integrity: sha512-s6+CPoEI6tgwasK2cWMTXt5sy8Yxo4vgRmKgkJSCdKDL/0bHU3aYJoYeHRX7/oywKYA3bxcpqEYkXkrdHe0+0Q==}
+    engines: {node: '>=22'}
+
+  cborg@6.1.3:
+    resolution: {integrity: sha512-Kb/wD/AFuVcqvVjR+HYNOjNiuhVJ2C+RWxQE2Yqq2WVlVkRjdvVLkkM6QsL3NMsBRh+rgNc+aXmcraA+X0HObQ==}
+    hasBin: true
 
   centrifuge@5.7.4:
     resolution: {integrity: sha512-PnkJSS5uDPcdIDK4kkrgVCiT7RT+4xUTVjO9FfUjrUpOdPNKXgjfY+6gdG+RQKGSRP7AxP4NxCuFk0Eb4sjrWw==}
@@ -1848,6 +1876,9 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
+  multiformats@14.0.5:
+    resolution: {integrity: sha512-vbIm83F2yZ1pWJGS0yl0ysracIvv56LtbrIyiIQHoLdYDJOMoLfVFsXhh9DUH4SFdkdkFhucyWniihsNzVEjkQ==}
+
   nanoid@3.3.19:
     resolution: {integrity: sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
@@ -2421,6 +2452,18 @@ packages:
 
 snapshots:
 
+  '@1sat/templates@0.0.43(@bsv/sdk@2.8.11)':
+    dependencies:
+      '@1sat/types': 0.0.52(@bsv/sdk@2.8.11)
+      '@bsv/sdk': 2.8.11
+      '@ipld/dag-cbor': 10.0.2
+      cbor2: 2.4.0
+      cborg: 6.1.3
+
+  '@1sat/types@0.0.52(@bsv/sdk@2.8.11)':
+    dependencies:
+      '@bsv/sdk': 2.8.11
+
   '@alloc/quick-lru@5.3.0': {}
 
   '@babel/code-frame@7.29.7':
@@ -2524,6 +2567,8 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@bsv/sdk@2.8.11': {}
+
+  '@cto.af/wtf8@0.0.6': {}
 
   '@dimforge/rapier3d-compat@0.12.0': {}
 
@@ -2799,6 +2844,11 @@ snapshots:
 
   '@img/sharp-win32-x64@0.35.5':
     optional: true
+
+  '@ipld/dag-cbor@10.0.2':
+    dependencies:
+      cborg: 6.1.3
+      multiformats: 14.0.5
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
@@ -3332,6 +3382,12 @@ snapshots:
   camelcase@5.3.1: {}
 
   caniuse-lite@1.0.30001814: {}
+
+  cbor2@2.4.0:
+    dependencies:
+      '@cto.af/wtf8': 0.0.6
+
+  cborg@6.1.3: {}
 
   centrifuge@5.7.4:
     dependencies:
@@ -4231,6 +4287,8 @@ snapshots:
   minimist@1.2.8: {}
 
   ms@2.1.3: {}
+
+  multiformats@14.0.5: {}
 
   nanoid@3.3.19: {}
 
