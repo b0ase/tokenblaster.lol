@@ -16,7 +16,7 @@ import { resetStoreIssued, useOrdnance } from '@/lib/useOrdnance';
 import { GunArt } from './GunArt';
 import { useWalletConnect } from './OrdnanceArsenal';
 
-const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
+const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU' // bCorp's receiving address (public, not a key);
 const PROTOCOL: [1, string] = [1, '1sat ordnance'];
 const RARITIES: Rarity[] = ['common', 'rare', 'epic', 'legendary'];
 const bsv = (sats: number) => `${(sats / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} BSV`;
@@ -131,7 +131,7 @@ export function OrdnanceStore() {
           return (
             <article key={o.id} id={o.id} className="panel flex scroll-mt-4 flex-col" style={{ borderColor: o.rarity === 'legendary' ? RARITY_COLOR.legendary : undefined }}>
               <div className="relative -mx-2.5 -mt-2.5 mb-2 aspect-square overflow-hidden border-b border-[var(--border-dim)] bg-black">
-                <GunArt o={o} className="h-full w-full object-cover" />
+                <GunArt o={o} spin className="h-full w-full object-cover" />
                 <span className="absolute left-2 top-2 border bg-black/70 px-1.5 text-xs font-bold uppercase" style={{ color: RARITY_COLOR[o.rarity], borderColor: RARITY_COLOR[o.rarity] }}>
                   {o.rarity}
                 </span>

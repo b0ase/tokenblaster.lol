@@ -79,7 +79,7 @@ export default function OrdnancePage() {
             return (
               <article key={o.id} className="panel flex flex-col">
                 <div className="relative -mx-2.5 -mt-2.5 mb-2 aspect-square overflow-hidden border-b border-[var(--border-dim)] bg-black">
-                  <GunArt o={o} className="h-full w-full object-cover" />
+                  <GunArt o={o} spin className="h-full w-full object-cover" />
                   </div>
                 <div className="panel-header">
                   <span className="panel-title">&gt; {o.name}</span>

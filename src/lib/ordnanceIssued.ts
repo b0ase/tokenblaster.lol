@@ -8,7 +8,7 @@ import { ORDNANCE, ORDNANCE_APP, priceOf } from './ordnance';
 
 const GP = 'https://ordinals.gorillapool.io/api';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
-export const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
+export const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU' // bCorp's receiving address (public, not a key);
 
 type Txo = { outpoint: string; origin?: { outpoint?: string } | null };
 const verdict = new Map<string, boolean>(); // origin txid → paid the house enough

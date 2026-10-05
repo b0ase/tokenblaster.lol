@@ -14,7 +14,7 @@ import { RARITY_COLOR, type Ordnance } from './ordnance';
 import { tintGun } from './ordnanceGun';
 
 let renderer: THREE.WebGLRenderer | null = null;
-let env: THREE.Texture | null = null;
+const envs = new WeakMap<THREE.WebGLRenderer, THREE.Texture>(); // a PMREM texture belongs to one GL context
 const models = new Map<string, Promise<THREE.Object3D>>();
 const urls = new Map<string, Promise<string>>();
 let queue: Promise<unknown> = Promise.resolve();
@@ -31,14 +31,66 @@ function model(base: string) {
   return p;
 }
 
-async function draw(o: Ordnance, size: number): Promise<HTMLCanvasElement> {
-  renderer ??= new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false });
-  renderer.setPixelRatio(1);
-  renderer.setSize(size, size, false);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  env ??= new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+function setup(r: THREE.WebGLRenderer) {
+  r.toneMapping = THREE.ACESFilmicToneMapping;
+  r.outputColorSpace = THREE.SRGBColorSpace;
+}
 
+let logoTex: Promise<THREE.Texture> | null = null;
+/** The PNEEs logo as a texture (for the PNEE Shotgun's stock). */
+function pneeLogo() {
+  logoTex ??= new THREE.TextureLoader().loadAsync('/ordnance/pnee-logo.png').then((t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+  return logoTex;
+}
+
+/** Brand marks on a weapon's model (only the PNEE Shotgun so far): a logo on each side of the stock. */
+async function brand(o: Ordnance, gun: THREE.Object3D, dim: THREE.Vector3) {
+  if (o.id !== 'pnee-shotgun') return;
+  const tex = await pneeLogo();
+  const long = dim.x >= dim.z ? 'x' : 'z';
+  const side = long === 'x' ? 'z' : 'x';
+  const size = Math.max(dim.x, dim.z) * 0.1;
+  // Which end is the butt? The stock is the deep end: compare vertical spread in each end fifth.
+  gun.updateMatrixWorld(true);
+  const ends = { lo: [Infinity, -Infinity, 0], hi: [Infinity, -Infinity, 0] }; // y min, y max, |side| max
+  const v = new THREE.Vector3();
+  gun.traverse((n) => {
+    const m = n as THREE.Mesh;
+    const pos = m.isMesh ? (m.geometry.getAttribute('position') as THREE.BufferAttribute | undefined) : undefined;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i += 3) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      const e = v[long] < -dim[long] * 0.3 ? ends.lo : v[long] > dim[long] * 0.3 ? ends.hi : null;
+      if (e) {
+        e[0] = Math.min(e[0], v.y);
+        e[1] = Math.max(e[1], v.y);
+        e[2] = Math.max(e[2], Math.abs(v[side]));
+      }
+    }
+  });
+  const butt = ends.lo[1] - ends.lo[0] >= ends.hi[1] - ends.hi[0] ? -1 : 1;
+  const stock = butt < 0 ? ends.lo : ends.hi;
+  const yMid = (stock[0] + stock[1]) / 2;
+  for (const sgn of [1, -1]) {
+    const m = new THREE.Mesh(new THREE.CircleGeometry(size / 2, 48), new THREE.MeshStandardMaterial({ map: tex, transparent: true, metalness: 0.3, roughness: 0.4, polygonOffset: true, polygonOffsetFactor: -2 }));
+    m.position[long] = butt * dim[long] * 0.38;
+    m.position.y = yMid;
+    m.position[side] = sgn * (stock[2] + size * 0.02);
+    m.rotation.y = side === 'z' ? (sgn > 0 ? 0 : Math.PI) : sgn > 0 ? Math.PI / 2 : -Math.PI / 2;
+    gun.add(m);
+  }
+}
+
+/** A weapon's scene: backdrop, lights, the tinted (and branded) model on a pivot, and a camera. */
+async function buildScene(o: Ordnance, r: THREE.WebGLRenderer) {
+  let env = envs.get(r);
+  if (!env) {
+    env = new THREE.PMREMGenerator(r).fromScene(new RoomEnvironment(), 0.04).texture;
+    envs.set(r, env);
+  }
   const scene = new THREE.Scene();
   scene.environment = env;
   const c = document.createElement('canvas');
@@ -67,21 +119,70 @@ async function draw(o: Ordnance, size: number): Promise<HTMLCanvasElement> {
   const box = new THREE.Box3().setFromObject(gun);
   const dim = box.getSize(new THREE.Vector3());
   gun.position.sub(box.getCenter(new THREE.Vector3()));
+  const holder = new THREE.Group(); // centred gun, so brand marks sit in the same frame as its bounds
+  holder.add(gun);
+  await brand(o, holder, dim);
   const pivot = new THREE.Group();
-  pivot.add(gun);
+  pivot.add(holder);
   // Longest axis across the frame, turned three-quarters toward the camera.
-  if (dim.z > dim.x) pivot.rotation.y = Math.PI / 2;
-  pivot.rotation.y += -0.6;
-  pivot.rotation.x = 0.18;
+  const baseY = (dim.z > dim.x ? Math.PI / 2 : 0) - 0.6;
+  pivot.rotation.set(0.18, baseY, 0);
   scene.add(pivot);
 
-  const r = Math.max(dim.x, dim.y, dim.z);
-  const cam = new THREE.PerspectiveCamera(30, 1, r / 100, r * 100);
-  cam.position.set(0, r * 0.15, r * 2.1);
+  const rad = Math.max(dim.x, dim.y, dim.z);
+  const cam = new THREE.PerspectiveCamera(30, 1, rad / 100, rad * 100);
+  cam.position.set(0, rad * 0.15, rad * 2.1);
   cam.lookAt(0, 0, 0);
-  renderer.render(scene, cam);
-  bg.dispose();
+  return { scene, pivot, cam, baseY, dispose: () => bg.dispose() };
+}
+
+async function draw(o: Ordnance, size: number): Promise<HTMLCanvasElement> {
+  renderer ??= new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false });
+  renderer.setPixelRatio(1);
+  renderer.setSize(size, size, false);
+  setup(renderer);
+  const s = await buildScene(o, renderer);
+  renderer.render(s.scene, s.cam);
+  s.dispose();
   return renderer.domElement;
+}
+
+/**
+ * Live, swivelling model in `canvas` (card hover): follows the pointer, drifts when it is still.
+ * Returns a stop function that frees the WebGL context.
+ */
+export function spinGun(o: Ordnance, canvas: HTMLCanvasElement, pointer: { x: number; y: number }): () => void {
+  let stopped = false;
+  let raf = 0;
+  const r = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+  r.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  r.setSize(canvas.clientWidth, canvas.clientHeight, false);
+  setup(r);
+  void buildScene(o, r).then((s) => {
+    if (stopped) return s.dispose();
+    const t0 = performance.now();
+    let yaw = s.baseY;
+    let pitch = 0.18;
+    const tick = (now: number) => {
+      if (stopped) return s.dispose();
+      const t = (now - t0) / 1000;
+      // Pointer -1..1 across the card swings the gun ~45° either way, with a slow drift on top.
+      const wantYaw = s.baseY + pointer.x * 0.75 + Math.sin(t * 0.8) * 0.2;
+      const wantPitch = 0.18 + pointer.y * 0.35;
+      yaw += (wantYaw - yaw) * 0.12;
+      pitch += (wantPitch - pitch) * 0.12;
+      s.pivot.rotation.set(pitch, yaw, Math.sin(t * 1.3) * 0.04);
+      r.render(s.scene, s.cam);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  });
+  return () => {
+    stopped = true;
+    cancelAnimationFrame(raf);
+    r.dispose();
+    r.forceContextLoss();
+  };
 }
 
 /** Inscription file for a weapon: its hand-made art, else a 768² webp render. */

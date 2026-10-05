@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBlaster } from './useBlaster';
 
-export const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
+export const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU' // bCorp's receiving address (public, not a key);
 export const PER_ACTION = 1;
 export const EST_FEE = 26; // sats: ~260-byte tx at 100 sat/kB
 export const COST = PER_ACTION + EST_FEE;

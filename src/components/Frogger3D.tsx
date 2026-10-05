@@ -22,7 +22,7 @@ import { WalletChooser } from './WalletChooser';
 import { HighScores, useRunClock } from './HighScores';
 
 /** Where paid moves go: 1 sat per hop / shot to TokenBlaster. The player's gun pays the network fee too. */
-const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
+const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU' // bCorp's receiving address (public, not a key);
 const PER_ACTION = 1;
 const EST_FEE = 26; // sats: ~260-byte tx at 100 sat/kB (GorillaPool ARC minimum)
 const LOADS = [1_000, 10_000, 100_000];
