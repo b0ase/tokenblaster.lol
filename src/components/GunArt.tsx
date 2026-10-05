@@ -45,10 +45,22 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
   );
   if (!spin) return still;
   return (
-    <div ref={box} className="relative h-full w-full" onPointerEnter={() => setLive(true)} onPointerLeave={() => setLive(false)} onPointerMove={move}>
+    <div
+      ref={box}
+      className="relative h-full w-full touch-pan-y"
+      // Mouse: live while hovering. Touch/pen: a tap toggles it (touch fires leave right after the tap).
+      onPointerEnter={(e) => e.pointerType === 'mouse' && setLive(true)}
+      onPointerLeave={(e) => e.pointerType === 'mouse' && setLive(false)}
+      onPointerUp={(e) => {
+        if (e.pointerType === 'mouse') return;
+        move(e);
+        setLive((v) => !v);
+      }}
+      onPointerMove={move}
+    >
       {still}
       {live && <canvas ref={canvas} className="absolute inset-0 h-full w-full" />}
-      {!live && <span className="pointer-events-none absolute bottom-2 right-2 bg-black/60 px-1 text-[10px] text-dim">hover to inspect · 3D</span>}
+      {!live && <span className="pointer-events-none absolute bottom-2 right-2 bg-black/60 px-1 text-[10px] text-dim"><span className="hidden sm:inline">hover</span><span className="sm:hidden">tap</span> to inspect · 3D</span>}
     </div>
   );
 }
