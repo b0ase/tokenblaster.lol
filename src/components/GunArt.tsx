@@ -2,11 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { Ordnance } from '@/lib/ordnance';
-import { gunArtUrl, spinGun } from '@/lib/ordnanceArt';
+import { gunArtUrl, spinGun, type LiveGun } from '@/lib/ordnanceArt';
+
+/** Only one card is live at a time (each live card holds a WebGL context). */
+let closeOther: (() => void) | null = null;
 
 /**
- * A weapon's art: its image, or a render of its tinted 3D model. With `spin`, hovering (or
- * touching) swaps in the live model, which swivels to follow the pointer.
+ * A weapon's art: its image, or a render of its tinted 3D model. With `spin`, hovering (or a tap
+ * on touch screens) swaps in the live model, which swivels to follow the pointer; clicking or
+ * holding on it fires a demo burst (nothing on chain, no token).
  */
 export function GunArt({ o, className = '', spin = false }: { o: Ordnance; className?: string; spin?: boolean }) {
   const [src, setSrc] = useState<string | null>(o.image ?? null);
@@ -14,6 +18,8 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const pointer = useRef({ x: 0, y: 0 });
+  const gun = useRef<LiveGun | null>(null);
+  const wantFire = useRef(false);
 
   useEffect(() => {
     if (o.image) return;
@@ -27,7 +33,17 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
   useEffect(() => {
     if (!live || !canvas.current) return;
     pointer.current = { x: 0, y: 0 };
-    return spinGun(o, canvas.current, pointer.current);
+    const g = spinGun(o, canvas.current, pointer.current);
+    gun.current = g;
+    if (wantFire.current) g.trigger(true);
+    const close = () => setLive(false);
+    if (closeOther && closeOther !== close) closeOther();
+    closeOther = close;
+    return () => {
+      g.stop();
+      gun.current = null;
+      if (closeOther === close) closeOther = null;
+    };
   }, [live, o]);
 
   const move = (e: React.PointerEvent) => {
@@ -35,6 +51,10 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
     if (!r) return;
     pointer.current.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     pointer.current.y = ((e.clientY - r.top) / r.height) * 2 - 1;
+  };
+  const trigger = (down: boolean) => {
+    wantFire.current = down;
+    gun.current?.trigger(down);
   };
 
   const still = src ? (
@@ -47,20 +67,35 @@ export function GunArt({ o, className = '', spin = false }: { o: Ordnance; class
   return (
     <div
       ref={box}
-      className="relative h-full w-full touch-pan-y"
-      // Mouse: live while hovering. Touch/pen: a tap toggles it (touch fires leave right after the tap).
+      className="relative h-full w-full cursor-crosshair touch-pan-y select-none"
+      // Mouse: live while hovering, click/hold fires. Touch/pen: first tap goes live, then tap/hold fires.
       onPointerEnter={(e) => e.pointerType === 'mouse' && setLive(true)}
-      onPointerLeave={(e) => e.pointerType === 'mouse' && setLive(false)}
-      onPointerUp={(e) => {
-        if (e.pointerType === 'mouse') return;
-        move(e);
-        setLive((v) => !v);
+      onPointerLeave={(e) => {
+        trigger(false);
+        if (e.pointerType === 'mouse') setLive(false);
       }}
+      onPointerDown={(e) => {
+        move(e);
+        if (e.pointerType !== 'mouse' && !live) return setLive(true);
+        trigger(true);
+      }}
+      onPointerUp={() => trigger(false)}
+      onPointerCancel={() => trigger(false)}
       onPointerMove={move}
+      onContextMenu={(e) => e.preventDefault()}
     >
       {still}
       {live && <canvas ref={canvas} className="absolute inset-0 h-full w-full" />}
-      {!live && <span className="pointer-events-none absolute bottom-2 right-2 bg-black/60 px-1 text-[10px] text-dim"><span className="hidden sm:inline">hover</span><span className="sm:hidden">tap</span> to inspect · 3D</span>}
+      <span className="pointer-events-none absolute bottom-2 right-2 bg-black/60 px-1 text-[10px] text-dim">
+        {live ? (
+          'click / hold to test fire · demo, nothing on chain'
+        ) : (
+          <>
+            <span className="hidden sm:inline">hover</span>
+            <span className="sm:hidden">tap</span> to inspect · 3D
+          </>
+        )}
+      </span>
     </div>
   );
 }

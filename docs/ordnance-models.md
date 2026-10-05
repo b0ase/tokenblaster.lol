@@ -1,7 +1,7 @@
 # 1Sat Ordnance: weapon models
 
 Each store weapon with its own model (`model` in `src/lib/ordnance.ts`). Downloaded from Sketchfab (download API),
-optimised with gltf-transform (`optimize --compress meshopt --texture-compress webp --texture-size 1024`; BIG BLOCK at 512 + simplify)
+optimised with gltf-transform (`optimize --compress meshopt --texture-compress webp --texture-size 1024`; BIG BLOCKER at 512 + simplify)
 into `public/arena/models/guns/`. Held and rendered by `buildGun` (`src/lib/arenaHD.ts`) via `gunDefFor` (`src/lib/ordnanceModels.ts`);
 per-model fixes (flip, length, tint strength) are in `FIT` in `src/lib/ordnance.ts`. Changes made: recoloured with each weapon's finish.
 

@@ -59,9 +59,10 @@ const FIT: Record<string, Ordnance['fit']> = {
   nlocktime: { flip: true, length: 0.8 },
   'p2pkh-pistolero': { flip: true, length: 0.42 },
   'genesis-blaster': { length: 0.42 },
-  'op-return': { length: 0.45 },
-  'utxo-thumper': { tint: 0.65 }, // untextured white: wear the full finish
-  'hashpower-howitzer': { tint: 0.65 }, // untextured white
+  'op-return': { length: 0.45, tint: 0.7 }, // finish is near-black: a blacked-out Uzi
+  // No UVs: their paint is baked into the GLB materials, so no finish on top.
+  'utxo-thumper': { tint: 0 },
+  'hashpower-howitzer': { tint: 0 },
 };
 
 /** Origin of the "1Sat Ordnance" collection inscription. Empty until minted. */
@@ -139,7 +140,7 @@ export const ORDNANCE: Ordnance[] = [
   ...([
     ['sat-stacker', 'Sat Stacker', 'Stack sats. Stack bodies.', 'A plasma MG that never sells. Holds the trigger through every dip and every top.', 'plasmarifle', [60, 1, 0.014, '#ffb000', 0.4], '#e0a020', 300, 'common'],
     ['dust-sweeper', 'Dust Sweeper', 'Cleans up every last satoshi.', 'Sawed-off tuned for consolidating dust. Eight pellets, one UTXO at the end.', 'sawedoff', [560, 8, 0.09, '#d0c0a0', 1.5], '#9a8a70', 300, 'common'],
-    ['op-return', 'OP_RETURN', 'Data goes in. Nothing comes back.', 'Provably unspendable rounds. Whatever it hits is written on chain forever.', 'plasmarifle', [70, 1, 0.01, '#9ae0ff', 0.35], '#5a8aa0', 300, 'common'],
+    ['op-return', 'OP_RETURN', 'Data goes in. Nothing comes back.', 'Provably unspendable rounds. Whatever it hits is written on chain forever.', 'plasmarifle', [70, 1, 0.01, '#9ae0ff', 0.35], '#141416', 300, 'common'],
     ['nlocktime', 'nLockTime', 'Fires when it feels like it.', 'Every round is time-locked to the next block. Slow, steady, final.', 'quadplasma', [380, 4, 0.03, '#a0ffd0', 1.0], '#50a080', 250, 'common'],
     ['p2pkh-pistolero', 'P2PKH Pistolero', 'Pay to public key hash. Or else.', 'The standard issue. Everyone has one, and it always works.', 'plasmarifle', [80, 1, 0.012, '#ffd27a', 0.3], '#b08850', 400, 'common'],
     ['utxo-thumper', 'UTXO Thumper', 'One input, many outputs.', 'Splits every shell into a spray of fresh outputs. Wallets hate it.', 'sawedoff', [500, 12, 0.12, '#ffa060', 1.9], '#a06030', 250, 'common'],
@@ -153,7 +154,7 @@ export const ORDNANCE: Ordnance[] = [
     ['genesis-blaster', 'Genesis Blaster', 'The Times 03/Jan/2009.', 'Restored to the original protocol. Plasma rounds etched with a headline about banks.', 'plasmarifle', [40, 2, 0.01, '#fff1dc', 0.5], '#e8e0c8', 40, 'epic'],
     ['craig-cannon', 'Peer-to-Peer Cannon', 'Cash, electronic, aimed.', 'Section five of the whitepaper, in shotgun form. Nodes accept it by working on extending it.', 'sawedoff', [380, 14, 0.13, '#ffe58a', 2.0], '#c8a040', 40, 'epic'],
     ['satoshi-sidearm', "Satoshi's Sidearm", 'Nobody knows who carried it.', 'Untouched since 2010. Every bolt is signed with a key nobody has ever moved.', 'plasmarifle', [35, 2, 0.006, '#ffffff', 0.4], '#f5b800', 21, 'legendary'],
-    ['big-block', 'BIG BLOCK', 'Unbounded.', 'A minigun with no block size limit. It does not stop. It does not cap. It scales.', 'minigun', [16, 1, 0.045, '#f5b800', 0.18], '#ffd24d', 21, 'legendary'],
+    ['big-block', 'BIG BLOCKER', 'Unbounded.', 'A minigun with no block size limit. It does not stop. It does not cap. It scales.', 'minigun', [16, 1, 0.045, '#f5b800', 0.18], '#ffd24d', 21, 'legendary'],
   ] as const).map(([id, name, tagline, description, base, [fireMs, pellets, spread, bolt, kick], tint, edition, rarity]) => ({
     id, name, tagline, description, base, stats: { fireMs, pellets, spread, bolt, kick }, tint, edition, rarity, origin: '',
     ...(OWN_MODEL.has(id) ? { model: id, fit: FIT[id] } : {}),

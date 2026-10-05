@@ -26,7 +26,7 @@ MAP fields on the inscription (origin):
 | `subType` | `collectionItem` |
 | `collection` | `1Sat Ordnance` |
 | `weapon` | weapon id, e.g. `big-block` |
-| `name` | `BIG BLOCK #3` |
+| `name` | `BIG BLOCKER #3` |
 | `model` | glTF URL, e.g. `https://www.tokenblaster.lol/arena/models/guns/minigun.glb` |
 | `tint` | finish colour, e.g. `#ffd24d` (may be empty) |
 | `subTypeData` | JSON: description, mintNumber, rarityLabel, traits |
