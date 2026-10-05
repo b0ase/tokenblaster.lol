@@ -26,6 +26,8 @@ import { buildAgent, buildRig, CAST, loadCastModels, nameTag, poseRig, signMesh,
 import { Grid } from '@/lib/doubleo/grid';
 import { DOORS, LEVELS, SIZE, SOLID, type Level } from '@/lib/doubleo/levels';
 import { AGENT } from '@/lib/doubleo/names';
+import { radioLine, STORY, type Line, type RadioEvent } from '@/lib/doubleo/story';
+import { Dialogue, Portrait, Radio } from './DoubleOStory';
 import { WalletChooser } from './WalletChooser';
 import { HighScores } from './HighScores';
 import type { ScoreGame } from '@/lib/scores';
@@ -117,6 +119,16 @@ export function DoubleO() {
   const input = useRef({ sx: 0, sy: 0, fire: false });
   const [screen, setScreen] = useState<Screen>('menu');
   const [level, setLevel] = useState(0);
+  // Story: the briefing shown before a mission starts, and the radio line during play.
+  const [brief, setBrief] = useState<{ level: number; live: boolean } | null>(null);
+  const [radio, setRadio] = useState<(Line & { key: number }) | null>(null);
+  const say = useRef<(levelId: string, ev: RadioEvent, objective?: number) => void>(() => undefined);
+  useEffect(() => {
+    say.current = (levelId, ev, objective) => {
+      const l = radioLine(levelId, ev, objective);
+      if (l) setRadio({ ...l, key: performance.now() });
+    };
+  }, []);
   const [live, setLive] = useState(false);
   const [hud, setHud] = useState<Hud>(HUD0);
   const [loading, setLoading] = useState(0);
@@ -401,10 +413,12 @@ export function DoubleO() {
     let progress = 0;
     let elapsed = 0;
     let stats = { shots: 0, hits: 0, kills: 0, onChain: 0, sats: 0, intel: 0 };
+    let lowSaid = false; // the low-health radio line plays once per mission
     let boostUntil = 0; // elapsed-seconds when the adrenaline wears off
     let yaw = 0;
     let pitch = 0;
     let walkPhase = 0;
+    let shake = 0; // seconds of camera shake left (set pieces)
     let recoil = 0;
     let lastShot = 0;
     const walls: THREE.Object3D[] = []; // shot blockers
@@ -438,6 +452,7 @@ export function DoubleO() {
       wobble: number;
       buyAt: number; // MICHAEL keeps buying armour
       summoned: boolean;
+      halfSaid?: boolean;
       tag: THREE.Sprite | null;
       netTo: THREE.Vector3 | null; // co-op guests: where the host says this actor is
       netRy: number;
@@ -856,6 +871,10 @@ export function DoubleO() {
       armor -= soak;
       health = Math.max(0, health - (n - soak));
       sfx?.hurt();
+      if (health < 30 && !lowSaid) {
+        lowSaid = true;
+        say.current(L.id, 'lowHealth');
+      }
       setHurt(true);
       setTimeout(() => setHurt(false), 130);
       if (health <= 0) {
@@ -873,6 +892,7 @@ export function DoubleO() {
       const o = L.objectives[objIdx];
       if (!quiet) sfx?.pickup();
       const at = camera.position.clone().add(new THREE.Vector3(-Math.sin(yaw) * 3, 0.4, -Math.cos(yaw) * 3));
+      if (!quiet && objIdx < L.objectives.length - 1) say.current(L.id, 'objective', objIdx);
       if (!quiet) popup(o.kind === 'plant' ? (L.id === 'tower' ? 'WITHDRAWALS UNFROZEN!' : L.id === 'vault' ? 'VAULT CRACKED!' : 'NODE PLANTED!') : 'OBJECTIVE COMPLETE', at, '#60ff90', true);
       if (o.kind === 'plant' && grid) {
         const [x, z] = grid.find(o.at)[0];
@@ -885,7 +905,16 @@ export function DoubleO() {
       progress = 0;
       // Locked doors open once everything before the boss fight is done.
       const next = L.objectives[objIdx];
-      if (grid && next?.kind === 'boss') for (const d of grid.doors.values()) d.locked = false;
+      if (grid && next?.kind === 'boss') {
+        for (const d of grid.doors.values()) d.locked = false;
+        // The set piece: the locked doors swing open for the boss fight.
+        const line = STORY[L.id]?.setPiece;
+        if (line && !quiet) {
+          popup(line, at.clone().setY(2.2), '#ffd24d', true);
+          shake = 0.5;
+          playSfx('explosion');
+        }
+      }
       if (objIdx >= L.objectives.length) {
         running = false;
         trigger = false;
@@ -961,7 +990,10 @@ export function DoubleO() {
       a.dyingAt = now;
       if (mine) stats.kills++;
       sfx?.die();
-      if (a.cast.boss) playSfx('explosion');
+      if (a.cast.boss) {
+        playSfx('explosion');
+        say.current(L.id, 'bossDown');
+      }
       burstCoins(point, a.cast.boss ? 24 : 8);
       popup('REKT!', a.root.position.clone().setY(a.cast.height + 0.6), '#ff4040', true);
       if (a.tag) a.tag.visible = false;
@@ -999,6 +1031,10 @@ export function DoubleO() {
       if (a.cast.boss && now > a.quipAt && a.hp > 0) {
         a.quipAt = now + 2200;
         popup(a.cast.quip[Math.floor(Math.random() * a.cast.quip.length)], a.root.position.clone().setY(a.cast.height + 0.9), '#ffffff');
+      }
+      if (a.cast.boss && !a.halfSaid && a.hp < a.max / 2) {
+        a.halfSaid = true;
+        say.current(L.id, 'bossHalf');
       }
       if (a.kind === 'kingpin' && !a.summoned && a.hp < a.max / 2 && grid) {
         a.summoned = true;
@@ -1158,6 +1194,8 @@ export function DoubleO() {
         sfx?.resume();
         liveMode = isLive;
         buildLevel(i);
+        lowSaid = false;
+        setTimeout(() => running && say.current(L.id, 'start'), 1800);
         joinMission();
         running = true;
         lastTick = performance.now();
@@ -1698,6 +1736,7 @@ export function DoubleO() {
           } else if (p.kind === 'i') {
             stats.intel++;
             popup(`INTEL ${stats.intel}/${intelTotal()}`, at, '#ffd060');
+            say.current(L.id, stats.intel >= intelTotal() ? 'allIntel' : 'intel');
           } else {
             boostUntil = elapsed + 8;
             popup('ADRENALINE!', at, '#40ff80');
@@ -1760,7 +1799,9 @@ export function DoubleO() {
 
     const fx = (dt: number, now: number) => {
       // Gun bob/recoil.
-      camera.rotation.set(pitch, yaw, 0, 'YXZ');
+      shake = Math.max(0, shake - dt);
+      const sk = shake * 0.06;
+      camera.rotation.set(pitch + (Math.random() - 0.5) * sk, yaw + (Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk, 'YXZ');
       torch.position.copy(camera.position).add(new THREE.Vector3(-Math.sin(yaw) * 2, 1.3, -Math.cos(yaw) * 2));
       muzzleLight.position.copy(torch.position);
       key.position.set(camera.position.x - Math.sin(yaw) * 1.5, WALL_H - 0.15, camera.position.z - Math.cos(yaw) * 1.5);
@@ -2008,10 +2049,12 @@ export function DoubleO() {
 
   const playing = screen === 'play';
   const ready = loading >= 1;
+  // Every mission opens with its briefing; the engine starts when the player clicks GO (a user
+  // gesture, so the pointer lock works).
   const start = (i: number) => {
     setLevel(i);
     setEmpty(false);
-    engine.current?.start(i, live && armed);
+    setBrief({ level: i, live: live && armed });
   };
   const L = LEVELS[level];
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -2021,7 +2064,7 @@ export function DoubleO() {
     setLevel(i);
     setEmpty(false);
     setLive(isLive);
-    engine.current?.start(i, isLive);
+    setBrief({ level: i, live: isLive });
   };
   // The ammo flow: 1 connect → 2 pick token + amount, LOAD (one approval) → 3 PLAY.
   const ammoPanel = (
@@ -2316,14 +2359,31 @@ export function DoubleO() {
         )}
 
         {/* Debrief */}
+        {brief && (
+          <Dialogue
+            key={brief.level}
+            title={`${LEVELS[brief.level].codename} · ${LEVELS[brief.level].name.toUpperCase()} · BRIEFING`}
+            lines={STORY[LEVELS[brief.level].id]?.brief ?? []}
+            doneLabel="▶ GO"
+            onDone={() => {
+              const b_ = brief;
+              setBrief(null);
+              engine.current?.start(b_.level, b_.live);
+            }}
+          />
+        )}
+        {playing && <Radio line={radio} />}
         {screen === 'debrief' && debrief && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto bg-black/85 px-4 py-5 text-center">
             <p className="text-xs tracking-widest text-dim">{LEVELS[debrief.level].codename} · MISSION DEBRIEF</p>
             <p className="text-3xl font-bold text-[#60ff90]">{LEVELS[debrief.level].name.toUpperCase()}: COMPLETE</p>
-            <div className="flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/arcade/doubleo/kweg.webp" alt="" className="h-24 w-auto rounded" />
-              <p className="max-w-sm text-left text-sm text-accent">“Splendid work, {AGENT.replace('Special ', '')}. Your licence to blast has been renewed.” · M</p>
+            <div className="flex max-w-2xl flex-col gap-2">
+              {(STORY[LEVELS[debrief.level].id]?.debrief ?? []).map((l, j) => (
+                <div key={j} className="flex items-center gap-3 text-left">
+                  <Portrait who={l.who} size={56} />
+                  <p className="text-sm text-accent">“{l.text}”</p>
+                </div>
+              ))}
             </div>
             {debrief.squad.length > 1 && <p className="text-sm text-accent">SQUAD: {debrief.squad.join(' · ')}</p>}
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
