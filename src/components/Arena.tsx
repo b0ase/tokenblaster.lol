@@ -20,6 +20,7 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GameAudio } from '@/components/SoundToggle';
 import Link from 'next/link';
 import { ORDNANCE, type Ordnance } from '@/lib/ordnance';
+import { ammoAccepts, requiredAmmo } from '@/lib/ammo';
 import { GunArt } from './GunArt';
 import type { GunDef } from '@/lib/arenaHD';
 import { useOrdnance } from '@/lib/useOrdnance';
@@ -158,7 +159,16 @@ export function Arena() {
   // The game loop reads the latest blaster state through refs.
   const tokenMode = b.mode === 'tokens';
   const heldTok = b.tokens.find((t) => t.id === b.token?.id);
-  const armed = tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30;
+  // 1Sat Ordnance guns fire their own ammo in LIVE token play (src/lib/ammo.ts); stock guns fire anything.
+  const ammoRule = tokenMode ? requiredAmmo(ALL_GUNS[weapon]?.ordnance?.id) : null;
+  const ammoOk = ammoAccepts(ammoRule, b.token);
+  const armed = (tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30) && ammoOk;
+  // Picking an ordnance gun switches to its ammo if the wallet holds some.
+  useEffect(() => {
+    if (!ammoRule || ammoOk) return;
+    const match = b.tokens.find((t) => ammoAccepts(ammoRule, t));
+    if (match) b.setToken(match);
+  }, [ammoRule, ammoOk, b]);
   const net = useRef({ name: 'player', gun: '', token: null as null | { id: string; sym: string; icon: string | null } });
   useEffect(() => {
     net.current = {
@@ -1340,6 +1350,19 @@ export function Arena() {
           <div className="pointer-events-none absolute left-1/2 top-[38%] -translate-x-1/2 text-center">
             <div className="text-3xl font-bold text-hot blink">OUT OF AMMO</div>
             <div className="text-sm text-dim">Esc → LOAD more shots</div>
+          </div>
+        )}
+        {ammoRule && !ammoOk && (
+          <div className="absolute left-1/2 top-[22%] z-10 max-w-lg -translate-x-1/2 bg-black/80 px-3 py-2 text-center text-sm">
+            <div className="font-bold text-hot">
+              {ALL_GUNS[weapon]?.name} fires ${ammoRule.sym} only
+            </div>
+            <div className="text-dim">
+              {ammoRule.real ? `Load real $${ammoRule.sym} from your wallet.` : `Load ${ammoRule.label} ($${ammoRule.sym}) from your wallet.`}{' '}
+              <Link href="/1satordnance/ammo" className="underline hover:text-hot">
+                Get ammo ›
+              </Link>
+            </div>
           </div>
         )}
         {jam && (
