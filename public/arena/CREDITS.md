@@ -33,3 +33,7 @@ Credit not required but given with thanks.
   rusty_metal_02, painted_metal_shutter, concrete_floor_worn_001, metal_grate_rusty, corrugated_iron_02)
 - Chain Frogger (`../arcade/frogger/tex/*`): Poly Haven, https://polyhaven.com: HDRI potsdamer_platz;
   textures asphalt_02, concrete_pavement (converted to WebP)
+- Velociraptor (`models/monsters/raptor.glb`): "PBR Velociraptor (Animated)" by Ferocious Industries, CC BY 4.0,
+  https://sketchfab.com/3d-models/pbr-velociraptor-animated-8f1744af7b0847a2aabe3df90be802f0
+- Zombie (`models/monsters/zombie.glb`): "Low Poly Zombie (Game Animation)" by Jerome Angeles, CC BY 4.0,
+  https://sketchfab.com/3d-models/low-poly-zombie-game-animation-9f8f0885b2f94c6890c4debaceac9421

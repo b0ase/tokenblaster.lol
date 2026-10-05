@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createPeds } from '@/lib/city/peds';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
@@ -118,6 +119,7 @@ export function SatoshiCity() {
     const boxes = solidBoxes(blocks);
     const camBoxes = boxes.filter((b) => b.h > 2.5);
     const world = buildWorld(scene, blocks);
+    const peds = createPeds(scene, blocks); // sidewalk walkers (real rigged models)
     const edges = world.edges;
     const edgesFrom: Edge[][] = Array.from({ length: N * N }, () => []);
     for (const e of edges) edgesFrom[e.a].push(e);
@@ -1012,6 +1014,7 @@ export function SatoshiCity() {
       const obstacles: { x: number; z: number; r: number }[] = [];
       if (car) for (const [cx, cz] of circlesOf(car.x, car.z, car.th, car.b.len, car.b.w)) obstacles.push({ x: cx, z: cz, r: car.b.w / 2 });
       else if (!dead) obstacles.push({ x: ped.x, z: ped.z, r: 0.5 });
+      peds.update(dt, focusX, focusZ, [...(car ? [{ x: car.x, z: car.z, speed: Math.hypot(car.vx, car.vz) }] : []), ...ai.map((a) => ({ x: a.x, z: a.z, speed: a.v }))]);
       for (const a of ai) {
         let vt = a.vmax;
         if (now < a.stun) vt = 0;
@@ -1541,6 +1544,7 @@ export function SatoshiCity() {
         }
       });
       kit.dispose();
+      peds.dispose();
       for (const t of textures) t.dispose();
       hdrSky?.dispose();
       hdrEnv?.dispose();

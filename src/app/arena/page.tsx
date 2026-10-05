@@ -29,7 +29,7 @@ export default function ArenaPage() {
       </header>
       <Arena />
       <p className="text-center text-xs text-muted">
-        3D models by ArtistForge16, LxNazarov, Aleksandr, nodoxi, Rasmus, Nik Vega, Richard Speight, Manny Ruiz and curichenkow (CC-BY 4.0),
+        3D models by ArtistForge16, LxNazarov, Aleksandr, nodoxi, Rasmus, Nik Vega, Richard Speight, Manny Ruiz, curichenkow, Ferocious Industries and Jerome Angeles (CC-BY 4.0),
         Kay Lousberg and Poly Haven (CC0).{' '}
         <a href="/arena/CREDITS.md" className="text-dim hover:text-hot">
           Full credits

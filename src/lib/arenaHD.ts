@@ -75,15 +75,30 @@ export const MONSTERS: MonsterDef[] = [
     anims: { idle: 'Take 001', walk: 'Take 001', run: 'Take 001', attack: 'Take 001' },
   },
   {
-    id: 'spiderthing',
-    url: '/arena/models/monsters/spiderthing.glb',
-    height: 1.1,
-    hp: 2,
-    speed: 4,
+    // "PBR Velociraptor (Animated)" by ferociousindustries.matthias, CC BY 4.0 (docs/arena-city-models.md).
+    // Replaces the old spider thing: same fast melee role, real walk / sprint / bite / death clips.
+    id: 'raptor',
+    url: '/arena/models/monsters/raptor.glb',
+    height: 1.7,
+    hp: 3,
+    speed: 4.2,
     ranged: false,
-    damage: 8,
+    damage: 9,
     maze: 2,
-    anims: { idle: 'Armature|Armature|ArmatureAction', walk: 'Armature|Armature|ArmatureAction', run: 'Armature|Armature|subjectAction' },
+    anims: { idle: 'Idle_01', walk: 'Walk', run: 'Sprint', attack: 'Bite_01', death: 'Death_01', hit: 'Hurt_01' },
+  },
+  {
+    // "Low Poly Zombie (Game Animation)" by jeromeangeles, CC BY 4.0: the horde hall's shamblers.
+    id: 'zombie',
+    url: '/arena/models/monsters/zombie.glb',
+    height: 1.9,
+    hp: 2,
+    speed: 2.2,
+    ranged: false,
+    damage: 7,
+    maze: 1,
+    horde: 4,
+    anims: { idle: 'Idle', walk: 'Walk', run: 'Walk', attack: 'Attack', death: 'Death' },
   },
   {
     // Ninja Punk Girls: first 3D test (Tripo image-to-3D + auto-rig). Player character, not yet playable.
@@ -192,11 +207,16 @@ export async function loadArenaAssets(renderer: THREE.WebGLRenderer, onProgress:
     ),
     Promise.all(
       MONSTERS.map(async (m) => {
-        const g = await gl.loadAsync(m.url);
-        if (m.id === 'chibi') g.animations = chibiClips(g.scene);
+        // One bad model mustn't take the arena down: it borrows another monster's body below.
+        const g = await gl.loadAsync(m.url).catch(() => null);
+        if (g && m.id === 'chibi') g.animations = chibiClips(g.scene);
         return [m.id, g] as const;
       }),
-    ),
+    ).then((list) => {
+      const spare = list.find(([, g]) => g)?.[1];
+      if (!spare) throw new Error('No monster models loaded');
+      return list.map(([id, g]) => [id, g ?? spare] as const);
+    }),
     Promise.all(GUNS.map(async (g) => [g.id, await gl.loadAsync(g.url)] as const)),
   ]);
   const byId = new Map(maps);
