@@ -103,10 +103,9 @@ export const ORDNANCE: Ordnance[] = [
     name: 'Laser-Eye Rifle',
     tagline: 'Zero spread. Zero chill.',
     description: 'Mount your laser eyes on a stock. Perfectly accurate, painfully red, and somehow still bullish while you reload.',
-    base: 'plasmarifle',
+    base: 'quadplasma', // each stock model carries one weapon (SAFU Blaster has the plasma rifle)
     stats: { fireMs: 90, pellets: 1, spread: 0.002, bolt: '#ff2a2a', kick: 0.3 },
     tint: '#d02020',
-    image: '/ordnance/laser-eye-rifle.webp',
     edition: 100,
     rarity: 'rare',
     origin: '',

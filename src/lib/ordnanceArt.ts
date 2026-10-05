@@ -22,6 +22,11 @@ function setup(r: THREE.WebGLRenderer) {
   r.outputColorSpace = THREE.SRGBColorSpace;
 }
 
+const ART_FIX: Record<string, { yaw?: number; pitch?: number }> = {
+  quadplasma: { yaw: Math.PI }, // otherwise its barrels point left on the card
+  sawedoff: { pitch: -0.3 }, // held tilted up; level it for the card
+};
+
 /** A weapon's scene: backdrop, lights, the tinted (and branded) model on a pivot, and a camera. */
 async function buildScene(o: Ordnance, r: THREE.WebGLRenderer) {
   let env = envs.get(r);
@@ -56,10 +61,23 @@ async function buildScene(o: Ordnance, r: THREE.WebGLRenderer) {
   const holder = held.group;
   tintGun(holder, o.tint, tintAmount(o));
   await brandGun(holder, o.id);
-  holder.updateMatrixWorld(true);
-  const dim = new THREE.Box3().setFromObject(holder, true).getSize(new THREE.Vector3());
+  // Card-only fixes for stock models whose in-hand pose doesn't read side-on (games are unaffected).
+  const fix = o.model ? undefined : ART_FIX[o.base];
+  const posed = new THREE.Group();
+  posed.add(holder);
+  if (fix) posed.rotation.set(fix.pitch ?? 0, fix.yaw ?? 0, 0);
+  posed.updateMatrixWorld(true);
+  // Frame on what you can see: skip hidden helpers (muzzle flash etc.) that would throw the centre off.
+  const box = new THREE.Box3();
+  posed.traverseVisible((n) => {
+    const m = n as THREE.Mesh;
+    if (m.isMesh && !(m.material as THREE.Material).transparent) box.expandByObject(m, true);
+  });
+  if (box.isEmpty()) box.setFromObject(posed, true);
+  const dim = box.getSize(new THREE.Vector3());
+  posed.position.sub(box.getCenter(new THREE.Vector3()));
   const pivot = new THREE.Group();
-  pivot.add(holder);
+  pivot.add(posed);
   // Side-on, muzzle to the right, turned a little toward the camera.
   const baseY = -Math.PI / 2 + 0.45;
   pivot.rotation.set(0.18, baseY, 0);
