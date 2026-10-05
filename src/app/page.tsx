@@ -139,6 +139,7 @@ export default function Home() {
         <Link href="/arcade/bsvgun" className="hover:text-hot">bsvgun</Link>
         <Link href="/arena" className="hover:text-hot">arena</Link>
         <Link href="/1satordnance" className="hover:text-hot">1sat ordnance</Link>
+        <Link href="/updates" className="hover:text-hot">updates</Link>
         <Link href="/arcade/frogger" className="hover:text-hot">chain frogger</Link>
         <Link href="/blast" className="hover:text-hot">blast</Link>
         <Link href="/viewer" className="hover:text-hot">3D viewer</Link>
