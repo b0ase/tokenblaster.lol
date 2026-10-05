@@ -8,6 +8,7 @@ export function Leaderboard({ hero = false }: { hero?: boolean } = {}) {
   const [period, setPeriod] = useState<Period>('24h');
   const [tokens, setTokens] = useState<TokenScore[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [games, setGames] = useState<{ game: string; blasts: number }[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -16,8 +17,14 @@ export function Leaderboard({ hero = false }: { hero?: boolean } = {}) {
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((d: { tokens?: TokenScore[] }) => alive && (setTokens(d.tokens ?? []), setFailed(false)))
         .catch(() => alive && (setTokens([]), setFailed(true)));
+    const loadGames = () =>
+      fetch(`/api/games?period=${period}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d: { games?: { game: string; blasts: number }[] }) => alive && setGames(d.games ?? []))
+        .catch(() => undefined);
     load();
-    const t = setInterval(load, 30_000);
+    loadGames();
+    const t = setInterval(() => (load(), loadGames()), 30_000);
     return () => {
       alive = false;
       clearInterval(t);
@@ -50,6 +57,16 @@ export function Leaderboard({ hero = false }: { hero?: boolean } = {}) {
       {hero && total > 0 && (
         <p className="mb-2 text-sm text-dim">
           <span className="text-hot">{total.toLocaleString()}</span> blasts confirmed on chain · {PERIODS.find((p) => p.id === period)?.label.toLowerCase()}
+        </p>
+      )}
+      {hero && games.some((g) => g.game !== 'untagged') && (
+        <p className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-dim">
+          <span>by game:</span>
+          {games.map((g) => (
+            <span key={g.game}>
+              {g.game === 'untagged' ? 'earlier (untagged)' : g.game} <span className="text-hot">{g.blasts.toLocaleString()}</span>
+            </span>
+          ))}
         </p>
       )}
       {tokens === null && (

@@ -51,6 +51,8 @@ export type FeedTx = {
   outs?: number;
   /** Human preview: social text, mime + size, OP_RETURN text. */
   preview?: string;
+  /** Blasts: which game sent it (the push after the count), e.g. 'bsvgun'. */
+  game?: string;
   /** First OP_RETURN script hex (truncated). */
   opReturn?: string;
   at?: number;
@@ -98,9 +100,21 @@ export function classify(id: string, raw: string, mined: boolean): FeedTx | null
     }
     if (blast) {
       // OP_FALSE OP_RETURN <tag> <token id> <n>: read the token id push.
-      const rest = blast.slice(BLAST.length);
-      const len = parseInt(rest.slice(0, 2), 16);
-      if (len < 76) f.token = Utils.toUTF8(Utils.toArray(rest.slice(2, 2 + len * 2), 'hex'));
+      // Pushes after the tag: <token> <n> <game> … (game = 'bsvgun', 'arena', 'invaders', …).
+      const pushes: string[] = [];
+      let rest = blast.slice(BLAST.length);
+      while (rest.length >= 2 && pushes.length < 3) {
+        let len = parseInt(rest.slice(0, 2), 16);
+        let skip = 2;
+        if (len === 0x4c) {
+          len = parseInt(rest.slice(2, 4), 16);
+          skip = 4;
+        } else if (len > 0x4c) break;
+        pushes.push(Utils.toUTF8(Utils.toArray(rest.slice(skip, skip + len * 2), 'hex')));
+        rest = rest.slice(skip + len * 2);
+      }
+      if (pushes[0]) f.token = pushes[0];
+      if (pushes[2] && /^[a-z0-9_-]{1,24}$/i.test(pushes[2])) f.game = pushes[2].toLowerCase();
     }
     return f;
   } catch {

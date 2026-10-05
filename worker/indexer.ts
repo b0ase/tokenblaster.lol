@@ -33,10 +33,11 @@ async function record(d: { id?: string; transaction?: string; block_height?: num
   const height = mined && d.block_height ? d.block_height : null;
   const time = mined && d.block_time ? new Date(d.block_time * 1000) : null;
   await db.query(
-    `insert into tokenblaster_blasts (txid, token, block_height, block_time) values ($1, $2, $3, $4)
+    `insert into tokenblaster_blasts (txid, token, block_height, block_time, game) values ($1, $2, $3, $4, $5)
      on conflict (txid) do update set block_height = coalesce(excluded.block_height, tokenblaster_blasts.block_height),
-                                      block_time = coalesce(excluded.block_time, tokenblaster_blasts.block_time)`,
-    [d.id, f.token, height, time],
+                                      block_time = coalesce(excluded.block_time, tokenblaster_blasts.block_time),
+                                      game = coalesce(excluded.game, tokenblaster_blasts.game)`,
+    [d.id, f.token, height, time, f.game ?? null],
   );
   log(mined ? `mined ${height}` : 'mempool', d.id, f.token.slice(0, 12));
 }
