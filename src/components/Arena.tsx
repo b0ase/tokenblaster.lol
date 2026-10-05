@@ -8,11 +8,12 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
 import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type HeldGun } from '@/lib/arenaHD';
-import { formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
+import { formatCount, packSats } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl } from '@/lib/tokens';
 import { TOKEN_FEE } from '@/lib/gun';
 import { useBlaster } from '@/lib/useBlaster';
+import { AmmoStrip } from './AmmoStrip';
 import { WalletChooser } from './WalletChooser';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -137,7 +138,6 @@ export function Arena() {
 
   // The game loop reads the latest blaster state through refs.
   const tokenMode = b.mode === 'tokens';
-  const [tokenLoad, setTokenLoad] = useState(10);
   const heldTok = b.tokens.find((t) => t.id === b.token?.id);
   const armed = tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30;
   const net = useRef({ name: 'player', gun: '', token: null as null | { id: string; sym: string; icon: string | null } });
@@ -1325,17 +1325,6 @@ export function Arena() {
             <p className="text-3xl font-bold text-hot">ARENA</p>
             {players > 1 && <p className="text-sm text-hot">{players} players in the arena now · hitting a player sends them your token</p>}
             {b.wallet && flow}
-            {b.receipt && (
-              <div className="inset flex max-w-3xl items-center gap-2 border-fg bg-black/80 px-3 py-2 text-sm">
-                <span className="text-hot">✓ {b.receipt.text}</span>
-                <a href={`https://whatsonchain.com/tx/${b.receipt.txid}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">
-                  tx {b.receipt.txid.slice(0, 10)}… ↗
-                </a>
-                <button onClick={() => b.setReceipt(null)} className="btn px-2 py-0 text-xs">
-                  ok
-                </button>
-              </div>
-            )}
             <p className="max-w-2xl text-sm text-dim">WASD move · Shift run · mouse aim · hold click to fire · 1–4 guns · T token · Esc pause. Every bullet is a real transaction.</p>
             {loadError ? (
               <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
@@ -1347,9 +1336,9 @@ export function Arena() {
                 <p className="mt-1 text-xs text-dim">loading arena {Math.round(loading * 100)}%</p>
               </div>
             ) : null}
-            {/* 1 · gun */}
+            {/* gun */}
             <div className="w-full max-w-5xl">
-              <p className="mb-2 text-left text-base font-bold text-hot">1 · PICK A GUN</p>
+              <p className="mb-2 text-left text-base font-bold text-hot">PICK A GUN</p>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {GUNS.map((g, i) => (
                   <button
@@ -1374,174 +1363,82 @@ export function Arena() {
               </div>
             </div>
 
-            <div className="flex w-full max-w-5xl flex-col gap-3 sm:flex-row">
-              {/* 2 · ammo: the tokens in your wallet, stacked */}
-              <div className="flex w-full flex-col gap-2 sm:w-80">
-                <div className="flex items-center justify-between">
-                  <p className="text-left text-base font-bold text-hot">2 · PICK YOUR AMMO</p>
-                  {b.wallet && (
-                    <button onClick={b.refreshWallet} disabled={b.refreshing} className="btn px-2 py-0.5 text-xs" title="Look in your wallet again">
-                      {b.refreshing ? 'checking…' : '↻ refresh'}
-                    </button>
-                  )}
-                </div>
-                {!b.wallet ? (
-                  <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire">
-                    {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
-                  </button>
-                ) : (
-                  <div className="flex max-h-96 flex-col gap-2 overflow-y-auto pr-1">
-                    {b.tokens.map((t) => {
-                      const on = tokenMode && t.id === b.token?.id;
-                      return (
-                        <button
-                          key={t.id}
-                          onClick={() => {
-                            b.setToken(t);
-                            b.setMode('tokens');
-                          }}
-                          className={`inset flex items-center gap-3 bg-black/60 px-3 py-2 text-left text-base ${on ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
-                        >
-                          {iconUrl(t.icon) ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={iconUrl(t.icon)!} alt="" className="h-12 w-12 shrink-0 rounded object-cover" loading="lazy" />
-                          ) : (
-                            <div className="h-12 w-12 shrink-0 rounded bg-input" />
-                          )}
-                          <div className="min-w-0">
-                            <div className="overflow-hidden text-ellipsis whitespace-nowrap font-bold">${t.sym}</div>
-                            <div className="text-xs">{t.balance?.toLocaleString()} in your wallet</div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                    {!b.tokens.length && <p className="text-left text-xs text-dim">No tokens found in your wallet.</p>}
-                    {b.stranded.map((t) => (
-                      <div key={t.id} className="inset border-fg bg-black/70 px-3 py-2 text-left text-xs text-hot">
-                        <p>
-                          {t.why === 'icon'
-                            ? `Your wallet shows ${t.balance?.toLocaleString()} $${t.sym} with a broken icon: TokenBlaster saved them without the icon. Our bug.`
-                            : `${t.balance?.toLocaleString()} $${t.sym} are in your wallet but it can't show them: TokenBlaster sent them back without the note your wallet reads. Our bug.`}
-                        </p>
-                        <button onClick={() => b.fixStranded(t)} disabled={!!b.busy} className="btn btn-on mt-2 text-xs">
-                          {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : t.why === 'icon' ? `FIX THE $${t.sym} ICON` : `FIX: SHOW MY $${t.sym} IN MY WALLET`}
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={() => b.setMode('sats')}
-                      className={`inset flex items-center gap-3 bg-black/60 px-3 py-2 text-left text-base ${!tokenMode ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
-                    >
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-input text-xl">₿</div>
-                      <div>
-                        <div className="font-bold">Sats only</div>
-                        <div className="text-xs">no tokens spent</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-                <div className="inset flex flex-col gap-1 bg-black/60 px-3 py-2 text-left text-xs">
-                  {b.wallet && (
-                    <div className="break-all text-dim">
-                      Wallet: <span className="text-fg">{b.wallet.name}</span> · {b.wallet.address}
-                    </div>
-                  )}
-                  {b.gunAddress && (
-                    <div className="text-dim" title="Your gun's own address in this browser: loaded sats and tokens sit here">
-                      Your gun: <span className="break-all text-hot">{b.gunAddress}</span>
-                      <span className="ml-2 inline-flex gap-1 align-middle">
-                        <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn px-2 py-0 text-xs">
-                          copy
-                        </button>
-                        <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noopener noreferrer" className="btn px-2 py-0 text-xs">
-                          chain
-                        </a>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 3 · how many */}
-              {!b.wallet && (
-                <div className="inset flex flex-1 flex-col items-center justify-center gap-2 bg-black/60 px-4 py-6 text-dim">
-                  <p className="self-start text-base font-bold text-hot">3 · HOW MANY TO LOAD</p>
-                  <p className="max-w-md text-sm">
-                    Connect your wallet and your tokens appear on the left. Pick one, choose how many, and load them with one approval: one token per bullet,
-                    every bullet a real transaction.
-                  </p>
-                </div>
-              )}
-              {b.wallet && (
-                <div className="inset flex flex-1 flex-col items-center justify-center gap-3 bg-black/60 px-4 py-4">
-                  <p className="self-start text-base font-bold text-hot">3 · HOW MANY TO LOAD</p>
-                  {tokenMode && b.token ? (
-                    <>
-                      <div className="text-6xl font-bold text-hot">{tokenLoad.toLocaleString()}</div>
-                      <div className="text-sm text-dim">${b.token.sym} bullets</div>
-                      <div className="flex flex-wrap justify-center gap-1">
-                        {[1_000, 10_000, 100_000, 1_000_000]
-                          .filter((n) => n <= Math.max(1, Math.floor(heldTok?.balance ?? 0)))
-                          .map((n) => (
-                            <button key={n} onClick={() => setTokenLoad(n)} className={`btn px-3 py-1 text-sm ${tokenLoad === n ? 'btn-on' : ''}`}>
-                              {formatCount(n)}
-                            </button>
-                          ))}
-                        <button onClick={() => setTokenLoad(Math.max(1, Math.floor(heldTok?.balance ?? 1)))} className="btn px-3 py-1 text-sm">
-                          ALL
-                        </button>
-                        <input
-                          type="number"
-                          min={1}
-                          value={tokenLoad}
-                          onChange={(e) => setTokenLoad(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                          className="inset w-24 bg-input px-2 py-1 text-right text-hot"
-                          aria-label="Tokens to load"
-                        />
-                      </div>
-                      <p className="max-w-md text-sm text-dim">
-                        One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus the fees to fire every one of them:{' '}
-                        <span className="text-hot">
-                          {(tokenLoad * TOKEN_FEE).toLocaleString()} sats ({((tokenLoad * TOKEN_FEE) / 1e8).toLocaleString(undefined, { maximumFractionDigits: 4 })} BSV
-                          {bsvUsd ? ` · ${formatUsd(usd(tokenLoad * TOKEN_FEE, bsvUsd))}` : ''})
-                        </span>
-                        . Unfired fees come back on Unload. In the gun now: <span className="text-hot">{b.tokenAmmo.toLocaleString()}</span>
-                      </p>
-                      <button onClick={() => b.loadTokenAmmo(tokenLoad)} disabled={!!b.busy} className="btn-fire">
-                        {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : `LOAD ${tokenLoad.toLocaleString()} $${b.token.sym}`}
-                      </button>
-                      <details className="text-left text-xs text-dim">
-                        <summary className="cursor-pointer">or send tokens to your gun yourself</summary>
-                        <div className="mt-1 flex items-center gap-2">
-                          <code className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-accent">{b.gunAddress}</code>
-                          <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn text-xs">
-                            copy
-                          </button>
-                          <button onClick={b.refreshTokens} className="btn text-xs">
-                            refresh
+            <div className="w-full max-w-xl">
+              <AmmoStrip
+                b={b}
+                armed={armed}
+                title="AMMO"
+                tokenPresets={[10, 100, 1_000, 10_000, 100_000]}
+                initialTokenLoad={100}
+                remember
+                sats={{
+                  picker: <AmmoPicker value={shots} onChange={setShots} bsvUsd={bsvUsd} />,
+                  label: `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SATS BLASTS`,
+                  onLoad: () => void b.load(packSats(shots), `TokenBlaster arena: ${formatCount(shots)} shots`),
+                }}
+                playLabel={tokenMode && b.token ? `▶ PLAY LIVE · $${b.token.sym}` : '▶ PLAY LIVE · SATS BLASTS'}
+                onPlay={() => window.dispatchEvent(new Event('arena:enter'))}
+                playReady={isReady}
+                onPractice={() => window.dispatchEvent(new Event('arena:enter'))}
+                practiceLabel={armed ? '▶ PLAY PRACTICE (walk around, no shots)' : '▶ PLAY PRACTICE (no ammo, no shots)'}
+                details={
+                  <details className="text-xs text-dim">
+                    <summary className="cursor-pointer">gun details</summary>
+                    <div className="mt-2 flex flex-col gap-2">
+                      {b.stranded.map((t) => (
+                        <div key={t.id} className="inset border-fg bg-black/70 px-3 py-2 text-hot">
+                          <p>
+                            {t.why === 'icon'
+                              ? `Your wallet shows ${t.balance?.toLocaleString()} $${t.sym} with a broken icon: TokenBlaster saved them without the icon. Our bug.`
+                              : `${t.balance?.toLocaleString()} $${t.sym} are in your wallet but it can't show them: TokenBlaster sent them back without the note your wallet reads. Our bug.`}
+                          </p>
+                          <button onClick={() => b.fixStranded(t)} disabled={!!b.busy} className="btn btn-on mt-2 text-xs">
+                            {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : t.why === 'icon' ? `FIX THE $${t.sym} ICON` : `FIX: SHOW MY $${t.sym} IN MY WALLET`}
                           </button>
                         </div>
-                      </details>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-6xl font-bold text-hot">{formatCount(shots)}</div>
-                      <div className="text-sm text-dim">shots</div>
-                      <AmmoPicker value={shots} onChange={setShots} bsvUsd={bsvUsd} />
-                      <button onClick={() => b.load(packSats(shots), `TokenBlaster arena: ${formatCount(shots)} shots`)} disabled={!!b.busy} className="btn-fire">
-                        {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SHOTS`}
-                      </button>
-                    </>
-                  )}
-                  {armed && isReady && (
-                    <button onClick={() => window.dispatchEvent(new Event('arena:enter'))} className="btn btn-on px-6 py-2 text-lg">
-                      PLAY ▶
-                    </button>
-                  )}
-                </div>
-              )}
+                      ))}
+                      {b.wallet && (
+                        <div className="break-all">
+                          Wallet: <span className="text-fg">{b.wallet.name}</span> · {b.wallet.address}
+                        </div>
+                      )}
+                      {b.gunAddress && (
+                        <div title="Your gun's own address in this browser: loaded sats and tokens sit here">
+                          Your gun: <span className="break-all text-hot">{b.gunAddress}</span>
+                          <span className="ml-2 inline-flex gap-1 align-middle">
+                            <button onClick={() => navigator.clipboard?.writeText(b.gunAddress)} className="btn px-2 py-0 text-xs">
+                              copy
+                            </button>
+                            <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noopener noreferrer" className="btn px-2 py-0 text-xs">
+                              chain
+                            </a>
+                            <button onClick={() => void b.refreshTokens()} className="btn px-2 py-0 text-xs" title="Sent tokens to your gun yourself? Re-read it.">
+                              refresh
+                            </button>
+                          </span>
+                        </div>
+                      )}
+                      {(b.gunTokens.length > 0 || b.ammo > 0) && (
+                        <div>
+                          In the gun now:{' '}
+                          <span className="text-hot">
+                            {[
+                              ...b.gunTokens.map((t) => {
+                                const m = b.tokens.find((x) => x.id === t.id);
+                                return `${(Number(t.amt) / 10 ** (m?.dec ?? 0)).toLocaleString()} $${m?.sym ?? t.id.slice(0, 6)}`;
+                              }),
+                              b.ammo > 0 ? `${b.ammo.toLocaleString()} sats` : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' + ')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                }
+              />
             </div>
-            {isReady && <p className="text-sm text-dim">{b.wallet && armed ? 'click here to play' : 'click here to walk around without ammo'}</p>}
           </div>
         )}
       </div>
@@ -1571,17 +1468,7 @@ export function Arena() {
           </a>
         </p>
       )}
-      {(chainError || b.error) && <p className={`text-sm text-hot ${playing ? 'px-2 pb-2' : 'mt-2'}`}>⚠ {chainError ?? b.error}</p>}
-      {!playing && b.wallet && (b.ammo > 0 || b.gunTokens.length > 0) && (
-        <button onClick={b.unload} disabled={!!b.busy} className="btn btn-on mt-2 px-4 py-2 text-sm">
-          {b.busy === 'unloading'
-            ? 'UNLOADING… APPROVE IN WALLET'
-            : `UNLOAD EVERYTHING BACK TO MY WALLET (${[...b.gunTokens.map((t) => {
-                const m = b.tokens.find((x) => x.id === t.id);
-                return `${(Number(t.amt) / 10 ** (m?.dec ?? 0)).toLocaleString()} $${m?.sym ?? t.id.slice(0, 6)}`;
-              }), b.ammo > 0 ? `${b.ammo.toLocaleString()} sats` : ''].filter(Boolean).join(' + ')})`}
-        </button>
-      )}
+      {(chainError || (playing && b.error)) && <p className={`text-sm text-hot ${playing ? 'px-2 pb-2' : 'mt-2'}`}>⚠ {chainError ?? b.error}</p>}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
   );

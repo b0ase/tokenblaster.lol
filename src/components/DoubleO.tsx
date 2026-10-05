@@ -19,6 +19,7 @@ import { TOKEN_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import { useBlaster } from '@/lib/useBlaster';
+import { AmmoStrip } from './AmmoStrip';
 import { buildAgent, buildRig, CAST, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
 import { Grid } from '@/lib/doubleo/grid';
 import { LEVELS, SIZE, type Level } from '@/lib/doubleo/levels';
@@ -102,7 +103,6 @@ export function DoubleO() {
   const [chainError, setChainError] = useState<string | null>(null);
   const [empty, setEmpty] = useState(false);
   const [touchUi, setTouchUi] = useState(false);
-  const [tokenLoad, setTokenLoad] = useState(50);
   // Multiplayer: name, VERSUS toggle, per-mission head counts, toasts.
   const [name, setName] = useState('');
   const [versus, setVersus] = useState(false);
@@ -168,7 +168,6 @@ export function DoubleO() {
 
   const sym = b.token?.sym ?? 'PNEE';
   const icon = iconUrl(b.token?.icon ?? null);
-  const heldTok = b.tokens.find((t) => t.id === b.token?.id);
   const armed = Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE;
   const inMission = screen === 'play' || screen === 'paused';
   useEffect(() => {
@@ -1814,126 +1813,18 @@ export function DoubleO() {
     setLive(isLive);
     engine.current?.start(i, isLive);
   };
-  const loadingTokens = b.busy === 'loading-tokens';
-  const stepNo = !b.wallet ? 1 : armed ? 3 : 2;
-  const stepCls = (n: number) => `inset flex flex-col gap-2 bg-black/60 p-2 ${stepNo === n ? 'border-fg' : stepNo > n ? 'opacity-80' : 'pointer-events-none opacity-40'}`;
-  const amounts = [10, 50, 100];
-  const held = Math.max(0, Math.floor(heldTok?.balance ?? 0));
-
   // The ammo flow: 1 connect → 2 pick token + amount, LOAD (one approval) → 3 PLAY.
   const ammoPanel = (
-    <div className="inset flex w-full flex-col gap-2 bg-black/70 p-3 text-left text-sm">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-bold text-hot">AMMO · Q BRANCH</span>
-        {b.wallet && (
-          <button onClick={b.refreshWallet} disabled={b.refreshing} className="btn px-2 py-0.5 text-xs">
-            {b.refreshing ? 'checking…' : '↻ refresh'}
-          </button>
-        )}
-      </div>
-      <div className={stepCls(1)}>
-        <span className="text-xs font-bold tracking-widest text-dim">1 · CONNECT WALLET {b.wallet && <span className="text-[#60ff90]">✓</span>}</span>
-        {!b.wallet ? (
-          <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire !px-3 !text-base">
-            {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
-          </button>
-        ) : (
-          <span className="truncate text-xs text-accent">{b.wallet.name}</span>
-        )}
-      </div>
-      <div className={stepCls(2)}>
-        <span className="text-xs font-bold tracking-widest text-dim">2 · PICK TOKEN + LOAD {armed && <span className="text-[#60ff90]">✓</span>}</span>
-        {b.wallet && (
-          <>
-            <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
-              {b.tokens.map((t) => {
-                const on = t.id === b.token?.id;
-                const ic = iconUrl(t.icon);
-                return (
-                  <button
-                    key={t.id}
-                    disabled={loadingTokens}
-                    onClick={() => {
-                      b.setToken(t);
-                      b.setMode('tokens');
-                    }}
-                    className={`inset flex items-center gap-2 bg-black/60 px-2 py-1 text-left ${on ? 'border-fg text-hot' : 'text-dim hover:text-hot'}`}
-                  >
-                    {ic ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={ic} alt="" className="h-7 w-7 shrink-0 rounded object-cover" loading="lazy" />
-                    ) : (
-                      <div className="h-7 w-7 shrink-0 rounded bg-input" />
-                    )}
-                    <span className="min-w-0 flex-1 truncate font-bold">${t.sym}</span>
-                    <span className="text-xs">{t.balance?.toLocaleString()}</span>
-                  </button>
-                );
-              })}
-              {!b.tokens.length && <p className="text-xs text-dim">No tokens found in your wallet. Get some PNEE, or play practice.</p>}
-            </div>
-            {b.token && held > 0 && (
-              <>
-                <div className="flex flex-wrap items-center gap-1">
-                  {amounts
-                    .filter((n) => n <= held)
-                    .map((n) => (
-                      <button key={n} disabled={loadingTokens} onClick={() => setTokenLoad(n)} className={`btn px-2 py-0.5 text-xs ${tokenLoad === n ? 'btn-on' : ''}`}>
-                        {n}
-                      </button>
-                    ))}
-                  <button disabled={loadingTokens} onClick={() => setTokenLoad(held)} className={`btn px-2 py-0.5 text-xs ${tokenLoad === held ? 'btn-on' : ''}`}>
-                    all ({held.toLocaleString()})
-                  </button>
-                </div>
-                <p className="text-xs text-dim">
-                  One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(Math.min(tokenLoad, held) * TOKEN_FEE).toLocaleString()} sats of network fees. Unfired fees
-                  come back on Unload.
-                </p>
-                <button onClick={() => b.loadTokenAmmo(Math.min(tokenLoad, held))} disabled={!!b.busy} className="btn px-3 py-2 font-bold">
-                  {loadingTokens ? (
-                    <span className="inline-flex items-center gap-2">
-                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-hot border-t-transparent" /> APPROVE IN WALLET…
-                    </span>
-                  ) : (
-                    `LOAD ${Math.min(tokenLoad, held).toLocaleString()} $${b.token.sym}`
-                  )}
-                </button>
-              </>
-            )}
-            {b.error && <p className="text-xs text-hot">⚠ {b.error}</p>}
-          </>
-        )}
-      </div>
-      <div className={stepCls(3)}>
-        <span className="text-xs font-bold tracking-widest text-dim">3 · PLAY</span>
-        {armed ? (
-          <>
-            <p className="text-xs text-dim">
-              In the gun: <span className="text-hot">{Math.floor(b.tokenAmmo).toLocaleString()}</span> ${sym} · fuel {b.ammo.toLocaleString()} sats
-            </p>
-            <button onClick={() => startMode(level, true)} disabled={!ready} className="btn-fire animate-pulse !px-3">
-              ▶ PLAY LIVE · {L.name.toUpperCase()}
-            </button>
-          </>
-        ) : (
-          <p className="text-xs text-dim">Load tokens to play LIVE, or play practice for free.</p>
-        )}
-      </div>
-      {(b.ammo > 0 || b.gunTokens.length > 0) && (
-        <button onClick={b.unload} disabled={!!b.busy} className="btn px-2 py-1 text-xs">
-          {b.busy === 'unloading' ? 'UNLOADING… APPROVE IN WALLET' : 'UNLOAD EVERYTHING BACK TO MY WALLET'}
-        </button>
-      )}
-      {b.receipt && (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-hot">✓ {b.receipt.text}</span>
-          <a href={`https://whatsonchain.com/tx/${b.receipt.txid}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">
-            tx ↗
-          </a>
-        </div>
-      )}
-    </div>
+    <AmmoStrip
+      b={b}
+      armed={armed}
+      title="AMMO · Q BRANCH"
+      tokenPresets={[10, 50, 100]}
+      initialTokenLoad={50}
+      playLabel={`▶ PLAY LIVE · ${L.name.toUpperCase()}`}
+      onPlay={() => startMode(level, true)}
+      playReady={ready}
+    />
   );
 
   const agentPanel = (
