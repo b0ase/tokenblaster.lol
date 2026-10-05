@@ -547,6 +547,19 @@ export const PLAYLISTS: Record<Track, Song[]> = {
   doubleo: SPY, arena: PUNK, gun: PUNK, hopper: ARCADE, invaders: ARCADE, snake: ARCADE, kweg: QUIRKY, frogger: CITY, city: CITY,
 };
 
+/** Stations a player can switch to, whatever game they are in. */
+export const STATIONS: { id: Track; name: string }[] = [
+  { id: 'doubleo', name: 'Spy · VexVoid' },
+  { id: 'arena', name: 'Punk · NPG-X' },
+  { id: 'hopper', name: 'Arcade' },
+  { id: 'kweg', name: 'Quirky' },
+  { id: 'city', name: 'City' },
+];
+let station: Track | null = null; // player's pick; null = the game's own soundtrack
+const playlist = () => PLAYLISTS[station ?? wantTrack ?? 'doubleo'];
+export const getStation = () => station ?? wantTrack;
+export const getPlaylist = () => (wantTrack ? playlist() : []);
+
 const XFADE = 1.5;
 type Deck = { el: HTMLAudioElement; g: GainNode; song: Song | null };
 const decks: Deck[] = [];
@@ -627,9 +640,13 @@ function syncStream() {
 }
 
 /** Crossfade to the next song in the queue (reshuffles when it wraps). */
-function advance(immediate = false) {
+function advance(immediate = false, pick?: Song) {
   if (!ctx || !wantTrack) return;
-  const list = PLAYLISTS[wantTrack];
+  const list = playlist();
+  if (pick) {
+    queue = [pick, ...shuffle(list.filter((x) => x !== pick))];
+    qi = -1;
+  }
   qi++;
   if (qi >= queue.length) {
     queue = shuffle(list, queue[queue.length - 1]);
@@ -673,7 +690,7 @@ function startStream() {
   stopTimer = null;
   streaming = true;
   fails = 0;
-  queue = shuffle(PLAYLISTS[wantTrack]);
+  queue = shuffle(playlist());
   qi = -1;
   advance();
 }
@@ -697,6 +714,44 @@ function stopStream() {
 export function skipTrack() {
   unlockAudio();
   if (streaming && !fading) advance();
+}
+
+/** Back to the previous song (or the start of this one if it has played a few seconds). */
+export function prevTrack() {
+  unlockAudio();
+  if (!streaming || fading) return;
+  const d = decks[cur];
+  if (d.el.currentTime > 4 || qi <= 0) {
+    d.el.currentTime = 0;
+    return;
+  }
+  qi -= 2;
+  advance(true);
+}
+
+/** Play this song now (from the player's track list). */
+export function playSong(song: Song) {
+  unlockAudio();
+  if (prefs.muted) toggleMute();
+  if (streaming) advance(true, song);
+}
+
+/** Switch station (null = back to the game's own soundtrack). */
+export function setStation(t: Track | null) {
+  station = t === wantTrack ? null : t;
+  unlockAudio();
+  if (streaming) {
+    queue = [];
+    qi = -1;
+    advance(true);
+  }
+  for (const l of listeners) l();
+}
+
+/** Seconds played / length of the song on air (for the progress bar). */
+export function getProgress(): { t: number; d: number } {
+  const d = decks[cur];
+  return d && Number.isFinite(d.el.duration) ? { t: d.el.currentTime, d: d.el.duration } : { t: 0, d: 0 };
 }
 
 export function playMusic(track: Track | null) {

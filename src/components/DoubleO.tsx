@@ -19,6 +19,8 @@ import { TOKEN_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import { useBlaster } from '@/lib/useBlaster';
+import { proveSocialX, verifySocialX, type SocialProof } from '@/lib/socialId';
+import type { WalletInterface } from '@bsv/sdk';
 import { AmmoStrip } from './AmmoStrip';
 import { buildAgent, buildRig, CAST, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
 import { Grid } from '@/lib/doubleo/grid';
@@ -134,10 +136,10 @@ export function DoubleO() {
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
     };
   }, []);
-  const me = useRef({ name: 'Agent', vs: false, gun: '', setVs: ((v: boolean) => void v) as (v: boolean) => void });
+  const me = useRef({ name: 'Agent', vs: false, gun: '', setVs: ((v: boolean) => void v) as (v: boolean) => void, wallet: null as WalletInterface | null });
   useEffect(() => {
-    me.current = { name: name.trim() || 'Agent', vs: versus, gun: b.gunAddress, setVs: setVersus };
-  }, [name, versus, b.gunAddress]);
+    me.current = { name: name.trim() || 'Agent', vs: versus, gun: b.gunAddress, setVs: setVersus, wallet: b.wallet?.client ?? null };
+  }, [name, versus, b.gunAddress, b.wallet]);
   // Lobby presence: who is in which mission (shown on the mission cards).
   const lobby = useRef<Room | null>(null);
   useEffect(() => {
@@ -1308,7 +1310,18 @@ export function DoubleO() {
 
     // ── Multiplayer: one Realtime room per mission. Co-op world simulated by the host (oldest agent). ──
     const myId = Math.random().toString(36).slice(2, 10);
-    type Remote = { rig: Rig; to: THREE.Vector3; eye: THREE.Vector3; yaw: number; seen: number; name: string; vs: boolean; gun: string; act: boolean; tag: THREE.Sprite | null; tagKey: string };
+    // My verified X handle (if the wallet holds a bWalletX social certificate), bound to myId.
+    let myProof: SocialProof | null = null;
+    let myHandle: string | null = null;
+    let lastId = 0;
+    if (me.current.wallet)
+      void proveSocialX(me.current.wallet, myId).then((r) => {
+        if (!r) return;
+        myProof = r.proof;
+        myHandle = r.handle;
+        lastId = 0;
+      });
+    type Remote = { rig: Rig; to: THREE.Vector3; eye: THREE.Vector3; yaw: number; seen: number; name: string; x: string | null; vs: boolean; gun: string; act: boolean; tag: THREE.Sprite | null; tagKey: string };
     const remotes = new Map<string, Remote>();
     let room: Room | null = null;
     let joinedAt = 0;
@@ -1321,7 +1334,7 @@ export function DoubleO() {
     const pushNet = (status?: NetInfo['status']) =>
       setNet((nInfo) => ({
         status: status ?? nInfo.status,
-        agents: room ? [{ name: me.current.name, host: isHost(), me: true, vs: me.current.vs }, ...[...remotes.entries()].map(([id, r]) => ({ name: r.name, host: id === hostId, me: false, vs: r.vs }))] : [],
+        agents: room ? [{ name: myHandle ? `@${myHandle} ✓` : me.current.name, host: isHost(), me: true, vs: me.current.vs }, ...[...remotes.entries()].map(([id, r]) => ({ name: r.x ? `@${r.x} ✓` : r.name, host: id === hostId, me: false, vs: r.vs }))] : [],
       }));
     const elect = () => {
       // Candidates: me, plus agents whose poses are arriving (a presence entry can outlive a closed tab).
@@ -1349,7 +1362,7 @@ export function DoubleO() {
           if ((o as THREE.Mesh).isMesh && o !== rig.hitbox) o.castShadow = true;
         });
         scene.add(rig.root);
-        r = { rig, to: new THREE.Vector3(), eye: new THREE.Vector3(), yaw: 0, seen: 0, name: nm, vs: false, gun: '', act: true, tag: null, tagKey: '' };
+        r = { rig, to: new THREE.Vector3(), eye: new THREE.Vector3(), yaw: 0, seen: 0, name: nm, x: null, vs: false, gun: '', act: true, tag: null, tagKey: '' };
         remotes.set(id, r);
       }
       return r;
@@ -1397,6 +1410,19 @@ export function DoubleO() {
         onBroadcast: (event, raw) => {
           if (r !== room || !grid) return;
           const now = performance.now();
+          if (event === 'id') {
+            // A verified X handle: checked against bWalletX's certifier and bound to this session id.
+            const d = raw as { id: string; proof: SocialProof };
+            if (!d?.id || d.id === myId) return;
+            void verifySocialX(d.proof, d.id).then((h) => {
+              const rm = remotes.get(d.id);
+              if (rm && h && rm.x !== h) {
+                rm.x = h;
+                pushNet();
+              }
+            });
+            return;
+          }
           if (event === 'pose') {
             const d = raw as { id: string; x: number; z: number; yaw: number; name: string; vs: boolean; gun: string; act: boolean };
             const rm = remoteFor(d.id, d.name);
@@ -1457,6 +1483,10 @@ export function DoubleO() {
     /** Per frame: send my pose, (host) the world, and move everyone else's agent. */
     const netTick = (dt: number, now: number) => {
       if (!room) return;
+      if (myProof && now - lastId > 5000) {
+        lastId = now;
+        room.broadcast('id', { id: myId, proof: myProof });
+      }
       if (now - lastPose > 100) {
         lastPose = now;
         room.broadcast('pose', { id: myId, x: +camera.position.x.toFixed(2), z: +camera.position.z.toFixed(2), yaw: +yaw.toFixed(3), name: me.current.name, vs: me.current.vs, gun: me.current.gun, act: running && health > 0 });
@@ -1484,7 +1514,7 @@ export function DoubleO() {
         r.rig.root.rotation.y = r.yaw + Math.PI;
         r.rig.root.visible = r.act;
         poseRig(r.rig, dt, Math.min(1, gap * 2), false, now);
-        const key = `${r.name}|${r.vs}`;
+        const key = `${r.name}|${r.x}|${r.vs}`;
         if (key !== r.tagKey) {
           r.tagKey = key;
           if (r.tag) {
@@ -1492,7 +1522,8 @@ export function DoubleO() {
             r.tag.material.map?.dispose();
             r.tag.material.dispose();
           }
-          r.tag = nameTag(r.vs ? `${r.name} · VERSUS` : r.name, r.vs ? '#ff7060' : tintFor(id));
+          const who = r.x ? `@${r.x} ✓` : r.name;
+          r.tag = nameTag(r.vs ? `${who} · VERSUS` : who, r.vs ? '#ff7060' : r.x ? '#1d9bf0' : tintFor(id));
           r.tag.position.y = 2.35;
           r.rig.root.add(r.tag);
         }
