@@ -20,6 +20,8 @@ import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
+import { GameAudio } from './SoundToggle';
+import { sfx } from '@/lib/sfx';
 
 export const KWEG_ID = '17ee7fcc9c5764dc9983af912e044da8d11f26db17a5f68a0757a250db5cf983_0';
 const W = 960;
@@ -504,6 +506,7 @@ export function KwegExpedition() {
       startStage(0);
     };
     const finish = (won: boolean, text: string) => {
+      sfx(won ? 'level' : 'gameover');
       state = won ? 'won' : 'over';
       const haul = { ...lootRef.current.run };
       setLastRun(haul);
@@ -528,12 +531,14 @@ export function KwegExpedition() {
       if (!payFor.current(['kweg', 'sonar'])) return; // out of sats: the ping is refused
       k.pingCd = PING_CD;
       pings.push({ x: k.x + 60, y: k.y - 25, r: 0 });
+      sfx('sonar');
       score += 1;
     };
     const dashGo = () => {
       if (state !== 'play' || k.dashCd > 0) return;
       k.dash = 0.5;
       k.dashCd = DASH_CD;
+      sfx('stamp');
       pop(k.x, k.y - 50, 'PATENT PENDING!', '#e02424');
     };
 
@@ -680,6 +685,7 @@ export function KwegExpedition() {
             e.dead = true;
             kweg++;
             score += 10;
+            sfx('coin');
             lootRef.current.pickup(kwegLoot());
             burst(e.x, e.y, '#ffd34d', 8);
             pop(e.x, e.y - 20, '+1 $KWEG', '#b8860b');
@@ -687,6 +693,7 @@ export function KwegExpedition() {
           case 'token':
             e.dead = true;
             score += 50;
+            sfx('token');
             if (e.loot) {
               const l = refreshLoot(e.loot);
               lootRef.current.pickup(l);
@@ -698,23 +705,27 @@ export function KwegExpedition() {
             e.dead = true;
             score += 100;
             k.tow = Math.max(k.tow, 2);
+            sfx('token');
             burst(e.x, e.y, '#fff3a0', 16);
             pop(e.x, e.y - 20, 'BLAST! +100', '#b8860b');
             break;
           case 'bubble':
             e.dead = true;
             score += 2;
+            sfx('click', 0.6);
             burst(e.x, e.y, '#bfefff', 5);
             break;
           case 'fish':
             e.dead = true;
             score += 15;
+            sfx('pickup');
             pop(e.x, e.y - 20, '+15 gossip fish', '#d9480f');
             break;
           case 'elephant':
             e.dead = true;
             k.tow = 4;
             score += 40;
+            sfx('spring');
             pop(e.x, e.y - 30, 'ELEPHANT TOW!', '#5b6274');
             quip = { text: 'A Maritime Pachyderm! Detected by sonar, as the patent describes.', t: 3 };
             break;
@@ -722,6 +733,7 @@ export function KwegExpedition() {
             if (k.dash > 0) {
               e.dead = true;
               score += 25;
+              sfx('stamp');
               burst(e.x, e.y, '#e02424', 12);
               pop(e.x, e.y - 20, 'PATENTED!', '#e02424');
             } else if (k.inv <= 0) {
@@ -730,6 +742,7 @@ export function KwegExpedition() {
               k.inv = 1.4;
               k.stun = 0.8;
               shake = 0.3;
+              sfx('hurt');
               burst(e.x, e.y, '#ff6b6b', 14);
               quip = { text: pick(['Unscholarly!', 'That obstacle will hear from my lawyers. I am my lawyers.', 'Hull integrity: a matter for peer review.']), t: 2.5 };
               if (k.hull <= 0) return finish(false, 'The pachyderm submarine needs repairs. Scholarly rigor remains at MAXIMUM.');
@@ -762,6 +775,7 @@ export function KwegExpedition() {
         if (stage === STAGES.length - 1)
           return finish(true, `${R.beaten} Satoshi's submarine coordinates are now in the Maritime Pachyderm Suite, filed under "patent pending".`);
         state = 'card';
+        sfx('level');
         setCard({ title: `You outraced ${R.name}!`, text: R.beaten });
         setPhase('card');
       }
@@ -1265,6 +1279,7 @@ export function KwegExpedition() {
 
   return (
     <section className="panel">
+      <GameAudio track="kweg" />
       <div className="relative mx-auto w-full max-w-[960px] overflow-hidden rounded border border-[var(--border-canvas)] bg-[#fff2d6]" style={{ aspectRatio: '16 / 9', touchAction: 'none' }}>
         <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" />
         <div className="pointer-events-none absolute bottom-[12%] left-2 flex flex-wrap items-center gap-2 rounded bg-white/80 px-2 py-0.5 font-sans text-[11px] font-bold text-[#1d1d2b] sm:text-xs">

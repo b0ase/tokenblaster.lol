@@ -17,6 +17,8 @@ import { usePaidPlay } from '@/lib/usePaidPlay';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
 import { HoldButton } from './HoldButton';
+import { GameAudio } from './SoundToggle';
+import { sfx } from '@/lib/sfx';
 
 const W = 320;
 const H = 400;
@@ -153,12 +155,14 @@ export function MempoolInvaders() {
       v.alive = false;
       const pts = (v.quiet ? 5 : POINTS[v.kind]) * mult;
       score += pts;
+      sfx('explosion', 0.4);
       booms.push({ x: cx, y: cy, t: 18, color: v.color });
       popup(cx, cy - 6, `+${pts}`);
       if (v.loot) drops.push({ x: cx, y: cy, loot: v.loot });
     };
 
     const gameOver = () => {
+      sfx('gameover');
       state = 'over';
       setPhase('over');
       setBest((b) => Math.max(b, score));
@@ -170,6 +174,7 @@ export function MempoolInvaders() {
       if (invuln > 0) return;
       lives--;
       shake = 14;
+      sfx('rekt');
       booms.push({ x: pl.x, y: PY, t: 30, color: '#ffd0c0' });
       invuln = 100;
       if (lives <= 0) gameOver();
@@ -186,6 +191,7 @@ export function MempoolInvaders() {
       if (keys.fire && cool === 0 && shots.length < 2 && lives > 0) {
         if (payFor.current(['invaders', 'shot'])) {
           shots.push({ x: pl.x, y: PY - 8, vy: -6 });
+          sfx('laser');
           cool = 14;
         } else cool = 20;
       }
@@ -285,6 +291,7 @@ export function MempoolInvaders() {
           }
         if (!used && ufo && Math.abs(s.x - ufo.x) < 14 && s.y < 30 && s.y > 12) {
           score += POINTS.blast;
+          sfx('coin');
           booms.push({ x: ufo.x, y: 20, t: 24, color: '#ffffff' });
           popup(ufo.x, 26, `BLAST +${POINTS.blast}`);
           ufo = null;
@@ -312,6 +319,7 @@ export function MempoolInvaders() {
           d.y = H + 99;
           d.loot = refreshLoot(d.loot);
           lootRef.current.pickup(d.loot);
+          sfx('token');
           score += 100;
           popup(pl.x, PY - 20, `+1 ${d.loot.sym}`);
         }
@@ -326,6 +334,7 @@ export function MempoolInvaders() {
       if (state === 'play' && !invs.some((v) => v.alive) && !divers.length) {
         wave++;
         score += 250;
+        sfx('level');
         bombs = [];
         buildWave();
       }
@@ -475,6 +484,7 @@ export function MempoolInvaders() {
 
   return (
     <section className="panel">
+      <GameAudio track="invaders" />
       <div className="relative mx-auto w-full max-w-[560px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}` }}>
         <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" style={{ imageRendering: 'pixelated' }} />
         <div className="pointer-events-none absolute left-2 top-1 flex flex-wrap items-center gap-3 text-xs text-hot">

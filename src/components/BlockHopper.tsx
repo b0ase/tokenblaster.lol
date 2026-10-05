@@ -22,6 +22,8 @@ import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
 import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
+import { GameAudio } from './SoundToggle';
+import { sfx } from '@/lib/sfx';
 
 
 // Logical resolution (scaled up crisp).
@@ -245,7 +247,9 @@ export function BlockHopper() {
       if (p.invuln > 0) return;
       lives--;
       shake = 12;
+      sfx('hurt');
       if (lives <= 0) {
+        sfx('gameover');
         state = 'over';
         setPhase('over');
         setLastRun({ ...lootRef.current.run });
@@ -265,6 +269,7 @@ export function BlockHopper() {
       p.jumping = true;
       p.coyote = 0;
       p.buffer = 0;
+      sfx('jump');
       return true;
     };
 
@@ -357,6 +362,7 @@ export function BlockHopper() {
           p.vy = -SPRING;
           p.jumping = false;
           sp.t = 12;
+          sfx('spring');
           popup(sp.x, sy - 20, 'SPRING!');
         }
       }
@@ -368,6 +374,7 @@ export function BlockHopper() {
           c.got = true;
           nCoins++;
           score += 10;
+          sfx('coin');
         }
       }
 
@@ -386,6 +393,7 @@ export function BlockHopper() {
             e.dead = -1;
             p.vy = keys.jump ? -JMP : -4.5;
             score += 50;
+            sfx('stomp');
             popup(e.x, e.y - 24, `+50 ${e.sym}`);
             // A stomped token enemy drops its token.
             if (e.loot) pickups.push({ x: e.x, y: e.y - 14, vy: -3, seg: e.seg, loot: e.loot, got: false, born: chainN });
@@ -410,6 +418,7 @@ export function BlockHopper() {
           k.got = true;
           k.loot = refreshLoot(k.loot);
           lootRef.current.pickup(k.loot);
+          sfx('token');
           score += 100;
           popup(k.x, k.y - 14, `+1 ${k.loot.sym}`);
         }
@@ -621,6 +630,7 @@ export function BlockHopper() {
     const start = () => {
       if (state === 'ready') {
         state = 'play';
+        sfx('start');
         setPhase('play');
       }
     };
@@ -662,6 +672,7 @@ export function BlockHopper() {
 
   return (
     <section className="panel">
+      <GameAudio track="hopper" />
       <div className="relative mx-auto w-full max-w-[960px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}` }}>
         <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" style={{ imageRendering: 'pixelated' }} />
         <div className="pointer-events-none absolute left-2 top-1 flex gap-3 text-xs text-hot">

@@ -11,6 +11,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildGun, GUNS } from '@/lib/arenaHD';
+import { minigun } from '@/lib/sfx';
 
 export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => void }) {
   const host = useRef<HTMLDivElement>(null);
@@ -20,6 +21,7 @@ export function GunView({ firing, onFire }: { firing: boolean; onFire?: () => vo
     fire.current = firing;
     fireCb.current = onFire;
   }, [firing, onFire]);
+  useEffect(() => minigun(firing), [firing]);
 
   useEffect(() => {
     const el = host.current;

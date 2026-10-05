@@ -26,6 +26,8 @@ const PER_ACTION = 1;
 const EST_FEE = 26; // sats: ~260-byte tx at 100 sat/kB (GorillaPool ARC minimum)
 const LOADS = [1_000, 10_000, 100_000];
 import { buildGun, GUNS } from '@/lib/arenaHD';
+import { GameAudio } from './SoundToggle';
+import { sfx, sharedAudio } from '@/lib/sfx';
 
 const CHARS = [
   { id: 'chibi', name: 'NPG Chibi', url: '/arena/models/npg/stack/chibi_base.glb', height: 1.6 },
@@ -949,10 +951,11 @@ export function Frogger3D() {
     type Spark = { m: THREE.Mesh; v: THREE.Vector3; born: number; life: number };
     const sparks: Spark[] = [];
     const rockets: { m: THREE.Mesh; v: THREE.Vector3; at: number; col: THREE.Color }[] = [];
-    let audio: AudioContext | null = null;
     const fanfare = () => {
       try {
-        audio = audio ?? new AudioContext();
+        const sa = sharedAudio(); // shared context + sfx bus: global mute / volume
+        if (!sa) return;
+        const audio = sa.ctx;
         const t0 = audio.currentTime;
         [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5].forEach((f, i) => {
           const o = audio!.createOscillator();
@@ -963,7 +966,7 @@ export function Frogger3D() {
           g.gain.setValueAtTime(0.0001, t);
           g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
           g.gain.exponentialRampToValueAtTime(0.0001, t + (i === 5 ? 0.6 : 0.16));
-          o.connect(g).connect(audio!.destination);
+          o.connect(g).connect(sa.out);
           o.start(t);
           o.stop(t + 0.7);
         });
@@ -1027,6 +1030,8 @@ export function Frogger3D() {
       spark.position.copy(to);
       scene.add(line, spark);
       zaps.push({ line, spark, born: performance.now() });
+      sfx('laser');
+      if (ahead) sfx('hit');
       if (ahead) ahead.stalled = performance.now(); // shorted out: it stops dead for a few seconds
     };
     const setChar = (id: CharId) => loadChar(id);
@@ -1040,6 +1045,7 @@ export function Frogger3D() {
       setStarted(true);
       target = new THREE.Vector3(Math.max(-ROAD_HALF + 6, Math.min(ROAD_HALF - 6, target.x + dx * STEP)), 0, Math.max(GOAL_Z, Math.min(START_Z, target.z + dz * STEP)));
       heading = Math.atan2(dx, dz);
+      sfx('jump', 0.6);
     };
     const restart = () => {
       pts = 0;
@@ -1232,6 +1238,7 @@ export function Frogger3D() {
         if (hit) {
           dead = now;
           lifeLeft--;
+          sfx('rekt');
           setLives(lifeLeft);
           setKiller(hit.f);
           setWasted(true);
@@ -1251,7 +1258,10 @@ export function Frogger3D() {
           dead = 0;
           fling = null;
           setWasted(false);
-          if (lifeLeft <= 0) setOver(true);
+          if (lifeLeft <= 0) {
+            setOver(true);
+            sfx('gameover');
+          }
           pos = new THREE.Vector3(0, 0, START_Z);
           target = pos.clone();
           player.rotation.set(0, Math.PI, 0);
@@ -1379,7 +1389,6 @@ export function Frogger3D() {
       renderer.domElement.removeEventListener('pointermove', onLook);
       renderer.domElement.removeEventListener('pointerleave', onLeave);
       renderer.domElement.removeEventListener('wheel', onWheel);
-      void audio?.close();
       renderer.domElement.removeEventListener('touchend', te);
       composer.dispose();
       gtao.dispose();
@@ -1415,6 +1424,7 @@ export function Frogger3D() {
   const killerMeta = meta;
   return (
     <section className="panel">
+      <GameAudio track="frogger" />
       <div className="panel-header">
         <span className="panel-title">Chain Frogger</span>
         <span className="text-accent">

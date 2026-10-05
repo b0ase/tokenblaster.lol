@@ -3,6 +3,7 @@
  * src/lib/arenaHD.ts (CC0 models and textures, public/arena/CREDITS.md).
  */
 import * as THREE from 'three';
+import { sharedAudio } from '@/lib/sfx';
 
 type Draw = (c: CanvasRenderingContext2D) => void;
 
@@ -39,12 +40,13 @@ export const fireballTexture = () =>
 
 /** Tiny synth for retro sound effects. Create on a user gesture (browsers block audio before one). */
 export function makeSfx() {
-  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  if (!Ctx) return null;
-  const ac = new Ctx();
+  // Shared context + sfx bus (src/lib/sfx.ts): one global mute / volume for every game.
+  const shared = sharedAudio();
+  if (!shared) return null;
+  const ac = shared.ctx;
   const master = ac.createGain();
-  master.gain.value = 0.35;
-  master.connect(ac.destination);
+  master.gain.value = 0.55;
+  master.connect(shared.out);
 
   const noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
   const d = noiseBuf.getChannelData(0);
@@ -79,7 +81,7 @@ export function makeSfx() {
   };
 
   return {
-    resume: () => ac.state === 'suspended' && ac.resume(),
+    resume: () => ac.state !== 'running' && ac.resume(),
     shoot: () => {
       tone('square', 880, 110, 0.12, 0.35);
       noise(0.08, 0.4, 3500);

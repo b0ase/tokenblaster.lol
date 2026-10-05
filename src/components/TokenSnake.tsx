@@ -16,6 +16,8 @@ import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
+import { GameAudio } from './SoundToggle';
+import { sfx } from '@/lib/sfx';
 
 const N = 20; // grid cells per side
 const C = 16; // px per cell
@@ -111,6 +113,8 @@ export function TokenSnake() {
     reset();
 
     const over = () => {
+      sfx('rekt');
+      sfx('gameover');
       state = 'over';
       deadFlash = 30;
       setPhase('over');
@@ -153,6 +157,7 @@ export function TokenSnake() {
           pts = 5;
           text = '+5';
         }
+        sfx(f.loot ? 'token' : f.kind === 'blast' ? 'pickup' : 'coin');
         score += pts;
         grow += g;
         ms = Math.max(MIN_MS, ms - 3);
@@ -304,6 +309,7 @@ export function TokenSnake() {
 
   return (
     <section className="panel">
+      <GameAudio track="snake" />
       <div className="relative mx-auto w-full max-w-[520px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: '1 / 1', touchAction: 'none' }}>
         <canvas ref={canvasRef} width={W} height={W} className="block h-full w-full" style={{ imageRendering: 'pixelated' }} />
         <div className="pointer-events-none absolute left-2 top-1 flex flex-wrap items-center gap-3 text-xs text-hot">

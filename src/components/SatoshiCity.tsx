@@ -39,6 +39,8 @@ import {
 } from '@/lib/city/layout';
 import { buildWorld } from '@/lib/city/world';
 import { createVehicleKit, PAINTS, type Built, type ModelKey } from '@/lib/city/vehicles';
+import { GameAudio } from './SoundToggle';
+import { sharedAudio } from '@/lib/sfx';
 
 /**
  * Satoshi City: an open-world island city where the traffic is the BSV mainnet, live. Every car
@@ -270,13 +272,17 @@ export function SatoshiCity() {
 
     // ── Audio: engine hum, horn, chimes (Web Audio, created on the first click) ──
     let audio: AudioContext | null = null;
+    let audioOut: AudioNode | null = null; // shared sfx bus (src/lib/sfx.ts): global mute / volume
     let engOsc: OscillatorNode | null = null;
     let engGain: GainNode | null = null;
     let engFilter: BiquadFilterNode | null = null;
     const initAudio = () => {
       if (audio) return;
       try {
-        audio = new AudioContext();
+        const sa = sharedAudio();
+        if (!sa) return;
+        audio = sa.ctx;
+        audioOut = sa.out;
         engOsc = audio.createOscillator();
         engOsc.type = 'sawtooth';
         engFilter = audio.createBiquadFilter();
@@ -284,7 +290,7 @@ export function SatoshiCity() {
         engFilter.frequency.value = 400;
         engGain = audio.createGain();
         engGain.gain.value = 0;
-        engOsc.connect(engFilter).connect(engGain).connect(audio.destination);
+        engOsc.connect(engFilter).connect(engGain).connect(audioOut);
         engOsc.start();
       } catch {
         audio = null;
@@ -302,7 +308,7 @@ export function SatoshiCity() {
         g.gain.setValueAtTime(0.0001, at);
         g.gain.exponentialRampToValueAtTime(vol, at + 0.02);
         g.gain.exponentialRampToValueAtTime(0.0001, at + hold);
-        o.connect(g).connect(audio!.destination);
+        o.connect(g).connect(audioOut ?? audio!.destination);
         o.start(at);
         o.stop(at + hold + 0.05);
       });
@@ -1519,7 +1525,6 @@ export function SatoshiCity() {
       } catch {
         /* already stopped */
       }
-      void audio?.close();
       for (const a of ai) kit.release(a.b);
       for (const b of bodies) kit.release(b.b);
       if (car) kit.release(car.b);
@@ -1556,6 +1561,7 @@ export function SatoshiCity() {
 
   return (
     <section className="panel">
+      <GameAudio track="city" />
       <div className="panel-header">
         <span className="panel-title">Satoshi City</span>
         <span className="text-accent">

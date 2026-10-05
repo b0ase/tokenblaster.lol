@@ -10,6 +10,8 @@ import { iconUrl } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
 import { GunView } from './GunView';
 import { WalletChooser } from './WalletChooser';
+import { GameAudio } from './SoundToggle';
+import { sfx } from '@/lib/sfx';
 
 const SIZES = [1_000, 10_000, 50_000, 100_000];
 const costOf = (n: number) => n * STORM_FEE + Math.min(100, Math.ceil(n / 300)) * 60 + 1000;
@@ -66,7 +68,9 @@ export function BSVGun() {
         setStatus,
       );
       setStatus(null);
+      sfx('level');
     } catch (e) {
+      sfx('rekt');
       setErr(e instanceof Error ? e.message : String(e));
       setStatus(null);
     } finally {
@@ -78,6 +82,7 @@ export function BSVGun() {
 
   return (
     <div className="flex flex-col gap-3">
+      <GameAudio track="gun" />
       <section className="panel overflow-hidden p-0">
         <GunView firing={firing} onFire={() => void fire()} />
       </section>

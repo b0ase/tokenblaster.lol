@@ -25,6 +25,8 @@ import { Grid } from '@/lib/doubleo/grid';
 import { LEVELS, SIZE, type Level } from '@/lib/doubleo/levels';
 import { AGENT } from '@/lib/doubleo/names';
 import { WalletChooser } from './WalletChooser';
+import { GameAudio } from '@/components/SoundToggle';
+import { sfx as playSfx } from '@/lib/sfx';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -794,6 +796,7 @@ export function DoubleO() {
         const squad = [me.current.name, ...[...remotes.values()].map((r) => r.name)];
         setDebrief({ level: lvlIdx, secs: elapsed, shots: stats.shots, hits: stats.hits, kills: stats.kills, onChain: stats.onChain, live: liveMode, sym: live_.current.sym, squad });
         setScreen('debrief');
+        playSfx('level');
         leaveMission();
       }
     };
@@ -857,6 +860,7 @@ export function DoubleO() {
       a.dyingAt = now;
       if (mine) stats.kills++;
       sfx?.die();
+      if (a.cast.boss) playSfx('explosion');
       burstCoins(point, a.cast.boss ? 24 : 8);
       popup('REKT!', a.root.position.clone().setY(a.cast.height + 0.6), '#ff4040', true);
       if (a.tag) a.tag.visible = false;
@@ -1861,6 +1865,7 @@ export function DoubleO() {
 
   return (
     <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel'}>
+      <GameAudio track="doubleo" />
       <div className={playing ? 'relative min-h-0 flex-1' : 'relative'}>
         <div ref={mount} className={`touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[80vh] min-h-[36rem] w-full'}`} />
 

@@ -17,6 +17,7 @@ import { AmmoStrip } from './AmmoStrip';
 import { WalletChooser } from './WalletChooser';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GameAudio } from '@/components/SoundToggle';
 
 /** 1 = wall. The player starts at S. Rows from HALL_Z down are the horde hall. */
 const MAP = [
@@ -1214,6 +1215,7 @@ export function Arena() {
 
   return (
     <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel'}>
+      <GameAudio track="arena" />
       {!playing && (
         <div className="panel-header">
           <span className="panel-title">Arena</span>
