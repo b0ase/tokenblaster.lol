@@ -2,16 +2,28 @@
 
 /** Small speaker button: global mute (also the M key) plus music / sfx volume. Shared by every game. */
 import { useState, useSyncExternalStore } from 'react';
-import { getAudioPrefs, installAudio, setVolumes, subscribeAudio, toggleMute, unlockAudio, useGameAudio, type Track } from '@/lib/sfx';
+import { getAudioPrefs, getNowPlaying, installAudio, setVolumes, skipTrack, subscribeAudio, toggleMute, unlockAudio, useGameAudio, type Track } from '@/lib/sfx';
 
 const DEFAULTS = { muted: false, music: 0.5, sfx: 0.8 };
 const server = () => DEFAULTS;
+const noSong = () => null;
 
 export function SoundToggle({ className = '' }: { className?: string }) {
   const p = useSyncExternalStore(subscribeAudio, getAudioPrefs, server);
+  const now = useSyncExternalStore(subscribeAudio, getNowPlaying, noSong);
   const [open, setOpen] = useState(false);
   return (
     <span className={`relative inline-flex items-center gap-1 ${className}`}>
+      {now && !p.muted && (
+        <>
+          <span className="max-w-[40vw] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] leading-tight text-white/80" title={`${now.title} · ${now.site}`}>
+            ♪ {now.title} <span className="text-white/45">· {now.site}</span>
+          </span>
+          <button type="button" onClick={skipTrack} className="btn px-1.5 py-0.5 text-xs" aria-label="Next track" title="Next track">
+            ⏭
+          </button>
+        </>
+      )}
       <button
         type="button"
         onClick={() => {

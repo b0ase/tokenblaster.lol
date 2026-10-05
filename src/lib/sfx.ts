@@ -1,8 +1,10 @@
 'use client';
 
 /**
- * Shared arcade audio: procedurally synthesised SFX + a tiny step sequencer for per-game music loops.
- * Everything is generated with the Web Audio API (no samples, nothing downloaded).
+ * Shared arcade audio: procedurally synthesised SFX + per-game soundtracks.
+ * Music streams real tracks from /public/music (shuffled playlist, crossfaded, routed through the
+ * AudioContext so mute / music volume / ducking apply). The old procedural step-sequencer loops are
+ * kept only as a fallback when a playlist's files fail to load.
  *
  * - The AudioContext is created/resumed only on a user gesture (pointer/touch/key), which also
  *   satisfies mobile Safari.
@@ -25,7 +27,7 @@ const listeners = new Set<() => void>();
 if (typeof window !== 'undefined') loadPrefs();
 
 let ctx: AudioContext | null = null;
-let master: GainNode, sfxBus: GainNode, musicBus: GainNode, duckGain: GainNode;
+let master: GainNode, sfxBus: GainNode, musicBus: GainNode, streamBus: GainNode, duckGain: GainNode;
 let noiseBuf: AudioBuffer;
 let installed = false;
 
@@ -54,6 +56,8 @@ function applyGains() {
   master.gain.setTargetAtTime(prefs.muted ? 0 : 1, t, 0.02);
   sfxBus.gain.setTargetAtTime(prefs.sfx * 0.6, t, 0.02);
   musicBus.gain.setTargetAtTime(prefs.music * 0.32, t, 0.05);
+  streamBus.gain.setTargetAtTime(prefs.music * 0.8, t, 0.05);
+  syncStream();
 }
 
 function ensureCtx(): AudioContext | null {
@@ -76,12 +80,15 @@ function ensureCtx(): AudioContext | null {
   sfxBus = ctx.createGain();
   musicBus = ctx.createGain();
   duckGain = ctx.createGain();
+  streamBus = ctx.createGain();
   sfxBus.connect(master);
   musicBus.connect(duckGain).connect(master);
+  streamBus.connect(duckGain);
   master.connect(comp).connect(ctx.destination);
   noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 1), ctx.sampleRate);
   const d = noiseBuf.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  ctx.addEventListener('statechange', syncStream);
   applyGains();
   return ctx;
 }
@@ -90,7 +97,15 @@ function ensureCtx(): AudioContext | null {
 export function unlockAudio() {
   const c = ensureCtx();
   if (c && c.state !== 'running') void c.resume().catch(() => {});
-  if (c && wantTrack && !seqTimer) startSeq();
+  if (c && wantTrack) {
+    if (fallback) {
+      if (!seqTimer) startSeq();
+    } else if (!streaming) startStream();
+    else syncStream();
+    // iOS Safari only lets media start inside a gesture: kick the active deck here, not after resume().
+    const d = decks[cur];
+    if (streaming && d?.song && d.el.paused && !prefs.muted && prefs.music > 0 && !document.hidden) void d.el.play().catch(() => {});
+  }
 }
 
 export function installAudio() {
@@ -107,6 +122,7 @@ export function installAudio() {
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     toggleMute();
   }, { capture: true });
+  document.addEventListener('visibilitychange', syncStream);
   if (process.env.NODE_ENV !== 'production') {
     (window as unknown as { __tbAudio: unknown }).__tbAudio = {
       stats,
@@ -118,6 +134,15 @@ export function installAudio() {
       },
       get prefs() {
         return prefs;
+      },
+      get now() {
+        return nowPlaying;
+      },
+      get decks() {
+        return decks.map((d) => ({ src: d.el.src, t: d.el.currentTime, paused: d.el.paused, gain: d.g.gain.value }));
+      },
+      get fallback() {
+        return fallback;
       },
     };
   }
@@ -371,10 +396,10 @@ function killMinigun() {
 
 // ── Music sequencer ──
 // Patterns are 16th-note steps. Notes are MIDI numbers, 0 = rest. Drums: k kick, s snare, h hat, o open hat.
-type Song = { bpm: number; lead: number[]; bass: number[]; drums: string; leadWave: OscillatorType; bassWave: OscillatorType; leadVol?: number; swing?: number };
+type Loop = { bpm: number; lead: number[]; bass: number[]; drums: string; leadWave: OscillatorType; bassWave: OscillatorType; leadVol?: number; swing?: number };
 const N = (s: string) => s.trim().split(/\s+/).map((x) => (x === '.' ? 0 : Number(x)));
 
-const SONGS: Record<Track, Song> = {
+const SONGS: Record<Track, Loop> = {
   // Original spy-surf style: twangy minor riff with chromatic slides over a driving beat.
   doubleo: {
     bpm: 140, leadWave: 'sawtooth', bassWave: 'triangle', leadVol: 0.1,
@@ -485,15 +510,203 @@ function stopSeq() {
   seqTimer = null;
 }
 
+// ── Streaming soundtrack ──
+export type Song = { src: string; title: string; site: string };
+const S = (dir: string, file: string, title: string, site: string): Song => ({ src: `/music/${dir}/${file}.m4a`, title, site });
+const SPY = [
+  S('doubleo', 'shadow-steps', 'Shadow Steps', 'CherryX.space'),
+  S('doubleo', 'factory-darkness', 'Kōjō no Yami (Factory Darkness)', 'CherryX.space'),
+  S('doubleo', 'digital-ghosts', 'Digital Ghosts', 'b0ase.com'),
+];
+const PUNK = [
+  S('arena', 'shibuya-mosh-pit', 'Shibuya Mosh Pit', 'NPG-X.com'),
+  S('arena', 'chrome-fist', 'Chrome Fist', 'NPG-X.com'),
+  S('arena', 'harajuku-chainsaw', 'Harajuku Chainsaw', 'NPG-X.com'),
+  S('arena', 'akihabara-fury', 'Akihabara Fury', 'NPG-X.com'),
+];
+const ARCADE = [
+  S('arcade', 'pixel-dreams', 'Pixel Dreams', 'ninjapunkgirls.com'),
+  S('arcade', 'pxel-optik', 'P_XEL Øptik V.2', 'b0ase.com'),
+  S('arcade', 'kintsugi-breaks', 'Kintsugi Breaks', 'CherryX.space'),
+  S('arcade', 'shattered-frequencies', 'Shattered Frequencies', 'CherryX.space'),
+];
+const QUIRKY = [
+  S('kweg', 'unicorn-dreamscape', 'Unicorn Dreamscape', 'ninjapunkgirls.com'),
+  S('kweg', 'midnight-graffiti-symphony', 'Midnight Graffiti Symphony', 'b0ase.com'),
+  S('kweg', 'echo-chamber', 'Echo Chamber', 'b0ase.com'),
+];
+const CITY = [
+  S('city', 'veins-of-the-city', 'Toshi no Jōmyaku (Veins of the City)', 'CherryX.space'),
+  S('city', 'neon-rust', 'Neon Rust', 'CherryX.space'),
+  S('city', 'tokaido-reload', 'Tokaido Reload', 'NPG-X.com'),
+];
+export const PLAYLISTS: Record<Track, Song[]> = {
+  doubleo: SPY, arena: PUNK, gun: PUNK, hopper: ARCADE, invaders: ARCADE, snake: ARCADE, kweg: QUIRKY, frogger: CITY, city: CITY,
+};
+
+const XFADE = 1.5;
+type Deck = { el: HTMLAudioElement; g: GainNode; song: Song | null };
+const decks: Deck[] = [];
+let cur = 0;
+let queue: Song[] = [];
+let qi = -1;
+let fails = 0;
+let fading = false;
+let streaming = false;
+let fallback = false;
+let preloader: HTMLAudioElement | null = null;
+let nowPlaying: Song | null = null;
+let stopTimer: ReturnType<typeof setTimeout> | null = null;
+
+export const getNowPlaying = () => nowPlaying;
+function setNow(s: Song | null) {
+  nowPlaying = s;
+  for (const l of listeners) l();
+}
+
+function shuffle(list: Song[], avoidFirst?: Song | null): Song[] {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  if (avoidFirst && a.length > 1 && a[0] === avoidFirst) [a[0], a[1]] = [a[1], a[0]];
+  return a;
+}
+
+function makeDecks() {
+  if (decks.length || !ctx) return;
+  for (let i = 0; i < 2; i++) {
+    const el = new Audio();
+    el.preload = 'auto';
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    ctx.createMediaElementSource(el).connect(g).connect(streamBus);
+    const d: Deck = { el, g, song: null };
+    el.addEventListener('timeupdate', () => {
+      if (decks[cur] !== d || fading || !streaming) return;
+      if (Number.isFinite(el.duration) && el.duration - el.currentTime < XFADE + 0.1) advance();
+    });
+    el.addEventListener('ended', () => {
+      if (decks[cur] === d && streaming) advance();
+    });
+    el.addEventListener('playing', () => {
+      if (decks[cur] === d) fails = 0;
+    });
+    el.addEventListener('error', () => {
+      if (decks[cur] !== d || !streaming || !d.el.getAttribute('src')) return;
+      fails++;
+      if (fails >= queue.length) {
+        // Nothing in this playlist loads: fall back to the procedural loop.
+        streaming = false;
+        fallback = true;
+        setNow(null);
+        startSeq();
+      } else advance(true);
+    });
+    decks.push(d);
+  }
+}
+
+function shouldPlay() {
+  return !!ctx && ctx.state === 'running' && !prefs.muted && prefs.music > 0 && !!wantTrack && typeof document !== 'undefined' && !document.hidden;
+}
+
+/** Pause/resume the active deck to match mute, volume, tab visibility and context state. */
+function syncStream() {
+  if (!streaming || !decks.length) return;
+  const d = decks[cur];
+  if (shouldPlay()) {
+    if (d.el.paused && d.song) void d.el.play().catch(() => {});
+  } else {
+    for (const x of decks) x.el.pause();
+  }
+}
+
+/** Crossfade to the next song in the queue (reshuffles when it wraps). */
+function advance(immediate = false) {
+  if (!ctx || !wantTrack) return;
+  const list = PLAYLISTS[wantTrack];
+  qi++;
+  if (qi >= queue.length) {
+    queue = shuffle(list, queue[queue.length - 1]);
+    qi = 0;
+  }
+  const song = queue[qi];
+  const old = decks[cur];
+  cur = 1 - cur;
+  const nd = decks[cur];
+  const t = ctx.currentTime;
+  const fade = immediate ? 0.05 : XFADE;
+  fading = true;
+  nd.song = song;
+  nd.el.src = song.src;
+  nd.el.currentTime = 0;
+  nd.g.gain.cancelScheduledValues(t);
+  nd.g.gain.setValueAtTime(0.0001, t);
+  nd.g.gain.linearRampToValueAtTime(1, t + fade);
+  old.g.gain.cancelScheduledValues(t);
+  old.g.gain.setValueAtTime(old.g.gain.value, t);
+  old.g.gain.linearRampToValueAtTime(0, t + fade);
+  setTimeout(() => {
+    if (decks[cur] !== old) old.el.pause();
+    fading = false;
+  }, fade * 1000 + 100);
+  setNow(song);
+  if (shouldPlay() || (ctx.state !== 'running' && !prefs.muted && prefs.music > 0)) void nd.el.play().catch(() => {});
+  // Warm the cache for the song after this one.
+  const nxt = queue[qi + 1] ?? null;
+  if (nxt) {
+    preloader ??= new Audio();
+    preloader.preload = 'auto';
+    preloader.src = nxt.src;
+  }
+}
+
+function startStream() {
+  if (!ctx || !wantTrack || fallback) return;
+  makeDecks();
+  if (stopTimer) clearTimeout(stopTimer);
+  stopTimer = null;
+  streaming = true;
+  fails = 0;
+  queue = shuffle(PLAYLISTS[wantTrack]);
+  qi = -1;
+  advance();
+}
+
+function stopStream() {
+  streaming = false;
+  setNow(null);
+  if (!ctx || !decks.length) return;
+  const t = ctx.currentTime;
+  for (const d of decks) {
+    d.g.gain.cancelScheduledValues(t);
+    d.g.gain.setValueAtTime(d.g.gain.value, t);
+    d.g.gain.linearRampToValueAtTime(0, t + 0.4);
+  }
+  stopTimer = setTimeout(() => {
+    for (const d of decks) d.el.pause();
+  }, 450);
+}
+
+/** Skip to the next song in the current game's playlist. */
+export function skipTrack() {
+  unlockAudio();
+  if (streaming && !fading) advance();
+}
+
 export function playMusic(track: Track | null) {
   installAudio();
   if (wantTrack === track) return;
   wantTrack = track;
   stopSeq();
-  if (track && ctx) startSeq();
+  stopStream();
+  fallback = false;
+  if (track && ctx) startStream();
 }
 
-/** Mount in a game component: installs the audio system, runs its music loop while mounted. */
+/** Mount in a game component: installs the audio system, plays its soundtrack while mounted. */
 export function useGameAudio(track: Track) {
   useEffect(() => {
     playMusic(track);
