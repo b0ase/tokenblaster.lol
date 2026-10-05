@@ -47,6 +47,12 @@ Screenshot*.png
 Screen Shot*.png
 screenshot*.png
 *.screenshot.png
+Screenshot*.jpg
+Screenshot*.jpeg
+Screenshot*.heic
+Screen Shot*.jpg
+Screen Recording*.mov
+Screen Recording*.mp4
 public/storm-worker.js
 
 # Private notes (handoffs, business plans): never commit
