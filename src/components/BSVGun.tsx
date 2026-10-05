@@ -148,7 +148,7 @@ export function BSVGun() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {!firing ? (
-            <button onClick={fire} disabled={!b.wallet || !!b.busy} className="btn-fire px-8 py-4 text-2xl disabled:opacity-40">
+            <button onClick={fire} disabled={(need > 0 && !b.wallet) || !!b.busy} className="btn-fire px-8 py-4 text-2xl disabled:opacity-40">
               {need > 0 ? 'LOAD + ' : ''}FIRE {size.toLocaleString()}
             </button>
           ) : (
