@@ -7,6 +7,7 @@ const GAMES = [
   { href: '/arena', img: '/arcade/arena.jpg', title: 'Arena', tag: 'V1 · multiplayer', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: one token per bullet, one transaction per token. Hit another player and your token lands in their gun.' },
   { href: '/arcade/frogger', img: '/arcade/frogger.jpg', title: 'Chain Frogger', tag: 'V2 · 3D city', blurb: 'Cross a GTA-style avenue where every vehicle is a live mainnet transaction, one way from sender to receiver. Token transfers drive box trucks wearing their logo.' },
   { href: '/arcade/hopper', img: '/arcade/hopper.jpg', title: 'Block Hopper', tag: 'V1 · platformer', blurb: 'Run and jump across mainnet as it happens: every platform is a live transaction, token transfers walk out as enemies, new blocks are checkpoints.' },
+  { href: '/arcade/invaders', img: '/arcade/invaders.jpg', title: 'Mempool Invaders', tag: 'V1 · shooter', blurb: 'Live transactions march down as invaders. Shoot the gold token invaders and catch the BSV-21 token they drop.' },
   { href: '/arcade', img: '/arcade/npg.jpg', title: 'More in the Arcade', tag: 'coming soon', blurb: 'Ninja Punk Girls in 3D, an open-world city, Token Rally, plus links to other builders’ BSV games.' },
 ];
 
