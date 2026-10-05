@@ -37,11 +37,20 @@ export function BSVGun() {
   const need = Math.max(0, costOf(size) - b.ammo);
 
   const fire = async () => {
+    // Not enough in the gun: load the difference from the wallet first (one approval), then fire.
+    if (need > 0) {
+      setStatus('Approve the load in your wallet…');
+      const ok = await b.load(need, `BSVGun: ${size.toLocaleString()} blasts`);
+      if (!ok) {
+        setStatus(null);
+        return;
+      }
+    }
     setErr(null);
     setStatus('Starting…');
     setSent(0);
     setLast(null);
-    const n = Math.min(size, canFire);
+    const n = size;
     setTarget(n);
     stop.current = false;
     t0.current = performance.now();
@@ -139,8 +148,8 @@ export function BSVGun() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {!firing ? (
-            <button onClick={fire} disabled={!b.wallet || canFire < 10} className="btn-fire px-8 py-4 text-2xl disabled:opacity-40">
-              FIRE {Math.min(size, Math.max(0, canFire)).toLocaleString()}
+            <button onClick={fire} disabled={!b.wallet || !!b.busy} className="btn-fire px-8 py-4 text-2xl disabled:opacity-40">
+              {need > 0 ? 'LOAD + ' : ''}FIRE {size.toLocaleString()}
             </button>
           ) : (
             <button onClick={() => (stop.current = true)} className="btn-fire px-8 py-4 text-2xl">

@@ -95,14 +95,16 @@ export function useBlaster() {
   const load = useCallback(
     async (sats: number, label: string) => {
       const g = gun.current;
-      if (!wallet || !g) return;
+      if (!wallet || !g) return false;
       setError(null);
       setBusy('loading');
       try {
         await g.load(await fund(wallet, g.address, sats, label));
         setAmmo(g.sats);
+        return true;
       } catch (e) {
         fail(e);
+        return false;
       } finally {
         setBusy(null);
       }

@@ -275,6 +275,24 @@ export class Gun {
     const breathe = () => new Promise((r) => setTimeout(r, 0)); // let the page paint while we sign
     return this.exclusive(async () => {
       this.refresh();
+      // Sats left spread over lanes by an earlier storm: gather them back first.
+      if (this.sats < total * STORM_FEE) {
+        onStatus('Gathering the gun\'s sats…');
+        const coins = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
+        if (coins.length > 1) {
+          const tx = new Transaction();
+          for (const c of coins.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+          tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+          await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+          await tx.sign();
+          await this.send(tx);
+          this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
+          this.save();
+        } else if (coins.length === 1 && (coins[0].tx.outputs[coins[0].vout].satoshis ?? 0) > this.sats) {
+          this.coin = coins[0];
+          this.save();
+        }
+      }
       if (!this.coin) throw new Error('The gun is empty. Load it first.');
       const lanesN = Math.max(1, Math.min(100, Math.ceil(total / 300)));
       const perLane = Math.ceil(total / lanesN);
@@ -291,7 +309,8 @@ export class Gun {
       await split.sign();
       await this.send(split);
       const base = Transaction.fromHex(split.toHex());
-      let lanes = Array.from({ length: lanesN }, (_, i) => ({ tx: base, vout: i, left: perLane }));
+      const lanes0 = Array.from({ length: lanesN }, (_, i) => ({ tx: base, vout: i, left: perLane }));
+      let lastWhy: string | undefined;
       // From here the gun's money is spread over the lanes; save the change so Unload/reload can find it all.
       this.coin = { tx: base, vout: lanesN };
       this.save();
@@ -299,17 +318,20 @@ export class Gun {
       let n = 0;
       let built = 0;
       let roundNo = 0;
+      let failed: string | null = null;
+      let dry = 0; // rounds in a row where ARC took nothing
+      type Lane = { tx: Transaction; vout: number; left: number; misses: number };
+      let lanes: Lane[] = lanes0.map((l) => ({ ...l, misses: 0 }));
       while (sent < total && lanes.length && !stop()) {
         // First round small so blasts show up within seconds; then 25 per lane.
         const STEP = roundNo++ === 0 ? 3 : 25;
-        onStatus(`Signing round ${roundNo}…`);
-        const round: Transaction[] = [];
-        const ends: { tx: Transaction; vout: number; left: number }[] = [];
+        onStatus(`Signing round ${roundNo} (${lanes.length} lanes)…`);
+        const chains: Transaction[][] = [];
+        let planned = sent;
         for (const lane of lanes) {
-          if (stop()) break;
+          const chain: Transaction[] = [];
           let prev = { tx: lane.tx, vout: lane.vout };
-          let k = 0;
-          for (; k < Math.min(STEP, lane.left, total - sent - round.length); k++) {
+          while (chain.length < Math.min(STEP, lane.left) && planned < total && !stop()) {
             const tx = new Transaction();
             tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
             tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(++n), 'bsvgun'].map(hex).join(' ')}`), satoshis: 0 });
@@ -317,38 +339,81 @@ export class Gun {
             await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
             if ((tx.outputs[1].satoshis ?? 0) < 1) break;
             await tx.sign();
-            round.push(tx);
+            chain.push(tx);
+            planned++;
             prev = { tx, vout: 1 };
-            if (++built % 40 === 0) {
-              await breathe();
-              if (stop()) {
-                k++;
-                break;
-              }
-            }
+            if (++built % 40 === 0) await breathe();
           }
-          ends.push({ ...prev, left: lane.left - k });
+          chains.push(chain);
         }
-        if (!round.length) break;
-        onStatus(`Broadcasting ${round.length.toLocaleString()} transactions…`);
-        // Send in requests of 500, a few at a time. Chains stay in order inside each request.
-        const parts: Transaction[][] = [];
-        for (let i = 0; i < round.length; i += 500) parts.push(round.slice(i, i + 500));
-        let ok = 0;
-        for (let i = 0; i < parts.length; i += 4) {
-          const res = await Promise.all(parts.slice(i, i + 4).map((p) => this.broadcastChain(p)));
-          res.forEach((r, j) => {
-            ok += r.accepted;
-            sent += r.accepted;
-            const p = parts[i + j];
-            onProgress(sent, r.accepted ? p[r.accepted - 1].id('hex') : undefined);
-          });
-          await new Promise((r) => setTimeout(r, 0));
+        const all = chains.flat();
+        if (!all.length) break;
+        onStatus(`Broadcasting ${all.length.toLocaleString()} transactions…`);
+        // Send in requests of ~500 (whole lanes only, so each chain stays in order), 4 at a time.
+        const groups: number[][] = [];
+        let cur: number[] = [];
+        let size = 0;
+        chains.forEach((c, i) => {
+          if (size + c.length > 500 && cur.length) {
+            groups.push(cur);
+            cur = [];
+            size = 0;
+          }
+          cur.push(i);
+          size += c.length;
+        });
+        if (cur.length) groups.push(cur);
+        const okBy = chains.map(() => 0); // accepted blasts per lane
+        for (let g = 0; g < groups.length; g += 4) {
+          await Promise.all(
+            groups.slice(g, g + 4).map(async (ids) => {
+              const txs = ids.flatMap((i) => chains[i]);
+              let results: { status?: string; description?: string; code?: string | number }[] = [];
+              try {
+                results = (await Promise.race([
+                  this.arc.broadcastMany(txs),
+                  new Promise<never>((_, no) => setTimeout(() => no(new Error('ARC did not answer within 30 s.')), 30_000)),
+                ])) as typeof results;
+              } catch (e) {
+                lastWhy = e instanceof Error ? e.message : String(e);
+              }
+              let at = 0;
+              for (const i of ids) {
+                const c = chains[i];
+                let k = 0;
+                while (k < c.length && results[at + k]?.status === 'success') k++;
+                if (k < c.length) {
+                  const r = results[at + k];
+                  if (r?.description) lastWhy = `${r.description}${r.code ? ` (code ${r.code})` : ''}`;
+                  // The SDK misreports some accepted txs; ask ARC about the lane's last blast.
+                  if (await this.known(c[c.length - 1].id('hex'))) k = c.length;
+                }
+                okBy[i] = k;
+                at += c.length;
+              }
+              const got = ids.reduce((s, i) => s + okBy[i], 0);
+              sent += got;
+              const li = ids.findLast((i) => okBy[i] > 0);
+              onProgress(sent, li === undefined ? undefined : chains[li][okBy[li] - 1].id('hex'));
+            }),
+          );
         }
-        if (!ok) break; // ARC took nothing this round: stop rather than spin
-        if (ok < round.length) break; // a lane broke: stop and merge what we have
-        // Next round starts from each lane's last blast, without its ancestry (keeps memory flat).
-        lanes = ends.filter((e) => e.left > 0).map((e) => ({ tx: Transaction.fromHex(e.tx.toHex()), vout: e.vout, left: e.left }));
+        const roundOk = okBy.reduce((a, b) => a + b, 0);
+        dry = roundOk ? 0 : dry + 1;
+        if (dry >= 3) {
+          failed = `ARC is rejecting the blasts: ${lastWhy ?? 'no reason given'}`;
+          break;
+        }
+        if (!roundOk) await new Promise((r) => setTimeout(r, 2000));
+        // Each lane carries on from its last accepted blast (without ancestry, keeps memory flat).
+        lanes = lanes
+          .map((l, i): Lane => {
+            const k = okBy[i];
+            if (!k) return { ...l, misses: l.misses + 1 };
+            const t = chains[i][k - 1];
+            return { tx: Transaction.fromHex(t.toHex()), vout: 1, left: l.left - k, misses: 0 };
+          })
+          .filter((l) => l.left > 0 && l.misses < 3 && (l.tx.outputs[l.vout].satoshis ?? 0) > STORM_FEE);
       }
       // Merge every lane end (and the split's change) back into one coin.
       onStatus('Merging leftover sats back into the gun…');
@@ -368,6 +433,7 @@ export class Gun {
         }
       }
       this.save();
+      if (failed && !sent) throw new Error(failed);
       return sent;
     });
   }
