@@ -51,6 +51,9 @@ export default function Home() {
             <Link href="/arcade" className="btn-fire inline-flex h-12 w-40 items-center justify-center !px-0 !py-0 !text-base">
               ARCADE
             </Link>
+            <Link href="/launch" className="btn-fire inline-flex h-12 w-40 items-center justify-center !px-0 !py-0 !text-base">
+              LAUNCH A COIN
+            </Link>
             <GitHubLink />
           </div>
         </div>
@@ -142,6 +145,7 @@ export default function Home() {
         <Link href="/updates" className="hover:text-hot">updates</Link>
         <Link href="/arcade/frogger" className="hover:text-hot">chain frogger</Link>
         <Link href="/blast" className="hover:text-hot">blast</Link>
+        <Link href="/launch" className="hover:text-hot">blastpad</Link>
         <Link href="/viewer" className="hover:text-hot">3D viewer</Link>
         <a href="https://github.com/b0ase/tokenblaster.lol" className="hover:text-hot">github</a>
         <span>powered by GorillaPool · built on Bitcoin SV</span>

@@ -9,16 +9,19 @@
     "start": "next start",
     "lint": "eslint",
     "blast": "tsx blaster/blast.ts",
-    "worker:build": "esbuild worker/indexer.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/indexer.mjs --external:pg-native --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
+    "worker:build": "esbuild worker/indexer.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/indexer.mjs --external:pg-native --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "vault:build": "esbuild worker/vault.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/vault.mjs"
   },
   "dependencies": {
     "@1sat/templates": "0.0.43",
     "@bsv/sdk": "^2.8.11",
     "centrifuge": "^5.7.4",
+    "lightweight-charts": "^5.2.1",
     "next": "16.3.8",
     "qrcode": "1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
     "three": "^0.186.1"
   },
   "devDependencies": {

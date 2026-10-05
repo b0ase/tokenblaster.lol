@@ -99,11 +99,23 @@ export async function loadTokens(
 
 async function signAndSend(wallet: WalletInterface, signable: SignableTransaction, use: Coin[]): Promise<Transaction> {
   const tx = Transaction.fromAtomicBEEF(signable.tx);
+  const spends = await tokenSpends(wallet, tx, use.map((c, i) => ({ ...c, index: i })));
+  const done = await wallet.signAction({ reference: signable.reference, spends });
+  if (done.tx) return Transaction.fromAtomicBEEF(done.tx);
+  tx.inputs.forEach((inp, i) => spends[i] && (inp.unlockingScript = UnlockingScript.fromHex(spends[i].unlockingScript)));
+  return tx; // wallet sent it but returned no tx: ours is the same one, now with the token signatures
+}
 
-  // Sign each token input with the wallet key it is locked to.
+/** Unlocking scripts for the wallet's own token coins at the given input indexes (createSignature). */
+export async function tokenSpends(
+  wallet: WalletInterface,
+  tx: Transaction,
+  use: { index: number; protocolID: WalletProtocol; keyID: string }[],
+): Promise<Record<number, { unlockingScript: string }>> {
   const spends: Record<number, { unlockingScript: string }> = {};
   const keys = new Map<string, string>(); // one getPublicKey per key, not per coin
-  for (let i = 0; i < use.length; i++) {
+  for (const u of use) {
+    const i = u.index;
     const input = tx.inputs[i];
     const src = input.sourceTransaction!.outputs[input.sourceOutputIndex];
     const preimage = TransactionSignature.format({
@@ -120,9 +132,9 @@ async function signAndSend(wallet: WalletInterface, signable: SignableTransactio
       scope: SIGHASH,
     });
     const digest = Hash.sha256(Hash.sha256(preimage));
-    const { signature } = await wallet.createSignature({ hashToDirectlySign: digest, protocolID: use[i].protocolID, keyID: use[i].keyID, counterparty: 'self' });
-    const k = JSON.stringify([use[i].protocolID, use[i].keyID]);
-    if (!keys.has(k)) keys.set(k, (await wallet.getPublicKey({ protocolID: use[i].protocolID, keyID: use[i].keyID, counterparty: 'self' })).publicKey);
+    const { signature } = await wallet.createSignature({ hashToDirectlySign: digest, protocolID: u.protocolID, keyID: u.keyID, counterparty: 'self' });
+    const k = JSON.stringify([u.protocolID, u.keyID]);
+    if (!keys.has(k)) keys.set(k, (await wallet.getPublicKey({ protocolID: u.protocolID, keyID: u.keyID, counterparty: 'self' })).publicKey);
     const publicKey = keys.get(k)!;
     const sig = [...signature, SIGHASH];
     const pub = Utils.toArray(publicKey, 'hex');
@@ -133,10 +145,7 @@ async function signAndSend(wallet: WalletInterface, signable: SignableTransactio
       ]).toHex(),
     };
   }
-  const done = await wallet.signAction({ reference: signable.reference, spends });
-  if (done.tx) return Transaction.fromAtomicBEEF(done.tx);
-  tx.inputs.forEach((inp, i) => spends[i] && (inp.unlockingScript = UnlockingScript.fromHex(spends[i].unlockingScript)));
-  return tx; // wallet sent it but returned no tx: ours is the same one, now with the token signatures
+  return spends;
 }
 
 /**

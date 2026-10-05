@@ -9,6 +9,7 @@ competitions are meant to be joined from bWallet's chat rooms and Market.
   pack (one approval funds an in-tab gun key), fire: each blast is broadcast to GorillaPool ARC and
   "landed" counts the ones seen back on the JungleBus feed. Unload returns leftover sats.
 - `/arena`: DOOM-style Three.js arena; every shot is a real blast, sent to ARC in batches (`docs/arena.md`)
+- `/launch`: BlastPad, launch BSV-21 memecoins on a bonding curve and trade them in one atomic tx each (`docs/launchpad.md`)
 - `/api/leaderboard`: most-blasted tokens, from `worker/indexer.ts` (JungleBus → Postgres, `db/001_blasts.sql`)
 - `/api/chain`: chain tip from GorillaPool JungleBus
 - `blaster/blast.ts`: the command-line blaster (`pnpm blast`), dry run unless `--broadcast`
