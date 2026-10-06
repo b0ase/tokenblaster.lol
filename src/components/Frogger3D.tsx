@@ -1677,6 +1677,9 @@ export function Frogger3D() {
           </>
         )}
       </div>
+      {paid && payFrog && b.tokenAmmo < 1 && (
+        <p className="mt-2 text-center text-lg font-bold text-hot">No ${FROG.sym} loaded yet: press LOAD … ${FROG.sym} above, approve it, then you can move.</p>
+      )}
       {paid && needSats && <p className="mt-1 text-sm text-hot">{payFrog ? `Out of $${FROG.sym} or fuel: load more to keep moving.` : 'Out of sats: load more to keep moving.'}</p>}
       {(payErr || b.error) && <p className="mt-1 text-sm text-hot">⚠ {payErr ?? b.error}</p>}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
