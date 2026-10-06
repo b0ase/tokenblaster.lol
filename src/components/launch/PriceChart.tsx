@@ -76,7 +76,8 @@ export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) 
     }
     c.timeScale().fitContent();
     return () => {
-      c.removeSeries(series);
+      // On unmount the chart effect may have removed the chart already (and its series with it).
+      if (chart.current === c) c.removeSeries(series);
     };
   }, [points, frame, kind, unit]);
 
