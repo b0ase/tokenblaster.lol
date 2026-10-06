@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { LAUNCH_FEE } from '@/lib/launch/curve';
+import { INDEX_LAUNCH, LAUNCH_FEE } from '@/lib/launch/curve';
 import { launchCoin } from '@/lib/launch/client';
 import { ROUTES, type Route } from '@/lib/launch/shape';
 import { LaunchNav } from './LaunchNav';
@@ -72,7 +72,7 @@ export function LaunchForm() {
       <section className="panel flex flex-col gap-3">
         <h1 className="text-2xl font-bold text-hot">Launch a coin</h1>
         <p className="text-dim">
-          One transaction from your wallet inscribes the image, mints 1,000,000,000 $tokens straight into the coin’s bonding curve and pays the {LAUNCH_FEE.toLocaleString()} sat launch fee.
+          One transaction from your wallet inscribes the image, mints 1,000,000,000 $tokens straight into the coin’s bonding curve, puts 0.1 BSV into the token’s index fund (so every wallet sees it from the first block) and pays the {LAUNCH_FEE.toLocaleString()} sat launch fee.
           Nothing is set aside for anyone: your own first buy is made on the curve, at the curve’s price.
         </p>
         <div className="grid gap-3 md:grid-cols-[180px_1fr]">
@@ -131,7 +131,7 @@ export function LaunchForm() {
           memecoins are toys that can go to zero.
         </label>
         <button className="btn btn-fire" disabled={busy || (Boolean(wallet) && !ready)} onClick={go}>
-          {busy ? 'Approve in your wallet…' : wallet ? `Launch $${sym || 'COIN'} (${LAUNCH_FEE.toLocaleString()} sats + network fee)` : 'Connect wallet'}
+          {busy ? 'Approve in your wallet…' : wallet ? `Launch $${sym || 'COIN'} (${((LAUNCH_FEE + INDEX_LAUNCH) / 1e8).toFixed(5)} BSV + network fee)` : 'Connect wallet'}
         </button>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>

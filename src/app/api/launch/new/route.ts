@@ -2,14 +2,16 @@
  * Launch a coin, in two steps:
  *   prepare: pick a slot, derive the coin's pool/reserve/vault addresses, return the message to sign
  *   commit:  the creator signed the message and their wallet broadcast the launch tx
- *            ([0] image inscription → creator, [1] deploy+mint 1B → token pool, [2] launch fee → house).
+ *            ([0] image inscription → creator, [1] deploy+mint 1B → token pool, [2] launch fee → house,
+ *            [3] 0.1 BSV index money → the coin's index address, forwarded to its GorillaPool fund).
  *            Check both, then the coin goes live.
  */
 import { NextResponse } from 'next/server';
 import { Beef, ProtoWallet, Transaction, Utils } from '@bsv/sdk';
-import { LAUNCH_FEE, SUPPLY } from '@/lib/launch/curve';
+import { INDEX_LAUNCH, LAUNCH_FEE, SUPPLY } from '@/lib/launch/curve';
 import { bsv20Json, launchMessage, p2pkh, validRoute } from '@/lib/launch/shape';
 import { HOUSE, broadcast, compactBeef, configured, poolAddress, rpc } from '@/lib/launch/server';
+import { forwardIndexFund } from '@/lib/launch/vault';
 
 export const dynamic = 'force-dynamic';
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
       const slot = crypto.randomUUID();
       const addrs = { tokenAddress: poolAddress(slot, 'token'), reserveAddress: poolAddress(slot, 'reserve'), vaultAddress: poolAddress(slot, 'vault') };
       const message = launchMessage({ slot, ...f, ...addrs });
-      return NextResponse.json({ slot, ...addrs, message, house: HOUSE, launchFee: LAUNCH_FEE });
+      return NextResponse.json({ slot, ...addrs, message, house: HOUSE, launchFee: LAUNCH_FEE, indexAddress: poolAddress(slot, 'index'), indexFund: INDEX_LAUNCH });
     }
     if (b.step === 'commit') {
       const slot = String(b.slot ?? '');
@@ -64,6 +66,9 @@ export async function POST(req: Request) {
       if (!deploy.lockingScript.toHex().endsWith(p2pkh(addrs.tokenAddress))) throw new Error('The supply does not go to the coin’s pool.');
       const fee = tx.outputs[2];
       if (!fee || fee.lockingScript.toHex() !== p2pkh(HOUSE) || (fee.satoshis ?? 0) < LAUNCH_FEE) throw new Error('The launch fee is missing.');
+      const index = tx.outputs[3];
+      if (!index || index.lockingScript.toHex() !== p2pkh(poolAddress(slot, 'index')) || (index.satoshis ?? 0) < INDEX_LAUNCH)
+        throw new Error('The 0.1 BSV index fund is missing (reload the page: BlastPad was updated).');
       await broadcast(tx); // the wallet normally sent it already; this is idempotent
       const txid = tx.id('hex');
 
@@ -87,6 +92,8 @@ export async function POST(req: Request) {
       const beef = Beef.fromBinary(bytes);
       // The launch output itself needs indexing: 3,000 sats owed to its fund, paid by the first trades.
       await rpc('tokenblaster_launch_go_live', { p_slot: slot, p_txid: txid, p_beef: await compactBeef(beef.toHex(), [txid]), p_fund_owed: 3000 });
+      // Hand the index money to GorillaPool now if it already knows the token; the vault worker retries otherwise.
+      await forwardIndexFund(slot, `${txid}_1`).catch(() => 0);
       return NextResponse.json({ token: `${txid}_1`, txid });
     }
     return bad('Unknown step.');

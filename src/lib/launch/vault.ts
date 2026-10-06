@@ -50,6 +50,28 @@ export async function spend(coins: Utxo[], key: PrivateKey, outputs: { address: 
   return tx;
 }
 
+/**
+ * Forward a coin's launch index money (held at its 'index' address) to the token's GorillaPool fund.
+ * Unconfirmed coins are fine. No-op until the indexer knows the token (it then publishes the fund address).
+ */
+export async function forwardIndexFund(slot: string, tokenId: string): Promise<number> {
+  const from = poolKey(slot, 'index').toAddress();
+  const r = await fetch(`${WOC}/address/${from}/unspent/all`, { cache: 'no-store' });
+  if (!r.ok) return 0;
+  const list = ((await r.json()) as { result?: { tx_hash: string; tx_pos: number; value: number }[] }).result ?? [];
+  const coins: Utxo[] = [];
+  for (const u of list) {
+    if (u.value < 2) continue;
+    const hex = await fetch(`${WOC}/tx/${u.tx_hash}/hex`, { cache: 'no-store' }).then((x) => (x.ok ? x.text() : ''));
+    if (hex) coins.push({ txid: u.tx_hash, vout: u.tx_pos, sats: u.value, tx: Transaction.fromHex(hex.trim()) });
+  }
+  if (!coins.length) return 0;
+  const fund = await fundAddressOf(tokenId);
+  if (!fund) return 0;
+  const tx = await spend(coins, poolKey(slot, 'index'), [], fund); // everything, less the network fee, to the fund
+  return tx.outputs.reduce((n, o) => n + (o.satoshis ?? 0), 0);
+}
+
 type Trade = { trader: string; side: string; tokens: number };
 async function holdersOf(token: string) {
   const trades = await rpc<Trade[]>('tokenblaster_launch_trades_for', { p_token: token, p_trader: null, p_limit: 1000 }, false);
@@ -61,8 +83,14 @@ async function holdersOf(token: string) {
 type VaultCoin = { slot: string; token_id: string; sym: string; route: { kind: string; to?: { address: string; bps: number }[] }; vault_address: string; owed: number };
 
 export async function runVaults() {
-  const coins = await rpc<VaultCoin[]>('tokenblaster_launch_vault_coins', {});
   const log: string[] = [];
+  // Launch index money still waiting for the indexer to publish the fund address.
+  const all = await rpc<{ slot: string; token_id: string; sym: string }[]>('tokenblaster_launch_board', {}, false).catch(() => []);
+  for (const c of all) {
+    const sent = await forwardIndexFund(c.slot, c.token_id).catch(() => 0);
+    if (sent) log.push(`${c.sym}: ${sent} sats to its index fund`);
+  }
+  const coins = await rpc<VaultCoin[]>('tokenblaster_launch_vault_coins', {});
   for (const c of coins) {
     try {
       const key = poolKey(c.slot, 'vault');

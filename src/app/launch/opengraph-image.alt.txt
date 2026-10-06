@@ -1,1 +1,1 @@
-BlastPad on TokenBlaster.lol: launch a BSV-21 coin and blast it up the bonding curve. 1B fixed supply, one atomic transaction per trade, a 25,000 sat launch, proof of reserves, and every coin is ammo in the games.
+BlastPad on TokenBlaster.lol: launch a BSV-21 coin and blast it up the bonding curve. 1B fixed supply, one atomic transaction per trade, indexed from the first block, proof of reserves, and every coin is ammo in the games.

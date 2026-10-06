@@ -62,7 +62,7 @@ const root = () => {
   if (!WIF) throw new Error('LAUNCH_POOL_WIF is not set.');
   return PrivateKey.fromWif(WIF);
 };
-export type Role = 'token' | 'reserve' | 'vault';
+export type Role = 'token' | 'reserve' | 'vault' | 'index';
 export function poolKey(slot: string, role: Role): PrivateKey {
   const r = root();
   return r.deriveChild(r.toPublicKey(), `tokenblaster launch ${slot} ${role}`);

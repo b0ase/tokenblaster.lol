@@ -99,7 +99,7 @@ export function Board() {
                 <Stat label="24h volume" value={money(vol24)} sub={rate ? bsv(vol24) : ''} />
                 <Stat label="Graduated" value={String(grads)} sub="curve sold out" />
               </div>
-              <p className="mt-3 text-xs text-muted">1.0% a trade (0.70% house + 0.30% to the coin’s route) · launch 25,000 sats</p>
+              <p className="mt-3 text-xs text-muted">1.0% a trade (0.70% house + 0.30% to the coin’s route) · launch 0.10025 BSV (0.1 of it funds the token’s index)</p>
             </div>
             {king ? (
               <Link href={`/launch/${king.token_id}`} className="inset flex flex-col justify-center gap-3 border-hot p-4 shadow-[0_0_24px_-6px_var(--hot)] hover:border-fg">

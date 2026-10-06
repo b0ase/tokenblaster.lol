@@ -9,7 +9,7 @@ import { inscriptionScript } from '../inscribe';
 import { ONESAT, noteFor, tokenSpends } from '../tokenLoad';
 import { tokenCoins } from '../tokens';
 import type { Wallet } from '../wallet';
-import { LAUNCH_FEE, quoteBuy, quoteSell } from './curve';
+import { INDEX_LAUNCH, LAUNCH_FEE, quoteBuy, quoteSell } from './curve';
 import { matchesPlan, type Route, type TradePlan } from './shape';
 
 async function post<T>(url: string, body: unknown): Promise<T> {
@@ -33,8 +33,8 @@ export type LaunchForm = { sym: string; name: string; description: string; route
 export async function launchCoin(w: Wallet, f: LaunchForm): Promise<string> {
   const imageSha256 = await sha256hex(f.image.bytes);
   const base = { sym: f.sym, name: f.name, description: f.description, route: f.route, creator: w.address, creatorKey: w.publicKey, imageSha256, imageType: f.image.type };
-  const p = await post<{ slot: string; tokenAddress: string; message: string; house: string; launchFee: number }>('/api/launch/new', { step: 'prepare', ...base });
-  if (p.launchFee !== LAUNCH_FEE) throw new Error('Unexpected launch fee.');
+  const p = await post<{ slot: string; tokenAddress: string; message: string; house: string; launchFee: number; indexAddress: string; indexFund: number }>('/api/launch/new', { step: 'prepare', ...base });
+  if (p.launchFee !== LAUNCH_FEE || p.indexFund !== INDEX_LAUNCH) throw new Error('Unexpected launch fee.');
 
   const { signature } = await w.client.createSignature({ data: Utils.toArray(p.message, 'utf8'), protocolID: [1, 'tokenblaster launch'], keyID: p.slot, counterparty: 'anyone' });
   const deploy = BSV21.deployMint(f.sym, BigInt(1_000_000_000), 0, '_0').lock(new P2PKH().lock(p.tokenAddress));
@@ -44,6 +44,7 @@ export async function launchCoin(w: Wallet, f: LaunchForm): Promise<string> {
       { lockingScript: inscriptionScript(w.address, { contentType: f.image.type, data: Array.from(f.image.bytes) }, { app: 'tokenblaster.lol', type: 'launch', sym: f.sym }).toHex(), satoshis: 1, outputDescription: `$${f.sym} image (yours)` },
       { lockingScript: deploy.toHex(), satoshis: 1, outputDescription: `$${f.sym}: 1B supply into the curve` },
       { lockingScript: new P2PKH().lock(p.house).toHex(), satoshis: LAUNCH_FEE, outputDescription: 'TokenBlaster launch fee' },
+      { lockingScript: new P2PKH().lock(p.indexAddress).toHex(), satoshis: INDEX_LAUNCH, outputDescription: `$${f.sym} token index fund (0.1 BSV)` },
     ],
     labels: ['tokenblaster', 'launch'],
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },

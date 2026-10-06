@@ -18,6 +18,12 @@ export const HOUSE_BPS = BigInt(70); // 0.70% to TokenBlaster
 export const ROUTE_BPS = BigInt(30); // 0.30% to the coin's route (creator, split, holders, buyback)
 export const LAUNCH_FEE = 25_000; // sats, once, in the launch transaction
 export const INDEX_FEE = 1_000; // sats per token output, to the token's GorillaPool fund address
+/**
+ * Paid in the launch transaction and forwarded to the token's GorillaPool fund once the indexer has
+ * seen the deploy. GorillaPool only indexes ("includes") a BSV-21 token whose fund has reached 0.1 BSV;
+ * until then wallets can't see its transfers and BlastPad can't verify sells.
+ */
+export const INDEX_LAUNCH = 10_000_000;
 export const MIN_BUY = 10_000; // sats (0.0001 BSV)
 export const MAX_BUY = 2_000_000_000; // sats (20 BSV)
 

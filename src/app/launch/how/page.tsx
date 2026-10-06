@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { HOUSE_BPS, INDEX_FEE, LAUNCH_FEE, ROUTE_BPS } from '@/lib/launch/curve';
+import { HOUSE_BPS, INDEX_FEE, INDEX_LAUNCH, LAUNCH_FEE, ROUTE_BPS } from '@/lib/launch/curve';
 import { ROUTES } from '@/lib/launch/shape';
 import { CurveSlider } from '@/components/launch/CurveSlider';
 import { LaunchNav } from '@/components/launch/LaunchNav';
@@ -48,7 +48,8 @@ export default function How() {
           <tbody>
             <tr className="border-t border-line-dim"><td className="py-1">Trading fee</td><td>{pct(HOUSE_BPS + ROUTE_BPS)} of the BSV side</td><td className="text-dim">{pct(HOUSE_BPS)} to TokenBlaster, {pct(ROUTE_BPS)} to the coin’s route</td></tr>
             <tr className="border-t border-line-dim"><td className="py-1">Launch</td><td>{LAUNCH_FEE.toLocaleString()} sats</td><td className="text-dim">TokenBlaster, once, in the launch transaction</td></tr>
-            <tr className="border-t border-line-dim"><td className="py-1">Token index</td><td>{INDEX_FEE.toLocaleString()} sats per token output</td><td className="text-dim">The token’s GorillaPool BSV-21 fund, so wallets and explorers see your tokens. Never more than 5,000 sats a trade.</td></tr>
+            <tr className="border-t border-line-dim"><td className="py-1">Token index (launch)</td><td>{(INDEX_LAUNCH / 1e8).toFixed(1)} BSV</td><td className="text-dim">Once, in the launch transaction, into the token’s GorillaPool BSV-21 fund. GorillaPool only indexes a token once its fund reaches 0.1 BSV; from then on wallets and explorers see your tokens and sells can be verified straight away.</td></tr>
+            <tr className="border-t border-line-dim"><td className="py-1">Token index (trades)</td><td>{INDEX_FEE.toLocaleString()} sats per token output</td><td className="text-dim">Keeps the fund topped up. Never more than 5,000 sats a trade.</td></tr>
             <tr className="border-t border-line-dim"><td className="py-1">Network</td><td>a few hundred sats</td><td className="text-dim">The miners, by transaction size</td></tr>
           </tbody>
         </table>

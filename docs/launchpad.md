@@ -7,7 +7,10 @@ Our answer to MEMEPOOL (txblaster.xyz/memepool). Same curve, cheaper, and every 
   start ≈0.093 sats/token (0.93 BSV mcap), graduates at 793.1M sold (≈2.83 BSV in the pool, 13.7 BSV mcap).
   Keeps trading on the same curve after graduation.
 - 1.0% of the BSV side: 0.70% house (`NEXT_PUBLIC_TB_HOUSE_ADDRESS`), 0.30% to the coin's signed route.
-  Launch 25,000 sats. Index fund 1,000 sats per token output (max 5,000 per trade). Buys 0.0001–20 BSV.
+  Launch 25,000 sats + 0.1 BSV index money. Index fund 1,000 sats per token output (max 5,000 per trade). Buys 0.0001–20 BSV.
+- GorillaPool only indexes ("includes") a BSV-21 token once its fund reaches 0.1 BSV (10,000,000 sats); before that wallets
+  can't see transfers and sells can't be verified. So the launch pays 0.1 BSV to the coin's `index` key, and
+  `forwardIndexFund` (at commit, then every vault run) sends it to the fund address once GorillaPool publishes it.
 
 ## Custody
 Pool, reserve and vault keys per coin are BRC-42 children of `LAUNCH_POOL_WIF` (server env only).
@@ -24,7 +27,7 @@ Sell proceeds land as the wallet's change (BRC-100 wallets count external input 
 
 ## Launch (`/api/launch/new`)
 Creator signs the launch message (BRC-3, protocol `[1,"tokenblaster launch"]`, keyID = slot). Launch tx:
-`[0]` image inscription → creator, `[1]` deploy+mint 1B (icon `_0`) → token pool, `[2]` 25,000 sats → house.
+`[0]` image inscription → creator, `[1]` deploy+mint 1B (icon `_0`) → token pool, `[2]` 25,000 sats → house, `[3]` 0.1 BSV → the coin's index key (forwarded to its GorillaPool fund).
 Token id = `<txid>_1`.
 
 ## Routes and the vault (`src/lib/launch/vault.ts`, `worker/vault.ts`)
