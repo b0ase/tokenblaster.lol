@@ -14,11 +14,16 @@ async function onChain(row: Row) {
     // Sum the unspent coins (mempool included): WhatsOnChain's /balance lags fresh, unconfirmed trades.
     fetch(`https://api.whatsonchain.com/v1/bsv/main/address/${row.reserve_address}/unspent/all`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { result?: { value: number }[] } | null) => (j?.result ? j.result.reduce((n, u) => n + u.value, 0) : null))
+      .then((j: { result?: { value: number; isSpentInMempoolTx?: boolean }[] } | null) =>
+        j?.result ? j.result.filter((u) => !u.isSpentInMempoolTx).reduce((n, u) => n + u.value, 0) : null,
+      )
       .catch(() => null),
     fetch(`https://ordinals.gorillapool.io/api/bsv20/${row.token_address}/id/${row.token_id}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { all?: { confirmed: string; pending: string } } | null) => (j?.all ? Number(j.all.confirmed) + Number(j.all.pending) : null))
+      // The pool's unspent coins of this token; only validated ones (status 1) count.
+      .then((j: { amt: string | number; status: number; spend?: string }[] | null) =>
+        Array.isArray(j) ? j.filter((c) => c.status === 1 && !c.spend).reduce((n, c) => n + Number(c.amt), 0) : null,
+      )
       .catch(() => null),
   ]);
   return { bsv, tokens: tok, checkedAt: Date.now() };
