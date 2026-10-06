@@ -41,6 +41,7 @@ import { useOrdnance } from '@/lib/useOrdnance';
 import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
 import { gunDefFor, loadGunModel } from '@/lib/ordnanceModels';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GAME_COINS, HOUSE_DMG, HOUSE_GOLD } from '@/lib/gameCoins';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -205,8 +206,9 @@ export function DoubleO() {
       if (match) b.setToken(match);
     } else if (!autoPicked.current) {
       autoPicked.current = true;
-      const pnee = b.tokens.find((t) => /pnee/i.test(t.sym));
-      if (pnee) b.setToken(pnee);
+      // The house coin first, then PNEE.
+      const pick = b.tokens.find((t) => t.id === GAME_COINS.doubleo.id && (t.balance ?? 0) >= 1) ?? b.tokens.find((t) => /pnee/i.test(t.sym));
+      if (pick) b.setToken(pick);
     }
     if (b.mode !== 'tokens') b.setMode('tokens');
   }, [b.tokens, b.mode, b, ammoRule]);
@@ -215,6 +217,8 @@ export function DoubleO() {
   const sym = b.token?.sym ?? 'PNEE';
   const icon = iconUrl(b.token?.icon ?? null);
   const armed = Boolean(b.token) && ammoOk && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE;
+  // Home turf: firing $DOUBLEO LIVE shoots gold and hits 1.5x.
+  const house = b.token?.id === GAME_COINS.doubleo.id;
   const inMission = screen === 'play' || screen === 'paused';
   useEffect(() => {
     lobby.current?.track({ m: inMission ? LEVELS[level].id : null });
@@ -222,10 +226,10 @@ export function DoubleO() {
   useEffect(() => {
     if (screen === 'menu') engine.current?.leave();
   }, [screen]);
-  const live_ = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, fireTokens: b.fireTokens, icon, sym });
+  const live_ = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, fireTokens: b.fireTokens, icon, sym, house });
   useEffect(() => {
-    live_.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, fireTokens: b.fireTokens, icon, sym };
-  }, [armed, b.ammo, b.tokenAmmo, b.fireTokens, icon, sym]);
+    live_.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, fireTokens: b.fireTokens, icon, sym, house };
+  }, [armed, b.ammo, b.tokenAmmo, b.fireTokens, icon, sym, house]);
 
   useEffect(() => {
     const el = mount.current;
@@ -352,7 +356,7 @@ export function DoubleO() {
     const faceMat = new THREE.MeshStandardMaterial({ map: coinTex, metalness: 0.5, roughness: 0.35, emissive: new THREE.Color('#3a2600'), emissiveMap: coinTex });
     const coinGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.025, 20);
     const coinMats = [rimMat, faceMat, faceMat];
-    type Flyer = { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; target: Actor | null; point: THREE.Vector3 };
+    type Flyer = { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; target: Actor | null; point: THREE.Vector3; dmg?: number };
     const flyers: Flyer[] = [];
     // Q Branch ordnance fires its own ammo (tracers, pellets, beams, plasma, rockets, grenades).
     const ammoFx = makeAmmoFx(scene, 0);
@@ -1011,7 +1015,7 @@ export function DoubleO() {
       if (a.tag) a.tag.visible = false;
     };
     /** A coin lands on an actor. Co-op: only the host changes hp; guests show it and tell the host. */
-    const hitActor = (a: Actor, point: THREE.Vector3, now: number, mine = true) => {
+    const hitActor = (a: Actor, point: THREE.Vector3, now: number, mine = true, dmg = 1) => {
       if (a.state === 'dying') return;
       a.wobble = now;
       sfx?.hit();
@@ -1023,7 +1027,7 @@ export function DoubleO() {
         }
         return;
       }
-      a.hp--;
+      a.hp -= dmg;
       if (a.state === 'patrol') {
         a.state = 'alert';
         a.lastSeen = now;
@@ -1105,6 +1109,9 @@ export function DoubleO() {
       lastShot = now;
       const ord = armed ? ORDNANCE.find((o) => o.id === armed) : undefined;
       const kind: Ammo | null = ord ? ammoOf(ord) : null;
+      // House ammo fired LIVE: gold rounds, 1.5x damage (client side only; the chain sees a normal shot).
+      const gold = liveMode && live_.current.house;
+      const dmg = gold ? HOUSE_DMG : 1;
       if (kind) playSfx(AMMO_SFX[kind], 0.7);
       else sfx?.shoot();
       stats.shots++;
@@ -1126,14 +1133,15 @@ export function DoubleO() {
           kind,
           from,
           end,
-          ord.stats.bolt,
-          explosive ? { onBlast: (at) => blast(at, BLAST_RADIUS[kind] ?? 2.5) } : { onHit: (at) => (target ? hitActor(target, at, performance.now()) : undefined) },
+          gold ? HOUSE_GOLD : ord.stats.bolt,
+          explosive ? { onBlast: (at) => blast(at, BLAST_RADIUS[kind] ?? 2.5) } : { onHit: (at) => (target ? hitActor(target, at, performance.now(), true, dmg) : undefined) },
         );
       } else {
         const m = new THREE.Mesh(coinGeo, coinMats);
         m.position.copy(from);
         scene.add(m);
-        flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone() });
+        flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone(), dmg });
+        if (gold) ammoFx.fire('laser', from, end, HOUSE_GOLD); // gold tracer behind the coin (visual only)
       }
       // Noise wakes up anyone nearby.
       for (const a of actors)
@@ -1891,7 +1899,7 @@ export function DoubleO() {
         if (fl.t >= 1) {
           scene.remove(fl.m);
           flyers.splice(i, 1);
-          if (fl.target) hitActor(fl.target, fl.point, now);
+          if (fl.target) hitActor(fl.target, fl.point, now, true, fl.dmg);
           else burstCoins(fl.point, 1);
         }
       }
@@ -2146,6 +2154,7 @@ export function DoubleO() {
       title="AMMO · Q BRANCH"
       tokenPresets={[10, 50, 100]}
       initialTokenLoad={50}
+      house={GAME_COINS.doubleo}
       playLabel={`▶ PLAY LIVE · ${L.name.toUpperCase()}`}
       onPlay={() => startMode(level, true)}
       playReady={ready}
@@ -2289,7 +2298,14 @@ export function DoubleO() {
                 </div>
               </div>
               <div className="inset bg-black/75 px-2 py-1 text-right">
-                <div className="text-dim">{live ? `$${sym}` : 'PRACTICE'}</div>
+                <div className="text-dim">
+                  {live ? `$${sym}` : 'PRACTICE'}
+                  {live && house && (
+                    <span className="ml-1 font-bold" style={{ color: HOUSE_GOLD }}>
+                      HOUSE AMMO · {HOUSE_DMG}x
+                    </span>
+                  )}
+                </div>
                 <div className="font-bold tabular-nums text-hot">{live ? `${tokensLeft} · ${hud.onChain} on chain` : `${hud.shots} fired`}</div>
               </div>
             </div>

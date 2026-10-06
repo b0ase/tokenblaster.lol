@@ -23,6 +23,7 @@ import { ORDNANCE, ammoOf, type Ammo, type Ordnance } from '@/lib/ordnance';
 import { BLAST_RADIUS, isMinigunOrdnance, makeAmmoFx } from '@/lib/ammoFx';
 import { AMMO_SFX, minigun, sfx as playSfx } from '@/lib/sfx';
 import { ammoAccepts, requiredAmmo } from '@/lib/ammo';
+import { GAME_COINS, HOUSE_DMG, HOUSE_GOLD } from '@/lib/gameCoins';
 import { GunArt } from './GunArt';
 import type { GunDef } from '@/lib/arenaHD';
 import { useOrdnance } from '@/lib/useOrdnance';
@@ -165,6 +166,8 @@ export function Arena() {
   const ammoRule = tokenMode ? requiredAmmo(ALL_GUNS[weapon]?.ordnance?.id) : null;
   const ammoOk = ammoAccepts(ammoRule, b.token);
   const armed = (tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30) && ammoOk;
+  // Home turf: firing $ARENA tokens LIVE shoots gold and hits 1.5x (client side only).
+  const house = tokenMode && armed && b.token?.id === GAME_COINS.arena.id;
   // Picking an ordnance gun switches to its ammo if the wallet holds some.
   useEffect(() => {
     if (!ammoRule || ammoOk) return;
@@ -189,10 +192,10 @@ export function Arena() {
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
     };
   }, []);
-  const live = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) });
+  const live = useRef({ armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, house, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) });
   useEffect(() => {
-    live.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) };
-  }, [armed, b.ammo, b.tokenAmmo, tokenMode, b.fireBatch, b.fireTokens, b.token]);
+    live.current = { armed, ammo: b.ammo, tokens: b.tokenAmmo, tokenMode, house, fireBatch: b.fireBatch, fireTokens: b.fireTokens, icon: iconUrl(b.token?.icon ?? null) };
+  }, [armed, b.ammo, b.tokenAmmo, tokenMode, house, b.fireBatch, b.fireTokens, b.token]);
 
   useEffect(() => {
     const el = mount.current;
@@ -264,6 +267,7 @@ export function Arena() {
       setWeapon(i);
     };
     const boltMats = new Map(ALL_GUNS.map((g) => [g.id, new THREE.LineBasicMaterial({ color: new THREE.Color(g.bolt).multiplyScalar(4), toneMapped: false })]));
+    const goldMat = new THREE.LineBasicMaterial({ color: new THREE.Color(HOUSE_GOLD).multiplyScalar(4), toneMapped: false });
     const bolts: { line: THREE.Line; born: number }[] = [];
     // Ordnance guns fire their own ammo (tracers, pellets, beams, plasma, rockets, grenades).
     const ammoFx = makeAmmoFx(scene, 0);
@@ -886,6 +890,10 @@ export function Arena() {
       lastShot = now;
       const ord = ALL_GUNS[gunIdx]?.ordnance;
       const kind: Ammo | null = ord ? ammoOf(ord) : null;
+      // House ammo: gold rounds and 1.5x damage.
+      const gold = !devFire && L.house;
+      const bolt = gold ? HOUSE_GOLD : g.bolt;
+      const dmg = gold ? HOUSE_DMG : 1;
       if (kind) playSfx(AMMO_SFX[kind], 0.7);
       else sfx?.shoot();
       const ends: number[] = [];
@@ -900,9 +908,9 @@ export function Arena() {
         const explosive = kind === 'rocket' || kind === 'grenade';
         if (kind) {
           ends.push(+end.x.toFixed(2), +end.y.toFixed(2), +end.z.toFixed(2));
-          ammoFx.fire(kind, from, end, g.bolt, explosive ? { onBlast: (at) => blast(at, BLAST_RADIUS[kind] ?? 2.5) } : undefined);
+          ammoFx.fire(kind, from, end, bolt, explosive ? { onBlast: (at) => blast(at, BLAST_RADIUS[kind] ?? 2.5) } : undefined);
         } else {
-          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), boltMats.get(g.id));
+          const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, end]), gold ? goldMat : boltMats.get(g.id));
           scene.add(line);
           bolts.push({ line, born: now });
         }
@@ -916,9 +924,9 @@ export function Arena() {
         const mob = first && mobs.find((m) => m.m.hitbox === first.object && m.state !== 'dying' && m.state !== 'dead');
         let killed = false;
         // Explosive rounds do their damage when they go off (see blast); everything else hits now.
-        if (first && !explosive) sparkAt(first.point, mob ? '#c8ffd0' : g.bolt);
+        if (first && !explosive) sparkAt(first.point, mob ? (gold ? HOUSE_GOLD : '#c8ffd0') : bolt);
         if (mob && !explosive) {
-          killed = hurtMob(mob, now);
+          killed = hurtMob(mob, now, dmg);
           if (killed) kills++;
         } else if (mob) killed = mob.hp <= 2; // the blast will take it: count the shot as a kill on chain
         const foe = first && [...remotes.entries()].find(([, r]) => r.m.hitbox === first.object);
@@ -950,7 +958,7 @@ export function Arena() {
       setHud((h) => ({ ...h, shots: h.shots + g.pellets, kills: h.kills + kills, heat }));
       if (kind && room && now - lastShotCast > 60) {
         lastShotCast = now;
-        room.broadcast('shot', { id: myId, k: kind, c: g.bolt, f: [+from.x.toFixed(2), +from.y.toFixed(2), +from.z.toFixed(2)], t: ends });
+        room.broadcast('shot', { id: myId, k: kind, c: bolt, f: [+from.x.toFixed(2), +from.y.toFixed(2), +from.z.toFixed(2)], t: ends });
       }
       flash.visible = true;
       flash.material.rotation = Math.random() * Math.PI;
@@ -1542,6 +1550,7 @@ export function Arena() {
                 tokenPresets={[10, 100, 1_000, 10_000, 100_000]}
                 initialTokenLoad={100}
                 remember
+                house={GAME_COINS.arena}
                 sats={{
                   picker: <AmmoPicker value={shots} onChange={setShots} bsvUsd={bsvUsd} />,
                   label: `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SATS BLASTS`,
@@ -1627,6 +1636,11 @@ export function Arena() {
           <span className="text-hot">
             {tokenMode ? '' : 'tag '}${b.token?.sym ?? '…'}
           </span>
+          {house && (
+            <span className="text-xs font-bold" style={{ color: HOUSE_GOLD }}>
+              HOUSE AMMO · {HOUSE_DMG}x
+            </span>
+          )}
           {b.tokens.length > 1 && <span className="text-xs text-dim">T ⟳</span>}
         </button>
       </div>
