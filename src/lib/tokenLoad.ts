@@ -25,6 +25,18 @@ export const noteFor = (id: string, amt: bigint, sym: string, dec: number | unde
     counterparty: 'self',
   });
 
+/**
+ * The 1Sat wallets tag every basket output `id:<actionId>_<index>` and only sign token inputs that carry
+ * it (@1sat/actions stampManagedOutputIds / sendBsv21). Without it bWalletX can't list or send the coin.
+ */
+const randomActionId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+export function stampIds<T extends { basket?: string; tags?: string[] }>(outputs: T[] | undefined, actionId = randomActionId()): T[] | undefined {
+  outputs?.forEach((o, i) => {
+    if (o.basket) o.tags = [...(o.tags ?? []).filter((t) => !t.startsWith('id:')), `id:${actionId}_${i}`];
+  });
+  return outputs;
+}
+
 type Coin = { outpoint: string; amt: bigint; protocolID: WalletProtocol; keyID: string };
 const SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_FORKID;
 
@@ -80,7 +92,7 @@ export async function loadTokens(
     description: `Load ${shown} $${sym} into your TokenBlaster gun as ammunition${fuelSats ? `, plus ${fuelSats.toLocaleString()} sats to fire them` : ''}`,
     inputBEEF: beef,
     inputs: use.map((c) => ({ outpoint: c.outpoint, unlockingScriptLength: 108, inputDescription: `$${sym}` })),
-    outputs,
+    outputs: stampIds(outputs),
     labels: ['tokenblaster'],
     // signAndProcess: false = hand us the unsigned tx so we can add the token signatures; without it
     // the wallet's permission layer may finish the action itself and our signAction finds it gone.
@@ -155,7 +167,7 @@ export async function tokenSpends(
 export async function reNoteTokens(wallet: WalletInterface, id: string, sym: string, dec?: number, icon?: string | null): Promise<Transaction> {
   const { coins, beef } = await tokenCoins(wallet, true);
   const use: Coin[] = coins
-    .filter((c) => c.id === id && c.keyID && (!c.noted || (icon && !c.icon)))
+    .filter((c) => c.id === id && c.keyID && (!c.noted || !c.tagged || (icon && !c.icon)))
     .map((c) => ({ outpoint: c.outpoint, amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! }));
   const total = use.reduce((n, c) => n + c.amt, BigInt(0));
   if (!total) throw new Error('Nothing to fix.');
@@ -171,7 +183,7 @@ export async function reNoteTokens(wallet: WalletInterface, id: string, sym: str
         satoshis: 1,
         outputDescription: `Your $${sym}, back in your wallet`,
         basket: 'bsv21',
-        tags: [`bsv21:${id}`],
+        tags: [`bsv21:${id}`, `id:${randomActionId()}_0`],
         customInstructions: noteFor(id, total, sym, dec, keyID, icon),
       },
     ],
@@ -219,7 +231,7 @@ export async function returnTokens(
       {
         outputIndex: 0,
         protocol: 'basket insertion',
-        insertionRemittance: { basket: 'bsv21', tags: [`bsv21:${t.id}`], customInstructions: noteFor(t.id, amt, t.sym, t.dec, keyID, t.icon) },
+        insertionRemittance: { basket: 'bsv21', tags: [`bsv21:${t.id}`, `id:${randomActionId()}_0`], customInstructions: noteFor(t.id, amt, t.sym, t.dec, keyID, t.icon) },
       },
     ],
     description: `Unload ${amt.toLocaleString()} $${t.sym} from your TokenBlaster gun back to your wallet`,

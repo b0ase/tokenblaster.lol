@@ -51,6 +51,8 @@ export type TokenCoin = {
   lockingScript?: string;
   /** The coin's note carries its amount: the wallet counts it. Without, the wallet can't see it. */
   noted: boolean;
+  /** Carries the 1Sat `id:` tag: without it bWalletX can't list or send the coin. */
+  tagged: boolean;
 };
 
 const norm = (op: string) => op.replace('.', '_');
@@ -97,6 +99,7 @@ export async function tokenCoins(wallet: WalletInterface, withScripts = false): 
           keyID: typeof ci.keyID === 'string' ? ci.keyID : undefined,
           lockingScript: o.lockingScript,
           noted: typeof ci.amt === 'string' && ci.amt !== '0',
+          tagged: tags.some((t) => t.startsWith('id:')),
         });
       }
       if (r.outputs.length < 500) break;
@@ -160,17 +163,18 @@ function inscriptionJson(hex: string): { op?: string; id?: string; amt?: string 
 }
 
 /** Token coins the wallet holds but can't see (their note lacks the amount): to re-note them. */
-export async function strandedCoins(wallet: WalletInterface): Promise<{ id: string; amt: bigint; n: number; why: 'hidden' | 'icon' }[]> {
+export async function strandedCoins(wallet: WalletInterface): Promise<{ id: string; amt: bigint; n: number; why: 'hidden' | 'icon' | 'untagged' }[]> {
   const { coins } = await tokenCoins(wallet).catch(() => ({ coins: [] as TokenCoin[] }));
-  const by = new Map<string, { amt: bigint; n: number; why: 'hidden' | 'icon' }>();
+  const by = new Map<string, { amt: bigint; n: number; why: 'hidden' | 'icon' | 'untagged' }>();
   for (const c of coins) {
     if (!c.keyID) continue;
     // Hidden (no amount in the note), or shown but with a broken icon (no icon in the note) when the token has one.
-    let why: 'hidden' | 'icon' | null = !c.noted ? 'hidden' : null;
+    let why: 'hidden' | 'icon' | 'untagged' | null = !c.noted ? 'hidden' : null;
     if (!why && !c.icon && c.keyID.startsWith(`${c.id}-`)) {
       const t = await tokenById(c.id).catch(() => null);
       if (t?.icon) why = 'icon';
     }
+    if (!why && !c.tagged) why = 'untagged';
     if (!why) continue;
     const cur = by.get(c.id) ?? { amt: BigInt(0), n: 0, why };
     by.set(c.id, { amt: cur.amt + c.amt, n: cur.n + 1, why: cur.why === 'hidden' ? 'hidden' : why });

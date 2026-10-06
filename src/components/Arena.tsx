@@ -1569,10 +1569,12 @@ export function Arena() {
                           <p>
                             {t.why === 'icon'
                               ? `Your wallet shows ${t.balance?.toLocaleString()} $${t.sym} with a broken icon: TokenBlaster saved them without the icon. Our bug.`
-                              : `${t.balance?.toLocaleString()} $${t.sym} are in your wallet but it can't show them: TokenBlaster sent them back without the note your wallet reads. Our bug.`}
+                              : t.why === 'untagged'
+                                ? `${t.balance?.toLocaleString()} $${t.sym} are in your wallet but bWalletX can't list or send them: TokenBlaster saved them without the tag it signs by. Our bug.`
+                                : `${t.balance?.toLocaleString()} $${t.sym} are in your wallet but it can't show them: TokenBlaster sent them back without the note your wallet reads. Our bug.`}
                           </p>
                           <button onClick={() => b.fixStranded(t)} disabled={!!b.busy} className="btn btn-on mt-2 text-xs">
-                            {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : t.why === 'icon' ? `FIX THE $${t.sym} ICON` : `FIX: SHOW MY $${t.sym} IN MY WALLET`}
+                            {b.busy === 'loading-tokens' ? 'APPROVE IN WALLET…' : t.why === 'icon' ? `FIX THE $${t.sym} ICON` : t.why === 'untagged' ? `FIX: MAKE MY $${t.sym} LISTABLE` : `FIX: SHOW MY $${t.sym} IN MY WALLET`}
                           </button>
                         </div>
                       ))}

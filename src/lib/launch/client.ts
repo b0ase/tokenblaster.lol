@@ -6,7 +6,7 @@
 import { Beef, P2PKH, PublicKey, Transaction, UnlockingScript, Utils, type WalletInterface } from '@bsv/sdk';
 import { BSV21 } from '@1sat/templates';
 import { inscriptionScript } from '../inscribe';
-import { ONESAT, noteFor, tokenSpends } from '../tokenLoad';
+import { ONESAT, noteFor, stampIds, tokenSpends } from '../tokenLoad';
 import { tokenCoins } from '../tokens';
 import type { Wallet } from '../wallet';
 import { INDEX_LAUNCH, LAUNCH_FEE, quoteBuy, quoteSell } from './curve';
@@ -160,7 +160,7 @@ export async function trade(
         ...plan.inputs.map((i) => ({ outpoint: i.outpoint.replace('_', '.'), unlockingScriptLength: 108, inputDescription: i.what })),
         ...sellCoins.map((c) => ({ outpoint: c.outpoint.replace('_', '.'), unlockingScriptLength: 108, inputDescription: `your $${coin.sym}` })),
       ],
-      outputs,
+      outputs: stampIds(outputs),
       labels: ['tokenblaster', 'launch'],
       options: { randomizeOutputs: false, acceptDelayedBroadcast: false, signAndProcess: false },
     });

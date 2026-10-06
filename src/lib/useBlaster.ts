@@ -39,7 +39,7 @@ export function useBlaster() {
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
   /** Coins TokenBlaster returned to the wallet without a note (the wallet can't see them). */
-  const [stranded, setStranded] = useState<(Token & { amt: bigint; why: 'hidden' | 'icon' })[]>([]);
+  const [stranded, setStranded] = useState<(Token & { amt: bigint; why: 'hidden' | 'icon' | 'untagged' })[]>([]);
   const checkStranded = useCallback(async (w: Wallet) => {
     const list = await strandedCoins(w.client).catch(() => []);
     const withMeta = await Promise.all(

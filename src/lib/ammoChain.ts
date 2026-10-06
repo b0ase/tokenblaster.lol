@@ -11,7 +11,7 @@
 import { Beef, Hash, LockingScript, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type WalletInterface } from '@bsv/sdk';
 import { BSV21, OrdLockV2 } from '@1sat/templates';
 import { inscriptionScript } from './inscribe';
-import { ONESAT, noteFor } from './tokenLoad';
+import { ONESAT, noteFor, stampIds } from './tokenLoad';
 import { tokenCoins } from './tokens';
 import type { AmmoDef } from './ammo';
 
@@ -150,7 +150,7 @@ export async function listAmmoPack(wallet: WalletInterface, def: AmmoDef, tokenI
     description: `List ${pack} $${def.sym} ammo for ${priceSats.toLocaleString()} sats on the 1Sat market`,
     inputBEEF: beef,
     inputs: use.map((c) => ({ outpoint: c.outpoint, unlockingScriptLength: 108, inputDescription: `$${def.sym}` })),
-    outputs,
+    outputs: stampIds(outputs),
     labels: ['tokenblaster', 'ammo'],
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false, signAndProcess: false },
   });
@@ -297,7 +297,7 @@ export async function buyAmmo(wallet: WalletInterface, l: AmmoListing, icon?: st
       { outpoint: `${prepTxid}.0`, unlockingScriptLength: 108, inputDescription: 'Ammo payment' },
       { outpoint: `${l.txid}.${l.vout}`, unlockingScriptLength: OrdLockV2.estimatePurchaseUnlockLength(src.lockingScript), inputDescription: `$${l.sym} listing` },
     ],
-    outputs,
+    outputs: stampIds(outputs),
     labels: ['tokenblaster', 'ammo'],
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false, signAndProcess: false },
   });
