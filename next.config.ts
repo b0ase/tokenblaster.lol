@@ -9,6 +9,16 @@ const nextConfig: NextConfig = {
       // 1Sat Ordnance models and art, loadable by wallets' 3D display cabinets (bWalletX).
       { source: '/arena/models/guns/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
       { source: '/ordnance/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
+      // BlastPad's API for wallets (bWalletX's Market lists and trades the coins). No cookies or sessions:
+      // every trade is checked by wallet signatures and the client's own quote, so any origin may call it.
+      {
+        source: '/api/launch/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type' },
+        ],
+      },
     ];
   },
   async redirects() {
