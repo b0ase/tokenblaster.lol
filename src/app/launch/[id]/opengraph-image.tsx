@@ -8,6 +8,7 @@ import { ImageResponse } from 'next/og';
 import sharp from 'sharp';
 import { GRAD_SOLD, marketCap, price, progress } from '@/lib/launch/curve';
 import { rpc } from '@/lib/launch/server';
+import { bsvUsd } from '@/lib/price';
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -28,12 +29,6 @@ async function picture(tokenId: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-async function bsvUsd(): Promise<number> {
-  const r = await fetch('https://api.whatsonchain.com/v1/bsv/main/exchangerate', { next: { revalidate: 300 } }).catch(() => null);
-  const j = r?.ok ? ((await r.json()) as { rate?: number }) : null;
-  return j?.rate ?? 0;
 }
 
 const money = (sats: number, rate: number) => {

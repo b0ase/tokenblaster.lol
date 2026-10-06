@@ -1,11 +1,8 @@
-/** GET /api/price → { bsvUsd } from WhatsOnChain. */
+/** GET /api/price → { bsvUsd } (WhatsOnChain, falling back to Coinbase and CoinGecko). */
+import { bsvUsd } from '@/lib/price';
+
 export async function GET() {
-  try {
-    const r = await fetch('https://api.whatsonchain.com/v1/bsv/main/exchangerate', { cache: 'no-store' });
-    const { rate } = (await r.json()) as { rate?: number };
-    if (!rate) throw new Error('no rate');
-    return Response.json({ bsvUsd: rate });
-  } catch {
-    return Response.json({ error: 'Price unavailable' }, { status: 502 });
-  }
+  const rate = await bsvUsd();
+  if (!rate) return Response.json({ error: 'Price unavailable' }, { status: 502 });
+  return Response.json({ bsvUsd: rate }, { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' } });
 }
