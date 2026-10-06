@@ -8,7 +8,9 @@ import { useEffect, useRef, useState } from 'react';
 import { STORM_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
+import { GAME_COINS, houseFirst, houseHeld } from '@/lib/gameCoins';
 import { GunView } from './GunView';
+import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { WalletChooser } from './WalletChooser';
 import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
@@ -101,15 +103,19 @@ export function BSVGun() {
             <button onClick={() => b.setToken(null)} className={`btn ${!b.token ? 'btn-on' : ''}`}>
               plain BSV
             </button>
-            {b.tokens.slice(0, 12).map((t) => (
-              <button key={t.id} onClick={() => b.setToken(t)} className={`btn flex items-center gap-1 ${b.token?.id === t.id ? 'btn-on' : ''}`}>
-                {iconUrl(t.icon) && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={iconUrl(t.icon)!} alt="" className="h-4 w-4" />
-                )}
-                ${t.sym}
-              </button>
-            ))}
+            {houseFirst(b.tokens, GAME_COINS.bsvgun)
+              .slice(0, 12)
+              .map((t) => (
+                <button key={t.id} onClick={() => b.setToken(t)} className={`btn flex items-center gap-1 ${b.token?.id === t.id ? 'btn-on' : ''}`}>
+                  {iconUrl(t.icon) && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={iconUrl(t.icon)!} alt="" className="h-4 w-4" />
+                  )}
+                  ${t.sym}
+                  {t.id === GAME_COINS.bsvgun.id && <HouseBadge label="HOUSE" />}
+                </button>
+              ))}
+            {!houseHeld(b.tokens, GAME_COINS.bsvgun) && <BuyHouse coin={GAME_COINS.bsvgun} />}
           </div>
         )}
       </section>

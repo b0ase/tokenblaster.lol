@@ -10,6 +10,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { TOKEN_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import type { useBlaster } from '@/lib/useBlaster';
+import { houseFirst, houseHeld, type GameCoin } from '@/lib/gameCoins';
+import { BuyHouse, HouseBadge } from './HouseAmmo';
 
 type Blaster = ReturnType<typeof useBlaster>;
 
@@ -33,8 +35,11 @@ export function AmmoStrip({
   onPractice,
   practiceLabel = '▶ PLAY PRACTICE',
   details,
+  house,
 }: {
   b: Blaster;
+  /** The game's own coin: listed first with a HOUSE AMMO badge, or a BlastPad link when the wallet has none. */
+  house?: GameCoin;
   /** The gun holds enough of the chosen ammo to play live. */
   armed: boolean;
   title?: string;
@@ -157,7 +162,8 @@ export function AmmoStrip({
                   <span className="text-xs">no tokens spent</span>
                 </button>
               )}
-              {b.tokens.map((t) => {
+              {house && !houseHeld(b.tokens, house) && <BuyHouse coin={house} />}
+              {houseFirst(b.tokens, house).map((t) => {
                 const on = !satsMode && t.id === b.token?.id;
                 const ic = iconUrl(t.icon);
                 return (
@@ -178,6 +184,7 @@ export function AmmoStrip({
                       <div className="h-7 w-7 shrink-0 rounded bg-input" />
                     )}
                     <span className="min-w-0 flex-1 truncate font-bold">${t.sym}</span>
+                    {t.id === house?.id && <HouseBadge />}
                     <span className="text-xs">{t.balance?.toLocaleString()}</span>
                   </button>
                 );
