@@ -1,5 +1,5 @@
 /**
- * Double-O Kweg: the five missions. Each map is a grid of SIZE-unit cells.
+ * Double-O Satoshi: the five missions. Each map is a grid of SIZE-unit cells.
  *
  *   #  wall            .  floor           S  start            X  exit
  *   D  door (opens when anyone walks up)  Q  locked door (opens once the objective before the boss is done)

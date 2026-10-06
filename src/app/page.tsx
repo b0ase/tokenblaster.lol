@@ -3,7 +3,7 @@ import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
 
 const GAMES = [
-  { href: '/arcade/doubleokweg', img: '/arcade/doubleo.jpg', title: 'Double-O Kweg', tag: 'V1 · spy shooter', blurb: 'GoldenEye-style 3D missions: Special Agent Kweg Wong fires PNEE at parody crypto villains. LIVE mode: one token per bullet, one transaction per token.' },
+  { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', title: 'Double-O Satoshi', tag: 'V1 · spy shooter', blurb: 'GoldenEye-style 3D missions: Special Agent Kweg Wong fires PNEE at parody crypto villains. LIVE mode: one token per bullet, one transaction per token.' },
   { href: '/arcade/bsvgun', img: '/arcade/bsvgun.jpg', title: 'BSVGun', tag: 'V1 · mass blaster', blurb: 'TeraGun-style: load once and fire 50,000 real tagged transactions in parallel lanes. Every blast counts on the leaderboard.' },
   { href: '/arena', img: '/arcade/arena.jpg', title: 'Arena', tag: 'V1 · multiplayer', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: one token per bullet, one transaction per token. Hit another player and your token lands in their gun.' },
   { href: '/arcade/frogger', img: '/arcade/frogger.jpg', title: 'Chain Frogger', tag: 'V2 · 3D city', blurb: 'Cross a GTA-style avenue where every vehicle is a live mainnet transaction, one way from sender to receiver. Token transfers drive box trucks wearing their logo.' },
@@ -64,7 +64,7 @@ export default function Home() {
         <img src="/ordnance/cards/safu-blaster.webp" alt="" className="h-20 w-20 border border-[var(--border-dim)] object-cover" />
         <div className="min-w-[14rem] flex-1">
           <p className="font-bold text-hot group-hover:underline">NEW · 1SAT ORDNANCE STORE: 22 guns you actually own</p>
-          <p className="text-dim">Buy a game weapon as a real 1Sat ordinal, inscribed straight into your wallet. Hold it and it unlocks in Double-O Kweg and the Arena. Shows up in 3D in bWalletX.</p>
+          <p className="text-dim">Buy a game weapon as a real 1Sat ordinal, inscribed straight into your wallet. Hold it and it unlocks in Double-O Satoshi and the Arena. Shows up in 3D in bWalletX.</p>
         </div>
         <span className="btn-fire !px-4 !py-2 !text-base">ENTER THE STORE</span>
       </Link>

@@ -1,5 +1,5 @@
 /**
- * In-game projectiles for 1Sat Ordnance ammo types (Arena and Double-O Kweg), matching the store's
+ * In-game projectiles for 1Sat Ordnance ammo types (Arena and Double-O Satoshi), matching the store's
  * test-fire: bullets are small yellow tracers, pellets a fast spray, lasers an instant beam with a
  * hit flash, plasma glowing bolts, rockets a slow round with a smoke trail and an area blast,
  * grenades an arcing round that bounces once and bursts. Purely visual + a blast callback: the game

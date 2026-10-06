@@ -106,7 +106,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
 
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', margin: 'auto 56px 44px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', fontSize: 26 }}>
-            <span style={{ color: C.accent }}>AMMO in the Arena &amp; Double-O Kweg</span>
+            <span style={{ color: C.accent }}>AMMO in the Arena &amp; Double-O Satoshi</span>
             <span style={{ color: C.hot, fontSize: 30, marginTop: 6 }}>TOKENBLASTER.LOL/LAUNCH</span>
           </div>
           <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>

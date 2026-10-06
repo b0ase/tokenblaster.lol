@@ -65,7 +65,7 @@ export function Board() {
         <aside className="order-2 flex flex-col gap-3 lg:order-1">
           <SideList title="🔥 Trending" coins={trending} rate={rate} />
           <GameTile href="/arena" img="/arcade/arena.jpg" kicker="Horde survival" title="Arena" text="Every BlastPad coin you hold is ammo. Each shot is a real transaction of your token." />
-          <GameTile href="/arcade/doubleokweg" img="/arcade/doubleo.jpg" kicker="Spy shooter" title="Double-O Kweg" text="Five missions, co-op, live token play." />
+          <GameTile href="/arcade/doubleosatoshi" img="/arcade/doubleo.jpg" kicker="Spy shooter" title="Double-O Satoshi" text="Five missions, co-op, live token play." />
         </aside>
 
         <div className="order-1 flex min-w-0 flex-col gap-3 lg:order-2">

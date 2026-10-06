@@ -234,8 +234,8 @@ export function CoinView({ id }: { id: string }) {
             <Link href="/arena" className="btn btn-fire text-center">
               Shoot ${c.sym} in the Arena ▸
             </Link>
-            <Link href="/arcade/doubleokweg" className="btn text-center">
-              Double-O Kweg ▸
+            <Link href="/arcade/doubleosatoshi" className="btn text-center">
+              Double-O Satoshi ▸
             </Link>
             <Link href="/blast" className="btn text-center">
               Blast it with the gun ▸

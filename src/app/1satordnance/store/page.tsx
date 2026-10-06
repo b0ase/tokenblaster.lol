@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { OrdnanceStore } from '@/components/OrdnanceStore';
 
-const description = 'The 1Sat Ordnance store: buy game weapons as real 1Sat ordinals, inscribed straight into your wallet. Hold one and it unlocks in Double-O Kweg and the Arena.';
+const description = 'The 1Sat Ordnance store: buy game weapons as real 1Sat ordinals, inscribed straight into your wallet. Hold one and it unlocks in Double-O Satoshi and the Arena.';
 export const metadata = {
   title: 'Store · 1Sat Ordnance · TokenBlaster.lol',
   description,
@@ -23,7 +23,7 @@ export default function OrdnanceStorePage() {
           ORDNANCE STORE<span className="blink">_</span>
         </h1>
         <p className="mt-2 max-w-2xl text-dim">
-          Draw your weapon, soldier. Every gun is issued as a 1Sat ordinal inscribed straight into your wallet, in one transaction your wallet shows you first: the inscription to you, the price to TokenBlaster, the network fee to the miners. Hold it and it unlocks in Double-O Kweg and the Arena.
+          Draw your weapon, soldier. Every gun is issued as a 1Sat ordinal inscribed straight into your wallet, in one transaction your wallet shows you first: the inscription to you, the price to TokenBlaster, the network fee to the miners. Hold it and it unlocks in Double-O Satoshi and the Arena.
         </p>
         <p className="mt-2 text-sm">
           In LIVE play each gun fires its own ammo token.{' '}

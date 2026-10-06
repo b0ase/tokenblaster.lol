@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Double-O Kweg's story UI: comic-panel dialogue (briefings, debriefs) and a radio strip during
+ * Double-O Satoshi's story UI: comic-panel dialogue (briefings, debriefs) and a radio strip during
  * play. Portraits are drawn on a canvas as cartoon parodies (no likenesses).
  */
 import { useEffect, useRef, useState } from 'react';

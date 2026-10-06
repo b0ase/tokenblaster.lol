@@ -12,7 +12,7 @@ export async function generateMetadata({ params }: PageProps<'/1satordnance/stor
   const o = bySlug((await params).slug);
   if (!o) return {};
   const title = `${o.name.toUpperCase()}: ${o.tagline}`;
-  const description = `${o.description} A real 1Sat ordinal, inscribed straight to your wallet. Hold it and it unlocks in Double-O Kweg and the Arena.`;
+  const description = `${o.description} A real 1Sat ordinal, inscribed straight to your wallet. Hold it and it unlocks in Double-O Satoshi and the Arena.`;
   const images = [{ url: ogPath(o), width: 1200, height: 630, alt: `${o.name}, a ${o.rarity} 1Sat Ordnance weapon` }];
   return {
     title: `${o.name} · 1Sat Ordnance · TokenBlaster.lol`,

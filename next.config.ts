@@ -13,8 +13,8 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
-      { source: '/arcade/doubleo', destination: '/arcade/doubleokweg', permanent: true },
-      { source: '/arcade/doubleosatoshi', destination: '/arcade/doubleokweg', permanent: true },
+      { source: '/arcade/doubleo', destination: '/arcade/doubleosatoshi', permanent: true },
+      { source: '/arcade/doubleokweg', destination: '/arcade/doubleosatoshi', permanent: true },
     ];
   },
 };

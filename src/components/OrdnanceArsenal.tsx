@@ -122,7 +122,7 @@ export function OrdnanceArsenal() {
         </form>
       )}
       <p className="mt-2 text-xs text-dim">
-        Owned weapons appear unlocked in <Link href="/arcade/doubleokweg" className="underline hover:text-hot">Double-O Kweg</Link> (Q Branch) and the <Link href="/arena" className="underline hover:text-hot">Arena</Link> gun picker.
+        Owned weapons appear unlocked in <Link href="/arcade/doubleosatoshi" className="underline hover:text-hot">Double-O Satoshi</Link> (Q Branch) and the <Link href="/arena" className="underline hover:text-hot">Arena</Link> gun picker.
       </p>
       {w.chooserEl}
     </section>

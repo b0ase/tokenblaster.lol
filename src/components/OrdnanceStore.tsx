@@ -236,8 +236,8 @@ function Issued({ o, n, txid, onClose }: { o: Ordnance; n: number; txid: string;
           <Link href="/arena" className="btn-fire !px-2 !py-2 !text-sm">
             PLAY IT IN THE ARENA
           </Link>
-          <Link href="/arcade/doubleokweg" className="btn-fire !px-2 !py-2 !text-sm">
-            DOUBLE-O KWEG
+          <Link href="/arcade/doubleosatoshi" className="btn-fire !px-2 !py-2 !text-sm">
+            DOUBLE-O SATOSHI
           </Link>
           <a href={`https://x.com/intent/post?text=${encodeURIComponent(tweet)}&url=${encodeURIComponent(url)}`} target="_blank" rel="noopener noreferrer" className="btn px-2 py-2">
             SHARE ON X

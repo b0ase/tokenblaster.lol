@@ -1,5 +1,5 @@
 /**
- * Double-O Kweg cast: stylised procedural villains and henchmen (boxes, spheres, a few canvas
+ * Double-O Satoshi cast: stylised procedural villains and henchmen (boxes, spheres, a few canvas
  * textures). Cartoon parody characters with parody names only: no real names, photos, likenesses or logos.
  */
 import * as THREE from 'three';

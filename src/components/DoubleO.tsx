@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Double-O Kweg: a GoldenEye-style first-person spy shooter. Special Agent Kweg Wong fires
+ * Double-O Satoshi: a GoldenEye-style first-person spy shooter. Special Agent Kweg Wong fires
  * PNEE (or any token from the wallet) at cartoon parody villains across five missions.
  * PRACTICE is free play, nothing on chain. LIVE: every bullet is one whole token in a real
  * transaction (tagged doubleo/<level>/shot), queued and sent in batches like the Arena.
@@ -2333,7 +2333,7 @@ export function DoubleO() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/arcade/doubleo/kweg.webp" alt={AGENT} className="h-32 w-auto rounded border border-[var(--border-dim)]" />
               <div className="text-left">
-                <p className="text-3xl font-bold tracking-widest text-hot sm:text-5xl">DOUBLE-O KWEG</p>
+                <p className="text-3xl font-bold tracking-widest text-hot sm:text-5xl">DOUBLE-O SATOSHI</p>
                 <p className="text-sm text-accent">
                   {AGENT}. Licensed to blast. Also to practice Aeronautical Zoological Law.
                 </p>

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-/** The site-wide bar on every page. Full-screen games (Arena, Double-O Kweg) cover it while playing. */
+/** The site-wide bar on every page. Full-screen games (Arena, Double-O Satoshi) cover it while playing. */
 const LINKS = [
   ['/', 'Home'],
   ['/blast', 'Blast'],

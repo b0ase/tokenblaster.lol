@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The ammo flow shared by the arena and Double-O Kweg:
+ * The ammo flow shared by the arena and Double-O Satoshi:
  *   1 CONNECT WALLET → 2 PICK what to fire + how many, ONE LOAD (one approval) → 3 PLAY.
  * Steps that don't apply yet are dimmed. Errors show inline. UNLOAD and the last receipt stay
  * underneath; anything else (gun address, fixers) goes in `details`.

@@ -2,7 +2,7 @@
 
 /**
  * 1Sat Ordnance weapons in 3D: the held-gun definition for a weapon (its own model if it has one,
- * stats from the catalogue) and a cached loader. Shared by the store art, the Arena and Double-O Kweg
+ * stats from the catalogue) and a cached loader. Shared by the store art, the Arena and Double-O Satoshi
  * so a gun looks and sits the same everywhere.
  */
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';

@@ -1,5 +1,5 @@
 /**
- * Double-O Kweg: the campaign, as dialogue. Every line in the game lives here.
+ * Double-O Satoshi: the campaign, as dialogue. Every line in the game lives here.
  *
  * The arc: a syndicate called S.U.S.P.E.N.D. (the Syndicate of Unbacked Securities, Paused Exits
  * and Never-ending Delays) is freezing everyone's coins. Its faceless chairman, NUMBER ONE, sends
@@ -44,7 +44,7 @@ export const STORY: Record<string, Chapter> = {
     brief: [
       { who: 'm', text: "Good evening, Kweg. Coins are vanishing all over the world. Not stolen: 'paused'. Someone is freezing withdrawals on an industrial scale." },
       { who: 'm', text: 'We traced it to a bunker under the moors. They are mining FAKE blocks down there and selling them as real. Plant a real node in their mainframe and the whole lie collapses.' },
-      { who: 'q', text: "Your gadget gun fires whatever tokens you load into it. Do try not to spend them all on the wallpaper, 007... sorry, Double-O Kweg." },
+      { who: 'q', text: "Your gadget gun fires whatever tokens you load into it. Do try not to spend them all on the wallpaper, 007... sorry, Agent Kweg." },
       { who: 'one', text: "Ah, Mister Kweg. I have been expecting you. My guard bots have been expecting you too. They are less polite." },
     ],
     radio: {

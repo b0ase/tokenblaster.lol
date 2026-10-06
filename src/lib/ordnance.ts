@@ -1,6 +1,6 @@
 /**
  * 1Sat Ordnance: game weapons as real 1Sat ordinal NFTs. Own the inscription → the gun unlocks
- * in Double-O Kweg and the Arena. Each weapon rides on one of the arena gun models
+ * in Double-O Satoshi and the Arena. Each weapon rides on one of the arena gun models
  * (`base`, see GUNS in arenaHD.ts) with its own stats.
  *
  * `origin` is the outpoint of the weapon's first inscription (`<txid>_<vout>`). It is EMPTY until
@@ -213,7 +213,7 @@ export function collectionMap(): Record<string, string> {
     name: ORDNANCE_COLLECTION_NAME,
     subType: 'collection',
     subTypeData: JSON.stringify({
-      description: 'Weapons you actually own. Each gun is a 1Sat ordinal; hold it and it unlocks in Double-O Kweg and the Arena on tokenblaster.lol.',
+      description: 'Weapons you actually own. Each gun is a 1Sat ordinal; hold it and it unlocks in Double-O Satoshi and the Arena on tokenblaster.lol.',
       quantity: ORDNANCE.reduce((n, o) => n + o.edition, 0),
       rarityLabels: ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'],
       traits: {},

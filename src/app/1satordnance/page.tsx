@@ -3,7 +3,7 @@ import { GunArt } from '@/components/GunArt';
 import { OrdnanceArsenal } from '@/components/OrdnanceArsenal';
 import { ORDNANCE, isMinted } from '@/lib/ordnance';
 
-const description = 'Weapons you actually own. Every gun is a real 1Sat ordinal inscription in your wallet: hold it and it unlocks in Double-O Kweg and the Arena. Trade it on any 1Sat marketplace.';
+const description = 'Weapons you actually own. Every gun is a real 1Sat ordinal inscription in your wallet: hold it and it unlocks in Double-O Satoshi and the Arena. Trade it on any 1Sat marketplace.';
 export const metadata = {
   title: '1Sat Ordnance · TokenBlaster.lol',
   description,
@@ -13,11 +13,11 @@ export const metadata = {
 
 const FAQ: { q: string; a: string }[] = [
   { q: 'What is 1Sat Ordnance?', a: 'A collection of game weapons minted as 1Sat Ordinals on Bitcoin SV. Each gun is an inscription: the art and its metadata live on chain, in a 1-satoshi output that only your key can spend.' },
-  { q: 'How does a gun unlock in the games?', a: 'Connect your wallet in Double-O Kweg or the Arena. We read the ordinals your wallet holds (from the wallet itself and the GorillaPool 1Sat index). If one of them is an Ordnance inscription, that gun appears unlocked in the weapon picker. Sell or send it and it locks again.' },
+  { q: 'How does a gun unlock in the games?', a: 'Connect your wallet in Double-O Satoshi or the Arena. We read the ordinals your wallet holds (from the wallet itself and the GorillaPool 1Sat index). If one of them is an Ordnance inscription, that gun appears unlocked in the weapon picker. Sell or send it and it locks again.' },
   { q: 'Can I trade them?', a: 'Yes. They are standard 1Sat ordinals, so any 1Sat marketplace or wallet that shows ordinals can list, buy and send them. Nobody needs our permission, including us.' },
   { q: 'What does it cost?', a: 'Each weapon has a price by rarity, shown in the store. You pay it and the network fee in one transaction from your own wallet, which inscribes the gun straight to you. Transfers and in-game shots are real transactions too and pay their fee.' },
   { q: 'How do I get one?', a: 'Open the store, connect your wallet and press BUY. Your wallet shows the transaction (the inscription to you plus the price to TokenBlaster) and you approve it there. Once it is indexed the gun unlocks.' },
-  { q: 'Does the gun change the stats?', a: 'Yes. Each weapon has its own rate of fire, pellets, spread and bolt colour, used by the Arena and (for rate of fire and the model) Double-O Kweg.' },
+  { q: 'Does the gun change the stats?', a: 'Yes. Each weapon has its own rate of fire, pellets, spread and bolt colour, used by the Arena and (for rate of fire and the model) Double-O Satoshi.' },
 ];
 
 export default function OrdnancePage() {
@@ -37,7 +37,7 @@ export default function OrdnancePage() {
             </h1>
             <p className="mt-2 text-xl text-fg sm:text-2xl">Weapons you actually own.</p>
             <p className="mt-3 max-w-xl text-dim">
-              Every gun is a real 1Sat ordinal inscription in your wallet. Own it and it unlocks in Double-O Kweg and the Arena. Sell it, send it, trade it on any 1Sat marketplace: it&apos;s yours, not a row in our database.
+              Every gun is a real 1Sat ordinal inscription in your wallet. Own it and it unlocks in Double-O Satoshi and the Arena. Sell it, send it, trade it on any 1Sat marketplace: it&apos;s yours, not a row in our database.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Link href="/1satordnance/store" className="btn-fire">
@@ -64,7 +64,7 @@ export default function OrdnancePage() {
       <section className="grid gap-3 md:grid-cols-3">
         {[
           ['01 · INSCRIBED', 'Each weapon is a 1Sat ordinal: the art and the stats are inscribed on Bitcoin SV, in a 1-sat output locked to your key.'],
-          ['02 · UNLOCKED', 'Hold it and it unlocks in Double-O Kweg (Q Branch) and the Arena gun picker. No account, no login: your wallet is the proof.'],
+          ['02 · UNLOCKED', 'Hold it and it unlocks in Double-O Satoshi (Q Branch) and the Arena gun picker. No account, no login: your wallet is the proof.'],
           ['03 · TRADEABLE', 'List it, sell it or gift it on any 1Sat marketplace. When it leaves your wallet, it leaves your loadout.'],
         ].map(([t, d]) => (
           <div key={t} className="panel">
@@ -118,8 +118,8 @@ export default function OrdnancePage() {
       <OrdnanceArsenal />
 
       <section className="grid gap-3 md:grid-cols-2">
-        <Link href="/arcade/doubleokweg" className="panel group hover:border-fg">
-          <p className="font-bold text-hot group-hover:underline">&gt; Double-O Kweg · Q Branch</p>
+        <Link href="/arcade/doubleosatoshi" className="panel group hover:border-fg">
+          <p className="font-bold text-hot group-hover:underline">&gt; Double-O Satoshi · Q Branch</p>
           <p className="mt-1 text-dim">The spy shooter. Owned ordnance shows up in Q Branch on the mission menu: pick it and Kweg carries it into the field.</p>
         </Link>
         <Link href="/arena" className="panel group hover:border-fg">
@@ -148,7 +148,7 @@ export default function OrdnancePage() {
       <footer className="flex flex-wrap justify-center gap-x-4 gap-y-1 py-3 text-xs text-muted">
         <Link href="/" className="hover:text-hot">home</Link>
         <Link href="/arcade" className="hover:text-hot">arcade</Link>
-        <Link href="/arcade/doubleokweg" className="hover:text-hot">double-o kweg</Link>
+        <Link href="/arcade/doubleosatoshi" className="hover:text-hot">double-o satoshi</Link>
         <Link href="/arena" className="hover:text-hot">arena</Link>
         <span>1Sat Ordinals on Bitcoin SV · indexed by GorillaPool</span>
       </footer>
