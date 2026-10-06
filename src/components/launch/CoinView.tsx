@@ -639,6 +639,7 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { 
     try {
       const r = await trade(wallet, { id: coin.token_id, sym: coin.sym, icon }, side, units, BigInt(coin.sold), slip, setStatus);
       setDone(r.txid);
+      setPicking(false);
       setAmount('');
       onDone();
       setTimeout(loadHeld, 1500);
@@ -653,42 +654,60 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { 
   return (
     <section className="panel text-sm">
       {picking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPicking(false)}>
-          <div role="dialog" aria-label={`${side === 'buy' ? 'Buy' : 'Sell'} $${coin.sym}`} className="panel w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-            <p className="panel-title mb-2">{side === 'buy' ? `Buy $${coin.sym}` : `Sell $${coin.sym}`}</p>
-            {side === 'buy' ? (
-              <>
-                <p className="text-dim">Choose how much BSV to spend. You get ${coin.sym} at the curve&apos;s price, in one transaction your wallet asks you to approve.</p>
-                <p className="mt-1 text-xs text-muted">
-                  One buy: 0.0001 to 20 BSV, fees included (1.0%).{bsvHeld !== null && <> Your wallet has {bsv(bsvHeld)}{rate ? ` (${usd(bsvHeld, rate)})` : ''}.</>}
-                </p>
-                <div className="mt-2 grid grid-cols-2 gap-1">
-                  {['0.001', '0.01', '0.1', '1'].filter((v) => bsvHeld === null || Number(v) * 1e8 < bsvHeld).map((v) => {
-                    const qq = quoteBuy(BigInt(coin.sold), BigInt(Math.round(Number(v) * 1e8)));
-                    return (
-                      <button key={v} className="btn" onClick={() => { setAmount(v); setPicking(false); }}>
-                        {v} BSV<span className="block text-xs text-muted">≈ {Number(qq.tokens).toLocaleString()} ${coin.sym}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {bsvHeld !== null && bsvHeld < MIN_BUY + 5_000 && <p className="mt-2 text-xs text-red-400">Your wallet needs at least about 0.00015 BSV for the smallest buy.</p>}
-              </>
-            ) : (
-              <>
-                <p className="text-dim">Choose how much ${coin.sym} to sell back to the curve for BSV, in one transaction.</p>
-                <p className="mt-1 text-xs text-muted">You hold {held === null ? '…' : Number(held).toLocaleString()} ${coin.sym}.</p>
-                <div className="mt-2 grid grid-cols-3 gap-1">
-                  {[25, 50, 100].map((pc) => (
-                    <button key={pc} className="btn" disabled={!held} onClick={() => { if (held) setAmount(((held * BigInt(pc)) / BigInt(100)).toString()); setPicking(false); }}>
-                      {pc === 100 ? 'Max' : `${pc}%`}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-            <p className="mt-2 text-xs text-muted">Or type an exact amount in the box. Then press {side === 'buy' ? 'Buy' : 'Sell'} again to see the quote and approve.</p>
-            <button className="btn mt-2 w-full" onClick={() => setPicking(false)}>Close</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" onClick={() => !busy && setPicking(false)}>
+          <div role="dialog" aria-label={`${side === 'buy' ? 'Buy' : 'Sell'} $${coin.sym}`} className="panel flex w-full max-w-md flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="panel-title">{side === 'buy' ? `Buy $${coin.sym}` : `Sell $${coin.sym}`}</p>
+              <div className="grid grid-cols-2 gap-1 text-xs">
+                <button className={`btn ${side === 'buy' ? 'btn-on' : ''}`} onClick={() => { setSide('buy'); setAmount(''); }}>Buy</button>
+                <button className={`btn ${side === 'sell' ? 'btn-on' : ''}`} onClick={() => { setSide('sell'); setAmount(''); }}>Sell</button>
+              </div>
+            </div>
+            <p className="text-xs text-muted">
+              {side === 'buy'
+                ? <>You have <span className="text-hot">{bsvHeld === null ? '…' : bsv(bsvHeld)}</span>{bsvHeld !== null && rate ? ` (${usd(bsvHeld, rate)})` : ''} · one buy 0.0001–20 BSV, 1% fee included</>
+                : <>You hold <span className="text-hot">{held === null ? '…' : Number(held).toLocaleString()} ${coin.sym}</span></>}
+            </p>
+            <label className="flex items-center gap-2 inset px-3 py-2" htmlFor="trade-amt">
+              <input id="trade-amt" autoFocus className="w-full bg-transparent text-2xl text-hot outline-none" inputMode="decimal" placeholder="0" value={amount}
+                onChange={(e) => setAmount(e.target.value.replace(side === 'buy' ? /[^0-9.]/g : /[^0-9]/g, ''))} />
+              <span className="text-dim">{side === 'buy' ? 'BSV' : `$${coin.sym}`}</span>
+            </label>
+            <div className="grid grid-cols-4 gap-1 text-xs">
+              {(side === 'buy'
+                ? (() => {
+                    // Quick amounts scale to what the wallet holds (less ~0.00005 BSV for fees); fixed steps when it won't say.
+                    const spend = bsvHeld === null ? null : Math.max(0, bsvHeld - 5_000);
+                    return spend === null
+                      ? [['0.001', '0.001'], ['0.01', '0.01'], ['0.1', '0.1'], ['1', '1']]
+                      : [10, 25, 50, 100].map((p) => [p === 100 ? 'Max' : `${p}%`, (Math.floor((spend * p) / 100) / 1e8).toFixed(8).replace(/\.?0+$/, '')]);
+                  })()
+                : [25, 50, 75, 100].map((p) => [p === 100 ? 'Max' : `${p}%`, held ? ((held * BigInt(p)) / BigInt(100)).toString() : '0'])
+              ).map(([label, v]) => (
+                <button key={label} className={`btn ${amount === v ? 'btn-on' : ''}`} onClick={() => setAmount(v)}>{label}</button>
+              ))}
+            </div>
+            <div className="inset grid grid-cols-2 gap-1 p-2 text-xs">
+              {q && q.tokens > BigInt(0) ? (
+                <>
+                  <span className="text-muted">You get</span>
+                  <span className="text-right text-hot">{side === 'buy' ? `${Number(q.tokens).toLocaleString()} $${coin.sym}` : `${bsv(Number(q.userSats))}${rate ? ` (${usd(Number(q.userSats), rate)})` : ''}`}</span>
+                  <span className="text-muted">Fees (1.0%)</span><span className="text-right">{bsv(Number(q.houseFee + q.routeFee))}</span>
+                  <span className="text-muted">Price after</span><span className="text-right">{priceSats(Number(q.soldAfter)).toPrecision(4)} sats</span>
+                </>
+              ) : (
+                <span className="col-span-2 text-muted">Type an amount or tap a quick amount to see what you get.</span>
+              )}
+            </div>
+            {side === 'buy' && units > BigInt(0) && invalid && <p className="text-xs text-red-400">One buy is between 0.0001 and 20 BSV.</p>}
+            {side === 'buy' && bsvHeld !== null && units > BigInt(Math.max(0, bsvHeld - 5_000)) && <p className="text-xs text-red-400">That&apos;s more than your wallet can spend after fees.</p>}
+            {side === 'sell' && invalid && <p className="text-xs text-red-400">That&apos;s more than you hold.</p>}
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            <button className="btn btn-fire w-full" disabled={busy || !q || q.tokens <= BigInt(0) || invalid} onClick={() => void go()}>
+              {busy ? (status ?? 'Working…') : side === 'buy' ? `Buy $${coin.sym}` : `Sell $${coin.sym}`}
+            </button>
+            <p className="text-xs text-muted">One atomic BSV transaction. Your wallet shows it before anything is signed.</p>
+            <button className="btn w-full" disabled={busy} onClick={() => setPicking(false)}>Close</button>
           </div>
         </div>
       )}
@@ -741,15 +760,12 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { 
         disabled={busy}
         onClick={() => {
           if (!wallet) return onConnect();
-          if (!q || invalid) {
-            setPicking(true);
-            wallet.client
-              .listOutputs({ basket: 'default', limit: 1000 })
-              .then((r) => setBsvHeld(r.outputs.filter((o) => o.spendable).reduce((n, o) => n + o.satoshis, 0)))
-              .catch(() => setBsvHeld(null));
-            return;
-          }
-          void go();
+          // Every Buy/Sell press opens the trade modal: amount, quick amounts from the wallet's balance, live quote.
+          setPicking(true);
+          wallet.client
+            .listOutputs({ basket: 'default', limit: 1000 })
+            .then((r) => setBsvHeld(r.outputs.filter((o) => o.spendable).reduce((n, o) => n + o.satoshis, 0)))
+            .catch(() => setBsvHeld(null));
         }}
       >
         {busy ? (status ?? 'Working…') : !wallet ? 'Connect wallet' : `${side === 'buy' ? 'Buy' : 'Sell'} $${coin.sym}`}

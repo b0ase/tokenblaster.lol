@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
+import { rememberWallet } from '@/lib/discovery';
 import { short, useBsvUsd } from './data';
 
 const LINKS = [
@@ -38,7 +40,7 @@ export function LaunchNav({ wallet, onConnect, busy }: { wallet?: { address: str
         </Link>
         {onConnect &&
           (wallet ? (
-            <span className="btn btn-on">{short(wallet.address)}</span>
+            <WalletBadge address={wallet.address} />
           ) : (
             <button className="btn" onClick={onConnect} disabled={busy}>
               {busy ? 'Connecting…' : 'Connect wallet'}
@@ -46,5 +48,40 @@ export function LaunchNav({ wallet, onConnect, busy }: { wallet?: { address: str
           ))}
       </div>
     </header>
+  );
+}
+
+/** The connected wallet: click for Copy address and Disconnect (forgets the wallet so it doesn't reconnect). */
+function WalletBadge({ address }: { address: string }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="relative">
+      <button className="btn btn-on" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {short(address)} ▾
+      </button>
+      {open && (
+        <span role="menu" className="panel absolute right-0 top-full z-50 mt-1 flex w-56 flex-col gap-1 p-2 text-sm">
+          <span className="break-all text-xs text-muted">{address}</span>
+          <button
+            role="menuitem"
+            className="btn"
+            onClick={() => navigator.clipboard?.writeText(address).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => undefined)}
+          >
+            {copied ? 'Copied ✓' : 'Copy address'}
+          </button>
+          <button
+            role="menuitem"
+            className="btn btn-fire"
+            onClick={() => {
+              rememberWallet(null);
+              location.reload();
+            }}
+          >
+            Disconnect
+          </button>
+        </span>
+      )}
+    </span>
   );
 }
