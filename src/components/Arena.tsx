@@ -583,7 +583,7 @@ export function Arena() {
           if (o) tintGun(h.group, o.tint, tintAmount(o));
           void brandGun(h.group, o?.id);
         };
-        ALL_GUNS.forEach((def, i) => {
+        ALL_GUNS.forEach((def) => {
           const o = def.ordnance;
           // Stock models are preloaded; an ordnance gun with its own model holds the stock one until its file arrives.
           const stock = GUNS.find((g) => g.id === (o?.base ?? def.id)) ?? GUNS[0];
@@ -1501,7 +1501,6 @@ export function Arena() {
                   if (locked)
                     return (
                       <Link key={g.id} href="/1satordnance/store" className="inset relative flex flex-col items-center bg-black/60 px-2 py-2 text-sm text-dim opacity-60 hover:opacity-100" title="Locked: own this 1Sat ordinal to unlock it">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         {g.ordnance && <GunArt o={g.ordnance} className="h-24 w-48 object-contain grayscale" />}
                         <div className="font-bold">🔒 {g.name}</div>
                         <div className="text-xs text-accent">1Sat Ordnance · get it ›</div>

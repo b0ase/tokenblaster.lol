@@ -7,7 +7,7 @@
  * leads from a fake-block bunker through the casino tower, the hash farm and the vault to the
  * syndicate's yacht. Parody characters only: no real names, photos, likenesses or logos.
  */
-import { BRIAN, BRIAN_CO, CZ, CZ_EXCHANGE, CZ_SHORT, MICHAEL, MINER, SAM, SAM_CO } from './names';
+import { BRIAN, BRIAN_CO, CZ, CZ_EXCHANGE, MICHAEL, MINER, SAM, SAM_CO } from './names';
 
 export type Speaker = 'm' | 'q' | 'one' | 'kweg' | 'cz' | 'brian' | 'michael' | 'jihan' | 'sam';
 
