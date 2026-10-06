@@ -88,7 +88,7 @@ export function Frogger3D() {
   const [lastTx, setLastTx] = useState<string | null>(null);
   const [payErr, setPayErr] = useState<string | null>(null);
   const [needSats, setNeedSats] = useState(false);
-  // Pay per action in sats (default) or in $FROGGER, once the wallet shows some.
+  // Pay per action in sats (default) or in $FROGGER, chosen by the player.
   const [payWith, setPayWith] = useState<'sats' | 'frog'>('sats');
   const frogTok = b.tokens.find((t) => t.id === FROG.id);
   const frogHeld = houseHeld(b.tokens, FROG);
@@ -103,16 +103,6 @@ export function Frogger3D() {
     b.setMode('sats');
     setPayWith('sats');
   };
-  const autoFrog = useRef(false);
-  useEffect(() => {
-    if (autoFrog.current || !frogTok || frogHeld < 1) return;
-    autoFrog.current = true;
-    void Promise.resolve().then(() => {
-      b.setToken(frogTok);
-      b.setMode('tokens');
-      setPayWith('frog');
-    });
-  }, [frogTok, frogHeld, b]);
   // What the game loop needs to know about paying, without re-running the 3D effect.
   const payRef = useRef({ paid: false, sats: 0, queued: 0, frog: false, tokens: 0 });
   useEffect(() => {
