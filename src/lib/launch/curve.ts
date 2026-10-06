@@ -23,7 +23,8 @@ export const INDEX_FEE = 1_000; // sats per token output, to the token's Gorilla
  * seen the deploy. GorillaPool only indexes ("includes") a BSV-21 token whose fund has reached 0.1 BSV;
  * until then wallets can't see its transfers and BlastPad can't verify sells.
  */
-export const INDEX_LAUNCH = 10_000_000;
+export const INDEX_THRESHOLD = 10_000_000; // GorillaPool includes a token once its fund reaches this (exactly)
+export const INDEX_LAUNCH = INDEX_THRESHOLD + 1_000; // plus the network fee of forwarding it, so the fund lands at ≥ 0.1 BSV
 export const MIN_BUY = 10_000; // sats (0.0001 BSV)
 export const MAX_BUY = 2_000_000_000; // sats (20 BSV)
 

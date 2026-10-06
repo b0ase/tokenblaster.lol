@@ -10,7 +10,7 @@
 import 'server-only';
 import { Beef, P2PKH, SatoshisPerKilobyte, Script, Transaction, type PrivateKey } from '@bsv/sdk';
 import { BURN_ADDRESS } from '../gun';
-import { INDEX_FEE, SUPPLY, quoteBuy } from './curve';
+import { INDEX_FEE, INDEX_THRESHOLD, SUPPLY, quoteBuy } from './curve';
 import { p2pkh, tokenOut } from './shape';
 import { HOUSE, broadcast, compactBeef, fundAddressOf, poolKey, rpc, type CoinRow } from './server';
 
@@ -66,6 +66,9 @@ export async function forwardIndexFund(slot: string, tokenId: string): Promise<n
     if (hex) coins.push({ txid: u.tx_hash, vout: u.tx_pos, sats: u.value, tx: Transaction.fromHex(hex.trim()) });
   }
   if (!coins.length) return 0;
+  // Coins launched before the fee margin hold exactly 0.1 BSV: forwarding them would land 20 sats short of the
+  // threshold. Wait until the index address can cover both (the vault run will see a top-up), never send short.
+  if (coins.reduce((n, c) => n + c.sats, 0) < INDEX_THRESHOLD + 200) return 0;
   const fund = await fundAddressOf(tokenId);
   if (!fund) return 0;
   const tx = await spend(coins, poolKey(slot, 'index'), [], fund); // everything, less the network fee, to the fund
