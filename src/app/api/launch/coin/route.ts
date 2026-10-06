@@ -11,9 +11,10 @@ type Row = { token_id: string; sold: number; reserve_sats: number; token_amt: nu
 
 async function onChain(row: Row) {
   const [bsv, tok] = await Promise.all([
-    fetch(`https://api.whatsonchain.com/v1/bsv/main/address/${row.reserve_address}/balance`, { cache: 'no-store' })
+    // Sum the unspent coins (mempool included): WhatsOnChain's /balance lags fresh, unconfirmed trades.
+    fetch(`https://api.whatsonchain.com/v1/bsv/main/address/${row.reserve_address}/unspent/all`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { confirmed: number; unconfirmed: number } | null) => (j ? j.confirmed + j.unconfirmed : null))
+      .then((j: { result?: { value: number }[] } | null) => (j?.result ? j.result.reduce((n, u) => n + u.value, 0) : null))
       .catch(() => null),
     fetch(`https://ordinals.gorillapool.io/api/bsv20/${row.token_address}/id/${row.token_id}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))

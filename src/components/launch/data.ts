@@ -94,14 +94,16 @@ export function usePoll<T>(url: string | null, ms: number, initial: T): [T, () =
   useEffect(() => {
     if (!url) return;
     let live = true;
-    const get = () => {
-      if (document.visibilityState === 'hidden') return;
+    const load = () =>
       fetch(url, { cache: 'no-store' })
         .then((r) => r.json())
         .then((j) => live && setData(j))
         .catch(() => undefined);
+    // Always load once, even in a background tab; only the repeat polls wait for the tab to be visible.
+    const get = () => {
+      if (document.visibilityState !== 'hidden') load();
     };
-    get();
+    load();
     const t = setInterval(get, ms);
     return () => {
       live = false;
