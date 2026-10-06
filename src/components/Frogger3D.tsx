@@ -18,7 +18,10 @@ import { chibiClips } from '@/lib/chibiAnims';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { useBlaster } from '@/lib/useBlaster';
+import { TOKEN_FEE } from '@/lib/gun';
+import { GAME_COINS, houseHeld } from '@/lib/gameCoins';
 import { WalletChooser } from './WalletChooser';
+import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { HighScores, useRunClock } from './HighScores';
 
 /** Where paid moves go: 1 sat per hop / shot to TokenBlaster. The player's gun pays the network fee too. */
@@ -26,6 +29,9 @@ const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam
 const PER_ACTION = 1;
 const EST_FEE = 26; // sats: ~260-byte tx at 100 sat/kB (GorillaPool ARC minimum)
 const LOADS = [1_000, 10_000, 100_000];
+/** Or pay in the game's own coin: 1 $FROGGER per hop / shot to the house, through the token gun. */
+const FROG = GAME_COINS.frogger;
+const FROG_LOADS = [10, 100, 1_000];
 import { buildGun, GUNS } from '@/lib/arenaHD';
 import { GameAudio } from './SoundToggle';
 import { sfx, sharedAudio } from '@/lib/sfx';
@@ -82,34 +88,64 @@ export function Frogger3D() {
   const [lastTx, setLastTx] = useState<string | null>(null);
   const [payErr, setPayErr] = useState<string | null>(null);
   const [needSats, setNeedSats] = useState(false);
+  // Pay per action in sats (default) or in $FROGGER, once the wallet shows some.
+  const [payWith, setPayWith] = useState<'sats' | 'frog'>('sats');
+  const frogTok = b.tokens.find((t) => t.id === FROG.id);
+  const frogHeld = houseHeld(b.tokens, FROG);
+  const payFrog = payWith === 'frog' && b.token?.id === FROG.id && b.mode === 'tokens';
+  const chooseFrog = () => {
+    if (!frogTok) return;
+    b.setToken(frogTok);
+    b.setMode('tokens');
+    setPayWith('frog');
+  };
+  const chooseSats = () => {
+    b.setMode('sats');
+    setPayWith('sats');
+  };
+  const autoFrog = useRef(false);
+  useEffect(() => {
+    if (autoFrog.current || !frogTok || frogHeld < 1) return;
+    autoFrog.current = true;
+    void Promise.resolve().then(() => {
+      b.setToken(frogTok);
+      b.setMode('tokens');
+      setPayWith('frog');
+    });
+  }, [frogTok, frogHeld, b]);
   // What the game loop needs to know about paying, without re-running the 3D effect.
-  const payRef = useRef({ paid: false, sats: 0, queued: 0 });
+  const payRef = useRef({ paid: false, sats: 0, queued: 0, frog: false, tokens: 0 });
   useEffect(() => {
     payRef.current.paid = paid && Boolean(HOUSE);
     payRef.current.sats = b.ammo;
-  }, [paid, b.ammo]);
+    payRef.current.frog = payFrog;
+    payRef.current.tokens = b.tokenAmmo;
+  }, [paid, b.ammo, payFrog, b.tokenAmmo]);
   const queue = useRef<string[][]>([]);
   const draining = useRef(false);
   const counter = useRef(0);
   const fireBatchRef = useRef(b.fireBatch);
+  const fireTokensRef = useRef(b.fireTokens);
   useEffect(() => {
     fireBatchRef.current = b.fireBatch;
-  }, [b.fireBatch]);
-  /** One real transaction per action: tag + 1 sat to the house + the network fee, chained in batches. */
+    fireTokensRef.current = b.fireTokens;
+  }, [b.fireBatch, b.fireTokens]);
+  /** One real transaction per action: tag + 1 sat (or 1 $FROGGER) to the house + the network fee, chained in batches. */
   const drain = useRef(async () => {
     if (draining.current) return;
     draining.current = true;
     while (queue.current.length) {
-      const batch = queue.current.slice(0, 40);
+      const frog = payRef.current.frog;
+      const batch = queue.current.slice(0, frog ? 25 : 40);
       try {
-        const txids = await fireBatchRef.current(counter.current + 1, batch, { address: HOUSE, sats: PER_ACTION });
+        const txids = frog ? await fireTokensRef.current(counter.current + 1, batch, HOUSE) : await fireBatchRef.current(counter.current + 1, batch, { address: HOUSE, sats: PER_ACTION });
         counter.current += txids.length;
         queue.current.splice(0, txids.length);
         payRef.current.queued = queue.current.length;
         setOnChain((n) => n + txids.length);
         if (txids.length) setLastTx(txids[txids.length - 1]);
         setPayErr(null);
-        if (!txids.length) throw new Error('Out of sats: load more to keep moving.');
+        if (!txids.length) throw new Error(frog ? `Out of $${FROG.sym} or fuel: load more to keep moving.` : 'Out of sats: load more to keep moving.');
       } catch (e) {
         setPayErr(e instanceof Error ? e.message : String(e));
         queue.current.length = 0;
@@ -123,7 +159,8 @@ export function Frogger3D() {
   const payFor = useRef((action: string[]) => {
     const pr = payRef.current;
     if (!pr.paid) return true; // practice mode: free
-    if (pr.sats - (pr.queued + 1) * (PER_ACTION + EST_FEE) < 0) {
+    const n = pr.queued + 1;
+    if (pr.frog ? pr.tokens < n || pr.sats < n * TOKEN_FEE : pr.sats - n * (PER_ACTION + EST_FEE) < 0) {
       setNeedSats(true);
       return false;
     }
@@ -1571,16 +1608,42 @@ export function Frogger3D() {
         <button onClick={() => setPaid(true)} disabled={!HOUSE} title={HOUSE ? undefined : 'Paid play is not switched on yet'} className={`btn ${paid ? 'btn-on' : ''} disabled:opacity-40`}>
           PAID · every hop &amp; shot is a real tx
         </button>
+        {paid && b.wallet && (
+          <>
+            <span className="text-dim">PAY:</span>
+            <button onClick={chooseSats} disabled={!!b.busy} className={`btn ${!payFrog ? 'btn-on' : ''}`}>
+              SATS
+            </button>
+            <button onClick={chooseFrog} disabled={!!b.busy || !frogTok} title={frogTok ? `1 $${FROG.sym} per hop / shot` : `Your wallet has no $${FROG.sym}`} className={`btn flex items-center gap-1 ${payFrog ? 'btn-on' : ''} disabled:opacity-40`}>
+              ${FROG.sym} <HouseBadge label="HOUSE" />
+            </button>
+            {!frogHeld && <BuyHouse coin={FROG} />}
+          </>
+        )}
         {paid && (
           <>
-            <span className="text-dim">
-              {PER_ACTION} sat to TokenBlaster + ~{EST_FEE} sats network fee per action ·{' '}
-              <span className="text-hot">{Math.floor(b.ammo / (PER_ACTION + EST_FEE)).toLocaleString()} actions</span> loaded ({b.ammo.toLocaleString()} sats)
-            </span>
+            {payFrog ? (
+              <span className="text-dim">
+                1 ${FROG.sym} to TokenBlaster + ~{TOKEN_FEE} sats network fee per action ·{' '}
+                <span className="text-hot">{Math.min(Math.floor(b.tokenAmmo), Math.floor(b.ammo / TOKEN_FEE)).toLocaleString()} actions</span> loaded ({Math.floor(b.tokenAmmo).toLocaleString()} ${FROG.sym} ·{' '}
+                {b.ammo.toLocaleString()} sats fuel)
+              </span>
+            ) : (
+              <span className="text-dim">
+                {PER_ACTION} sat to TokenBlaster + ~{EST_FEE} sats network fee per action ·{' '}
+                <span className="text-hot">{Math.floor(b.ammo / (PER_ACTION + EST_FEE)).toLocaleString()} actions</span> loaded ({b.ammo.toLocaleString()} sats)
+              </span>
+            )}
             {!b.wallet ? (
               <button onClick={b.connectWallet} disabled={!!b.busy} className="btn btn-on">
                 {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
               </button>
+            ) : payFrog ? (
+              FROG_LOADS.filter((n) => n <= frogHeld).map((n) => (
+                <button key={n} onClick={() => void b.loadTokenAmmo(n)} disabled={!!b.busy} className="btn">
+                  {b.busy === 'loading-tokens' ? 'APPROVE…' : `LOAD ${n.toLocaleString()} $${FROG.sym}`}
+                </button>
+              ))
             ) : (
               LOADS.map((n) => (
                 <button key={n} onClick={() => b.load(n, `Chain Frogger: ${n.toLocaleString()} sats of moves`)} disabled={!!b.busy} className="btn">
@@ -1588,7 +1651,7 @@ export function Frogger3D() {
                 </button>
               ))
             )}
-            {b.wallet && b.ammo > 0 && (
+            {b.wallet && (b.ammo > 0 || b.gunTokens.length > 0) && (
               <button onClick={b.unload} disabled={!!b.busy} className="btn">
                 UNLOAD
               </button>
@@ -1607,7 +1670,7 @@ export function Frogger3D() {
           </>
         )}
       </div>
-      {paid && needSats && <p className="mt-1 text-sm text-hot">Out of sats: load more to keep moving.</p>}
+      {paid && needSats && <p className="mt-1 text-sm text-hot">{payFrog ? `Out of $${FROG.sym} or fuel: load more to keep moving.` : 'Out of sats: load more to keep moving.'}</p>}
       {(payErr || b.error) && <p className="mt-1 text-sm text-hot">⚠ {payErr ?? b.error}</p>}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
       {killer && (
