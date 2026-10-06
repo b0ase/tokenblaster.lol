@@ -104,13 +104,18 @@ export async function fundAddressOf(tokenId: string): Promise<string | null> {
 
 /** Is this token coin valid in the BSV-21 index, and how many tokens of `id` does it hold? */
 export async function indexedTokenAmt(outpoint: string, id: string): Promise<bigint | null> {
+  // /txos says who owns the coin and which token it claims, but never its validation status;
+  // the owner's token list does (status 1 = valid, 0 = pending, -1 = invalid).
   const r = await fetch(`${GP}/txos/${outpoint}?script=false`, { cache: 'no-store' }).catch(() => null);
   if (!r?.ok) return null;
-  const j = (await r.json()) as { data?: { bsv20?: { id?: string; amt?: string | number; status?: number } } };
-  const b = j.data?.bsv20;
-  if (!b || b.id !== id || b.status === -1) return null;
-  if (b.status !== 1) return null; // pending: not validated yet
-  return BigInt(b.amt ?? 0);
+  const j = (await r.json()) as { owner?: string; data?: { bsv20?: { id?: string } } };
+  if (!j.owner || j.data?.bsv20?.id !== id) return null;
+  const list = await fetch(`${GP}/bsv20/${j.owner}/id/${id}`, { cache: 'no-store' })
+    .then((x) => (x.ok ? (x.json() as Promise<{ outpoint: string; amt: string | number; status: number }[]>) : null))
+    .catch(() => null);
+  const coin = list?.find((c) => c.outpoint === outpoint);
+  if (!coin || coin.status !== 1) return null; // pending or invalid
+  return BigInt(coin.amt);
 }
 
 /**
