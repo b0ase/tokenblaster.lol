@@ -159,7 +159,7 @@ export type GunDef = {
 export const GUNS: GunDef[] = [
   { id: 'minigun', name: 'Minigun', key: '1', url: '/arena/models/guns/minigun.glb', flip: true, fireMs: 33, pellets: 1, spread: 0.03, length: 0.9, pos: [0.24, -0.3, -0.55], bolt: '#ffb070', spin: 'Minigun_Rig|Rotation', kick: 0.25 },
   { id: 'plasmarifle', name: 'Plasma MG', key: '2', url: '/arena/models/guns/plasmarifle.glb', fireMs: 55, pellets: 1, spread: 0.015, length: 0.6, pos: [0.22, -0.24, -0.5], bolt: '#6ae0ff', kick: 0.4 },
-  { id: 'quadplasma', name: 'Quad Plasma', key: '3', url: '/arena/models/guns/quadplasma.glb', fireMs: 140, pellets: 4, spread: 0.035, length: 0.75, pos: [0.22, -0.25, -0.5], bolt: '#b46aff', kick: 0.9 },
+  { id: 'quadplasma', name: 'Quad Plasma', key: '3', url: '/arena/models/guns/quadplasma.glb', fireMs: 140, pellets: 4, spread: 0.035, length: 0.75, flip: true, pos: [0.22, -0.25, -0.5], bolt: '#b46aff', kick: 0.9 },
   { id: 'sawedoff', name: 'Sawed-off', key: '4', url: '/arena/models/guns/sawedoff.glb', fireMs: 600, pellets: 8, spread: 0.09, length: 0.65, pos: [0.22, -0.25, -0.48], bolt: '#ffd27a', kick: 1.6 },
 ];
 
