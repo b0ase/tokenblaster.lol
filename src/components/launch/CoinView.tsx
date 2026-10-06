@@ -56,7 +56,7 @@ function soldAt(trades: Trade[], now: number, ms: number) {
 export function CoinView({ id }: { id: string }) {
   const { wallet, open, busy, chooserEl } = useLaunchWallet();
   const rate = useBsvUsd();
-  const [data, refreshCoin] = usePoll<{ coin?: Coin; reserves?: Reserves; error?: string }>(`/api/launch/coin?token=${id}`, 5000, {});
+  const [data, refreshCoin] = usePoll<{ coin?: Coin; reserves?: Reserves; indexed?: boolean | null; error?: string }>(`/api/launch/coin?token=${id}`, 5000, {});
   const [tr, refreshTrades] = usePoll<{ trades: Trade[] }>(`/api/launch/trades?token=${id}&limit=1000`, 5000, { trades: [] });
   const [board] = usePoll<{ coins: BoardCoin[]; feed: Trade[] }>('/api/launch/coins', 8000, { coins: [], feed: [] });
   const { list: watch, toggle } = useWatchlist();
@@ -193,6 +193,7 @@ export function CoinView({ id }: { id: string }) {
 
       <aside className="flex flex-col gap-3">
         <TradePanel
+          indexed={data.indexed ?? null}
           coin={c}
           icon={icon}
           wallet={wallet}
@@ -604,7 +605,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function TradePanel({ coin, icon, wallet, onConnect, rate, onDone }: { coin: Coin; icon: string; wallet: ReturnType<typeof useLaunchWallet>['wallet']; onConnect: () => void; rate: number; onDone: () => void }) {
+function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { coin: Coin; icon: string; wallet: ReturnType<typeof useLaunchWallet>['wallet']; onConnect: () => void; rate: number; onDone: () => void; indexed: boolean | null }) {
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [amount, setAmount] = useState('');
   const [slip, setSlip] = useState(300);
@@ -687,6 +688,11 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone }: { coin: Coi
         </div>
       )}
       {!q && <p className="mt-2 text-xs text-dim">Enter an amount to see what you get.</p>}
+      {side === 'sell' && indexed === false && (
+        <p className="inset mt-2 p-2 text-xs text-yellow-400">
+          Sells open once the token index has picked ${coin.sym} up, usually within a block or two of launch (about 10–20 minutes). Buying works now.
+        </p>
+      )}
       <button className="btn btn-fire mt-2 w-full" disabled={busy || (Boolean(wallet) && (!q || invalid))} onClick={go}>
         {busy ? (status ?? 'Working…') : !wallet ? 'Connect wallet' : `${side === 'buy' ? 'Buy' : 'Sell'} $${coin.sym}`}
       </button>

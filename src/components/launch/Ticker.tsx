@@ -25,12 +25,17 @@ export function Ticker({ feed }: { feed: Trade[] }) {
         ● LIVE<span className="blink">_</span>
       </span>
       <div className="relative min-w-0 flex-1 overflow-hidden">
-        <div className="ticker-track flex w-max">
+        {items.length < 4 ? (
+          // Too few to loop: a scrolling second copy would just show each trade twice.
           <div className="flex">{row('')}</div>
-          <div className="flex" aria-hidden>
-            {row('b')}
+        ) : (
+          <div className="ticker-track flex w-max">
+            <div className="flex">{row('')}</div>
+            <div className="flex" aria-hidden>
+              {row('b')}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

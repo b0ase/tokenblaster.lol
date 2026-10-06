@@ -29,6 +29,14 @@ async function onChain(row: Row) {
   return { bsv, tokens: tok, checkedAt: Date.now() };
 }
 
+/** Has GorillaPool indexed ("included") the token? Until it has, sells can't be verified. */
+async function indexed(tokenId: string): Promise<boolean | null> {
+  return fetch(`https://ordinals.gorillapool.io/api/bsv20/id/${tokenId}`, { cache: 'no-store' })
+    .then((r) => (r.ok ? (r.json() as Promise<{ included?: boolean }>) : null))
+    .then((j) => (j ? Boolean(j.included) : null))
+    .catch(() => null);
+}
+
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get('token') ?? '';
   if (!/^[0-9a-f]{64}_\d+$/.test(token)) return NextResponse.json({ error: 'Bad coin id.' }, { status: 400 });
@@ -38,8 +46,8 @@ export async function GET(req: Request) {
     const sold = BigInt(row.sold);
     const expected = { bsv: Number(poolSats(sold)), tokens: Number(SUPPLY - sold) };
     const ledger = { bsv: Number(row.reserve_sats), tokens: Number(row.token_amt) };
-    const chain = await onChain(row);
-    return NextResponse.json({ coin: row, reserves: { expected, ledger, chain } }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
+    const [chain, isIndexed] = await Promise.all([onChain(row), indexed(token)]);
+    return NextResponse.json({ coin: row, indexed: isIndexed, reserves: { expected, ledger, chain } }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
