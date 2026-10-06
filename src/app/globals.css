@@ -145,8 +145,23 @@ body::after {
   }
 }
 
+.ticker-track {
+  animation: ticker 60s linear infinite;
+}
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+@keyframes ticker {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .blink {
+    animation: none;
+  }
+  .ticker-track {
     animation: none;
   }
 }
