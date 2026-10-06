@@ -1590,14 +1590,31 @@ export function Frogger3D() {
           <span className="text-hot">{best}</span>
         </div>
       </div>
-      <div className="inset mt-2 flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
-        <span className="text-dim">MODE:</span>
-        <button onClick={() => setPaid(false)} className={`btn ${!paid ? 'btn-on' : ''}`}>
-          PRACTICE · free
+      {/* Mode picker: big and plain, so nobody wonders whether a hop costs money (owner, 6 Oct 2026). */}
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button
+          onClick={() => setPaid(false)}
+          aria-pressed={!paid}
+          className={`btn flex flex-col items-start gap-1 px-4 py-4 text-left ${!paid ? 'btn-on' : ''}`}
+        >
+          <span className="text-xl font-bold">{!paid ? '● ' : '○ '}PRACTICE · FREE</span>
+          <span className="text-sm opacity-80">Nothing is paid. Hops and shots stay off-chain.</span>
         </button>
-        <button onClick={() => setPaid(true)} disabled={!HOUSE} title={HOUSE ? undefined : 'Paid play is not switched on yet'} className={`btn ${paid ? 'btn-on' : ''} disabled:opacity-40`}>
-          PAID · every hop &amp; shot is a real tx
+        <button
+          onClick={() => setPaid(true)}
+          aria-pressed={paid}
+          disabled={!HOUSE}
+          title={HOUSE ? undefined : 'Paid play is not switched on yet'}
+          className={`btn flex flex-col items-start gap-1 px-4 py-4 text-left disabled:opacity-40 ${paid ? 'btn-on' : ''}`}
+        >
+          <span className="text-xl font-bold">{paid ? '● ' : '○ '}PAID · ON-CHAIN</span>
+          <span className="text-sm opacity-80">Every hop and shot is a real transaction: 1 sat or 1 ${FROG.sym}.</span>
         </button>
+      </div>
+      <p className="mt-2 text-center text-base font-bold">
+        {paid ? <span className="text-hot">You are playing PAID: each hop costs money.</span> : <span className="text-dim">You are playing FREE: nothing is paid.</span>}
+      </p>
+      <div className={`inset mt-2 flex-wrap items-center gap-2 px-3 py-2 text-sm ${paid ? 'flex' : 'hidden'}`}>
         {paid && b.wallet && (
           <>
             <span className="text-dim">PAY:</span>
