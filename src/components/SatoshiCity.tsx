@@ -46,7 +46,7 @@ import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
 import { useActionPay } from '@/lib/useActionPay';
 import { HighScores } from './HighScores';
 import { buildCityDetail } from '@/lib/visuals/cityDetail';
-import { buildPlaza, cityUniforms, createStreetLight } from '@/lib/city/art';
+import { buildPlaza, buildStreetSigns, cityUniforms, createStreetLight } from '@/lib/city/art';
 import { QUALITY_PRESETS, autoCityQuality, saveCityQuality, type CityQuality } from '@/lib/visuals/cityQuality';
 import { sharedAudio } from '@/lib/sfx';
 import { useGameFullscreen } from '@/lib/useGameFullscreen';
@@ -169,6 +169,7 @@ export function SatoshiCity() {
     const detail = buildCityDetail(scene, blocks, quality);
     const street = createStreetLight(scene, world.lightSources, quality);
     const plaza = buildPlaza(scene, ...squareCentre(), 60);
+    buildStreetSigns(scene);
     const peds = createPeds(scene, blocks); // sidewalk walkers (real rigged models)
     const edges = world.edges;
     const edgesFrom: Edge[][] = Array.from({ length: N * N }, () => []);
@@ -808,8 +809,6 @@ export function SatoshiCity() {
           return true;
         },
         action: () => action(),
-        scene,
-        passes: { bloom, gtao, grade },
         // Screenshot rig: freeze the clock at dayT, put the player at (x, z) and aim the camera.
         pose: (d: number, x: number, z: number, yaw: number, pitch = 0.32, dist = 6) => {
           dayT = d;

@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { CURB_H, rng } from './layout';
+import { CURB_H, HALF_ROAD, N, nodeCoord, rng } from './layout';
 import type { CityQuality } from '@/lib/visuals/cityQuality';
 
 export const DRC = { ink: '#0a0a0c', paper: '#f2efe6', red: '#e8261d', amber: '#ffb800', cyan: '#27e6ff', magenta: '#ff2f92', acid: '#c8ff1a', blue: '#2a5bff' };
@@ -208,6 +208,31 @@ export function createStreetLight(scene: THREE.Scene, sources: LightSource[], qu
   streaks.renderOrder = 2;
   scene.add(streaks);
 
+  // Light shafts: a soft additive cone under every street lamp (rain haze), high tier only.
+  const lampSrc = sources.filter((s) => s.pool >= 12);
+  const coneGeos = lampSrc.map((s) => new THREE.CylinderGeometry(0.25, 3.2, s.y - CURB_H, 16, 1, true).translate(s.x, (s.y + CURB_H) / 2, s.z));
+  const coneMat = new THREE.ShaderMaterial({
+    uniforms: { uOp: { value: 0 } },
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+    vertexShader: `varying float vY; varying float vF; varying vec3 vWp;
+      void main(){ vY = uv.y; vec4 wp = modelMatrix * vec4(position, 1.0); vWp = wp.xyz;
+        vec3 nrm = normalize(mat3(modelMatrix) * normal); vec3 v = normalize(cameraPosition - wp.xyz);
+        vF = pow(abs(dot(nrm, v)), 1.5); gl_Position = projectionMatrix * viewMatrix * wp; }`,
+    fragmentShader: `uniform float uOp; varying float vY; varying float vF; varying vec3 vWp;
+      void main(){ float d = length(cameraPosition - vWp); float a = vY * vY * vF * uOp * smoothstep(2.0, 8.0, d) * (1.0 - smoothstep(60.0, 110.0, d));
+        gl_FragColor = vec4(vec3(1.0, 0.78, 0.5) * a, 1.0); }`,
+  });
+  const cones = new THREE.Mesh(coneGeos.length ? mergeGeometries(coneGeos) : new THREE.BufferGeometry(), coneMat);
+  for (const g of coneGeos) g.dispose();
+  cones.frustumCulled = false;
+  cones.renderOrder = 3;
+  scene.add(cones);
+  let hi = quality === 'high';
+
   // Real lights near the player.
   let count = quality === 'high' ? 8 : 3;
   const lights: THREE.PointLight[] = [];
@@ -227,6 +252,8 @@ export function createStreetLight(scene: THREE.Scene, sources: LightSource[], qu
     pools.visible = nt > 0.02;
     streakMat.uniforms.uWet.value = Math.max(0, nt - 0.15) * 1.1;
     streaks.visible = nt > 0.16;
+    coneMat.uniforms.uOp.value = nt * 0.16;
+    cones.visible = hi && nt > 0.2;
   };
   const update = (now: number, fx: number, fz: number) => {
     if (now < nextPick) return;
@@ -246,7 +273,8 @@ export function createStreetLight(scene: THREE.Scene, sources: LightSource[], qu
     }
   };
   const setQuality = (q: CityQuality) => {
-    count = q === 'high' ? 8 : 3;
+    hi = q === 'high';
+    count = hi ? 8 : 3;
     lights.forEach((l, k) => {
       l.visible = k < count;
     });
@@ -635,4 +663,62 @@ export function buildPlaza(scene: THREE.Scene, cx: number, cz: number, size: num
     edgeMat.opacity = 0.35 + nightV * 0.65;
   };
   return { update };
+}
+
+const STREETS = ['GENESIS AVE', 'HASH ST', 'MERKLE RD', 'NONCE ST', 'COINBASE AVE'];
+const CROSS = ['SATOSHI BLVD', 'UTXO LN', 'MEMPOOL ST', 'BLOCK RD', 'SIGHASH WAY'];
+/** DR street-name plates on a pole at one corner of every junction (one merged mesh, one atlas). */
+export function buildStreetSigns(scene: THREE.Scene) {
+  const names = [...STREETS, ...CROSS];
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 64 * names.length;
+  const x = c.getContext('2d')!;
+  names.forEach((nm, k) => {
+    const y = k * 64;
+    x.fillStyle = k < 5 ? DRC.blue : '#0d6b4a';
+    x.fillRect(0, y, 512, 64);
+    x.fillStyle = DRC.paper;
+    x.fillRect(4, y + 4, 504, 3);
+    x.fillRect(4, y + 57, 504, 3);
+    x.fillStyle = DRC.amber;
+    x.fillRect(10, y + 12, 40, 40);
+    x.fillStyle = DRC.ink;
+    x.font = 'bold 26px monospace';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillText(String(k + 1).padStart(2, '0'), 30, y + 33);
+    x.fillStyle = DRC.paper;
+    x.font = 'italic 900 38px Impact, "Arial Black", sans-serif';
+    x.textAlign = 'left';
+    x.fillText(nm, 62, y + 34, 440);
+  });
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const plateMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.4, metalness: 0.3, side: THREE.DoubleSide });
+  const poleMat = new THREE.MeshStandardMaterial({ color: '#22252b', roughness: 0.45, metalness: 0.7 });
+  const plates: THREE.BufferGeometry[] = [];
+  const poles: THREE.BufferGeometry[] = [];
+  const rows = names.length;
+  const plate = (k: number) => {
+    const g = new THREE.PlaneGeometry(2.4, 0.3);
+    const uv = g.attributes.uv as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - (k + 1 - uv.getY(i)) / rows);
+    return g;
+  };
+  for (let i = 0; i < N; i++)
+    for (let j = 0; j < N; j++) {
+      const px = nodeCoord(i) + HALF_ROAD + 1.0;
+      const pz = nodeCoord(j) + HALF_ROAD + 1.0;
+      poles.push(new THREE.CylinderGeometry(0.06, 0.07, 3.6, 8).translate(px, CURB_H + 1.8, pz));
+      // plate along x names the x-road (constant z = nodeCoord(j)); plate along z names the z-road
+      plates.push(plate(5 + j).translate(px - 1.25, CURB_H + 3.3, pz));
+      plates.push(plate(i).rotateY(Math.PI / 2).translate(px, CURB_H + 2.95, pz - 1.25));
+    }
+  const pm = new THREE.Mesh(mergeGeometries(plates), plateMat);
+  const pl = new THREE.Mesh(mergeGeometries(poles), poleMat);
+  pl.castShadow = true;
+  for (const g of [...plates, ...poles]) g.dispose();
+  scene.add(pm, pl);
 }
