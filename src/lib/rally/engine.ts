@@ -829,6 +829,21 @@ export class RallyEngine {
       gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.4, thickness: 1.5, scale: 1, samples: this.quality === 'ultra' ? 16 : 10, distanceFallOff: 1 });
       gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 8 });
       gtao.blendIntensity = 0.75;
+      // GTAOPass redraws the scene with an override material and only hides Points/Lines, so Sprites (name labels,
+      // glows) turn into opaque quads that AO darkens behind: dark squares. Hide sprites during its passes (as Double-O does).
+      {
+        const sprites: THREE.Object3D[] = [];
+        const aoRender = gtao.render.bind(gtao) as (...a: unknown[]) => void;
+        gtao.render = ((...a: unknown[]) => {
+          sprites.length = 0;
+          this.scene.traverseVisible((o) => {
+            if ((o as THREE.Sprite).isSprite) sprites.push(o);
+          });
+          for (const o of sprites) o.visible = false;
+          aoRender(...a);
+          for (const o of sprites) o.visible = true;
+        }) as typeof gtao.render;
+      }
       comp.addPass(gtao);
       this.gtao = gtao;
     }
