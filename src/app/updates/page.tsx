@@ -2,7 +2,10 @@ import Link from 'next/link';
 
 export const metadata = { title: 'Updates · TokenBlaster.lol', description: 'What we shipped, day by day.' };
 
-const UPDATES = [{ href: '/updates/2026-10-05', date: '5 Oct 2026', title: 'Guns you actually own, ammo tokens, a spy story, new monsters, gold everything' }];
+const UPDATES = [
+  { href: '/updates/2026-10-07', date: '7 Oct 2026', title: 'Token Rally, an Arena and Double-O Satoshi glow-up, and 10p coin-op' },
+  { href: '/updates/2026-10-06', date: '6 Oct 2026', title: 'BlastPad opens, four game coins, and Chain Frogger takes $FROGGER' },
+  { href: '/updates/2026-10-05', date: '5 Oct 2026', title: 'Guns you actually own, ammo tokens, a spy story, new monsters, gold everything' }];
 
 export default function Updates() {
   return (
