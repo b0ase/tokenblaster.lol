@@ -84,7 +84,6 @@ const MAP = RAW_MAP.map((row, z) => [...row].map((c, x) => (COVER.some(([cx, cz]
 const COLS = MAP[0].length;
 const HALL_Z = 16;
 const SIZE = 4; // world units per cell
-const WALL_H = SIZE * 0.8;
 const MAX_HEAT = 300; // shots queued for the chain before the gun overheats
 const BATCH = 50; // blasts per ARC request
 const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
@@ -242,7 +241,7 @@ export function Arena() {
     const renderer = new THREE.WebGLRenderer({ antialias: !phone, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 1.15;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -250,8 +249,8 @@ export function Arena() {
     renderer.domElement.style.height = '100%';
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#9a7a5a');
-    scene.fog = new THREE.FogExp2('#c8a27a', 0.016);
+    scene.background = new THREE.Color('#0a0302');
+    scene.fog = new THREE.FogExp2('#2a0d07', 0.03);
     const camera = new THREE.PerspectiveCamera(72, 1, 0.05, 120);
     scene.add(camera);
     const composer = new EffectComposer(renderer);
@@ -278,19 +277,22 @@ export function Arena() {
       };
       composer.addPass(ao);
     }
-    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), phone ? 0.12 : 0.18, 0.5, 1.0);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), phone ? 0.5 : 0.7, 0.7, 0.85);
     composer.addPass(bloom);
+    // Hell grade: crimson shadows, molten highlights, crushed blacks, heavy vignette, heat haze near lava.
     const grade = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, uVig: { value: 0.38 } },
+      uniforms: { tDiffuse: { value: null }, uVig: { value: 0.55 }, uTime: { value: 0 }, uHeat: { value: 0 } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig; uniform float uTime; uniform float uHeat; varying vec2 vUv;
         void main(){
-          vec4 c = texture2D(tDiffuse, vUv);
+          vec2 uv = vUv + vec2(sin(vUv.y * 38.0 + uTime * 2.6), cos(vUv.x * 30.0 + uTime * 2.1)) * 0.0024 * uHeat;
+          vec4 c = texture2D(tDiffuse, uv);
           float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
-          c.rgb = mix(vec3(l), c.rgb, 1.14);
-          c.rgb *= mix(vec3(0.93, 1.0, 1.06), vec3(1.08, 1.0, 0.90), smoothstep(0.04, 0.9, l));
+          c.rgb = mix(vec3(l), c.rgb, 1.2);
+          c.rgb *= mix(vec3(1.06, 0.78, 0.7), vec3(1.12, 1.0, 0.86), smoothstep(0.02, 0.7, l));
+          c.rgb = pow(max(c.rgb, vec3(0.0)), vec3(1.07));
           float d = distance(vUv, vec2(0.5));
-          c.rgb *= 1.0 - smoothstep(0.32, 0.95, d) * uVig;
+          c.rgb *= 1.0 - smoothstep(0.28, 0.95, d) * uVig;
           gl_FragColor = c;
         }`,
     });
@@ -305,7 +307,7 @@ export function Arena() {
       const hi = quality === 'high';
       basePR = Math.min(window.devicePixelRatio, phone || !hi ? 1 : 1.5);
       if (ao) ao.enabled = hi;
-      bloom.strength = hi ? 0.18 : 0.12;
+      bloom.strength = hi ? 0.7 : 0.5;
       dressing?.setQuality(quality);
       resDirty = true;
     };
@@ -314,9 +316,9 @@ export function Arena() {
     applyQuality(quality);
 
     // Lights that don't need assets.
-    scene.add(new THREE.HemisphereLight('#ffe6c8', '#3a2a20', 0.3));
+    scene.add(new THREE.HemisphereLight('#6a2a1c', '#140605', 0.55));
     // The torch sits ahead of and above you, so the gun in your hands isn't blown out.
-    const torch = new THREE.PointLight('#ffd2bc', 6, 12, 1.5);
+    const torch = new THREE.PointLight('#ffb890', 3, 10, 1.5);
     scene.add(torch);
     const muzzleLight = new THREE.PointLight('#fff0c0', 0, 10, 2);
     scene.add(muzzleLight);
@@ -388,12 +390,13 @@ export function Arena() {
     const ammoFx = makeAmmoFx(scene, 0);
     let lastShotCast = 0;
     let lastWisp = 0;
+    let slowUntil = 0;
     let whining = false;
 
     // ── Game state (filled in once assets load) ──
     const walls: THREE.Object3D[] = [];
     let start = centre([1, 1], 1.6);
-    type Mob = { m: Monster; hp: number; state: 'chase' | 'wander' | 'attack' | 'hit' | 'dying' | 'dead'; since: number; next: number; dir: THREE.Vector3; horde: boolean; strafe: number; strafeAt: number; pop: number; los: boolean; losAt: number };
+    type Mob = { m: Monster; hp: number; state: 'chase' | 'wander' | 'attack' | 'hit' | 'dying' | 'dead'; since: number; next: number; dir: THREE.Vector3; horde: boolean; strafe: number; strafeAt: number; pop: number; los: boolean; losAt: number; flash: { value: number }[] };
     const mobs: Mob[] = [];
     // ── Multiplayer: everyone in /arena shares one room (Supabase Realtime broadcast + presence) ──
     const myId = Math.random().toString(36).slice(2, 10);
@@ -464,7 +467,6 @@ export function Arena() {
     const fireballs: { s: THREE.Sprite; v: THREE.Vector3 }[] = [];
     const sparks: { p: THREE.Points; born: number }[] = [];
     const medkits: { mesh: THREE.Mesh; back: number }[] = [];
-    let slimeTex: THREE.CanvasTexture | null = null;
     let health = 100;
     let deadUntil = 0;
     let sfx: Sfx | null = null;
@@ -677,95 +679,16 @@ export function Arena() {
     };
 
     // ── Load assets, then build the level ──
-    loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p)))
+    loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p)), true)
       .then((a) => {
         if (disposed) return;
-        const zoneMats = [a.material('concrete_wall_003', [2, 1.5]), a.material('castle_brick_07', [1, 0.9]), a.material('rusty_corrugated_iron', [2, 1.5]), a.material('rough_block_wall', [1, 0.9])];
-        const trim = a.material('painted_metal_shutter', [1, 0.9]);
-        const hallMat = a.material('corrugated_iron_02', [1, 0.9]);
-        // Walls: one InstancedMesh per material (a handful of draw calls instead of hundreds); inner walls
-        // are a little uneven in height so the skyline looks ruined rather than boxed.
-        const groups = new Map<THREE.Material, [number, number, number][]>();
         MAP.forEach((row, z) =>
           [...row].forEach((c, x) => {
             if (c === 'S') start = centre([x, z], 1.6);
-            if (c !== '1') return;
-            const mat = z >= HALL_Z ? hallMat : (x * 7 + z * 3) % 6 === 0 ? trim : zoneMats[(x < 8 ? 0 : 1) + (z < 8 ? 0 : 2)];
-            const rim = x === 0 || z === 0 || x === COLS - 1 || z === MAP.length - 1 || z >= HALL_Z;
-            const hh = rim ? 1 : (x * 13 + z * 7) % 5 === 0 ? 0.78 : (x * 5 + z * 11) % 7 === 0 ? 0.9 : 1;
-            const list = groups.get(mat) ?? [];
-            list.push([x, z, WALL_H * hh]);
-            groups.set(mat, list);
           }),
         );
-        const wallGeo = new THREE.BoxGeometry(SIZE, 1, SIZE);
-        const mtx = new THREE.Object3D();
-        for (const [mat, list] of groups) {
-          const im = new THREE.InstancedMesh(wallGeo, mat, list.length);
-          list.forEach(([x, z, hgt], k) => {
-            mtx.position.set((x + 0.5) * SIZE, hgt / 2, (z + 0.5) * SIZE);
-            mtx.scale.set(1, hgt, 1);
-            mtx.updateMatrix();
-            im.setMatrixAt(k, mtx.matrix);
-          });
-          im.castShadow = true;
-          im.receiveShadow = true;
-          im.userData.wall = true;
-          im.computeBoundingSphere();
-          scene.add(im);
-          walls.push(im);
-        }
-        const spanX = COLS * SIZE;
-        const spanZ = MAP.length * SIZE;
-        const floor = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), a.material('concrete_floor_worn_001', [COLS, MAP.length]));
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.set(spanX / 2, 0, spanZ / 2);
-        floor.receiveShadow = true;
-        scene.add(floor);
-        // Only the horde hall is roofed; the maze is open to the sky.
-        const hallRows = MAP.length - HALL_Z;
-        const ceil = new THREE.Mesh(new THREE.PlaneGeometry(spanX, hallRows * SIZE), a.material('metal_grate_rusty', [COLS, hallRows]));
-        ceil.rotation.x = Math.PI / 2;
-        ceil.position.set(spanX / 2, WALL_H, (HALL_Z * SIZE + spanZ) / 2);
-        ceil.castShadow = true;
-        scene.add(ceil);
-        dressing = dressLevel({ scene, renderer, a, map: MAP, cover: COVER, size: SIZE, hallZ: HALL_Z, wallH: WALL_H, quality });
-        walls.push(...dressing.solids);
-
-        // Glowing slime (burns) and the red hall lights.
-        const sc = document.createElement('canvas');
-        sc.width = sc.height = 128;
-        const sx = sc.getContext('2d')!;
-        sx.fillStyle = '#1e8a10';
-        sx.fillRect(0, 0, 128, 128);
-        for (let i = 0; i < 160; i++) {
-          sx.fillStyle = ['#5adc2a', '#2aa012', '#9aff5a'][i % 3];
-          sx.beginPath();
-          sx.arc(Math.random() * 128, Math.random() * 128, 2 + Math.random() * 6, 0, Math.PI * 2);
-          sx.fill();
-        }
-        slimeTex = new THREE.CanvasTexture(sc);
-        slimeTex.wrapS = slimeTex.wrapT = THREE.RepeatWrapping;
-        slimeTex.colorSpace = THREE.SRGBColorSpace;
-        const slimeMat = new THREE.MeshBasicMaterial({ map: slimeTex, color: new THREE.Color(1.6, 2.2, 1.2), toneMapped: false });
-        for (const cell of SLIME) {
-          const m = new THREE.Mesh(new THREE.PlaneGeometry(SIZE * 0.9, SIZE * 0.9), slimeMat);
-          m.rotation.x = -Math.PI / 2;
-          m.position.copy(centre(cell, 0.02));
-          scene.add(m);
-          const l = new THREE.PointLight('#5aff3a', 8, 6, 1.8);
-          l.position.copy(centre(cell, 0.6));
-          scene.add(l);
-        }
-        for (const cell of [
-          [4, 19],
-          [11, 19],
-          [7, 25],
-        ] as [number, number][]) {
-          const l = new THREE.PointLight('#ff3a1a', 45, 22, 1.4);
-          l.position.copy(centre(cell, WALL_H - 0.6));
-          scene.add(l);
-        }
+        dressing = dressLevel({ scene, renderer, camera, a, map: MAP, cover: COVER, lava: SLIME, size: SIZE, hallZ: HALL_Z, quality });
+        walls.push(...dressing.walls, ...dressing.solids);
 
         // Medkits: white boxes with a red cross.
         const mc = document.createElement('canvas');
@@ -791,6 +714,51 @@ export function Arena() {
         const now = performance.now();
         const make = (def: (typeof MONSTERS)[number], horde: boolean) => {
           const m = new Monster(def, a.monsters[def.id]);
+          m.root.scale.setScalar(def.id === 'helldemon' ? 1.15 : 1.3); // bigger, nastier
+          const flashU: { value: number }[] = [];
+          // Own materials per demon: a hard orange rim light, burnt-dark skin, and a white-hot flash on every hit.
+          m.root.traverse((o) => {
+            const mesh = o as THREE.Mesh;
+            if (!mesh.isMesh || o === m.hitbox) return;
+            const own = (mt: THREE.Material) => {
+              const c = mt.clone() as THREE.MeshStandardMaterial;
+              if (c.color) c.color.multiplyScalar(0.78);
+              const u = { value: 0 };
+              flashU.push(u);
+              c.onBeforeCompile = (sh) => {
+                sh.uniforms.uFlash = u;
+                sh.fragmentShader = sh.fragmentShader
+                  .replace('#include <common>', '#include <common>\nuniform float uFlash;')
+                  .replace(
+                    '#include <opaque_fragment>',
+                    `float rimD = 1.0 - saturate(dot(normalize(vViewPosition), normal));
+                    outgoingLight += vec3(1.7, 0.5, 0.14) * smoothstep(0.5, 0.95, rimD) * 1.1;
+                    outgoingLight = mix(outgoingLight, vec3(4.0, 2.4, 1.3), uFlash * 0.8);
+                    #include <opaque_fragment>`,
+                  );
+              };
+              c.customProgramCacheKey = () => 'mobrim';
+              return c;
+            };
+            mesh.material = Array.isArray(mesh.material) ? mesh.material.map(own) : own(mesh.material);
+          });
+          // Burning eyes on the head bone.
+          let head: THREE.Object3D | null = null;
+          m.root.traverse((o) => {
+            if (!head && (o as THREE.Bone).isBone && /head/i.test(o.name)) head = o;
+          });
+          if (head) {
+            m.root.updateMatrixWorld(true);
+            const hp = m.root.worldToLocal((head as THREE.Object3D).getWorldPosition(new THREE.Vector3()));
+            const hh = def.height * (def.id === 'helldemon' ? 1.15 : 1.3);
+            for (const sx of [-1, 1]) {
+              const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex, color: new THREE.Color(3.2, 1.0, 0.15), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
+              eye.scale.setScalar(Math.max(0.1, hh * 0.07));
+              m.root.add(eye);
+              eye.position.set(hp.x + sx * hh * 0.045, hp.y + hh * 0.04, hp.z + hh * 0.1);
+              (head as THREE.Object3D).attach(eye);
+            }
+          }
           const badge = new THREE.Sprite(new THREE.SpriteMaterial({ map: badgeTex, transparent: true }));
           badge.scale.set(0.45, 0.45, 0.45);
           badge.position.y = def.height + (def.hover ?? 0) + 0.35;
@@ -799,7 +767,7 @@ export function Arena() {
             if ((o as THREE.Mesh).isMesh) o.castShadow = true;
           });
           scene.add(m.root);
-          const mob: Mob = { m, hp: 1, state: 'wander', since: now, next: 0, dir: new THREE.Vector3(), horde, strafe: 1, strafeAt: 0, pop: 0, los: false, losAt: 0 };
+          const mob: Mob = { m, hp: 1, state: 'wander', since: now, next: 0, dir: new THREE.Vector3(), horde, strafe: 1, strafeAt: 0, pop: 0, los: false, losAt: 0, flash: flashU };
           if (horde) m.root.visible = false;
           else spawn(mob, now);
           mobs.push(mob);
@@ -883,6 +851,13 @@ export function Arena() {
         }
 
         camera.position.copy(start);
+        // Dev builds only: ?at=x,z[,yawDeg] drops you somewhere to check the look (screenshots).
+        const atQ = process.env.NODE_ENV !== 'production' ? new URLSearchParams(window.location.search).get('at') : null;
+        if (atQ) {
+          const [ax, az, ay] = atQ.split(',').map(Number);
+          camera.position.set((ax + 0.5) * SIZE, 1.6, (az + 0.5) * SIZE);
+          if (Number.isFinite(ay)) yaw = (ay * Math.PI) / 180;
+        }
         // ?showcase: line up a warrior, rogue and mage in the first corridor, facing you (screenshots).
         if (new URLSearchParams(window.location.search).has('showcase')) {
           const seen = new Set<string>();
@@ -1086,8 +1061,9 @@ export function Arena() {
       sfx?.hit();
       let killed = false;
       const p = mob.m.root.position;
-      hitAt.set(p.x, p.y + mob.m.def.height * 0.7 + (mob.m.def.hover ?? 0), p.z);
+      hitAt.set(p.x, p.y + (mob.m.def.height * 0.7 + (mob.m.def.hover ?? 0)) * mob.m.root.scale.x, p.z);
       mob.pop = now;
+      for (const u of mob.flash) u.value = 1;
       if (mob.hp <= 0) {
         killed = true;
         lifeKills++;
@@ -1096,8 +1072,13 @@ export function Arena() {
         sfx?.die();
         sparkAt(hitAt, '#ff4a30', 28);
         popNumber('KILL', '#ff5a48', hitAt, 1.5);
+        const bigKill = mob.m.def.hp >= 6;
+        dressing?.gore(hitAt, bigKill);
+        slowUntil = now + (bigKill ? 110 : 55); // a beat of hit-stop
+        shake = Math.max(shake, bigKill ? 0.45 : 0.18);
       } else {
         popNumber(String(dmg), goldHit ? HOUSE_GOLD : '#ffffff', hitAt);
+        dressing?.puff(hitAt, '#7a0f08', 0.5, 0.4, 0.2);
         // A little shove away from you: shotguns and rockets push, a minigun only slows them.
         if (mob.m.def.hp < 10) {
           knock.set(p.x - camera.position.x, 0, p.z - camera.position.z).normalize().multiplyScalar(0.06 * Math.min(dmg, 2));
@@ -1304,7 +1285,7 @@ export function Arena() {
             g.fillRect(x * MMC, z * MMC, MMC, MMC);
           }
         }
-      g.fillStyle = 'rgba(90,255,58,0.5)';
+      g.fillStyle = 'rgba(255,110,30,0.65)';
       for (const [x, z] of SLIME) g.fillRect(x * MMC, z * MMC, MMC, MMC);
       g.fillStyle = '#7dff9a';
       for (const m of medkits) if (m.mesh.visible) g.fillRect(m.mesh.position.x * k - 2, m.mesh.position.z * k - 2, 4, 4);
@@ -1343,8 +1324,8 @@ export function Arena() {
     const tick = (t?: number) => {
       timer.update(t);
       const rawDt = timer.getDelta();
-      const dt = Math.min(0.05, rawDt);
       const now = performance.now();
+      const dt = Math.min(0.05, rawDt) * (now < slowUntil ? 0.25 : 1);
       const w = el.clientWidth;
       const h = el.clientHeight;
       frameMs += (Math.min(200, rawDt * 1000) - frameMs) * 0.05;
@@ -1474,6 +1455,9 @@ export function Arena() {
       }
 
       dressing?.update(dt, now, camera.position);
+      grade.uniforms.uTime.value = now / 1000;
+      grade.uniforms.uHeat.value = dressing?.state.heat ?? 0;
+      for (const mob of mobs) for (const u of mob.flash) if (u.value > 0) u.value = Math.max(0, u.value - dt * 7);
       if (trigger) shoot(now);
       ammoFx.update(dt);
       // Minigun-type ordnance whines while the trigger is held.
@@ -1537,7 +1521,6 @@ export function Arena() {
         // Slime burns.
         const here: [number, number] = [Math.floor(camera.position.x / SIZE), Math.floor(camera.position.z / SIZE)];
         if (SLIME.some(([x, z]) => x === here[0] && z === here[1]) && Math.random() < dt * 2) damage(5, now);
-        if (slimeTex) slimeTex.offset.set((now / 6000) % 1, (now / 9000) % 1);
         // Medkits.
         for (const m of medkits) {
           if (m.back && now > m.back) {
@@ -1994,7 +1977,7 @@ export function Arena() {
               </div>
               <div className="inset bg-black/60 px-3 py-2">
                 <p className="font-bold text-hot">2 · SURVIVE</p>
-                <p className="text-dim">Skeletons, raptors and fire mages hunt you. Red flashes show where a hit came from. White crosses heal, green slime burns. The map in the corner shows them as red dots.</p>
+                <p className="text-dim">Skeletons, raptors and fire mages hunt you. Red flashes show where a hit came from. White crosses heal, lava burns. The map in the corner shows them as red dots.</p>
               </div>
               <div className="inset bg-black/60 px-3 py-2">
                 <p className="font-bold text-hot">3 · LIVE OR PRACTICE</p>
