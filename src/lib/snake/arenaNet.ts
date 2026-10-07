@@ -9,12 +9,15 @@
  *   d  death  {i, did, l, by, cause, m, pts}   the victim's client says it died (and to whom); pts = corpse orbs
  *   f  claim  {s, g, i} | {c, i}               first eater of food slot s generation g (or corpse orb id c)
  *   g  gens   {g: number[]}                    my food generation table, every few seconds (late joiners converge)
+ *   o  orb    {i, c, x, z, v}                  a boost orb I dropped behind me (claimed with f {c})
+ *   h  hit    {to, from, n, tokens, sym, ...}  LIVE: I paid my killer by the Arena rule (src/lib/pvpPay.ts)
+ * Presence also carries `gun` (my gun address): the recipient of PvP payments, exactly like the Arena.
  */
 import { readWire, type IdWire } from '@/lib/identity';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import { MAX_SNAKES } from './arenaSim';
 
-export type ArenaProfile = { name: string; x?: string; xk?: string; xs?: number[] };
+export type ArenaProfile = { name: string; x?: string; xk?: string; xs?: number[]; gun?: string };
 export type ArenaPlayer = ArenaProfile & { id: string; t: number; st: 'play' | 'lobby' };
 export type RoomStatus = 'connecting' | 'live' | 'off';
 
@@ -31,7 +34,9 @@ export const newCode = () => {
   for (let i = 0; i < 5; i++) s += a[Math.floor(Math.random() * a.length)];
   return s;
 };
-export const cleanCode = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+/** A gun address from presence (untrusted): a plausible base58 P2PKH address, or nothing. */
+export const cleanGun = (v: unknown): string | undefined => (typeof v === 'string' && /^[1mn][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(v) ? v : undefined);
+export const cleanCode =(s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 
 export class ArenaSession {
   readonly id = Math.random().toString(36).slice(2, 10);
@@ -54,7 +59,7 @@ export class ArenaSession {
     this.topic = o.quick ? `tokenblaster-snake-pub-${o.pub}` : `tokenblaster-snake-r-${o.code}`;
     this.room = new Room(this.topic, this.id, {
       onBroadcast: (ev, p) => {
-        if (ev !== 'p' && ev !== 'd' && ev !== 'f' && ev !== 'g') return;
+        if (ev !== 'p' && ev !== 'd' && ev !== 'f' && ev !== 'g' && ev !== 'o' && ev !== 'h') return;
         const d = (p ?? {}) as Record<string, unknown>;
         this.cb.onMsg(ev, d, typeof d.i === 'string' ? d.i : null);
       },
@@ -81,7 +86,7 @@ export class ArenaSession {
   setProfile(p: Partial<ArenaProfile>) {
     const m = this.me;
     const sameId = ('x' in p ? p.x === m.x : true) && ('xs' in p ? String(p.xs) === String(m.xs) && p.xk === m.xk : true);
-    if ((p.name === undefined || p.name === m.name) && sameId) return;
+    if ((p.name === undefined || p.name === m.name) && sameId && (!('gun' in p) || p.gun === m.gun)) return;
     if ('x' in p && p.x !== m.x && !('xs' in p)) {
       delete m.xk;
       delete m.xs;
@@ -94,7 +99,7 @@ export class ArenaSession {
     this.me.st = st;
     this.push();
   }
-  send(ev: 'p' | 'd' | 'f' | 'g', payload: Record<string, unknown>) {
+  send(ev: 'p' | 'd' | 'f' | 'g' | 'o' | 'h', payload: Record<string, unknown>) {
     this.room.broadcast(ev, payload);
   }
 
@@ -106,7 +111,7 @@ export class ArenaSession {
       const m = metas[metas.length - 1] as Partial<ArenaPlayer> | undefined;
       if (!m || typeof m.id !== 'string' || m.id === this.id) continue;
       const w: IdWire = readWire(m);
-      list.push({ id: m.id, name: String(m.name ?? 'snake').slice(0, 16), ...w, st: m.st === 'play' ? 'play' : 'lobby', t: Number(m.t) || 0 });
+      list.push({ id: m.id, name: String(m.name ?? 'snake').slice(0, 16), ...w, gun: cleanGun(m.gun), st: m.st === 'play' ? 'play' : 'lobby', t: Number(m.t) || 0 });
     }
     list.push({ ...this.me });
     list.sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1));

@@ -15,6 +15,7 @@ import { AmmoPicker } from './AmmoPicker';
 import { iconUrl } from '@/lib/tokens';
 import { TOKEN_FEE } from '@/lib/gun';
 import { useBlaster } from '@/lib/useBlaster';
+import { arenaSend, createPvpQueue, hitMsg } from '@/lib/pvpPay';
 import { HighScores } from './HighScores';
 import { AmmoStrip } from './AmmoStrip';
 import { WalletChooser } from './WalletChooser';
@@ -1101,64 +1102,38 @@ export function Arena() {
 
     // ── Shooting: instant on screen, real blasts in batches in the background ──
     const raycaster = new THREE.Raycaster();
-    let n = 0;
     let heat = 0;
     let lastShot = 0;
     let recoil = 0;
     let walkPhase = 0;
-    type Shot = { extra: string[]; to?: string; target?: string };
-    const queue: Shot[] = [];
-    let draining = false;
     let jammedUntil = 0;
-    let fails = 0;
-    const drain = async () => {
-      if (draining) return;
-      draining = true;
-      while (queue.length) {
-        // One destination per batch: a run of shots at the same player (or the burn address).
-        let run = 1;
-        while (run < queue.length && run < BATCH && queue[run].to === queue[0].to) run++;
-        const batch = queue.slice(0, run);
-        const to = batch[0].to;
-        const target = batch[0].target;
-        try {
-          const extras = batch.map((q) => q.extra);
-          const txids = await (live.current.tokenMode ? live.current.fireTokens(n + 1, extras.slice(0, 25), to) : live.current.fireBatch(n + 1, extras));
-          // Tell the player we hit: their gun just received our tokens.
-          if (target && txids.length && room) {
-            const tk = net.current.token;
-            room.broadcast('hit', { to: target, from: net.current.name, n: txids.length, tokens: live.current.tokenMode, sym: tk?.sym, icon: tk?.icon, txid: txids[txids.length - 1] });
-          }
-          n += txids.length;
-          queue.splice(0, txids.length);
-          setHud((h) => ({ ...h, onChain: h.onChain + txids.length, last: txids[txids.length - 1] ?? h.last }));
-          const isTok = live.current.tokenMode;
-          setRecent((r) => [...txids.map((t) => ({ txid: t, token: isTok })).reverse(), ...r].slice(0, 6));
-          setChainError(null);
-          fails = 0;
-          if (!txids.length) throw new Error('Out of ammo.');
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          // Empty gun = a real stop. Anything else (slow ARC, a stale coin) gets retried quietly first.
-          const empty = /out of|empty|no tokens|no sats|load/i.test(msg);
-          if (!empty && ++fails <= 3) {
-            await new Promise((ok) => setTimeout(ok, 1000 * fails));
-            continue;
-          }
-          fails = 0;
-          setChainError(msg);
-          queue.length = 0;
-          jammedUntil = performance.now() + 4000; // shots that didn't reach the chain don't get to keep playing
-          setJam(e instanceof Error ? e.message : String(e));
-          break;
-        }
+    // The PvP payment rule (a hit on a player in LIVE token mode sends your token to their gun) is src/lib/pvpPay.ts,
+    // shared with Double-O, bRacer and Token Snake. Behaviour is the original inline drain, unchanged.
+    const pvp = createPvpQueue({
+      maxRun: BATCH,
+      retries: 3,
+      emptyMsg: 'Out of ammo.',
+      send: (startN, batch, to) => arenaSend(live.current, live.current.tokenMode, startN, batch.map((q) => q.extra), to),
+      onPaid: (txids, _batch, _to, target) => {
+        // Tell the player we hit: their gun just received our tokens.
+        if (target && txids.length && room) room.broadcast('hit', hitMsg(target, net.current.name, txids, live.current.tokenMode, net.current.token));
+        setHud((h) => ({ ...h, onChain: h.onChain + txids.length, last: txids[txids.length - 1] ?? h.last }));
+        const isTok = live.current.tokenMode;
+        setRecent((r) => [...txids.map((t) => ({ txid: t, token: isTok })).reverse(), ...r].slice(0, 6));
+        setChainError(null);
+      },
+      onFail: (msg) => {
+        setChainError(msg);
+        jammedUntil = performance.now() + 4000; // shots that didn't reach the chain don't get to keep playing
+        setJam(msg);
+      },
+      onIdle: () => {
         heat = queue.length;
         setHud((h) => ({ ...h, heat }));
-      }
-      heat = queue.length;
-      setHud((h) => ({ ...h, heat }));
-      draining = false;
-    };
+      },
+    });
+    const queue = pvp.queue;
+    const drain = pvp.drain;
     /** One point of damage (or `dmg`) to a monster; true when it dies. */
     const hitAt = new THREE.Vector3();
     const knock = new THREE.Vector3();

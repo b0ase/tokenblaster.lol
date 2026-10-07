@@ -23,6 +23,7 @@ import { bracerScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRAC
 import type { Weapon } from '@/lib/hyper/sim';
 import type { ScoreGame } from '@/lib/scores';
 import { useBlaster } from '@/lib/useBlaster';
+import { createPvpQueue, type PvpQueue } from '@/lib/pvpPay';
 import { TOKEN_FEE } from '@/lib/gun';
 import { BRACER_COIN } from '@/lib/gameCoins';
 import { formatCount, packSats } from '@/lib/pricing';
@@ -113,9 +114,6 @@ export function BRacer() {
   const tokenMode = b.mode === 'tokens';
   const armed = tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30;
   const payRef = useRef({ live: false, sats: 0, tokens: 0, tokenMode: false, sym: 'sat', res: 0 });
-  const payQueue = useRef<PayItem[]>([]);
-  const payCount = useRef(0);
-  const draining = useRef(false);
   const fireBatchRef = useRef(b.fireBatch);
   const fireTokensRef = useRef(b.fireTokens);
   useEffect(() => {
@@ -123,60 +121,42 @@ export function BRacer() {
     fireTokensRef.current = b.fireTokens;
   }, [b.fireBatch, b.fireTokens]);
   const sendLink = useRef<(ev: string, p: unknown) => void>(() => undefined);
-  /** Drain the queue in the background in batches, grouped by destination (the Arena's rule), so frames never wait on the chain. */
-  const drain = useRef(async () => {
-    if (draining.current) return;
-    draining.current = true;
-    let fails = 0;
-    while (payQueue.current.length) {
-      const pr = payRef.current;
-      const q = payQueue.current;
-      const to = q[0].to;
-      let run = 1;
-      while (run < q.length && run < (pr.tokenMode ? 25 : 40) && q[run].to === to) run++;
-      const batch = q.slice(0, run);
-      const extras = batch.map((x) => ['bracer', ...x.action]);
-      try {
-        const txids = pr.tokenMode
-          ? await fireTokensRef.current(payCount.current + 1, extras, to ?? HOUSE)
-          : to
-            ? await fireBatchRef.current(payCount.current + 1, extras)
-            : await fireBatchRef.current(payCount.current + 1, extras, { address: HOUSE, sats: 1 });
-        if (!txids.length) throw new Error('Out of ammo: load more to keep blasting.');
-        payCount.current += txids.length;
-        q.splice(0, txids.length);
+  /** Drain the queue in the background in batches, grouped by destination: the Arena's PvP rule, shared (src/lib/pvpPay.ts). */
+  const pvp = useRef<PvpQueue<PayItem> | null>(null);
+  useEffect(() => {
+    pvp.current = createPvpQueue<PayItem>({
+      maxRun: () => (payRef.current.tokenMode ? 25 : 40),
+      retries: 2,
+      emptyMsg: 'Out of ammo: load more to keep blasting.',
+      send: (startN, batch, to) => {
+        const extras = batch.map((x) => ['bracer', ...x.action]);
+        // Shots/pads/boosts pay the house; a hit on a pilot sends the token to their gun (sats: a plain blast).
+        return payRef.current.tokenMode ? fireTokensRef.current(startN, extras, to ?? HOUSE) : to ? fireBatchRef.current(startN, extras) : fireBatchRef.current(startN, extras, { address: HOUSE, sats: 1 });
+      },
+      onPaid: (txids, _batch, to, target) => {
+        if (!txids.length) return; // the empty-gun stop follows
         setOnChain((n) => n + txids.length);
         setLastTx(txids[txids.length - 1]);
         setPayErr(null);
-        fails = 0;
-        const target = batch[0].target;
+        const pr = payRef.current;
         if (to && target) sendLink.current('tx', { to: target, sym: pr.tokenMode ? `$${pr.sym}` : 'SATS', n: txids.length });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        if (!/out of|empty|no tokens|no sats|load/i.test(msg) && ++fails <= 2) {
-          await new Promise((ok) => setTimeout(ok, 1000 * fails));
-          continue;
-        }
-        setPayErr(msg);
-        q.length = 0;
-        break;
-      }
-    }
-    draining.current = false;
-  });
+      },
+      onFail: (msg) => setPayErr(msg),
+    });
+  }, []);
   const payHook = useRef<PayHook>({
     live: () => payRef.current.live,
     reserve: () => {
       const pr = payRef.current;
-      const n = payQueue.current.length + pr.res + 1;
+      const n = (pvp.current?.queue.length ?? 0) + pr.res + 1;
       if (pr.tokenMode ? pr.tokens < n || pr.sats < n * TOKEN_FEE : pr.sats - n * (1 + EST_FEE) < 0) return false;
       pr.res++;
       return true;
     },
     send: (action, to, target) => {
       payRef.current.res = Math.max(0, payRef.current.res - 1);
-      payQueue.current.push({ action, to, target });
-      void drain.current();
+      pvp.current?.push({ action, to, target });
+      void pvp.current?.drain();
     },
   });
   const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });

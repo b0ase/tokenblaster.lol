@@ -3,8 +3,8 @@
 /**
  * Token Snake ARENA shell: lobby (quick match / private room / solo vs bots), HUD, leaderboard with X avatars, kill
  * feed, death + respawn. The game is arenaEngine.ts, the room is arenaNet.ts; TokenSnake.tsx mounts this over its grid
- * game. Nothing here sends money: LIVE per-bite transactions are the parent's unchanged `pay` queue, and PvP kills are
- * cosmetic (see the note in the lobby and the report).
+ * game. Nothing here sends money: LIVE per-bite transactions are the parent's `pay` queue, and a LIVE death to another
+ * player is handed to the parent's `payKiller` (the Arena's PvP rule, src/lib/pvpPay.ts: the killer's gun from presence).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WalletInterface } from '@bsv/sdk';
@@ -13,6 +13,7 @@ import { Display, Sticker } from '@/components/dr';
 import { DR } from '@/lib/dr/tokens';
 import { proveHandle, verifyWire } from '@/lib/identity';
 import type { Loot } from '@/lib/loot';
+import type { HitMsg } from '@/lib/pvpPay';
 import { ArenaEngine, type ArenaHud, type BoardEntry, type FeedEntry, type Quality, type Toast } from './arenaEngine';
 import { ArenaSession, arenaAvailable, cleanCode, newCode, type ArenaPlayer, type RoomStatus } from './arenaNet';
 import { MAX_SNAKES } from './arenaSim';
@@ -38,6 +39,12 @@ export type SnakeArenaProps = {
   canPay(): boolean;
   onPickup(l: Loot): void;
   onNeedAmmo(): void;
+  /** My gun address (the recipient when someone pays me for a kill), shared in presence like the Arena. */
+  gun?: string;
+  /** LIVE PvP (the Arena rule, src/lib/pvpPay.ts): I was cut off by `killerId`; pay their gun once per `did`. */
+  payKiller?(did: string, killerId: string, killerGun: string | undefined): void;
+  /** The parent calls this once a kill payment is on chain, so the killer sees it (sent as an 'h' message). */
+  onHitLink?(send: ((m: HitMsg) => void) | null): void;
   onExit(): void;
   /** ?room=CODE from the URL: join that private room straight away. */
   autoRoom: string | null;
@@ -69,6 +76,11 @@ export function SnakeArena(p: SnakeArenaProps) {
   const [err, setErr] = useState<string | null>(null);
   const [fps, setFps] = useState(60);
   const [liveNow, setLiveNow] = useState(false);
+  const [ammoHold, setAmmoHold] = useState(false);
+  const playersRef = useRef<ArenaPlayer[]>([]);
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
   const idc = useRef(0);
   const pref = useRef(p);
   useEffect(() => {
@@ -126,7 +138,7 @@ export function SnakeArena(p: SnakeArenaProps) {
     if (!conn || conn.kind === 'solo' || !arenaAvailable()) return;
     const mine: { s: ArenaSession | null } = { s: null }; // callbacks can fire inside the constructor
     const s = new ArenaSession(
-      { quick: conn.kind === 'quick', code: conn.code, pub: conn.pub, profile: { name: handleRef.current ? `@${handleRef.current}` : 'snake', x: handleRef.current ?? undefined } },
+      { quick: conn.kind === 'quick', code: conn.code, pub: conn.pub, profile: { name: handleRef.current ? `@${handleRef.current}` : 'snake', x: handleRef.current ?? undefined, gun: pref.current.gun || undefined } },
       {
         onRoster: (list, full) => {
           if (session.current !== mine.s) return;
@@ -140,7 +152,15 @@ export function SnakeArena(p: SnakeArenaProps) {
           setReady((r) => r ?? (mine.s ? { topic: mine.s.topic, id: mine.s.id } : null));
         },
         onStatus: (st) => session.current === mine.s && setStatus(st),
-        onMsg: (ev, m, from) => session.current === mine.s && engine.current?.onMessage(ev, m, from),
+        onMsg: (ev, m, from) => {
+          if (session.current !== mine.s) return;
+          if (ev === 'h') {
+            // Someone I cut off paid me by the Arena rule: their token is in my gun now.
+            if (m.to === mine.s?.id && typeof m.n === 'number' && m.n > 0) toast({ text: m.tokens ? `+${Math.min(99, m.n)} $${String(m.sym ?? '').slice(0, 12)} IN YOUR GUN from ${String(m.from ?? 'snake').slice(0, 16)}` : `${String(m.from ?? 'snake').slice(0, 16)} PAID OUT`, tone: 'gold' });
+            return;
+          }
+          engine.current?.onMessage(ev, m, from);
+        },
       },
     );
     session.current = s;
@@ -158,7 +178,7 @@ export function SnakeArena(p: SnakeArenaProps) {
       s.leave();
       if (session.current === s) session.current = null;
     };
-  }, [conn]);
+  }, [conn, toast]);
 
   // ── Engine ──
   useEffect(() => {
@@ -193,9 +213,13 @@ export function SnakeArena(p: SnakeArenaProps) {
         onRespawn: () => setDead(null),
         onPickup: (l) => pref.current.onPickup(l),
         onNeedAmmo: () => {
-          setLiveNow(false);
+          // LIVE never drops to practice by itself: the snake holds (shielded) until ammo is loaded or practice is chosen.
+          setAmmoHold(true);
           pref.current.onNeedAmmo();
-          toast({ text: 'OUT OF AMMO: PRACTICE FROM HERE', tone: 'bad' });
+        },
+        onKilled: (did, by) => {
+          const k = playersRef.current.find((q) => q.id === by);
+          pref.current.payKiller?.(did, by, k?.gun);
         },
         onPerf: (i) => setFps(i.fps),
       },
@@ -203,6 +227,7 @@ export function SnakeArena(p: SnakeArenaProps) {
     engine.current = eng;
     setErr(null);
     setLiveNow(startLive);
+    setAmmoHold(false);
     pref.current.onRunStart(startLive);
     eng
       .init()
@@ -226,6 +251,18 @@ export function SnakeArena(p: SnakeArenaProps) {
     session.current?.setProfile({ name: nm, x: handle ?? undefined });
     engine.current?.setIdentity({ name: nm, x: handle ?? undefined }, false);
   }, [handle, ready]);
+  // My gun in presence: where a LIVE killer's payment lands when I cut someone off (the Arena does the same).
+  useEffect(() => {
+    session.current?.setProfile({ gun: p.gun || undefined });
+  }, [p.gun, ready]);
+  // Once my kill payment is on chain, tell the killer (they toast "+n $SYM in your gun").
+  useEffect(() => {
+    pref.current.onHitLink?.((m) => {
+      const s = session.current;
+      if (s) s.send('h', { ...m, from: handleRef.current ? `@${handleRef.current}` : `snake-${s.id.slice(0, 4)}`, i: s.id });
+    });
+    return () => pref.current.onHitLink?.(null);
+  }, []);
   const proved = useRef('');
   useEffect(() => {
     const s = session.current;
@@ -394,7 +431,44 @@ export function SnakeArena(p: SnakeArenaProps) {
           )}
         </div>
       )}
-      {playing && !dead && !p.touch && <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/40 text-center text-[10px] tracking-widest text-dim">MOUSE aims · HOLD CLICK / SPACE to boost (costs length) · A/D or ←/→ steer · head into a snake body and you burst into food</p>}
+      {playing && !dead && !p.touch && <p className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/40 text-center text-[10px] tracking-widest text-dim">MOUSE aims · HOLD CLICK / SPACE to boost (drops a trail of food) · A/D or ←/→ steer · head into a snake body and you burst into food</p>}
+
+      {/* ── LIVE out of ammo: held, shielded, until more is loaded (or practice is chosen) ── */}
+      {playing && ammoHold && !dead && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 p-3 text-center" data-arena-ammo-hold>
+          <Display size="clamp(32px,6vw,64px)" colour={DR.colour.amber}>
+            OUT OF AMMO
+          </Display>
+          <p className="max-w-sm text-sm text-white">Load more to keep playing LIVE. Your snake is held and shielded until you do.</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              onClick={() => {
+                if (!p.canPay()) return;
+                engine.current?.resumeAmmo(false);
+                setAmmoHold(false);
+              }}
+              disabled={!p.canPay()}
+              className="btn btn-on px-4 py-2 disabled:opacity-40"
+            >
+              ▶ RESUME LIVE
+            </button>
+            <button onClick={() => p.onLiveOpen()} className="btn px-3 py-2 text-xs">
+              LOAD MORE
+            </button>
+            <button
+              onClick={() => {
+                engine.current?.resumeAmmo(true);
+                setAmmoHold(false);
+                setLiveNow(false);
+                p.onRunStart(false);
+              }}
+              className="btn px-3 py-2 text-xs"
+            >
+              PRACTICE INSTEAD
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Dead ── */}
       {playing && dead && (
@@ -473,7 +547,7 @@ export function SnakeArena(p: SnakeArenaProps) {
               </Sticker>
             </div>
             <p className="max-w-md text-xs text-fg">
-              One neon arena, up to {MAX_SNAKES} snakes. Steer with the mouse, hold click or space to boost (it costs length). Run your head into another snake&apos;s body and you die and burst into glowing food that anyone can eat; cut off others to grow. The food is the same for everyone in the room and still comes from live mainnet transactions.
+              One neon arena, up to {MAX_SNAKES} snakes. Steer with the mouse, hold click or space to boost (the length you burn drops behind you as food anyone can eat). Run your head into another snake&apos;s body and you die and burst into glowing food that anyone can eat; cut off others to grow. The food is the same for everyone in the room and still comes from live mainnet transactions. LIVE with a token: if another player cuts you off, one of your tokens lands in their gun (the Arena rule).
             </p>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <IdentityPicker verified={Boolean(ready && verified[ready.id])} />

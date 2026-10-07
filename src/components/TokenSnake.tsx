@@ -15,6 +15,7 @@ import { useLoot, type Haul } from '@/lib/loot';
 import { COINOP_HOUSE, LIVES_PER_CREDIT } from '@/lib/coinop';
 import { useBlaster } from '@/lib/useBlaster';
 import { TOKEN_FEE } from '@/lib/gun';
+import { arenaSend, createKillPay, createPvpQueue, hitMsg, type HitMsg, type PvpQueue, type PvpShot } from '@/lib/pvpPay';
 import { GAME_COINS, houseFirst } from '@/lib/gameCoins';
 import { WalletChooser } from './WalletChooser';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
@@ -182,48 +183,65 @@ export function TokenSnake() {
     payRef.current.tok = Boolean(payTok);
     payRef.current.tokens = b.tokenAmmo;
   }, [b.ammo, payTok, b.tokenAmmo]);
-  const queue = useRef<string[][]>([]);
-  const draining = useRef(false);
-  const counter = useRef(0);
   const fireBatchRef = useRef(b.fireBatch);
   const fireTokensRef = useRef(b.fireTokens);
   useEffect(() => {
     fireBatchRef.current = b.fireBatch;
     fireTokensRef.current = b.fireTokens;
   }, [b.fireBatch, b.fireTokens]);
-  /** Batches the queue into chained transactions in the background, so the frame loop never waits on the wallet. */
-  const drain = useRef(async () => {
-    if (draining.current) return;
-    draining.current = true;
-    while (queue.current.length) {
-      const tok = payRef.current.tok;
-      const batch = queue.current.slice(0, tok ? 25 : 40);
-      try {
-        const txids = tok ? await fireTokensRef.current(counter.current + 1, batch, HOUSE) : await fireBatchRef.current(counter.current + 1, batch, { address: HOUSE, sats: PER_ACTION });
-        counter.current += txids.length;
-        queue.current.splice(0, txids.length);
-        payRef.current.queued = queue.current.length;
-        hud.setTx(counter.current);
-        setOnChain(counter.current);
+  /** The killer hears about my kill payment through the arena room (set by SnakeArena). */
+  const hitLink = useRef<((m: HitMsg) => void) | null>(null);
+  const symRef = useRef<{ sym: string; icon: string | null } | null>(null);
+  useEffect(() => {
+    symRef.current = b.token ? { sym: b.token.sym, icon: b.token.icon ?? null } : null;
+  }, [b.token]);
+  /**
+   * One queue from the gun, drained in the background so the frame loop never waits on the wallet (src/lib/pvpPay.ts).
+   * Bites / power-ups (no `to`): tag + 1 sat (or 1 token) to the house + the network fee, as before. A LIVE death to
+   * another player (`to` = their gun): the Arena's PvP rule, one whole token to the killer's gun.
+   */
+  const payQ = useRef<PvpQueue | null>(null);
+  const killPay = useRef<ReturnType<typeof createKillPay> | null>(null);
+  useEffect(() => {
+    const q = createPvpQueue({
+      maxRun: () => (payRef.current.tok ? 25 : 40),
+      retries: 0,
+      emptyMsg: 'Out of ammo: load more to keep playing.',
+      send: (startN, batch, to) => {
+        const tok = payRef.current.tok;
+        const extras = batch.map((x) => x.extra);
+        if (to) return arenaSend({ fireBatch: (n, e) => fireBatchRef.current(n, e), fireTokens: (n, e, t) => fireTokensRef.current(n, e, t) }, tok, startN, extras, to);
+        return tok ? fireTokensRef.current(startN, extras, HOUSE) : fireBatchRef.current(startN, extras, { address: HOUSE, sats: PER_ACTION });
+      },
+      onPaid: (txids, _batch, _to, target, st) => {
+        payRef.current.queued = st.pending;
+        hud.setTx(st.sent);
+        setOnChain(st.sent);
         if (txids.length) setLastTx(txids[txids.length - 1]);
         setPayErr(null);
-        if (!txids.length) throw new Error('Out of ammo: load more to keep playing.');
-      } catch (e) {
-        setPayErr(e instanceof Error ? e.message : String(e));
-        queue.current.length = 0;
+        if (target && txids.length) hitLink.current?.(hitMsg(target, 'snake', txids, payRef.current.tok, symRef.current));
+      },
+      onFail: (msg) => {
+        setPayErr(msg);
         payRef.current.queued = 0;
-        break;
-      }
-    }
-    draining.current = false;
-  });
+      },
+    });
+    const push = (s: PvpShot) => {
+      q.push(s);
+      payRef.current.queued = q.queue.length;
+      void q.drain();
+    };
+    payQ.current = q;
+    // LIVE token play: cut off by another player, my token goes to their gun (the Arena rule), once per death.
+    killPay.current = createKillPay({ game: 'snake', live: () => payRef.current.live && payRef.current.tok, push });
+  }, [hud]);
   /** One real transaction for this action: tag + 1 sat (or 1 token) to the house + the network fee. */
   const payFor = useRef((action: string[]) => {
-    const pr = payRef.current;
-    if (!pr.live) return;
-    queue.current.push(action);
-    pr.queued = queue.current.length;
-    void drain.current();
+    const q = payQ.current;
+    if (!payRef.current.live || !q) return;
+    q.push({ extra: action });
+    payRef.current.queued = q.queue.length;
+    void q.drain();
   });
   /** Can the loaded ammo cover the next couple of actions? (the game pauses itself when not) */
   const canPay = useRef(() => {
@@ -411,9 +429,8 @@ export function TokenSnake() {
     setNeedAmmo(false);
     setLive(isLive);
     payRef.current.live = isLive;
-    queue.current.length = 0;
+    payQ.current?.reset();
     payRef.current.queued = 0;
-    counter.current = 0;
     hud.setTx(0);
     setOnChain(0);
     setLastTx(null);
@@ -425,9 +442,8 @@ export function TokenSnake() {
     lootRef.current.end();
     setLive(isLive);
     payRef.current.live = isLive;
-    queue.current.length = 0;
+    payQ.current?.reset();
     payRef.current.queued = 0;
-    counter.current = 0;
     hud.setTx(0);
     setOnChain(0);
     setLastTx(null);
@@ -600,6 +616,11 @@ export function TokenSnake() {
             canPay={() => canPay.current()}
             onPickup={(l) => lootRef.current.pickup(l)}
             onNeedAmmo={() => setNeedAmmo(true)}
+            gun={b.gunAddress || undefined}
+            payKiller={(did, killerId, gun) => void killPay.current?.onKilled(did, killerId, gun)}
+            onHitLink={(f) => {
+              hitLink.current = f;
+            }}
             onExit={() => setArena(false)}
             autoRoom={arenaRoom}
           />
