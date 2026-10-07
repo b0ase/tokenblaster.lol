@@ -158,17 +158,21 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   }
 
   // ── Building materials (glass towers, concrete/brick/stone blocks, lit windows at night) ──
+  /** Emissive window map: whole office floors lit or dark, a few lone lights, warm and cool tints. */
   const windowTex = (seed: number) =>
     canvasTex(128, 256, (x) => {
       x.fillStyle = '#000';
       x.fillRect(0, 0, 128, 256);
       const r = rng(seed);
-      for (let yy = 4; yy < 256; yy += 10)
+      for (let yy = 4; yy < 256; yy += 10) {
+        const floorLit = r() < 0.45;
+        const tint = r() < 0.6 ? '#ffd9a0' : r() < 0.5 ? '#d8ecff' : '#ffc07a';
         for (let xx = 4; xx < 128; xx += 9) {
-          const on = r() < 0.42;
-          x.fillStyle = on ? (r() < 0.5 ? '#ffd9a0' : '#d8ecff') : '#050608';
+          const on = floorLit ? r() < 0.82 : r() < 0.07;
+          x.fillStyle = on ? tint : '#050608';
           x.fillRect(xx, yy, 6, 7);
         }
+      }
     });
   const towerMats: THREE.MeshStandardMaterial[] = [];
   ['#5b7a99', '#3d5466', '#7a8fa3', '#2f4a5e', '#8aa0b0', '#4a6070'].forEach((c, i) =>
@@ -176,21 +180,104 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
       new THREE.MeshPhysicalMaterial({ color: c, metalness: 0.85, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.6, emissive: '#ffffff', emissiveMap: windowTex(i * 977 + 13), emissiveIntensity: 0 }),
     ),
   );
-  const facadeTex = canvasTex(128, 256, (x) => {
-    x.fillStyle = '#e4e0d8';
-    x.fillRect(0, 0, 128, 256);
-    for (let yy = 4; yy < 256; yy += 10) {
-      x.fillStyle = '#cfcac0';
-      x.fillRect(0, yy + 7, 128, 2);
-      for (let xx = 4; xx < 128; xx += 9) {
-        x.fillStyle = '#23272e';
-        x.fillRect(xx, yy, 6, 7);
-      }
+  // Facades: 8 m x 16 m bays at 64 px/m. Brick (Poly Haven CC0) is composited under the window grid
+  // once it loads; the matching normal map gets recessed window reveals so the walls have depth.
+  const brickDiff = new Image();
+  const brickNor = new Image();
+  brickDiff.src = `${TEX}/brick_wall_diff.webp`;
+  brickNor.src = `${TEX}/brick_wall_nor_gl.webp`;
+  const facades: { paint: () => void }[] = [];
+  const makeFacade = (brick: boolean) => {
+    const W = 512;
+    const H = 1024;
+    const dc = document.createElement('canvas');
+    const nc = document.createElement('canvas');
+    dc.width = nc.width = W;
+    dc.height = nc.height = H;
+    const map = new THREE.CanvasTexture(dc);
+    map.colorSpace = THREE.SRGBColorSpace;
+    const normalMap = new THREE.CanvasTexture(nc);
+    for (const t of [map, normalMap]) {
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.anisotropy = 8;
     }
+    const tile = (x: CanvasRenderingContext2D, img: HTMLImageElement, fallback: string) => {
+      if (brick && img.complete && img.naturalWidth) for (let ty = 0; ty < H; ty += 92) for (let tx = 0; tx < W; tx += 92) x.drawImage(img, tx, ty, 92, 92);
+      else {
+        x.fillStyle = fallback;
+        x.fillRect(0, 0, W, H);
+      }
+    };
+    const paint = () => {
+      const x = dc.getContext('2d')!;
+      tile(x, brickDiff, '#e4e0d8');
+      const n = nc.getContext('2d')!;
+      tile(n, brickNor, '#8080ff');
+      x.save();
+      n.save();
+      x.scale(4, 4);
+      n.scale(4, 4);
+      for (let yy = 4; yy < 256; yy += 10) {
+        // floor slab line + sill shadow
+        x.fillStyle = 'rgba(30,26,22,0.35)';
+        x.fillRect(0, yy + 7, 128, 2);
+        x.fillStyle = 'rgba(255,255,255,0.18)';
+        x.fillRect(0, yy + 9, 128, 0.6);
+        n.fillStyle = 'rgb(128,150,255)';
+        n.fillRect(0, yy + 7, 128, 1.2);
+        for (let xx = 4; xx < 128; xx += 9) {
+          const g = x.createLinearGradient(xx, yy, xx + 6, yy + 7);
+          g.addColorStop(0, '#2a3340');
+          g.addColorStop(1, '#14181f');
+          x.fillStyle = g;
+          x.fillRect(xx, yy, 6, 7);
+          x.fillStyle = 'rgba(190,215,240,0.22)';
+          x.fillRect(xx, yy, 6, 1.4);
+          x.fillStyle = 'rgba(15,12,10,0.5)';
+          x.fillRect(xx - 0.5, yy - 0.5, 7, 0.6);
+          // reveal: flat pane, lit edges on the recessed frame
+          n.fillStyle = '#8080ff';
+          n.fillRect(xx, yy, 6, 7);
+          n.fillStyle = 'rgb(176,128,240)';
+          n.fillRect(xx - 0.5, yy, 0.6, 7);
+          n.fillStyle = 'rgb(80,128,240)';
+          n.fillRect(xx + 5.9, yy, 0.6, 7);
+          n.fillStyle = 'rgb(128,86,240)';
+          n.fillRect(xx, yy - 0.5, 6, 0.6);
+        }
+      }
+      x.restore();
+      n.restore();
+      map.needsUpdate = true;
+      normalMap.needsUpdate = true;
+    };
+    paint();
+    facades.push({ paint });
+    return { map, normalMap };
+  };
+  const brickFacade = makeFacade(true);
+  const plainFacade = makeFacade(false);
+  let loaded = 0;
+  const onBrick = () => {
+    if (++loaded === 2) for (const f of facades) f.paint();
+  };
+  brickDiff.onload = brickNor.onload = onBrick;
+  // [colour, brick?]: warm tints over brick, original tones over painted render.
+  (
+    [
+      ['#d9cfc6', true],
+      ['#f0b090', true],
+      ['#b7ad9c', false],
+      ['#56575c', false],
+      ['#dccfbc', true],
+      ['#e6b89c', true],
+    ] as [string, boolean][]
+  ).forEach(([c, brick], i) => {
+    const f = brick ? brickFacade : plainFacade;
+    towerMats.push(
+      new THREE.MeshStandardMaterial({ color: c, roughness: 0.82, metalness: 0.04, map: f.map, normalMap: f.normalMap, normalScale: new THREE.Vector2(1.1, 1.1), emissive: '#ffffff', emissiveMap: windowTex(i * 541 + 101), emissiveIntensity: 0 }),
+    );
   });
-  ['#8d8478', '#6e4a3a', '#b7ad9c', '#56575c', '#9c8f7e', '#7a5a48'].forEach((c, i) =>
-    towerMats.push(new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, metalness: 0.05, map: facadeTex, emissive: '#ffffff', emissiveMap: windowTex(i * 541 + 101), emissiveIntensity: 0 })),
-  );
   for (const m of towerMats) castsShadow.add(m);
   const shopTex = canvasTex(512, 64, (x) => {
     x.fillStyle = '#16181c';
@@ -244,6 +331,9 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
     }
     return g;
   };
+  const tankGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
+  const tankMat = new THREE.MeshStandardMaterial({ color: '#6b4a32', roughness: 0.85 });
+  castsShadow.add(tankMat);
   const beaconGeos: THREE.BufferGeometry[] = [];
   const r = rng(21);
   let neonI = 0;
@@ -279,13 +369,34 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
         scene.add(sm);
         neonI++;
       }
-      // Rooftop: plant room, AC units, masts with blinking beacons on the tall ones.
+      // Rooftop: stepped crown on the tall ones, plant room, AC units, water tanks, masts with beacons.
+      const bodyMat = l.kind === 'glass' ? towerMats[l.mat] : towerMats[6 + l.mat];
       const top = y0 + l.h;
+      let topY = top;
+      if (l.h > 36) {
+        const ch = 5 + r() * 9;
+        put(buildingGeo(w * 0.62, ch, d * 0.62), bodyMat, cx + (r() - 0.5) * w * 0.2, topY + ch / 2, cz + (r() - 0.5) * d * 0.2);
+        topY += ch;
+        if (l.h > 70) {
+          const ch2 = 4 + r() * 6;
+          put(buildingGeo(w * 0.34, ch2, d * 0.34), bodyMat, cx, topY + ch2 / 2, cz);
+          topY += ch2;
+        }
+      }
       put(unit, roofMat, cx + (r() - 0.5) * w * 0.3, top + 1.1, cz + (r() - 0.5) * d * 0.3, 0, w * 0.4, 2.2, d * 0.35);
       for (let k = 0; k < 3; k++) put(unit, roofMat, cx + (r() - 0.5) * (w - 3), top + 0.45, cz + (r() - 0.5) * (d - 3), 0, 1.2, 0.9, 1.2);
+      if (l.h <= 36 && r() < 0.45) {
+        // Rooftop water tank on legs.
+        const tx = cx + (r() - 0.5) * (w - 6);
+        const tz = cz + (r() - 0.5) * (d - 6);
+        put(tankGeo, tankMat, tx, top + 3.2, tz, 0, 2.6, 2.8, 2.6);
+        put(unit, roofMat, tx, top + 1.1, tz, 0, 0.25, 2.2, 0.25);
+        put(unit, roofMat, tx + 1, top + 1.1, tz + 1, 0, 0.25, 2.2, 0.25);
+        put(unit, roofMat, tx - 1, top + 1.1, tz - 1, 0, 0.25, 2.2, 0.25);
+      }
       if (l.h > 60) {
-        put(unit, roofMat, cx, top + 4.5, cz, 0, 0.25, 9, 0.25);
-        beaconGeos.push(new THREE.SphereGeometry(0.4, 8, 6).translate(cx, top + 9.1, cz));
+        put(unit, roofMat, cx, topY + 4.5, cz, 0, 0.25, 9, 0.25);
+        beaconGeos.push(new THREE.SphereGeometry(0.4, 8, 6).translate(cx, topY + 9.1, cz));
       }
     }
   const beacons = new THREE.Mesh(beaconGeos.length ? mergeGeometries(beaconGeos) : new THREE.BufferGeometry(), beaconMat);
@@ -409,7 +520,7 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   };
 
   // ── Far skyline across the water ──
-  const skyMat = new THREE.MeshStandardMaterial({ color: '#4a5560', roughness: 0.9, map: facadeTex, emissive: '#ffffff', emissiveMap: windowTex(4242), emissiveIntensity: 0 });
+  const skyMat = new THREE.MeshStandardMaterial({ color: '#4a5560', roughness: 0.9, map: plainFacade.map, emissive: '#ffffff', emissiveMap: windowTex(4242), emissiveIntensity: 0 });
   for (let k = 0; k < 90; k++) {
     const a = (k / 90) * Math.PI * 2 + r() * 0.05;
     const dist = 330 + r() * 120;
@@ -432,6 +543,7 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
     merged.push(mesh);
   }
   unit.dispose();
+  tankGeo.dispose();
   trunkGeo.dispose();
   crownGeo.dispose();
   poleGeo.dispose();
