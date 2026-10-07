@@ -41,6 +41,8 @@ import {
 import { buildWorld } from '@/lib/city/world';
 import { createVehicleKit, PAINTS, type Built, type ModelKey } from '@/lib/city/vehicles';
 import { GameAudio } from './SoundToggle';
+import { buildCityDetail } from '@/lib/visuals/cityDetail';
+import { QUALITY_PRESETS, autoCityQuality, saveCityQuality, type CityQuality } from '@/lib/visuals/cityQuality';
 import { sharedAudio } from '@/lib/sfx';
 
 /**
@@ -70,7 +72,7 @@ type Hud = {
   feedNote: string;
 };
 const HUD0: Hud = { score: 0, best: 0, driving: false, speed: 0, health: 100, mission: null, prompt: '', clock: '', drift: 0, locked: false, carLabel: '', feedNote: '' };
-type Control = { key: (k: keyof Input, down: boolean) => void; action: (a: 'f' | 'horn' | 'skip' | 'tx') => void; start: () => void };
+type Control = { setQuality: (q: CityQuality) => void; key: (k: keyof Input, down: boolean) => void; action: (a: 'f' | 'horn' | 'skip' | 'tx') => void; start: () => void };
 type Input = { up: boolean; down: boolean; left: boolean; right: boolean; sprint: boolean; jump: boolean };
 
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
@@ -89,6 +91,7 @@ export function SatoshiCity() {
   const [toast, setToast] = useState<null | { text: string; sub: string; n: number; col: string }>(null);
   const [wasted, setWasted] = useState<null | { by: string; id: string; sim: boolean }>(null);
   const [started, setStarted] = useState(false);
+  const [quality, setQualityState] = useState<CityQuality>('high');
   const control = useRef<Control | null>(null);
 
   useEffect(() => {
@@ -96,8 +99,12 @@ export function SatoshiCity() {
     const mapCanvas = mapRef.current;
     if (!el || !mapCanvas) return;
     let disposed = false;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: false });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+    // MSAA lives on the composer's render target (the canvas itself is only the final blit).
+    const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+    let quality: CityQuality = autoCityQuality();
+    setQualityState(quality);
+    const pixelRatioFor = (q: CityQuality) => Math.min(devicePixelRatio, QUALITY_PRESETS[q].pixelRatio);
+    renderer.setPixelRatio(pixelRatioFor(quality));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMappingExposure = 0.8;
@@ -119,6 +126,7 @@ export function SatoshiCity() {
     const boxes = solidBoxes(blocks);
     const camBoxes = boxes.filter((b) => b.h > 2.5);
     const world = buildWorld(scene, blocks);
+    const detail = buildCityDetail(scene, blocks, quality);
     const peds = createPeds(scene, blocks); // sidewalk walkers (real rigged models)
     const edges = world.edges;
     const edgesFrom: Edge[][] = Array.from({ length: N * N }, () => []);
@@ -136,12 +144,14 @@ export function SatoshiCity() {
     });
 
     // ── Post: AO, bloom on real lights, the city grade (and the WASTED grade) ──
-    const composer = new EffectComposer(renderer);
+    const composerRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: quality === 'high' ? 4 : 2 });
+    const composer = new EffectComposer(renderer, composerRT);
     composer.addPass(new RenderPass(scene, camera));
     const gtao = new GTAOPass(scene, camera, 512, 512);
     gtao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1.5, scale: 1, samples: 8, distanceFallOff: 1 });
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 });
     gtao.blendIntensity = 0.8;
+    gtao.enabled = QUALITY_PRESETS[quality].ao;
     composer.addPass(gtao);
     const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.25, 0.5, 0.95);
     composer.addPass(bloom);
@@ -176,7 +186,7 @@ export function SatoshiCity() {
     scene.add(hemi);
     const sun = new THREE.DirectionalLight('#fff1dc', 3);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(QUALITY_PRESETS[quality].shadowMap, QUALITY_PRESETS[quality].shadowMap);
     Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 400 });
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.04;
@@ -692,7 +702,28 @@ export function SatoshiCity() {
         /* drag to look */
       }
     };
+    let needsResize = false;
+    const applyQuality = (q: CityQuality) => {
+      quality = q;
+      const pr = QUALITY_PRESETS[q];
+      renderer.setPixelRatio(pixelRatioFor(q));
+      composer.setPixelRatio(pixelRatioFor(q));
+      gtao.enabled = pr.ao;
+      if (sun.shadow.mapSize.x !== pr.shadowMap) {
+        sun.shadow.mapSize.set(pr.shadowMap, pr.shadowMap);
+        sun.shadow.map?.dispose();
+        sun.shadow.map = null;
+      }
+      detail.setQuality(q);
+      needsResize = true;
+      setQualityState(q);
+    };
     control.current = {
+      setQuality: (q) => {
+        saveCityQuality(q);
+        slowFor = -1e9; // a player's choice beats the watchdog
+        applyQuality(q);
+      },
       key: (k, down) => (inp[k] = down),
       action: (a) => (a === 'f' ? action() : a === 'horn' ? horn() : a === 'skip' ? skip() : openTx()),
       start,
@@ -820,6 +851,7 @@ export function SatoshiCity() {
     const tmpV = new THREE.Vector3();
     const size2 = new THREE.Vector2();
     let last = performance.now();
+    const started0 = (now: number) => now - t0 > 6000; // ignore the shader-compile hitches at boot
     let raf = 0;
     let hudAt = 0;
     let lastHud = '';
@@ -934,9 +966,18 @@ export function SatoshiCity() {
       return impact;
     };
 
+    // Frame-time watchdog: 3 s of > 30 ms frames on 'high' drops to 'low' (not saved, so a faster device can retry).
+    let slowFor = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const realDt = Math.min(0.05, (now - last) / 1000);
+      if (quality === 'high' && started0(now)) {
+        slowFor = realDt > 0.03 ? slowFor + realDt : Math.max(0, slowFor - realDt * 2);
+        if (slowFor > 3) {
+          slowFor = 0;
+          applyQuality('low');
+        }
+      }
       last = now;
       const dt = dead ? realDt * 0.28 : realDt;
       tSec += dt;
@@ -945,7 +986,8 @@ export function SatoshiCity() {
       const w = el.clientWidth;
       const h = el.clientHeight;
       const sz = renderer.getSize(size2);
-      if (sz.x !== w || sz.y !== h) {
+      if (needsResize || sz.x !== w || sz.y !== h) {
+        needsResize = false;
         renderer.setSize(w, h, false);
         composer.setSize(w, h);
         camera.aspect = w / h;
@@ -972,11 +1014,13 @@ export function SatoshiCity() {
       grade.uniforms.night.value = night;
       world.setNight(night, now, tSec);
       kit.setNight(night);
+      detail.setNight(night);
+      detail.update(camera.position);
       sun.intensity = 3.2 * (1 - night);
       sun.color.set(dusk > 0.4 ? '#ffb27a' : '#fff1dc');
       hemi.intensity = 0.14 + 0.6 * (1 - night);
       renderer.toneMappingExposure = 0.8 - night * 0.12;
-      bloom.strength = 0.06 + night * 0.42;
+      bloom.strength = (0.06 + night * 0.42) * QUALITY_PRESETS[quality].bloomScale;
       headLamp.intensity = night * 60;
       rain.visible = night > 0.45;
       if (rain.visible) {
@@ -987,7 +1031,13 @@ export function SatoshiCity() {
           const y = 30 - ((r[1] + fall) % 30);
           const x = camera.position.x + r[0];
           const z = camera.position.z + r[2];
-          rainPos.set([x, y, z, x + 0.06, y - 0.7, z], i * 6);
+          const o = i * 6;
+          rainPos[o] = x;
+          rainPos[o + 1] = y;
+          rainPos[o + 2] = z;
+          rainPos[o + 3] = x + 0.06;
+          rainPos[o + 4] = y - 0.7;
+          rainPos[o + 5] = z;
         }
         rainGeo.attributes.position.needsUpdate = true;
       }
@@ -1482,6 +1532,13 @@ export function SatoshiCity() {
         }
         const hrs = dayT * 24;
         const fd = feedRef.current;
+        // Rooftop billboards: the newest transactions on the road (redrawn only when they change).
+        detail.setTicker(
+          ai
+            .slice(-4)
+            .reverse()
+            .map((a) => ({ text: `${kindLabel(a.f.kind).toUpperCase()}  ${a.f.id.slice(0, 8)}…  ${a.f.sats.toLocaleString()} sats`, color: KIND_COL[a.f.kind] })),
+        );
         const nSim = ai.filter((a) => simIds.has(a.f.id)).length;
         const next: Hud = {
           score,
@@ -1532,7 +1589,9 @@ export function SatoshiCity() {
       for (const b of bodies) kit.release(b.b);
       if (car) kit.release(car.b);
       composer.dispose();
+      composerRT.dispose();
       gtao.dispose();
+      detail.dispose();
       const textures = new Set<THREE.Texture>();
       scene.traverse((o) => {
         const m = o as THREE.Mesh;
@@ -1568,6 +1627,14 @@ export function SatoshiCity() {
       <GameAudio track="city" />
       <div className="panel-header">
         <span className="panel-title">Satoshi City</span>
+        <button
+          onClick={() => control.current?.setQuality(quality === 'high' ? 'low' : 'high')}
+          className="btn ml-3 px-2 py-0 text-xs"
+          title="Graphics quality: High adds ambient occlusion, sharper shadows, glow and puddles. Low is for phones and older laptops."
+        >
+          GFX {quality === 'high' ? 'HIGH' : 'LOW'}
+        </button>
+
         <span className="text-accent">
           {feed.status === 'live' ? (
             <>
