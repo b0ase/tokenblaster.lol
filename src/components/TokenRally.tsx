@@ -471,6 +471,11 @@ export function TokenRally() {
           </>
         )}
         {racing && (
+          <div data-rally-mode={run.paid ? 'paid' : 'practice'} className={`pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:text-xs ${run.paid ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`}>
+            {run.paid ? 'PAID · 1 CREDIT' : 'PRACTICE'}
+          </div>
+        )}
+        {racing && (
           <div className="absolute right-3 top-[8.4rem] flex gap-1 sm:top-[11.5rem]">
             <button onClick={() => engine.current?.pause(phase !== 'paused')} className="btn px-2 py-1 text-xs" aria-label="Pause">
               {phase === 'paused' ? '▶' : 'Ⅱ'}
