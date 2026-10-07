@@ -75,7 +75,7 @@ export function PlayButtons({ pp, game, action, actions, onStart, practiceLabel 
     if (steps && b.wallet && enough && !b.busy) void Promise.resolve().then(goLive);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [steps, enough, b.wallet, b.busy]);
-  const step = (n: number, on: boolean, done: boolean) => `flex items-center gap-1 ${done ? 'text-[#60ff90]' : on ? 'text-hot' : 'text-dim'}`;
+  const step = (n: number, on: boolean, done: boolean) => `flex items-center gap-1 ${done ? 'text-[var(--ok)]' : on ? 'text-hot' : 'text-dim'}`;
   return (
     <div className="flex flex-col items-center gap-2" onKeyDown={(e) => e.stopPropagation()}>
       <div className="flex flex-wrap items-center justify-center gap-2">

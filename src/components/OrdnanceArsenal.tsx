@@ -56,7 +56,7 @@ export function OrdnanceArsenal() {
   return (
     <section className="panel" id="arsenal">
       <div className="panel-header">
-        <span className="panel-title">&gt; Your arsenal</span>
+        <span className="panel-title">Your arsenal</span>
         {w.wallet && <span className="text-xs text-dim">{w.wallet.name} · {w.wallet.address.slice(0, 8)}…</span>}
       </div>
       {!w.wallet ? (

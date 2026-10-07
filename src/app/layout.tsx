@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SiteNav } from "@/components/SiteNav";
+import { SiteFooter } from "@/components/dr/site";
+import { drFontClass } from "@/components/dr/fonts";
+import { logoFont } from "@/components/dr/logo-font";
+import { PALETTE_SCRIPT } from "@/components/PaletteToggle";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.tokenblaster.lol"),
@@ -23,15 +27,19 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0404",
+  themeColor: "#0a0a0c",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className={`h-full ${drFontClass} ${logoFont.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: PALETTE_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <SiteNav />
-        {children}
+        <div className="flex flex-1 flex-col">{children}</div>
+        <SiteFooter />
       </body>
     </html>
   );

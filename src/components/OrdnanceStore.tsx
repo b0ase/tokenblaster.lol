@@ -139,11 +139,11 @@ export function OrdnanceStore({ only }: { only?: string } = {}) {
                 <span className="absolute left-2 top-2 border bg-black/70 px-1.5 text-xs font-bold uppercase" style={{ color: RARITY_COLOR[o.rarity], borderColor: RARITY_COLOR[o.rarity] }}>
                   {o.rarity}
                 </span>
-                {mine && <span className="absolute right-2 top-2 border border-[#60ff90] bg-black/70 px-1.5 text-xs font-bold text-[#60ff90]">IN YOUR WALLET</span>}
+                {mine && <span className="absolute right-2 top-2 border border-[var(--ok)] bg-black/70 px-1.5 text-xs font-bold text-[var(--ok)]">IN YOUR WALLET</span>}
               </div>
               <div className="panel-header">
                 {only ? (
-                  <h1 className="panel-title">&gt; {o.name}</h1>
+                  <h1 className="panel-title">{o.name}</h1>
                 ) : (
                   <Link href={`/1satordnance/store/${slugOf(o)}`} className="panel-title hover:underline">
                     &gt; {o.name}
@@ -192,7 +192,7 @@ export function OrdnanceStore({ only }: { only?: string } = {}) {
                 )}
               </div>
               {msg?.id === o.id && (
-                <p className={`mt-2 text-xs ${msg.ok ? 'text-[#60ff90]' : 'text-hot'}`}>
+                <p className={`mt-2 text-xs ${msg.ok ? 'text-[var(--ok)]' : 'text-hot'}`}>
                   {msg.ok ? '✓ ' : '⚠ '}
                   {msg.text}{' '}
                   {msg.txid && (
@@ -220,7 +220,7 @@ function Issued({ o, n, txid, onClose }: { o: Ordnance; n: number; txid: string;
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-3" role="dialog" aria-modal="true" aria-label={`${o.name} issued`} onClick={onClose}>
       <div className="panel w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="panel-header">
-          <span className="panel-title">&gt; WEAPON ISSUED</span>
+          <span className="panel-title">WEAPON ISSUED</span>
           <button onClick={onClose} className="text-dim hover:text-hot" aria-label="Close">
             ✕
           </button>

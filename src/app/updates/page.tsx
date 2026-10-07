@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { PageHead } from '@/components/dr/site';
 
 export const metadata = { title: 'Updates · TokenBlaster.lol', description: 'What we shipped, day by day.' };
 
@@ -10,14 +11,13 @@ const UPDATES = [
 export default function Updates() {
   return (
     <main className="mx-auto flex w-full max-w-[960px] flex-col gap-3 p-2.5">
-      <header className="panel">
-        <h1 className="text-3xl font-bold text-hot">UPDATES</h1>
-        <p className="text-dim">What we shipped, day by day.</p>
-      </header>
-      {UPDATES.map((u) => (
-        <Link key={u.href} href={u.href} className="panel group hover:border-fg">
-          <p className="text-xs tracking-widest text-dim">{u.date}</p>
-          <p className="font-bold text-hot group-hover:underline">{u.title}</p>
+      <PageHead title="Updates" code={`TB-LOG / ${UPDATES.length} ENTRIES`} kana="アップデート" icon="flag" back={['/', 'TokenBlaster.lol']} sub="What we shipped, day by day." />
+      {UPDATES.map((u, i) => (
+        <Link key={u.href} href={u.href} className="panel group hover:border-[var(--hot)]">
+          <p className="dr-code">
+            LOG-{String(UPDATES.length - i).padStart(3, '0')} / {u.date}
+          </p>
+          <p className="dr-display mt-1 text-[clamp(22px,3.6vw,32px)] text-hot group-hover:text-[var(--accent)]">{u.title}</p>
         </Link>
       ))}
     </main>

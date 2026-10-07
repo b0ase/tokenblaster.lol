@@ -72,7 +72,7 @@ export function OrdnanceMint() {
   return (
     <section className="panel flex flex-col gap-3">
       <div className="panel-header">
-        <span className="panel-title">&gt; Q Branch · mint 1Sat Ordnance</span>
+        <span className="panel-title">Q Branch · mint 1Sat Ordnance</span>
         <Link href="/1satordnance" className="text-dim hover:text-hot">
           &lt; shop
         </Link>
@@ -125,7 +125,7 @@ export function OrdnanceMint() {
           )}
           {w.error && <p className="text-xs text-hot">⚠ {w.error}</p>}
           {msg && (
-            <p className={`text-xs ${msg.ok ? 'text-[#60ff90]' : 'text-hot'}`}>
+            <p className={`text-xs ${msg.ok ? 'text-[var(--ok)]' : 'text-hot'}`}>
               {msg.ok ? '✓ ' : '⚠ '}
               {msg.text}{' '}
               {msg.txid && (

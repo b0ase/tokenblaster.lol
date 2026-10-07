@@ -96,7 +96,7 @@ function AmmoRow({ def, bsvUsd, w }: { def: AmmoDef; bsvUsd: number; w: ReturnTy
         </ul>
       )}
       {msg && (
-        <p className={`text-xs ${msg.ok ? 'text-[#60ff90]' : 'text-hot'}`}>
+        <p className={`text-xs ${msg.ok ? 'text-[var(--ok)]' : 'text-hot'}`}>
           {msg.ok ? '✓ ' : '⚠ '}
           {msg.text}{' '}
           {msg.txid && (

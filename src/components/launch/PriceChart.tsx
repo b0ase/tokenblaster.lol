@@ -37,10 +37,10 @@ export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) 
     if (!box.current) return;
     const c = createChart(box.current, {
       height: 320,
-      layout: { background: { type: ColorType.Solid, color: '#050202' }, textColor: '#e0958a', fontFamily: 'Courier New, monospace' },
-      grid: { vertLines: { color: '#2a0a0a' }, horzLines: { color: '#2a0a0a' } },
-      rightPriceScale: { borderColor: '#4a1414' },
-      timeScale: { borderColor: '#4a1414', timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: '#060608' }, textColor: '#b6b4ac', fontFamily: 'Space Mono, Courier New, monospace' },
+      grid: { vertLines: { color: '#24252c' }, horzLines: { color: '#24252c' } },
+      rightPriceScale: { borderColor: '#34353d' },
+      timeScale: { borderColor: '#34353d', timeVisible: true },
       autoSize: true,
     });
     chart.current = c;
@@ -57,7 +57,7 @@ export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) 
     const series =
       kind === 'candles'
         ? c.addSeries(CandlestickSeries, { upColor: '#4ade80', downColor: '#f87171', borderVisible: false, wickUpColor: '#4ade80', wickDownColor: '#f87171', priceFormat: { type: 'custom', formatter: fmt } })
-        : c.addSeries(AreaSeries, { lineColor: '#ff5a48', topColor: 'rgba(255,90,72,0.35)', bottomColor: 'rgba(255,90,72,0)', priceFormat: { type: 'custom', formatter: fmt } });
+        : c.addSeries(AreaSeries, { lineColor: '#ff3b30', topColor: 'rgba(255,59,48,0.35)', bottomColor: 'rgba(255,59,48,0)', priceFormat: { type: 'custom', formatter: fmt } });
     if (kind === 'candles') {
       const bars = new Map<number, { time: UTCTimestamp; open: number; high: number; low: number; close: number }>();
       let prev: number | null = null;

@@ -37,7 +37,7 @@ export function Leaderboard({ hero = false }: { hero?: boolean } = {}) {
   return (
     <section className={`panel min-w-0 ${hero ? 'border-fg shadow-[0_0_18px_rgba(255,90,72,0.25)]' : ''}`}>
       <div className="panel-header">
-        <span className={`panel-title ${hero ? 'text-xl text-hot sm:text-2xl' : ''}`}>{hero ? '> Most blasted tokens' : 'Most blasted tokens'}</span>
+        <span className={`panel-title ${hero ? 'text-xl text-hot sm:text-2xl' : ''}`}>{hero ? 'Most blasted tokens' : 'Most blasted tokens'}</span>
         <div className="flex flex-wrap gap-1">
           {PERIODS.map((p) => (
             <button

@@ -326,7 +326,7 @@ function CoinCard({ c, rate, watched, onWatch }: { c: BoardCoin; rate: number; w
           <span className="font-bold text-hot">{rate ? usd(mcapSats(c.sold), rate) : bsv(mcapSats(c.sold))}</span>
           {rate > 0 && <span className="ml-1 text-xs text-muted">{bsv(mcapSats(c.sold))}</span>}
           {/* A fresh coin's cap is just the curve's starting price, not buying: say so. */}
-          {c.sold === 0 && <span className="block text-xs text-[#4ade80]">NEW · 0 BSV in the curve yet</span>}
+          {c.sold === 0 && <span className="block text-xs text-[var(--ok)]">NEW · 0 BSV in the curve yet</span>}
         </span>
         <span className="text-xs text-muted" title="holders · trades in 24h">
           👥 {c.holders} · ⇄ {c.trades24}

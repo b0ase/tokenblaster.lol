@@ -130,7 +130,7 @@ export function AmmoStrip({
 
       {/* 1 · connect */}
       <div className={stepCls(1)}>
-        <span className="text-xs font-bold tracking-widest text-dim">1 · CONNECT WALLET {b.wallet && <span className="text-[#60ff90]">✓</span>}</span>
+        <span className="text-xs font-bold tracking-widest text-dim">1 · CONNECT WALLET {b.wallet && <span className="text-[var(--ok)]">✓</span>}</span>
         {!b.wallet ? (
           <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire !px-3 !text-base">
             {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
@@ -143,7 +143,7 @@ export function AmmoStrip({
       {/* 2 · pick + load */}
       <div className={stepCls(2)}>
         <span className="text-xs font-bold tracking-widest text-dim">
-          2 · PICK {sats ? 'AMMO' : 'TOKEN'} + LOAD {armed && <span className="text-[#60ff90]">✓</span>}
+          2 · PICK {sats ? 'AMMO' : 'TOKEN'} + LOAD {armed && <span className="text-[var(--ok)]">✓</span>}
         </span>
         {b.wallet && (
           <>

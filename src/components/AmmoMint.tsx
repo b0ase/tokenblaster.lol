@@ -47,7 +47,7 @@ export function AmmoMint() {
   return (
     <section className="panel flex flex-col gap-3">
       <div className="panel-header">
-        <span className="panel-title">&gt; Q Branch · ammo bench</span>
+        <span className="panel-title">Q Branch · ammo bench</span>
         <Link href="/1satordnance/ammo" className="text-dim hover:text-hot">
           &lt; ammo store
         </Link>
@@ -113,7 +113,7 @@ export function AmmoMint() {
       {log.length > 0 && (
         <ul className="flex flex-col gap-1 text-xs">
           {log.map((l, i) => (
-            <li key={i} className={`break-all ${l.ok ? 'text-[#60ff90]' : 'text-hot'}`}>
+            <li key={i} className={`break-all ${l.ok ? 'text-[var(--ok)]' : 'text-hot'}`}>
               {l.ok ? '✓ ' : '⚠ '}
               {l.text}
             </li>

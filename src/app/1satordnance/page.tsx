@@ -85,7 +85,7 @@ export default function OrdnancePage() {
                   <GunArt o={o} spin className="h-full w-full object-cover" />
                   </div>
                 <div className="panel-header">
-                  <span className="panel-title">&gt; {o.name}</span>
+                  <span className="panel-title">{o.name}</span>
                   <Link href={`/1satordnance/store#${o.id}`} className="text-xs font-bold text-[#60ff90] hover:underline">BUY ›</Link>
                 </div>
                 <p className="mt-1 text-accent">{o.tagline}</p>
@@ -130,7 +130,7 @@ export default function OrdnancePage() {
 
       <section className="panel">
         <div className="panel-header">
-          <span className="panel-title">&gt; FAQ</span>
+          <span className="panel-title">FAQ</span>
         </div>
         <div className="flex flex-col divide-y divide-[var(--border-dim)]">
           {FAQ.map((f) => (

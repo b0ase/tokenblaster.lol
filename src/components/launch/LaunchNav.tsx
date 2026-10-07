@@ -21,8 +21,8 @@ export function LaunchNav({ wallet, onConnect, busy }: { wallet?: { address: str
   return (
     <header className="panel flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-4">
-        <Link href="/launch" className="text-xl font-bold text-hot">
-          BLAST<span className="text-fg">PAD</span>
+        <Link href="/launch" className="dr-display dr-logo text-xl text-hot">
+          BLAST<span className="text-[var(--accent)]">PAD</span>
           <span className="blink">_</span>
         </Link>
         <nav className="flex flex-wrap gap-1 text-sm">

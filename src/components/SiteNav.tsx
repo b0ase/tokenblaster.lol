@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { PaletteToggle } from './PaletteToggle';
 
 /**
  * The site-wide bar on every page (src/app/layout.tsx). Full-screen games (Arena, Double-O Satoshi) cover
@@ -62,10 +63,12 @@ export function SiteNav() {
   const arcadeHere = inArcade(path);
 
   return (
-    <nav aria-label="Site" className="sticky top-0 z-30 border-b border-line bg-bg/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[1300px] items-center gap-2 px-2.5 py-1.5 text-sm sm:gap-3">
-        <Link href="/" className="shrink-0 font-bold text-hot">
-          TokenBlaster<span className="text-fg">.lol</span>
+    <nav aria-label="Site" className="sticky top-0 z-30 border-b-2 border-[var(--hot)] bg-bg">
+      <div className="dr-hazard !h-[5px]" aria-hidden />
+      <div className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-1.5 text-sm sm:gap-x-3">
+        <Link href="/" className="dr-display dr-logo shrink-0 text-[17px] leading-none text-hot sm:text-[20px]" aria-label="TokenBlaster.lol home">
+          Token<span className="text-[var(--accent)]">Blaster</span>
+          <span className="dr-outline !text-[0.7em]">.lol</span>
         </Link>
 
         <div ref={menu} className="relative shrink-0">
@@ -73,9 +76,9 @@ export function SiteNav() {
             <Link
               href="/arcade"
               aria-current={path === '/arcade' ? 'page' : undefined}
-              className={`btn-fire inline-flex items-center gap-1.5 !px-3 !py-1.5 !text-sm font-bold tracking-wider ${arcadeHere ? 'ring-2 ring-[var(--fg)]' : ''}`}
+              className={`btn-fire inline-flex items-center gap-1.5 !px-3 !py-1.5 !text-[17px] ${arcadeHere ? 'outline outline-2 outline-offset-2 outline-[var(--hot)]' : ''}`}
             >
-              ▶ ARCADE
+              <span aria-hidden>▶</span> Arcade
             </Link>
             <button
               type="button"
@@ -83,7 +86,7 @@ export function SiteNav() {
               aria-expanded={open}
               aria-haspopup="menu"
               onClick={() => setOpen((o) => !o)}
-              className="btn-fire !ml-px !px-2 !py-1.5 !text-sm"
+              className="btn-fire !ml-1 !px-2 !py-1.5 !text-[17px]"
             >
               <span aria-hidden className={`inline-block transition-transform ${open ? 'rotate-180' : ''}`}>
                 ▾
@@ -91,27 +94,30 @@ export function SiteNav() {
             </button>
           </div>
           {open && (
-            <div role="menu" className="absolute left-0 top-full z-40 mt-1 grid w-[min(92vw,26rem)] grid-cols-2 gap-1 border border-line bg-bg p-2 shadow-[0_8px_30px_rgba(0,0,0,0.6)]">
-              {ARCADE_GAMES.map(([href, label]) => (
-                <Link
-                  key={href}
-                  role="menuitem"
-                  href={href}
-                  onClick={() => setOpen(false)}
-                  aria-current={here(href) ? 'page' : undefined}
-                  className={`btn justify-start whitespace-nowrap text-left ${here(href) ? 'btn-on' : ''}`}
-                >
-                  {label}
+            <div role="menu" className="absolute left-0 top-full z-40 mt-2 w-[min(92vw,28rem)] border-2 border-[var(--hot)] bg-bg shadow-[6px_6px_0_var(--hard)]">
+              <div className="dr-hazard !h-2" aria-hidden />
+              <div className="grid grid-cols-2 gap-1 p-2">
+                {ARCADE_GAMES.map(([href, label]) => (
+                  <Link
+                    key={href}
+                    role="menuitem"
+                    href={href}
+                    onClick={() => setOpen(false)}
+                    aria-current={here(href) ? 'page' : undefined}
+                    className={`btn justify-start whitespace-nowrap text-left !text-[11px] ${here(href) ? 'btn-on' : ''}`}
+                  >
+                    {label}
+                  </Link>
+                ))}
+                <Link role="menuitem" href="/arcade" onClick={() => setOpen(false)} className="btn btn-on col-span-2 text-center font-bold">
+                  All games &gt;&gt;
                 </Link>
-              ))}
-              <Link role="menuitem" href="/arcade" onClick={() => setOpen(false)} className="btn btn-on col-span-2 text-center font-bold">
-                ALL GAMES &gt;
-              </Link>
+              </div>
             </div>
           )}
         </div>
 
-        <ul className="flex min-w-0 gap-1 overflow-x-auto">
+        <ul className="order-last flex w-full min-w-0 gap-1 overflow-x-auto py-1 sm:order-none sm:w-auto">
           {LINKS.map(([href, label]) => (
             <li key={href} className="shrink-0">
               <Link href={href} aria-current={here(href) ? 'page' : undefined} className={`btn whitespace-nowrap ${here(href) ? 'btn-on' : ''}`}>
@@ -120,6 +126,7 @@ export function SiteNav() {
             </li>
           ))}
         </ul>
+        <PaletteToggle className="ml-auto hidden shrink-0 xl:flex" />
       </div>
     </nav>
   );

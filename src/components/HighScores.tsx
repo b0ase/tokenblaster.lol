@@ -72,7 +72,7 @@ function Table({ rows, err, sort, highlight }: { rows: ScoreRow[] | null; err: b
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-fg">{r.name}</span>
           {r.mode === 'live' &&
             (r.verified && r.txid ? (
-              <a href={`https://whatsonchain.com/tx/${r.txid}`} target="_blank" rel="noopener noreferrer" title="Verified on chain" className="text-[#60ff90] hover:underline">
+              <a href={`https://whatsonchain.com/tx/${r.txid}`} target="_blank" rel="noopener noreferrer" title="Verified on chain" className="text-[var(--ok)] hover:underline">
                 ✓ on chain
               </a>
             ) : (
