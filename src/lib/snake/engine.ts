@@ -645,6 +645,12 @@ export class SnakeEngine {
     this.phase = p;
     this.opts.cb.onPhase(p);
   }
+  /** Stop / resume rendering (the multiplayer arena is covering this scene). */
+  suspend(on: boolean) {
+    if (!this.renderer || this.disposed) return;
+    this.renderer.setAnimationLoop(on ? null : this.frame);
+    if (!on) this.last = performance.now();
+  }
   setQuality(q: Quality) {
     if (q === this.quality) return;
     this.quality = q;

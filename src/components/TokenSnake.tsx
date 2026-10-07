@@ -20,11 +20,12 @@ import { WalletChooser } from './WalletChooser';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { DR } from '@/lib/dr/tokens';
 import { foodFromTx, KIND_CSS, POWER_NAME, SnakeEngine, type CamMode, type Hud, type Phase, type Quality, type RunResult, type Toast } from '@/lib/snake/engine';
-import { LIVES, N } from '@/lib/snake/sim';
+import { LIVES, N, type FoodKind } from '@/lib/snake/sim';
 import { HighScores, useRunClock } from './HighScores';
 import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { GameAudio } from './SoundToggle';
+import { SnakeArena } from '@/lib/snake/SnakeArena';
 import { useGameFullscreen } from '@/lib/useGameFullscreen';
 import { ChevronBar, Display, HazardBar, Kana, PosterFrame, ProductCode, Sticker, gridBg } from './dr';
 import { drDisplay, drFontClass, drJp, drMono } from './dr/fonts';
@@ -129,6 +130,19 @@ export function TokenSnake() {
   const [result, setResult] = useState<RunResult | null>(null);
   const [best, setBest] = useState(0);
   const [newBest, setNewBest] = useState(false);
+  // Multiplayer arena (slither-style) covers the grid game while open; ?room=CODE opens it straight into that room
+  // (read after mount so the server and first client render agree).
+  const [arenaRoom, setArenaRoom] = useState<string | null>(null);
+  const [arena, setArena] = useState(false);
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      const r = new URLSearchParams(window.location.search).get('room');
+      if (r) {
+        setArenaRoom(r);
+        setArena(true);
+      }
+    });
+  }, []);
   const [camMode, setCamMode] = useState<CamMode>('angle');
   const [qualityPref, setQualityPref] = useState<QualityPref>('auto');
   const [prefsLoaded, setPrefsLoaded] = useState(false);
@@ -343,6 +357,11 @@ export function TokenSnake() {
     return () => clearInterval(t);
   }, [camMode]);
 
+  // The grid scene sleeps while the multiplayer arena is on top of it.
+  useEffect(() => {
+    if (ready) engine.current?.suspend(arena);
+  }, [arena, ready]);
+
   // New blocks become monoliths in the arena.
   useEffect(() => {
     if (!ready) return;
@@ -400,6 +419,28 @@ export function TokenSnake() {
     setLastTx(null);
     setPayErr(null);
     engine.current?.start(isLive);
+  };
+  /** The multiplayer arena starts / ends a run: the same pay-queue reset the grid game does, minus its engine. */
+  const arenaRunStart = (isLive: boolean) => {
+    lootRef.current.end();
+    setLive(isLive);
+    payRef.current.live = isLive;
+    queue.current.length = 0;
+    payRef.current.queued = 0;
+    counter.current = 0;
+    hud.setTx(0);
+    setOnChain(0);
+    setLastTx(null);
+    setPayErr(null);
+  };
+  const arenaRunEnd = () => {
+    setLive(false);
+    payRef.current.live = false;
+    lootRef.current.end();
+  };
+  const arenaTakeTx = (kind: FoodKind) => {
+    const f = feedRef.current.take((x) => x.kind === kind);
+    return f ? foodFromTx(f) : null;
   };
   const resume = () => {
     if (live && !canPay.current()) return;
@@ -544,6 +585,26 @@ export function TokenSnake() {
         )}
         {perf && perf.fps < 28 && playing && <span className="pointer-events-none absolute bottom-2 right-14 bg-black/60 px-1 text-[10px] text-dim">{perf.fps} fps · adapting</span>}
 
+        {arena && (
+          <SnakeArena
+            quality={qualityPref === 'auto' ? (isMobileish() ? 'low' : 'high') : qualityPref}
+            touch={touch}
+            wallet={b.wallet?.client ?? null}
+            takeTx={arenaTakeTx}
+            liveOffer={Boolean(HOUSE)}
+            liveReady={liveOpen && ammoOk}
+            onLiveOpen={() => setLiveOpen(true)}
+            onRunStart={arenaRunStart}
+            onRunEnd={arenaRunEnd}
+            pay={(a) => payFor.current(a)}
+            canPay={() => canPay.current()}
+            onPickup={(l) => lootRef.current.pickup(l)}
+            onNeedAmmo={() => setNeedAmmo(true)}
+            onExit={() => setArena(false)}
+            autoRoom={arenaRoom}
+          />
+        )}
+
         {/* ── Loading / error ── */}
         {!ready && !error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black" style={gridBg()}>
@@ -639,6 +700,12 @@ export function TokenSnake() {
               </p>
               <CoinOpButtons co={co} start={start} perCredit={`1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} onPress={gfs.enter} />
               {liveStart}
+              <div className="flex flex-col items-start gap-1">
+                <button onClick={() => (gfs.enter(), setArena(true))} className="btn px-4 py-2 text-base font-bold tracking-widest" style={{ borderColor: DR.colour.magenta, color: DR.colour.magenta }} data-snake-arena-open>
+                  ⚔ MULTIPLAYER ARENA · UP TO 10 SNAKES
+                </button>
+                <span className="text-[10px] text-dim">Slither-style: X avatars over every head, cut other snakes off, they burst into food. Quick match, private room or solo vs bots.</span>
+              </div>
             </div>
           </div>
         )}
