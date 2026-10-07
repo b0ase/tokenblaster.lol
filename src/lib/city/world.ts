@@ -64,10 +64,39 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   road.rotation.x = -Math.PI / 2;
   road.receiveShadow = true;
   scene.add(road);
-  const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(1600, 1600),
-    new THREE.MeshStandardMaterial({ color: '#0d2633', metalness: 0.7, roughness: 0.12, envMapIntensity: 1 }),
-  );
+  // Sea: glossy physical water with two scrolling procedural wave normal maps (tileable sum of sines).
+  const waveTex = (() => {
+    const S = 256;
+    const data = new Uint8Array(S * S * 4);
+    const hgt = (x: number, y: number) => {
+      const u = (x / S) * Math.PI * 2;
+      const v = (y / S) * Math.PI * 2;
+      return Math.sin(u * 3 + v * 2) * 0.5 + Math.sin(u * 7 - v * 5) * 0.25 + Math.sin(u * 13 + v * 11) * 0.12 + Math.sin(-u * 2 + v * 9) * 0.3;
+    };
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        const dx = hgt(x + 1, y) - hgt(x - 1, y);
+        const dy = hgt(x, y + 1) - hgt(x, y - 1);
+        const n = new THREE.Vector3(-dx * 2.2, -dy * 2.2, 1).normalize();
+        const o = (y * S + x) * 4;
+        data[o] = (n.x * 0.5 + 0.5) * 255;
+        data[o + 1] = (n.y * 0.5 + 0.5) * 255;
+        data[o + 2] = (n.z * 0.5 + 0.5) * 255;
+        data[o + 3] = 255;
+      }
+    const t = new THREE.DataTexture(data, S, S);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(60, 60);
+    t.generateMipmaps = true;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.anisotropy = 4;
+    t.needsUpdate = true;
+    return t;
+  })();
+  const waterMat = new THREE.MeshPhysicalMaterial({ color: '#06202c', metalness: 0.1, roughness: 0.06, envMapIntensity: 1.3, normalMap: waveTex, normalScale: new THREE.Vector2(0.35, 0.35), clearcoat: 1, clearcoatRoughness: 0.08, clearcoatNormalMap: waveTex.clone(), clearcoatNormalScale: new THREE.Vector2(0.25, 0.25) });
+  waterMat.clearcoatNormalMap!.repeat.set(23, 23);
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), waterMat);
   water.rotation.x = -Math.PI / 2;
   water.position.y = -1.6;
   scene.add(water);
@@ -562,11 +591,15 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
     skyMat.emissiveIntensity = night * 0.7;
     headMat.emissiveIntensity = night * 3;
     beacons.visible = night > 0.3 && Math.floor(now / 700) % 2 === 0;
+    const ws = now / 1000;
+    waveTex.offset.set(ws * 0.011, ws * 0.007);
+    waterMat.clearcoatNormalMap!.offset.set(-ws * 0.006, ws * 0.009);
+    waterMat.color.setRGB(0.024 - night * 0.012, 0.125 - night * 0.08, 0.17 - night * 0.09);
     updateLights(t);
   };
   /** Give the reflective materials the HDRI once it loads. */
   const setEnv = (env: THREE.Texture) => {
-    for (const m of [asphalt, ...towerMats.slice(0, 6)]) {
+    for (const m of [asphalt, waterMat, ...towerMats.slice(0, 6)]) {
       m.envMap = env;
       m.needsUpdate = true;
     }
