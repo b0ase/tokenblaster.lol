@@ -21,6 +21,13 @@ import { RangeEngine, type Hooks, type Hud, type Phase, type Quality, type Resul
 import { TARGET_INFO, type TargetKind } from '@/lib/bsvgun/targets';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
 import { useShots } from '@/lib/bsvgun/useShots';
+import { VS_EVENTS, type VsPlayer, type VsRow } from '@/lib/bsvgun/vsLayer';
+import { SHOOTER_COLOURS } from '@/lib/bsvgun/versus';
+import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
+import type { RaceLink } from '@/lib/racemp/session';
+import { readWire } from '@/lib/identity';
+import { useMyHandle } from './PlayerBadge';
+import { VersusLobby, VersusResults, VsBoard } from './BSVGunVersus';
 
 type Blaster = ReturnType<typeof useBlaster>;
 export type BlastState = { active: boolean; tps: number; sent: number; target: number };
@@ -29,6 +36,8 @@ type QualityPref = 'auto' | 'low' | 'high';
 const PREFS = 'bsvgun:range-prefs';
 const BEST = 'bsvgun:range-best';
 const LOADS = [1_000, 5_000, 25_000];
+type VsCfg = { v: 1 };
+const VS_CFG: VsCfg = { v: 1 };
 const EMPTY_HUD: Hud = { score: 0, timeLeft: 75, streak: 0, mult: 1, shots: 0, hits: 0, weapon: '', zoomed: false, scoped: false, hover: '', banner: '', feedLive: false, targets: 0 };
 
 const autoQuality = (): Quality => {
@@ -62,6 +71,13 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   const [runKey, setRunKey] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
+  // VERSUS: lobby overlay, a round in progress, the settled scoreboard.
+  const [vsOpen, setVsOpen] = useState(false);
+  const [vsRun, setVsRun] = useState(false);
+  const [vsFinal, setVsFinal] = useState<VsRow[] | null>(null);
+  const vsSink = useRef<(r: VsRow[]) => void>(() => undefined);
+  const linkRef = useRef<() => RaceLink<VsCfg> | null>(() => null);
+  const xHandle = useMyHandle();
 
   const feed = useChainFeed();
   const feedRef = useRef(feed);
@@ -70,6 +86,46 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   const { owned } = useOrdnance(b.wallet);
   const unlocked = useMemo(() => new Set([...STOCK_IDS, ...owned]), [owned]);
   const weapon = weapons.find((w) => w.id === weaponId) ?? weapons[0];
+
+  // The same room machinery as bRacer / Token Rally (src/lib/racemp): quick match, private room, ready, countdown, 'go'.
+  const room = useRaceRoom<VsCfg>({
+    game: 'bsvgun',
+    enabled: prefsLoaded && mode === 'range',
+    wallet: b.wallet?.client ?? null,
+    profile: { name: 'SHOOTER', vehicle: weaponId, team: '0', x: xHandle ?? undefined },
+    cfg: VS_CFG,
+    quickKey: () => 'range',
+    sameCfg: () => true,
+    validateCfg: (c) => (c && typeof c === 'object' ? VS_CFG : null),
+    events: VS_EVENTS,
+    onRemoteCfg: () => undefined,
+    onGo: (race) => {
+      const eng = engine.current;
+      const link = linkRef.current();
+      if (!eng || !link) return;
+      link.on = (ev, p) => engine.current?.vsMsg(ev, p);
+      const players: VsPlayer[] = race.ids.map((id, i) => {
+        const pr = race.players[id];
+        const x = readWire(pr).x;
+        const nm = String(pr?.name ?? 'SHOOTER');
+        return { id, name: nm === 'SHOOTER' ? `SHOOTER ${id.slice(0, 3).toUpperCase()}` : nm, x, color: SHOOTER_COLOURS[i % SHOOTER_COLOURS.length], verified: false };
+      });
+      shots.reset();
+      setResult(null);
+      setVsFinal(null);
+      setPaused(false);
+      setVsRun(true);
+      setRunKey((k) => k + 1);
+      eng.startVersus({ weaponId: unlocked.has(weaponId) ? weaponId : 'plasmarifle', live, rid: race.rid, me: link.id, players });
+    },
+  });
+  useEffect(() => {
+    linkRef.current = room.getLink;
+  });
+  useEffect(() => {
+    engine.current?.vsVerified(room.verified);
+  }, [room.verified]);
+  const meRow = room.ui.players.find((p) => p.id === room.info?.id) ?? null;
 
   useEffect(() => {
     feedRef.current = feed;
@@ -137,8 +193,17 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
       height: () => heightRef.current,
       hud: (h) => hudSink.current(h),
       phase: (p) => setPhase(p),
+      net: (ev, p) => linkRef.current()?.send(ev, p),
+      vsRows: (rows, _t, final) => {
+        vsSink.current(rows);
+        if (final) setVsFinal(rows);
+      },
       over: (r) => {
         setResult(r);
+        if (engine.current?.inVersus) {
+          linkRef.current()?.finish(1); // tell the room I'm done (the session settles the round)
+          return;
+        }
         setBest((o) => {
           const n = Math.max(o, r.score);
           try {
@@ -205,6 +270,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
     if (mode === 'blast' && engine.current?.phase !== 'menu') {
       setPaused(false);
       engine.current?.toMenu();
+      setVsRun(false);
     }
   }, [mode]);
   useEffect(() => {
@@ -214,7 +280,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   const gfs = useGameFullscreen(wrap, {
     playing: active && phase === 'play',
     ended: phase === 'over',
-    onLeftWhilePlaying: () => setPaused(true),
+    onLeftWhilePlaying: () => !engine.current?.inVersus && setPaused(true),
   });
   const { fs, enter: enterFs, toggle: toggleFs } = gfs;
   const start = useCallback(() => {
@@ -223,6 +289,8 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
     shots.reset();
     setResult(null);
     setPaused(false);
+    setVsRun(false);
+    setVsFinal(null);
     setRunKey((k) => k + 1);
     engine.current.start(weaponId, live);
     mount.current?.querySelector('canvas')?.focus();
@@ -249,7 +317,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
       } else if (e.key === 'e' || e.key === 'E') {
         eng.cycleWeapon(1);
         if (eng.phase !== 'play') cycleSel(1);
-      } else if (e.key === 'Escape' && eng.phase === 'play') setPaused((p) => !p);
+      } else if (e.key === 'Escape' && eng.phase === 'play' && !eng.inVersus) setPaused((p) => !p);
       else if (e.key === 'Enter' && eng.phase === 'menu') startRef.current();
     };
     const cycleSel = (d: number) => {
@@ -269,9 +337,45 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   };
 
   const playing = phase === 'play';
-  const menu = active && phase === 'menu' && ready;
+  const lobbyShown = active && ready && (vsOpen || !!room.info) && !vsRun;
+  const menu = active && phase === 'menu' && ready && !lobbyShown;
   const costPerShot = STORM_FEE;
   const liveReady = !live || (!!b.wallet && shots.shotsAffordable >= 20);
+  const liveBar = (
+    <>
+              <button onClick={() => setLive(false)} className="px-3 py-1.5 text-sm font-bold" style={{ background: !live ? DR.colour.paper : 'rgba(10,10,12,.8)', color: !live ? DR.colour.ink : DR.colour.paper, border: `2px solid ${DR.colour.paper}` }}>
+                PRACTICE
+              </button>
+              <button onClick={() => setLive(true)} className="px-3 py-1.5 text-sm font-bold" style={{ background: live ? DR.colour.signal : 'rgba(10,10,12,.8)', color: DR.colour.paper, border: `2px solid ${DR.colour.signal}` }}>
+                LIVE · ON CHAIN
+              </button>
+              <span className="text-[11px]" style={{ color: DR.colour.grey }}>
+                {live ? `each shot = one real tx (~${costPerShot} sats)` : 'free, nothing is sent'}
+              </span>
+              {live && !b.wallet && (
+                <button onClick={b.connectWallet} disabled={!!b.busy} className="px-3 py-1.5 text-sm font-bold" style={{ background: DR.colour.amber, color: DR.colour.ink }}>
+                  {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
+                </button>
+              )}
+              {live && b.wallet && (
+                <>
+                  <span className="text-[11px]" style={{ color: DR.colour.paper }}>
+                    gun <b style={{ color: DR.colour.amber }}>{b.ammo.toLocaleString()}</b> sats ({shots.shotsAffordable.toLocaleString()} shots) · tag {b.token ? `$${b.token.sym}` : 'plain BSV'}
+                  </span>
+                  {LOADS.map((n) => (
+                    <button key={n} onClick={() => void b.load(n, `BSVGun range: ${n.toLocaleString()} sats`)} disabled={!!b.busy} className="px-2 py-1 text-[11px] font-bold" style={{ border: `1px solid ${DR.colour.amber}`, color: DR.colour.amber, background: 'rgba(10,10,12,.8)' }}>
+                      {b.busy === 'loading' ? '…' : `LOAD ${n.toLocaleString()}`}
+                    </button>
+                  ))}
+                </>
+              )}
+              {live && !liveReady && (
+                <span className="text-[11px]" style={{ color: DR.colour.amber }}>
+                  {b.wallet ? 'load at least 20 shots of sats' : 'connect a wallet to go live'}
+                </span>
+              )}
+    </>
+  );
 
   return (
     <div className="bg-stage relative w-full">
@@ -303,6 +407,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
         {(h) => (
           <>
             {playing && h.scoped && <Scope />}
+            {playing && vsRun && <VsBoard register={(fn) => (vsSink.current = fn)} />}
             {playing && (
               <>
                 <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1">
@@ -318,7 +423,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
                   <Display size="clamp(26px,4.2vw,52px)" colour={h.timeLeft < 10 ? DR.colour.signal : DR.colour.paper} className={h.timeLeft < 10 ? 'blink' : ''}>
                     {fmtTime(h.timeLeft)}
                   </Display>
-                  <div style={{ fontSize: 10, letterSpacing: '0.18em', color: h.feedLive ? DR.colour.acid : DR.colour.amber }}>{h.feedLive ? '● LIVE CHAIN' : '○ SIMULATED FEED'}</div>
+                  <div style={{ fontSize: 10, letterSpacing: '0.18em', color: vsRun ? DR.colour.cyan : h.feedLive ? DR.colour.acid : DR.colour.amber }}>{vsRun ? '◆ VERSUS · SHARED TARGETS' : h.feedLive ? '● LIVE CHAIN' : '○ SIMULATED FEED'}</div>
                 </div>
                 <div className="pointer-events-none absolute right-3 top-3 text-right">
                   <div style={{ fontSize: 10, letterSpacing: '0.2em', color: DR.colour.amber }}>STREAK {h.streak}</div>
@@ -389,7 +494,20 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
           </div>
         </div>
       )}
-      {playing && (
+      {playing && vsRun && (
+        <button
+          onClick={() => {
+            engine.current?.toMenu();
+            room.endRace();
+            setVsRun(false);
+          }}
+          className="absolute right-3 top-[88px] px-2 py-0.5 text-[11px]"
+          style={{ background: 'rgba(10,10,12,.7)', border: '1px solid #3a3b44', color: DR.colour.grey }}
+        >
+          LEAVE ROUND
+        </button>
+      )}
+      {playing && !vsRun && (
         <button onClick={() => setPaused(true)} className="absolute right-3 top-[88px] px-2 py-0.5 text-[11px]" style={{ background: 'rgba(10,10,12,.7)', border: '1px solid #3a3b44', color: DR.colour.grey }}>
           PAUSE (Esc)
         </button>
@@ -461,37 +579,10 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
               <button onClick={start} disabled={!liveReady || !unlocked.has(weaponId)} className="px-7 py-2.5 text-2xl font-black italic tracking-widest disabled:opacity-40" style={{ fontFamily: DR.font.display, background: DR.colour.signal, color: DR.colour.paper, border: `2px solid ${DR.colour.paper}`, boxShadow: '0 0 24px rgba(232,38,29,.55)' }}>
                 START ▶
               </button>
-              <button onClick={() => setLive(false)} className="px-3 py-1.5 text-sm font-bold" style={{ background: !live ? DR.colour.paper : 'rgba(10,10,12,.8)', color: !live ? DR.colour.ink : DR.colour.paper, border: `2px solid ${DR.colour.paper}` }}>
-                PRACTICE
+              {liveBar}
+              <button onClick={() => setVsOpen(true)} className="px-3 py-1.5 text-sm font-bold" style={{ background: 'rgba(10,10,12,.8)', color: DR.colour.cyan, border: `2px solid ${DR.colour.cyan}` }} data-bsvgun-versus>
+                VERSUS · 2-8 SHOOTERS
               </button>
-              <button onClick={() => setLive(true)} className="px-3 py-1.5 text-sm font-bold" style={{ background: live ? DR.colour.signal : 'rgba(10,10,12,.8)', color: DR.colour.paper, border: `2px solid ${DR.colour.signal}` }}>
-                LIVE · ON CHAIN
-              </button>
-              <span className="text-[11px]" style={{ color: DR.colour.grey }}>
-                {live ? `each shot = one real tx (~${costPerShot} sats)` : 'free, nothing is sent'}
-              </span>
-              {live && !b.wallet && (
-                <button onClick={b.connectWallet} disabled={!!b.busy} className="px-3 py-1.5 text-sm font-bold" style={{ background: DR.colour.amber, color: DR.colour.ink }}>
-                  {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
-                </button>
-              )}
-              {live && b.wallet && (
-                <>
-                  <span className="text-[11px]" style={{ color: DR.colour.paper }}>
-                    gun <b style={{ color: DR.colour.amber }}>{b.ammo.toLocaleString()}</b> sats ({shots.shotsAffordable.toLocaleString()} shots) · tag {b.token ? `$${b.token.sym}` : 'plain BSV'}
-                  </span>
-                  {LOADS.map((n) => (
-                    <button key={n} onClick={() => void b.load(n, `BSVGun range: ${n.toLocaleString()} sats`)} disabled={!!b.busy} className="px-2 py-1 text-[11px] font-bold" style={{ border: `1px solid ${DR.colour.amber}`, color: DR.colour.amber, background: 'rgba(10,10,12,.8)' }}>
-                      {b.busy === 'loading' ? '…' : `LOAD ${n.toLocaleString()}`}
-                    </button>
-                  ))}
-                </>
-              )}
-              {live && !liveReady && (
-                <span className="text-[11px]" style={{ color: DR.colour.amber }}>
-                  {b.wallet ? 'load at least 20 shots of sats' : 'connect a wallet to go live'}
-                </span>
-              )}
               <span className="ml-auto flex items-center gap-1 text-[10px]" style={{ color: DR.colour.grey }}>
                 QUALITY
                 {(['auto', 'low', 'high'] as const).map((q) => (
@@ -558,8 +649,75 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
         </div>
       )}
 
+      {/* Versus lobby */}
+      {lobbyShown && (
+        <VersusLobby
+          available={room.available}
+          info={room.info}
+          ui={room.ui}
+          verified={room.verified}
+          weaponName={(id) => weapons.find((w) => w.id === id)?.name ?? ''}
+          ready={Boolean(meRow?.ready)}
+          blocked={!liveReady ? (b.wallet ? 'LIVE: load at least 20 shots of sats' : 'LIVE: connect a wallet') : !unlocked.has(weaponId) ? 'pick a weapon you own' : null}
+          liveBar={liveBar}
+          weaponBar={
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="text-[10px]" style={{ color: DR.colour.grey }}>
+                WEAPON
+              </span>
+              {weapons
+                .filter((w) => unlocked.has(w.id))
+                .map((w) => (
+                  <button key={w.id} onClick={() => setWeaponId(w.id)} className="px-2 py-0.5 text-[11px] font-bold" style={{ background: w.id === weaponId ? DR.colour.amber : 'rgba(10,10,12,.8)', color: w.id === weaponId ? DR.colour.ink : DR.colour.paper, border: `1px solid ${w.id === weaponId ? DR.colour.amber : '#3a3b44'}` }}>
+                    {w.name}
+                  </button>
+                ))}
+            </div>
+          }
+          onQuick={() => room.joinQuick()}
+          onPrivate={(c) => room.joinPrivate(c)}
+          onLeave={() => room.leave()}
+          onReady={(r) => room.setReady(r, live)}
+          onStart={() => room.go()}
+          onClose={() => {
+            room.leave();
+            setVsOpen(false);
+          }}
+        />
+      )}
+      {active && vsRun && phase === 'over' && vsFinal && result && (
+        <VersusResults
+          rows={vsFinal}
+          onAgain={() => {
+            engine.current?.toMenu();
+            room.endRace();
+            setVsRun(false);
+            setVsOpen(true);
+          }}
+          onLobby={() => {
+            engine.current?.toMenu();
+            room.endRace();
+            room.leave();
+            setVsRun(false);
+            setVsOpen(false);
+          }}
+        >
+          <div key={runKey}>
+            <HighScores
+              game="bsvgun-versus"
+              score={vsFinal.find((r) => r.me)?.score ?? result.score}
+              secs={result.secs}
+              live={live && shots.onChain > 0}
+              txid={shots.lastTx}
+              meta={{ weapon: weaponId.slice(0, 24), acc: Math.round(result.acc * 100), streak: result.bestStreak, shooters: vsFinal.length, place: vsFinal.find((r) => r.me)?.rank ?? 0, ...(live ? { coinop: 0 } : {}) }}
+              label="SCORE"
+            />
+          </div>
+        </VersusResults>
+      )}
+
       {/* Paused */}
-      {active && paused && playing && (
+      {active && paused && playing && !vsRun && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3" style={{ background: 'rgba(5,5,8,.78)' }}>
           <Display size="clamp(40px,8vw,96px)">PAUSED</Display>
           <div className="flex gap-2">
@@ -584,7 +742,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
       )}
 
       {/* Results */}
-      {active && phase === 'over' && result && (
+      {active && phase === 'over' && result && !vsRun && (
         <div className="absolute inset-0 z-20 overflow-y-auto" style={{ background: 'rgba(5,5,8,.9)', ...gridBg() }}>
           <HazardBar h={10} colour={DR.colour.amber} />
           <div className="mx-auto flex max-w-[980px] flex-col gap-3 p-4 sm:flex-row">
