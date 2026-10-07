@@ -58,7 +58,10 @@ export const STORY: Record<string, Chapter> = {
         { who: 'q', text: 'Paperwork! Marvellous. Bring it back unshot, please.' },
       ],
       allIntel: [{ who: 'm', text: 'Every file in the bunker. The board will be furious. Splendid.' }],
-      lowHealth: [{ who: 'q', text: 'Kweg, your vitals are doing something unflattering. Find a medkit.' }],
+      lowHealth: [
+        { who: 'q', text: 'Kweg, your vitals are doing something unflattering. Find a medkit.' },
+        { who: 'one', text: 'Your health has been paused for maintenance, Mister Kweg. Estimated resume: never.' },
+      ],
     },
     debrief: [
       { who: 'm', text: 'The fake blocks are offline. But the memo you found mentions a casino that calls itself an exchange. Pack a dinner jacket.' },
@@ -79,11 +82,17 @@ export const STORY: Record<string, Chapter> = {
         { who: 'm', text: 'Desks unfrozen. Coins are flowing back to their owners. Now, Kweg: the man in the button suit.' },
         { who: 'm', text: 'Elevator is at the far end. Get out before the house wins.' },
       ],
-      bossHalf: [{ who: 'cz', text: 'SECURITY! Pause this agent! Pause him for maintenance!' }],
+      bossHalf: [
+        { who: 'cz', text: 'SECURITY! Pause this agent! Pause him for maintenance!' },
+        { who: 'cz', text: 'This is FUD! Four. U. D. Funds are SAFU!' },
+      ],
       bossDown: [{ who: 'cz', text: 'Funds are... sa... fu...' }],
       intel: [{ who: 'm', text: 'Seizey kept a ledger. Half the "reserves" are an IOU from a hash farm in the mountains.' }],
       allIntel: [{ who: 'one', text: 'You read my mail, Mister Kweg. That was not on the terms of service.' }],
-      lowHealth: [{ who: 'cz', text: 'Your health has been paused, Mister Kweg. Please hold.' }],
+      lowHealth: [
+        { who: 'cz', text: 'Your health has been paused, Mister Kweg. Please hold.' },
+        { who: 'cz', text: 'We have detected unusual bleeding. Your account is under review.' },
+      ],
     },
     setPiece: 'THE HIGH-ROLLER FLOOR IS OPEN',
     debrief: [
@@ -112,7 +121,10 @@ export const STORY: Record<string, Chapter> = {
       bossDown: [{ who: 'brian', text: 'Your complaint has been... closed.' }],
       intel: [{ who: 'm', text: 'Statements from the vault. The IOUs are backed by... hashpower futures. From the farm.' }],
       allIntel: [{ who: 'q', text: "That's the whole audit, Kweg. More than their auditors ever saw." }],
-      lowHealth: [{ who: 'michael', text: 'You look weak, Kweg. Weak hands. Very weak hands.' }],
+      lowHealth: [
+        { who: 'michael', text: 'You look weak, Kweg. Weak hands. Very weak hands.' },
+        { who: 'brian', text: 'Please verify you are still alive by uploading a selfie.' },
+      ],
     },
     setPiece: 'VAULT DOOR OPENING',
     debrief: [

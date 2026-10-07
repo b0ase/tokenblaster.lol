@@ -11,22 +11,50 @@ import { SPEAKERS, type Line, type Speaker } from '@/lib/doubleo/story';
 function drawPortrait(c: HTMLCanvasElement, who: Speaker) {
   const g = c.getContext('2d');
   if (!g) return;
-  const W = c.width;
-  const H = c.height;
+  const SS = 3; // drawn at 3x so edges stay crisp on retina screens
+  const W = c.width / SS;
+  const H = c.height / SS;
+  g.setTransform(SS, 0, 0, SS, 0, 0);
+  g.imageSmoothingQuality = 'high';
   const sp = SPEAKERS[who];
   g.clearRect(0, 0, W, H);
-  // Halftone backdrop in the speaker's colour.
-  g.fillStyle = '#0b0b0d';
+  // Studio backdrop: dark gradient with a coloured key-light glow behind the head.
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#16181e');
+  bg.addColorStop(1, '#050507');
+  g.fillStyle = bg;
   g.fillRect(0, 0, W, H);
-  g.fillStyle = sp.color;
-  for (let y = 4; y < H; y += 8)
-    for (let x = 4; x < W; x += 8) {
-      g.globalAlpha = 0.12 + 0.18 * (y / H);
-      g.beginPath();
-      g.arc(x, y, 2, 0, Math.PI * 2);
-      g.fill();
-    }
+  const glow = g.createRadialGradient(W * 0.62, H * 0.35, 2, W * 0.55, H * 0.4, W * 0.75);
+  glow.addColorStop(0, sp.color);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  g.globalAlpha = 0.45;
+  g.fillStyle = glow;
+  g.fillRect(0, 0, W, H);
   g.globalAlpha = 1;
+  const finish = () => {
+    // Cinematic lighting over the finished drawing: soft side shadow, face highlight, rim light, vignette.
+    const sh = g.createLinearGradient(0, 0, W, 0);
+    sh.addColorStop(0, 'rgba(0,0,0,0.0)');
+    sh.addColorStop(0.55, 'rgba(0,0,0,0.0)');
+    sh.addColorStop(1, 'rgba(0,0,0,0.5)');
+    g.fillStyle = sh;
+    g.fillRect(0, 0, W, H);
+    const hl = g.createRadialGradient(W * 0.42, H * 0.38, 1, W * 0.45, H * 0.42, W * 0.32);
+    hl.addColorStop(0, 'rgba(255,240,220,0.28)');
+    hl.addColorStop(1, 'rgba(255,240,220,0)');
+    g.fillStyle = hl;
+    g.fillRect(0, 0, W, H);
+    const vg = g.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, W * 0.78);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.65)');
+    g.fillStyle = vg;
+    g.fillRect(0, 0, W, H);
+    g.strokeStyle = sp.color;
+    g.globalAlpha = 0.5;
+    g.lineWidth = 1.2;
+    g.strokeRect(0.6, 0.6, W - 1.2, H - 1.2);
+    g.globalAlpha = 1;
+  };
   const cx = W / 2;
   const skin = who === 'one' ? '#1a1a1a' : who === 'kweg' ? '#9aa0a8' : '#f2c9a0';
   // Shoulders / suit.
@@ -110,6 +138,7 @@ function drawPortrait(c: HTMLCanvasElement, who: Speaker) {
     g.lineTo(cx + W * 0.33, H * 0.78);
     g.lineTo(cx + W * 0.36, H * 0.86);
     g.fill();
+    finish();
     return;
   }
   // Eyes.
@@ -149,6 +178,7 @@ function drawPortrait(c: HTMLCanvasElement, who: Speaker) {
   if (villain) g.arc(cx, H * 0.6, W * 0.08, Math.PI + 0.3, -0.3);
   else g.arc(cx, H * 0.55, W * 0.08, 0.3, Math.PI - 0.3);
   g.stroke();
+  finish();
 }
 
 export function Portrait({ who, size = 96 }: { who: Speaker; size?: number }) {
@@ -156,7 +186,7 @@ export function Portrait({ who, size = 96 }: { who: Speaker; size?: number }) {
   useEffect(() => {
     if (ref.current) drawPortrait(ref.current, who);
   }, [who]);
-  return <canvas ref={ref} width={size} height={size} className="shrink-0 border-2" style={{ borderColor: SPEAKERS[who].color, width: size, height: size }} aria-label={SPEAKERS[who].name} role="img" />;
+  return <canvas ref={ref} width={size * 3} height={size * 3} className="shrink-0 rounded-sm border" style={{ borderColor: SPEAKERS[who].color, width: size, height: size, boxShadow: `0 0 18px ${SPEAKERS[who].color}55, 0 6px 18px #000` }} aria-label={SPEAKERS[who].name} role="img" />;
 }
 
 /** Text that types itself out; `full` shows it all at once. */
@@ -205,20 +235,21 @@ export function Dialogue({ lines, title, onDone, doneLabel = 'GO' }: { lines: Li
   }, []);
   const sp = SPEAKERS[line.who];
   return (
-    <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 px-4" onClick={advance} role="dialog" aria-label={title}>
-      <p className="text-xs tracking-widest text-dim">{title}</p>
-      <div className="flex w-full max-w-2xl items-start gap-3 border-2 bg-[#0a0404] p-3 shadow-[6px_6px_0_rgba(255,90,72,0.35)]" style={{ borderColor: sp.color }}>
-        <Portrait who={line.who} size={112} />
-        <div className="min-w-0 flex-1 text-left">
-          <p className="font-bold tracking-widest" style={{ color: sp.color }}>
-            {sp.name} <span className="text-xs font-normal text-dim">· {sp.role}</span>
-          </p>
-          <p className="mt-1 min-h-[4.5rem] text-base text-white sm:text-lg">
-            {typed}
-            {typed.length < line.text.length && <span className="blink">▌</span>}
-          </p>
+    <div className="absolute inset-0 z-30 flex flex-col items-center justify-between bg-black/80 backdrop-blur-md" onClick={advance} role="dialog" aria-label={title} style={{ background: `radial-gradient(ellipse at 50% 60%, ${sp.color}22, rgba(0,0,0,0.88) 70%)` }}>
+      <div className="w-full bg-black px-4 py-2 text-center text-[11px] tracking-[0.35em] text-dim">{title}</div>
+      <div className="flex w-full max-w-3xl flex-col items-center gap-4 px-4">
+        <div className="flex w-full items-end gap-5">
+          <Portrait who={line.who} size={176} />
+          <div className="min-w-0 flex-1 rounded-sm border border-white/10 bg-black/55 p-4 text-left shadow-[0_10px_40px_rgba(0,0,0,0.7)] backdrop-blur" style={{ borderLeft: `3px solid ${sp.color}` }}>
+            <p className="text-sm font-bold uppercase tracking-[0.25em]" style={{ color: sp.color }}>
+              {sp.name} <span className="text-[11px] font-normal normal-case tracking-normal text-dim">· {sp.role}</span>
+            </p>
+            <p className="mt-2 min-h-[6rem] text-lg leading-snug text-white sm:text-2xl">
+              {typed}
+              {typed.length < line.text.length && <span className="blink">▌</span>}
+            </p>
+          </div>
         </div>
-      </div>
       <div className="flex items-center gap-2">
         {lines.map((_, j) => (
           <span key={j} className={`h-1.5 w-6 ${j <= i ? 'bg-fg' : 'bg-white/20'}`} />
@@ -249,6 +280,8 @@ export function Dialogue({ lines, title, onDone, doneLabel = 'GO' }: { lines: Li
           </button>
         )}
       </div>
+      </div>
+      <div className="h-10 w-full bg-black" />
     </div>
   );
 }
@@ -259,20 +292,22 @@ export function Radio({ line }: { line: (Line & { key: number }) | null }) {
   useEffect(() => {
     if (!line) return;
     void Promise.resolve().then(() => setShown(line));
-    const id = setTimeout(() => setShown((s) => (s?.key === line.key ? null : s)), Math.max(4500, line.text.length * 70));
+    const id = setTimeout(() => setShown((s) => (s?.key === line.key ? null : s)), Math.max(5500, line.text.length * 85));
     return () => clearTimeout(id);
   }, [line]);
   const typed = useTyped(shown?.text ?? '', false);
   if (!shown) return null;
   const sp = SPEAKERS[shown.who];
+  // Villains get a big red-edged card: their taunts are half the fun.
+  const bad = shown.who !== 'm' && shown.who !== 'q' && shown.who !== 'kweg';
   return (
-    <div className="pointer-events-none absolute left-2 top-24 z-20 flex max-w-[min(30rem,80vw)] items-start gap-2 border bg-black/80 p-2" style={{ borderColor: sp.color }} aria-live="polite">
-      <Portrait who={shown.who} size={56} />
+    <div className={`pointer-events-none absolute left-2 top-24 z-20 flex items-start gap-3 rounded-sm border bg-black/80 p-2 backdrop-blur-sm ${bad ? 'max-w-[min(38rem,92vw)] p-3' : 'max-w-[min(30rem,80vw)]'}`} style={{ borderColor: sp.color, boxShadow: bad ? `0 0 24px ${sp.color}66` : undefined }} aria-live="polite">
+      <Portrait who={shown.who} size={bad ? 76 : 56} />
       <div className="min-w-0 text-left">
         <p className="text-[11px] font-bold tracking-widest" style={{ color: sp.color }}>
-          📻 {sp.name}
+          {bad ? '☠' : '📻'} {sp.name} {bad && <span className="font-normal text-dim">· {sp.role}</span>}
         </p>
-        <p className="text-sm text-white">{typed}</p>
+        <p className={bad ? 'text-base font-semibold text-white sm:text-lg' : 'text-sm text-white'}>{typed}</p>
       </div>
     </div>
   );

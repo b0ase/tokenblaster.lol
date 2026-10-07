@@ -125,7 +125,7 @@ export function DoubleO() {
     gearRef.current = gearOk;
     engine.current?.arm(gearOk);
   }, [gearOk]);
-  const input = useRef({ sx: 0, sy: 0, fire: false });
+  const input = useRef({ sx: 0, sy: 0, fire: false, pulse: false });
   const [screen, setScreen] = useState<Screen>('menu');
   const [level, setLevel] = useState(0);
   // Story: the briefing shown before a mission starts, and the radio line during play.
@@ -135,7 +135,10 @@ export function DoubleO() {
   useEffect(() => {
     say.current = (levelId, ev, objective) => {
       const l = radioLine(levelId, ev, objective);
-      if (l) setRadio({ ...l, key: performance.now() });
+      if (l) {
+        setRadio({ ...l, key: performance.now() });
+        playSfx('sonar', 0.3);
+      }
     };
   }, []);
   const [live, setLive] = useState(false);
@@ -1923,7 +1926,8 @@ export function DoubleO() {
       walkPhase += moving ? dt * 10 : 0;
       camera.position.y = EYE + (moving ? Math.sin(walkPhase) * 0.035 : 0);
 
-      if (trigger || input.current.fire) shoot(now);
+      if (trigger || input.current.fire || input.current.pulse) shoot(now);
+      input.current.pulse = false; // a quick tap still fires one shot even if it ends before the next frame
       ammoFx.update(dt);
       const whine = Boolean((trigger || input.current.fire) && running && isMinigunOrdnance(armed ?? undefined));
       if (whine !== whining) {
@@ -2533,14 +2537,14 @@ export function DoubleO() {
               <>
                 <Stick onMove={(x, y) => ((input.current.sx = x), (input.current.sy = y))} />
                 <button
-                  onPointerDown={() => (input.current.fire = true)}
+                  onPointerDown={() => ((input.current.fire = true), (input.current.pulse = true))}
                   onPointerUp={() => (input.current.fire = false)}
                   onPointerLeave={() => (input.current.fire = false)}
                   className="btn-fire absolute bottom-20 right-4 h-20 w-20 rounded-full !p-0"
                 >
                   FIRE
                 </button>
-                <button onClick={() => (engine.current?.abort(), setScreen('paused'))} className="btn absolute right-2 top-2 px-2 py-1 text-xs sm:hidden">
+                <button onClick={() => (engine.current?.abort(), setScreen('paused'))} className="btn absolute right-2 top-2 z-10 px-3 py-2 text-sm">
                   II
                 </button>
               </>
