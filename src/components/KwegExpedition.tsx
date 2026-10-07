@@ -16,11 +16,10 @@ import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
-import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HighScores, useRunClock } from './HighScores';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
-import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
+import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
 
@@ -404,8 +403,9 @@ function drawRival(ctx: CanvasRenderingContext2D, id: RivalId, x: number, y: num
 export function KwegExpedition() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const feed = useChainFeed();
-  const pp = usePaidPlay('Out of sats: load more to keep pinging.', 'kweg');
-  const payFor = pp.payFor;
+  // Coin-op: 10p buys a credit (src/lib/coinop.ts); practice is free and puts nothing on chain.
+  const co = useCoinOp("Kweg's Expedition", 'kweg');
+  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const feedRef = useRef(feed);
   useEffect(() => {
     feedRef.current = feed;
@@ -530,7 +530,6 @@ export function KwegExpedition() {
 
     const sonar = () => {
       if (state !== 'play' || k.pingCd > 0) return;
-      if (!payFor.current(['kweg', 'sonar'])) return; // out of sats: the ping is refused
       k.pingCd = PING_CD;
       pings.push({ x: k.x + 60, y: k.y - 25, r: 0 });
       sfx('sonar');
@@ -1224,7 +1223,7 @@ export function KwegExpedition() {
       if (!m) {
         if (e.key === 'Enter') {
           if (state === 'card') control.current?.next();
-          else if (state !== 'play') restart();
+          else if (state === 'ready') restart(); // practice; credit games start from the title buttons
         }
         return;
       }
@@ -1273,11 +1272,19 @@ export function KwegExpedition() {
       canvas.removeEventListener('pointerup', pu);
       canvas.removeEventListener('pointercancel', pu);
     };
-  }, [payFor]);
+  }, []);
 
   const overlay = 'absolute inset-0 overflow-y-auto flex flex-col items-center justify-center gap-2 bg-[#fff6e0]/90 px-4 text-center text-[#1d1d2b]';
   const bigBtn = 'rounded-full border-[3px] border-[#1d1d2b] bg-[#ffd34d] px-6 py-2 font-sans text-lg font-black text-[#1d1d2b] shadow-[0_4px_0_#1d1d2b] active:translate-y-1 active:shadow-none';
   const cdBtn = (ready: number) => `rounded-xl border-[3px] border-[#1d1d2b] px-3 font-sans font-black text-[#1d1d2b] ${ready >= 1 ? 'bg-[#7fffd4]' : 'bg-[#cfd6e0]'}`;
+
+  /** Start a game: a credit game spends one credit (its coin's txid goes with the run), practice is free. */
+  const start = (paid: boolean) => {
+    const txid = paid ? co.consume() : null;
+    if (paid && !txid) return;
+    setRun({ paid, txid });
+    control.current?.restart();
+  };
 
   return (
     <section className="panel">
@@ -1290,7 +1297,11 @@ export function KwegExpedition() {
           <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute bottom-[12%] right-2 rounded bg-white/80 px-2 py-0.5 font-sans text-[11px] text-[#1d1d2b]">chain: {feed.status}</div>
-        <ModeBadge pp={pp} action="sonar ping" actions="sonar pings" />
+        {phase === 'play' && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+            <span className="border border-[var(--border-canvas)] bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</span>
+          </div>
+        )}
         {phase === 'ready' && (
           <div className={overlay}>
             <p className="font-sans text-2xl font-black sm:text-4xl">KWEG&apos;S EXPEDITION</p>
@@ -1298,7 +1309,7 @@ export function KwegExpedition() {
               Professor Doctor Sir Kweg S Wong esq. races three rivals to Satoshi&apos;s submarine coordinates. Arrows / WASD or drag to steer · SPACE = sonar ping (finds hidden $KWEG
               and elephants) · X = patent-stamp dash.
             </p>
-            <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><PlayButtons pp={pp} game="Kweg's Expedition" action="sonar ping" actions="sonar pings" onStart={() => control.current?.restart()} practiceLabel="▶ BEGIN · PRACTICE" liveLabel="▶ BEGIN · LIVE" /></div>
+            <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><CoinOpButtons co={co} start={start} perCredit="1 credit = 1 expedition, until the hull gives out." playLabel="▶ BEGIN · 1 CREDIT" practiceLabel="▶ BEGIN · PRACTICE" /></div>
           </div>
         )}
         {card && (phase === 'card' || phase === 'over' || phase === 'won') && (
@@ -1313,7 +1324,7 @@ export function KwegExpedition() {
                 <div className="font-sans text-xs">
                   <LootLine haul={lastRun} />
                 </div>
-                <HighScores game="kweg" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} meta={{ stage: hud.stage + 1 }} />
+                <HighScores game="kweg" score={hud.score} secs={runSecs} live={run.paid} txid={run.txid} meta={run.paid ? { stage: hud.stage + 1, coinop: 1 } : { stage: hud.stage + 1 }} />
               </>
             )}
             {phase === 'card' ? (
@@ -1321,7 +1332,7 @@ export function KwegExpedition() {
                 ONWARD
               </button>
             ) : (
-              <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><PlayButtons pp={pp} game="Kweg's Expedition" action="sonar ping" actions="sonar pings" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" /></div>
+              <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><CoinOpButtons co={co} start={start} perCredit="1 credit = 1 expedition, until the hull gives out." /></div>
             )}
           </div>
         )}
@@ -1371,7 +1382,7 @@ export function KwegExpedition() {
         </div>
       </div>
       <LootPanel run={phase === 'over' || phase === 'won' ? lastRun : loot.run} allTime={loot.allTime} />
-      <PaidPanel pp={pp} game="Kweg's Expedition" action="sonar ping" actions="sonar pings" />
+      {co.chooserEl}
     </section>
   );
 }

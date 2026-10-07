@@ -17,9 +17,8 @@ import { useEffect, useRef, useState } from 'react';
 import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
-import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HighScores, useRunClock } from './HighScores';
-import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
+import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
@@ -62,8 +61,9 @@ const segAngle = (s: Seg) => Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
 export function BlockHopper() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const feed = useChainFeed();
-  const pp = usePaidPlay('Out of sats: load more to keep jumping.', 'hopper');
-  const payFor = pp.payFor;
+  // Coin-op: 10p buys a credit (src/lib/coinop.ts); practice is free and puts nothing on chain.
+  const co = useCoinOp('Block Hopper', 'hopper');
+  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const feedRef = useRef(feed);
   useEffect(() => {
     feedRef.current = feed;
@@ -263,7 +263,6 @@ export function BlockHopper() {
     };
 
     const doJump = () => {
-      if (!payFor.current(['hopper', 'jump'])) return false;
       const a = p.ground ? segAngle(p.ground) : 0;
       p.vx = p.gsp * Math.cos(a) + JMP * Math.sin(a);
       p.vy = p.gsp * Math.sin(a) - JMP * Math.cos(a);
@@ -670,7 +669,15 @@ export function BlockHopper() {
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', ku);
     };
-  }, [payFor]);
+  }, []);
+
+  /** Start a game: a credit game spends one credit (its coin's txid goes with the run), practice is free. */
+  const start = (paid: boolean) => {
+    const txid = paid ? co.consume() : null;
+    if (paid && !txid) return;
+    setRun({ paid, txid });
+    control.current?.restart();
+  };
 
   return (
     <section className="panel">
@@ -687,12 +694,16 @@ export function BlockHopper() {
         <div className="pointer-events-none absolute right-2 top-1 text-xs text-dim">
           chain: {feed.status}
         </div>
-        <ModeBadge pp={pp} action="jump" actions="jumps" />
+        {phase === 'play' && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+            <span className="border border-[var(--border-canvas)] bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</span>
+          </div>
+        )}
         {phase === 'ready' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 text-center">
             <p className="text-2xl font-bold text-hot">BLOCK HOPPER</p>
             <p className="px-3 text-xs text-dim">Run the live chain. ←/→ or A/D to run, SPACE / ↑ / W to jump (hold for higher).</p>
-            <PlayButtons pp={pp} game="Block Hopper" action="jump" actions="jumps" onStart={() => control.current?.restart()} />
+            <CoinOpButtons co={co} start={start} />
           </div>
         )}
         {phase === 'over' && (
@@ -702,8 +713,8 @@ export function BlockHopper() {
               Score {hud.score.toLocaleString()} · {hud.dist.toLocaleString()} m · {hud.coins} coins. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
-            <HighScores game="hopper" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} />
-            <PlayButtons pp={pp} game="Block Hopper" action="jump" actions="jumps" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
+            <HighScores game="hopper" score={hud.score} secs={runSecs} live={run.paid} txid={run.txid} meta={run.paid ? { coinop: 1 } : undefined} />
+            <CoinOpButtons co={co} start={start} />
           </div>
         )}
       </div>
@@ -754,7 +765,7 @@ export function BlockHopper() {
         </div>
       </div>
       <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
-      <PaidPanel pp={pp} game="Block Hopper" action="jump" actions="jumps" />
+      {co.chooserEl}
     </section>
   );
 }

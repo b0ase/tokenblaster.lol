@@ -3,11 +3,13 @@
 /**
  * Token Rally: a 3D rally game where the rivals are live BSV transactions. This component is the
  * shell (menu, HUD, results, touch controls); the game itself is src/lib/rally/engine.ts.
- * PRACTICE only: nothing is sent to the chain, no wallet is touched.
+ * Coin-op: INSERT COIN (10p) buys a credit, one credit is one stage run (src/lib/coinop.ts); the coin's
+ * txid verifies the run on the board. PRACTICE is free: nothing is sent to the chain, no wallet is touched.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameAudio } from './SoundToggle';
 import { HighScores } from './HighScores';
+import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { CARS, fmt, RallyEngine, STAGES, type Hud, type MapData, type Phase, type Result, type Toast } from '@/lib/rally/engine';
 import { STAGE_LIST, type StageId } from '@/lib/rally/stages';
@@ -77,6 +79,8 @@ export function TokenRally() {
   });
   const engine = useRef<RallyEngine | null>(null);
 
+  const co = useCoinOp('Token Rally', 'rally');
+  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const [stageId, setStageId] = useState<StageId>('forest');
   const [carId, setCarId] = useState('hatch');
   const [qualityPref, setQualityPref] = useState<QualityPref>('auto');
@@ -245,7 +249,11 @@ export function TokenRally() {
           } else setNewBest(false);
           setBest(b);
         },
-        onStartRequest: () => !life.dead && eng.begin(),
+        onStartRequest: () => {
+          if (life.dead) return;
+          setRun({ paid: false, txid: null }); // Enter / pad START from the menu is a practice run
+          eng.begin();
+        },
         onPerf: (p) => !life.dead && setPerf(p),
       },
     });
@@ -280,7 +288,15 @@ export function TokenRally() {
   const car = CARS.find((c) => c.id === carId) ?? CARS[0];
   const bestTime = best[`${stageId}:${carId}`];
   const racing = phase === 'racing' || phase === 'countdown' || phase === 'paused';
-  const start = () => engine.current?.begin();
+  /** Start a stage run: a credit run spends one credit (its coin's txid goes with the run), practice is free. */
+  const start = (paid: boolean) => {
+    const eng = engine.current;
+    if (!eng) return;
+    const txid = paid ? co.consume() : null;
+    if (paid && !txid) return;
+    setRun({ paid, txid });
+    eng.begin();
+  };
   const toMenu = () => {
     setResult(null);
     void engine.current?.toMenu();
@@ -455,6 +471,11 @@ export function TokenRally() {
           </>
         )}
         {racing && (
+          <div data-rally-mode={run.paid ? 'paid' : 'practice'} className={`pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:text-xs ${run.paid ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`}>
+            {run.paid ? 'PAID · 1 CREDIT' : 'PRACTICE'}
+          </div>
+        )}
+        {racing && (
           <div className="absolute right-3 top-[8.4rem] flex gap-1 sm:top-[11.5rem]">
             <button onClick={() => engine.current?.pause(phase !== 'paused')} className="btn px-2 py-1 text-xs" aria-label="Pause">
               {phase === 'paused' ? '▶' : 'Ⅱ'}
@@ -537,11 +558,8 @@ export function TokenRally() {
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button onClick={start} className="btn-fire px-6 py-2.5 text-xl">
-                  START STAGE
-                </button>
+                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="▶ START STAGE · 1 CREDIT" practiceLabel="▶ START STAGE · PRACTICE" />
                 {bestTime ? <span className="text-sm text-hot">BEST {fmt(bestTime)}</span> : null}
-                <span className="text-[11px] text-dim">PRACTICE · nothing is sent to the chain</span>
               </div>
               <details className="text-[11px] text-dim">
                 <summary className="cursor-pointer text-fg">CONTROLS</summary>
@@ -569,10 +587,11 @@ export function TokenRally() {
         {phase === 'paused' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
             <p className="text-3xl font-black text-hot">PAUSED</p>
+            <p className="text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</p>
             <button onClick={() => engine.current?.pause(false)} className="btn-fire px-6 py-2 text-lg">
               RESUME
             </button>
-            <button onClick={start} className="btn">
+            <button onClick={() => engine.current?.begin()} className="btn">
               RESTART STAGE
             </button>
             <button onClick={toMenu} className="btn">
@@ -629,12 +648,10 @@ export function TokenRally() {
                     </div>
                   ))}
                 </div>
-                <HighScores game={scoreGame} score={result.score} secs={result.total} live={false} meta={{ car: result.car, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
+                <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.paid} txid={run.txid} meta={run.paid ? { car: result.car, pos: result.pos, coinop: 1 } : { car: result.car, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
               </div>
               <div className="flex flex-wrap justify-center gap-2">
-                <button onClick={start} className="btn-fire px-5 py-2">
-                  RACE AGAIN
-                </button>
+                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="▶ RACE AGAIN · 1 CREDIT" practiceLabel="▶ RACE AGAIN · PRACTICE" />
                 <button onClick={toMenu} className="btn">
                   STAGE SELECT / NEW RIVALS
                 </button>
@@ -644,9 +661,10 @@ export function TokenRally() {
         )}
       </div>
       <p className="mt-2 text-xs text-muted">
-        Rivals are real transactions sampled from the live BSV chain when you start: tokens drive as sedans wearing their ticker, payments as delivery vans, ordinals as SUVs. The biggest moves are the fastest cars. Practice mode:
-        nothing here sends a transaction. Cars: Kenney Car Kit (CC0). Scenery: Kenney Nature Kit (CC0). Ground, rock, gravel textures and skies: Poly Haven (CC0).
+        Rivals are real transactions sampled from the live BSV chain when you start: tokens drive as sedans wearing their ticker, payments as delivery vans, ordinals as SUVs. The biggest moves are the fastest cars. A credit (10p) buys one stage run;
+        practice sends nothing. Cars: Kenney Car Kit (CC0). Scenery: Kenney Nature Kit (CC0). Ground, rock, gravel textures and skies: Poly Haven (CC0).
       </p>
+      {co.chooserEl}
     </section>
   );
 }

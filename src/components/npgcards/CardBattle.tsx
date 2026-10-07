@@ -52,6 +52,8 @@ type Props = {
   roomPrefix?: string;
   /** Called before each card you play; return false to refuse the play (e.g. LIVE mode out of sats). */
   payPlay?: () => boolean;
+  /** Called before each match vs the AI starts with the current win streak (0 = a new streak); return false to refuse it. */
+  beforeStartAI?: (streak: number) => boolean;
   sfx?: (n: SoundName) => void;
   renderGameOver?: (r: GameResult) => ReactNode;
   /** Overlay drawn on the battlefield (e.g. a PRACTICE / LIVE badge). */
@@ -417,7 +419,7 @@ function DeckBuilder({ pool, deck, setDeck, onDone }: { pool: CardInfo[]; deck: 
 
 // ---------------------------------------------------------------- main
 
-export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey, net, roomPrefix = 'npgcards-', payPlay, sfx, renderGameOver, badge, menuExtra, onScreen }: Props) {
+export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey, net, roomPrefix = 'npgcards-', payPlay, beforeStartAI, sfx, renderGameOver, badge, menuExtra, onScreen }: Props) {
   const cards = useMemo(() => Object.fromEntries(pool.map((c) => [c.id, c])), [pool]);
   const allHeroes = useMemo(() => [...ownedHeroes, ...heroes], [ownedHeroes, heroes]);
   const play = useCallback((n: SoundName) => (sfx ?? blip)(n), [sfx]);
@@ -612,6 +614,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
 
   const startAI = (level: Difficulty) => {
     if (!deckOk) return setScreen('deck');
+    if (beforeStartAI && !beforeStartAI(streak.current.wins)) return;
     const v: Vs = { kind: 'ai', level };
     setVs(v);
     vsRef.current = v;
