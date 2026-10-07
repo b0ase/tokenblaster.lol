@@ -218,7 +218,7 @@ export function buildCityDetail(scene: THREE.Scene, blocks: Block[], quality: Ci
     g.translate(alongX ? along : nodeCoord(line) + lateral, 0.02, alongX ? nodeCoord(line) + lateral : along);
     puddleGeos.push(g);
   }
-  const puddleMat = new THREE.MeshStandardMaterial({ color: '#05070a', roughness: 0.03, metalness: 0.2, transparent: true, opacity: 0, envMapIntensity: 2.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const puddleMat = new THREE.MeshStandardMaterial({ color: '#05070a', roughness: 0.12, metalness: 0.2, transparent: true, opacity: 0, envMapIntensity: 2.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const puddles = new THREE.Mesh(mergeGeometries(puddleGeos), puddleMat);
   for (const g of puddleGeos) g.dispose();
   puddles.visible = false;
@@ -339,8 +339,8 @@ export function buildCityDetail(scene: THREE.Scene, blocks: Block[], quality: Ci
   const setNight = (night: number) => {
     const hi = q === 'high';
     const dark = night > 0.02;
-    pools.visible = dark;
-    poolMat.opacity = night * (hi ? 0.9 : 0.65);
+    pools.visible = false; // coloured pools + wet streaks now come from createStreetLight (city/art.ts)
+    poolMat.opacity = 0;
     glow.visible = dark && hi;
     glowMat.opacity = night * 0.9;
     puddles.visible = hi && night > 0.35;

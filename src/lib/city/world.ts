@@ -6,11 +6,30 @@
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { interiorWindows, type LightSource, DRC } from './art';
 import { BOUND, CURB_H, EDGE, HALF_ROAD, INT, N, SIDEWALK, lightState, makeEdges, nodeCoord, nodeXZ, rng, squareCentre, type Block, type Edge } from './layout';
 
 const TEX = '/arcade/frogger/tex';
 const NEON = ['BSV', 'MEMPOOL', '24/7', 'HOTEL', 'TOKENS', 'LIQUOR', 'BLOCK 21', "SATOSHI'S", 'PAWN', 'NOODLES', 'CASH', 'SATS', 'UTXO BAR', 'MINER', 'NODE', 'HASH'];
-const NEON_COLS = ['#ff2d6f', '#28e7ff', '#ffd23f', '#9b5cff', '#3bff8a', '#ff7a1a'];
+const NEON_COLS = [DRC.magenta, DRC.cyan, DRC.amber, '#9b5cff', DRC.acid, '#ff5a1f'];
+const NEON_JP: Record<string, string> = {
+  BSV: '\u30d3\u30c3\u30c8\u30b3\u30a4\u30f3',
+  MEMPOOL: '\u30e1\u30e2\u30ea\u30d7\u30fc\u30eb',
+  '24/7': '\u5e38\u6642\u55b6\u696d',
+  HOTEL: '\u30db\u30c6\u30eb',
+  TOKENS: '\u30c8\u30fc\u30af\u30f3',
+  LIQUOR: '\u9152\u5834',
+  'BLOCK 21': '\u30d6\u30ed\u30c3\u30af',
+  "SATOSHI'S": '\u30b5\u30c8\u30b7',
+  PAWN: '\u8cea\u5c4b',
+  NOODLES: '\u30e9\u30fc\u30e1\u30f3',
+  CASH: '\u73fe\u91d1',
+  SATS: '\u30b5\u30c3\u30c4',
+  'UTXO BAR': '\u30d0\u30fc',
+  MINER: '\u30de\u30a4\u30ca\u30fc',
+  NODE: '\u30ce\u30fc\u30c9',
+  HASH: '\u30cf\u30c3\u30b7\u30e5',
+};
 
 function canvasTex(w: number, h: number, draw: (x: CanvasRenderingContext2D) => void, srgb = true) {
   const c = document.createElement('canvas');
@@ -101,7 +120,6 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   water.position.y = -1.6;
   scene.add(water);
   const concrete = new THREE.MeshStandardMaterial({ ...pbr('concrete_pavement', 1, 1), color: '#b8b3ad', roughness: 1 });
-  const grassMat = new THREE.MeshStandardMaterial({ color: '#35612e', roughness: 1 });
   const curbMat = new THREE.MeshStandardMaterial({ color: '#8a8780', roughness: 0.9 });
   const parkTop = new THREE.MeshStandardMaterial({ ...pbr('asphalt_02', 8, 8), color: '#6d6d70', roughness: 0.95 });
   const box = (w: number, h: number, d: number, uvTile = 0) => {
@@ -186,6 +204,36 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
     }
   }
 
+  // ── Kerbs: a pale granite edge strip round every block, and DR yellow box junctions ──
+  const kerbMat = new THREE.MeshStandardMaterial({ color: '#b9b4aa', roughness: 0.55 });
+  for (const b of blocks) {
+    const w = b.x1 - b.x0;
+    const d = b.z1 - b.z0;
+    const cx = (b.x0 + b.x1) / 2;
+    const cz = (b.z0 + b.z1) / 2;
+    put(box(w + 0.1, CURB_H + 0.04, 0.32), kerbMat, cx, (CURB_H + 0.04) / 2, b.z0 + 0.11);
+    put(box(w + 0.1, CURB_H + 0.04, 0.32), kerbMat, cx, (CURB_H + 0.04) / 2, b.z1 - 0.11);
+    put(box(0.32, CURB_H + 0.04, d), kerbMat, b.x0 + 0.11, (CURB_H + 0.04) / 2, cz);
+    put(box(0.32, CURB_H + 0.04, d), kerbMat, b.x1 - 0.11, (CURB_H + 0.04) / 2, cz);
+  }
+  const junctionTex = canvasTex(256, 256, (x) => {
+    x.clearRect(0, 0, 256, 256);
+    x.strokeStyle = DRC.amber;
+    x.lineWidth = 7;
+    x.strokeRect(6, 6, 244, 244);
+    x.lineWidth = 5;
+    for (let k = -256; k < 512; k += 36) {
+      x.beginPath();
+      x.moveTo(k, 0);
+      x.lineTo(k + 256, 256);
+      x.moveTo(k + 256, 0);
+      x.lineTo(k, 256);
+      x.stroke();
+    }
+  });
+  const junctionMat = new THREE.MeshStandardMaterial({ map: junctionTex, transparent: true, alphaTest: 0.3, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -1 });
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) put(flat(HALF_ROAD * 2 - 1.2, HALF_ROAD * 2 - 1.2), junctionMat, nodeCoord(i), 0.011, nodeCoord(j));
+
   // ── Building materials (glass towers, concrete/brick/stone blocks, lit windows at night) ──
   /** Emissive window map: whole office floors lit or dark, a few lone lights, warm and cool tints. */
   const windowTex = (seed: number) =>
@@ -206,7 +254,14 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   const towerMats: THREE.MeshStandardMaterial[] = [];
   ['#5b7a99', '#3d5466', '#7a8fa3', '#2f4a5e', '#8aa0b0', '#4a6070'].forEach((c, i) =>
     towerMats.push(
-      new THREE.MeshPhysicalMaterial({ color: c, metalness: 0.85, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.6, emissive: '#ffffff', emissiveMap: windowTex(i * 977 + 13), emissiveIntensity: 0 }),
+      interiorWindows(new THREE.MeshPhysicalMaterial({ color: c, metalness: 0.75, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.6 }), {
+        cells: [5, 5],
+        pane: [0.05, 0.08, 0.95, 0.97],
+        depth: 4.5,
+        lit: 0.5,
+        glass: c,
+        seed: i * 13.7 + 1,
+      }),
     ),
   );
   // Facades: 8 m x 16 m bays at 64 px/m. Brick (Poly Haven CC0) is composited under the window grid
@@ -242,38 +297,28 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
       tile(x, brickDiff, '#e4e0d8');
       const n = nc.getContext('2d')!;
       tile(n, brickNor, '#8080ff');
-      x.save();
-      n.save();
-      x.scale(4, 4);
-      n.scale(4, 4);
-      for (let yy = 4; yy < 256; yy += 10) {
-        // floor slab line + sill shadow
-        x.fillStyle = 'rgba(30,26,22,0.35)';
-        x.fillRect(0, yy + 7, 128, 2);
-        x.fillStyle = 'rgba(255,255,255,0.18)';
-        x.fillRect(0, yy + 9, 128, 0.6);
-        n.fillStyle = 'rgb(128,150,255)';
-        n.fillRect(0, yy + 7, 128, 1.2);
-        for (let xx = 4; xx < 128; xx += 9) {
-          const g = x.createLinearGradient(xx, yy, xx + 6, yy + 7);
-          g.addColorStop(0, '#2a3340');
-          g.addColorStop(1, '#14181f');
-          x.fillStyle = g;
-          x.fillRect(xx, yy, 6, 7);
-          x.fillStyle = 'rgba(190,215,240,0.22)';
-          x.fillRect(xx, yy, 6, 1.4);
-          x.fillStyle = 'rgba(15,12,10,0.5)';
-          x.fillRect(xx - 0.5, yy - 0.5, 7, 0.6);
-          // reveal: flat pane, lit edges on the recessed frame
-          n.fillStyle = '#8080ff';
-          n.fillRect(xx, yy, 6, 7);
-          n.fillStyle = 'rgb(176,128,240)';
-          n.fillRect(xx - 0.5, yy, 0.6, 7);
-          n.fillStyle = 'rgb(80,128,240)';
-          n.fillRect(xx + 5.9, yy, 0.6, 7);
-          n.fillStyle = 'rgb(128,86,240)';
-          n.fillRect(xx, yy - 0.5, 6, 0.6);
-        }
+      // Floor slabs every 3.2 m and pilasters every 2.67 m, aligned with the shader's window cells.
+      for (let k = 0; k < 5; k++) {
+        const yy = H - (k * H) / 5;
+        x.fillStyle = 'rgba(20,18,16,0.38)';
+        x.fillRect(0, yy - 18, W, 14);
+        x.fillStyle = 'rgba(255,255,255,0.22)';
+        x.fillRect(0, yy - 20, W, 3);
+        n.fillStyle = 'rgb(128,60,255)';
+        n.fillRect(0, yy - 20, W, 3);
+        n.fillStyle = 'rgb(128,196,255)';
+        n.fillRect(0, yy - 5, W, 3);
+      }
+      for (let k = 0; k < 3; k++) {
+        const xx = (k * W) / 3;
+        x.fillStyle = 'rgba(0,0,0,0.16)';
+        x.fillRect(xx, 0, 10, H);
+        x.fillStyle = 'rgba(255,255,255,0.1)';
+        x.fillRect(xx + 10, 0, 3, H);
+        n.fillStyle = 'rgb(60,128,255)';
+        n.fillRect(xx, 0, 4, H);
+        n.fillStyle = 'rgb(196,128,255)';
+        n.fillRect(xx + 10, 0, 4, H);
       }
       x.restore();
       n.restore();
@@ -304,50 +349,150 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   ).forEach(([c, brick], i) => {
     const f = brick ? brickFacade : plainFacade;
     towerMats.push(
-      new THREE.MeshStandardMaterial({ color: c, roughness: 0.82, metalness: 0.04, map: f.map, normalMap: f.normalMap, normalScale: new THREE.Vector2(1.1, 1.1), emissive: '#ffffff', emissiveMap: windowTex(i * 541 + 101), emissiveIntensity: 0 }),
+      interiorWindows(new THREE.MeshStandardMaterial({ color: c, roughness: 0.82, metalness: 0.04, map: f.map, normalMap: f.normalMap, normalScale: new THREE.Vector2(1.1, 1.1) }), {
+        cells: [3, 5],
+        pane: [0.2, 0.22, 0.8, 0.86],
+        depth: 4,
+        lit: 0.42,
+        glass: '#1a2230',
+        seed: i * 7.3 + 50,
+      }),
     );
   });
   for (const m of towerMats) castsShadow.add(m);
-  const shopTex = canvasTex(512, 64, (x) => {
-    x.fillStyle = '#16181c';
-    x.fillRect(0, 0, 512, 64);
-    const awn = ['#9c1c24', '#1d4f8a', '#2c6b3c', '#c47a12', '#5a2a7a'];
-    for (let k = 0; k < 8; k++) {
-      const x0 = k * 64 + 4;
-      x.fillStyle = k % 3 === 0 ? '#ffe2b0' : k % 3 === 1 ? '#cfe8ff' : '#ffd0e0';
-      x.fillRect(x0, 22, 56, 38);
-      x.fillStyle = 'rgba(0,0,0,0.35)';
-      x.fillRect(x0 + 27, 22, 3, 38);
-      x.fillStyle = awn[k % awn.length];
-      x.fillRect(x0 - 2, 6, 60, 12);
+  // Storefronts: four 2.5 m units per 10 m tile; dark fascia with DR type, framed glass, a lit interior with
+  // shelving silhouettes. The emissive map is the same art with the frames knocked out to black.
+  const SHOPS: [string, string][] = [
+    ['SATS MART', DRC.amber],
+    ['NODE CAFE', DRC.cyan],
+    ['HASH+CO', DRC.magenta],
+    ['UTXO', DRC.acid],
+    ['MERKLE', '#ff5a1f'],
+    ['BLOCK 21', DRC.cyan],
+    ['MINERS', DRC.amber],
+    ['GENESIS', DRC.magenta],
+  ];
+  const paintShops = (x: CanvasRenderingContext2D, glow: boolean) => {
+    x.fillStyle = glow ? '#000' : '#141519';
+    x.fillRect(0, 0, 1024, 256);
+    const sr = rng(808);
+    for (let k = 0; k < 4; k++) {
+      const x0 = k * 256;
+      const [name, col] = SHOPS[(k * 3) % SHOPS.length];
+      // interior
+      const warm = sr() < 0.6;
+      const g = x.createLinearGradient(0, 70, 0, 250);
+      g.addColorStop(0, warm ? '#ffe7bf' : '#d6f2ff');
+      g.addColorStop(0.6, warm ? '#c98a52' : '#6a9ab8');
+      g.addColorStop(1, '#2a2420');
+      x.fillStyle = g;
+      x.fillRect(x0 + 12, 72, 232, 178);
+      // shelving / people silhouettes
+      x.fillStyle = 'rgba(20,16,14,0.55)';
+      for (let s2 = 0; s2 < 3; s2++) x.fillRect(x0 + 20 + s2 * 76, 150 + sr() * 30, 60, 100);
+      x.fillStyle = 'rgba(20,16,14,0.35)';
+      x.fillRect(x0 + 18, 120, 220, 6);
+      // frames (black in the glow pass)
+      x.fillStyle = glow ? '#000' : '#22242a';
+      x.fillRect(x0, 64, 256, 8);
+      x.fillRect(x0, 64, 12, 192);
+      x.fillRect(x0 + 244, 64, 12, 192);
+      x.fillRect(x0 + 160, 64, 8, 192);
+      x.fillRect(x0, 244, 256, 12);
+      // fascia: ink band, colour rule, name
+      x.fillStyle = glow ? '#000' : '#0b0b0e';
+      x.fillRect(x0, 0, 256, 64);
+      x.fillStyle = col;
+      x.fillRect(x0 + 6, 54, 244, 5);
+      x.fillRect(x0 + 6, 8, 18, 40);
+      x.font = 'italic 900 34px Impact, "Arial Black", sans-serif';
+      x.textBaseline = 'middle';
+      x.textAlign = 'left';
+      x.fillStyle = glow ? col : '#f2efe6';
+      x.fillText(name, x0 + 32, 31, 214);
     }
-  });
-  const shopMat = new THREE.MeshStandardMaterial({ map: shopTex, emissive: '#ffffff', emissiveMap: shopTex, emissiveIntensity: 0.15, roughness: 0.35, metalness: 0.2 });
+  };
+  const shopTex = canvasTex(1024, 256, (x) => paintShops(x, false));
+  const shopGlow = canvasTex(1024, 256, (x) => paintShops(x, true));
+  const shopMat = new THREE.MeshStandardMaterial({ map: shopTex, emissive: '#ffffff', emissiveMap: shopGlow, emissiveIntensity: 0.15, roughness: 0.25, metalness: 0.1 });
   const podiumMat = new THREE.MeshStandardMaterial({ color: '#3a3a3e', roughness: 0.6, metalness: 0.3 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: '#5d5f63', roughness: 0.8, metalness: 0.4 });
+  const roofMat = new THREE.MeshStandardMaterial({ color: '#5d5f63', roughness: 0.8, metalness: 0.4, side: THREE.DoubleSide });
   castsShadow.add(podiumMat);
   const beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff2020').multiplyScalar(3), toneMapped: false });
   const neonMats: THREE.MeshStandardMaterial[] = [];
+  /** DR-style sign: ink panel, colour frame and code strip, heavy italic type with a neon halo, katakana line. */
   const neonSign = (text: string, col: string, font = 84) => {
+    const jp = NEON_JP[text] ?? '\u30d3\u30c3\u30c8\u30b3\u30a4\u30f3';
     const t = canvasTex(512, 128, (x) => {
-      x.fillStyle = '#050507';
+      x.fillStyle = '#060608';
       x.fillRect(0, 0, 512, 128);
-      x.font = `bold ${font}px "Arial Black", Impact, sans-serif`;
+      x.strokeStyle = col;
+      x.lineWidth = 5;
+      x.strokeRect(6, 6, 500, 116);
+      // code strip: hazard stripes + product code
+      x.fillStyle = col;
+      x.fillRect(6, 6, 64, 116);
+      x.fillStyle = '#060608';
+      for (let k = -4; k < 10; k++) {
+        x.beginPath();
+        x.moveTo(6 + k * 18, 122);
+        x.lineTo(16 + k * 18, 122);
+        x.lineTo(46 + k * 18, 92);
+        x.lineTo(36 + k * 18, 92);
+        x.fill();
+      }
+      x.save();
+      x.translate(38, 50);
+      x.rotate(-Math.PI / 2);
+      x.font = 'bold 20px monospace';
       x.textAlign = 'center';
       x.textBaseline = 'middle';
+      x.fillText(`TB-${(text.length * 37) % 100}`, 0, 0);
+      x.restore();
+      x.font = `italic 900 ${font * 0.8}px Impact, "Arial Black", sans-serif`;
+      x.textAlign = 'left';
+      x.textBaseline = 'middle';
       x.shadowColor = col;
-      x.shadowBlur = 18;
-      x.strokeStyle = col;
-      x.lineWidth = 6;
-      x.strokeText(text, 256, 68, 480);
+      x.shadowBlur = 16;
       x.fillStyle = '#ffffff';
-      x.fillText(text, 256, 68, 480);
+      x.fillText(text, 84, 56, 410);
+      x.shadowBlur = 0;
+      x.fillStyle = col;
+      x.font = '700 20px "Hiragino Sans", "Noto Sans JP", sans-serif';
+      x.fillText(jp, 86, 104, 300);
+      x.fillRect(400, 98, 96, 6);
     });
     t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
     const m = new THREE.MeshStandardMaterial({ map: t, emissive: '#ffffff', emissiveMap: t, emissiveIntensity: 0.3, roughness: 0.5 });
     neonMats.push(m);
     return m;
   };
+  /** Vertical blade sign: katakana stacked over a short latin word. */
+  const bladeSign = (text: string, col: string) => {
+    const jp = NEON_JP[text] ?? '\u30d3\u30c3\u30c8';
+    const t = canvasTex(128, 512, (x) => {
+      x.fillStyle = col;
+      x.fillRect(0, 0, 128, 512);
+      x.fillStyle = '#060608';
+      x.fillRect(8, 8, 112, 496);
+      x.fillStyle = col;
+      x.font = '900 70px "Hiragino Sans", "Noto Sans JP", sans-serif';
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      x.shadowColor = col;
+      x.shadowBlur = 14;
+      [...jp].slice(0, 5).forEach((ch, k) => x.fillText(ch, 64, 56 + k * 76));
+      x.shadowBlur = 0;
+      x.fillStyle = '#fff';
+      x.font = 'italic 900 26px Impact, "Arial Black", sans-serif';
+      x.fillText(text, 64, 470, 110);
+    });
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    const m = new THREE.MeshStandardMaterial({ map: t, emissive: '#ffffff', emissiveMap: t, emissiveIntensity: 0.3, roughness: 0.5, side: THREE.DoubleSide });
+    neonMats.push(m);
+    return m;
+  };
+  const lightSources: LightSource[] = [];
 
   /** A box whose window grid repeats with its size; roof and floor sample a blank texel. */
   const buildingGeo = (w: number, h: number, d: number) => {
@@ -360,7 +505,14 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
     }
     return g;
   };
+  const trimStone = new THREE.MeshStandardMaterial({ color: '#cfc8ba', roughness: 0.7 });
+  const trimDark = new THREE.MeshStandardMaterial({ color: '#202228', roughness: 0.35, metalness: 0.8 });
+  castsShadow.add(trimStone).add(trimDark);
+  const landmarkMats = [DRC.magenta, DRC.cyan, DRC.amber].map((c) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(1.6), toneMapped: false }));
+  for (const m of landmarkMats) m.userData.base = m.color.clone();
+  let landmarkI = 0;
   const tankGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
+  const dishGeo = new THREE.SphereGeometry(1, 12, 5, 0, Math.PI * 2, 0, Math.PI / 3).rotateX(Math.PI * 0.65);
   const tankMat = new THREE.MeshStandardMaterial({ color: '#6b4a32', roughness: 0.85 });
   castsShadow.add(tankMat);
   const beaconGeos: THREE.BufferGeometry[] = [];
@@ -386,8 +538,39 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
       } else put(buildingGeo(w, l.h, d), towerMats[6 + l.mat], cx, y0 + l.h / 2, cz);
       for (const [fx, fz, ry, len] of faces) {
         const off = 0.04;
-        const g = scaleUV(new THREE.PlaneGeometry(len - 0.4, 3.2), (len - 0.4) / 10, 1);
-        put(g, shopMat, fx + Math.sin(ry) * off, y0 + 1.8, fz + Math.cos(ry) * off, ry);
+        const g = scaleUV(new THREE.PlaneGeometry(len - 0.4, 3.6), (len - 0.4) / 10, 1);
+        put(g, shopMat, fx + Math.sin(ry) * off, y0 + 2.0, fz + Math.cos(ry) * off, ry);
+      }
+      // Bevelled massing: a string course over the shops, a cornice at the top, mid bands on the solid ones.
+      {
+        const bw = l.kind === 'glass' ? w - 1.2 : w;
+        const bd = l.kind === 'glass' ? d - 1.2 : d;
+        const trim = l.kind === 'glass' ? trimDark : trimStone;
+        if (l.kind !== 'glass') put(unit, trim, cx, y0 + 4.85, cz, 0, bw + 0.35, 0.35, bd + 0.35);
+        put(unit, trim, cx, y0 + l.h + 0.2, cz, 0, bw + 0.7, 0.55, bd + 0.7);
+        put(unit, trim, cx, y0 + l.h - 0.35, cz, 0, bw + 0.35, 0.3, bd + 0.35);
+        if (l.kind === 'solid') for (let yy = 16; yy < l.h - 6; yy += 16) put(unit, trim, cx, y0 + yy, cz, 0, bw + 0.22, 0.22, bd + 0.22);
+        if (l.kind === 'glass') {
+          // vertical mullion fins on the long faces
+          for (let k = 1; k < 6; k++) {
+            const fx = l.x0 + 0.6 + ((bw - 0) * k) / 6;
+            put(unit, trimDark, fx, y0 + 5 + (l.h - 5) / 2, l.z0 + 0.55, 0, 0.18, l.h - 5, 0.3);
+            put(unit, trimDark, fx, y0 + 5 + (l.h - 5) / 2, l.z1 - 0.55, 0, 0.18, l.h - 5, 0.3);
+          }
+        }
+        // Landmarks: the tallest towers get DR neon edges up every corner and a lit crown band.
+        if (l.h > 66) {
+          const em = landmarkMats[landmarkI++ % landmarkMats.length];
+          for (const [ex, ez] of [
+            [-1, -1],
+            [1, -1],
+            [-1, 1],
+            [1, 1],
+          ])
+            put(unit, em, cx + (ex * (bw + 0.1)) / 2, y0 + 5 + (l.h - 5) / 2, cz + (ez * (bd + 0.1)) / 2, 0, 0.22, l.h - 5, 0.22);
+          put(unit, em, cx, y0 + l.h + 0.55, cz, 0, bw + 0.75, 0.16, bd + 0.75);
+          put(unit, em, cx, y0 + l.h - 3, cz, 0, bw + 0.12, 0.3, bd + 0.12);
+        }
       }
       // Neon over the street on one face.
       if (r() < 0.55) {
@@ -396,6 +579,23 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
         sm.position.set(fx + Math.sin(ry) * 0.3, y0 + 5.6 + r() * 2.5, fz + Math.cos(ry) * 0.3);
         sm.rotation.y = ry;
         scene.add(sm);
+        const nc = NEON_COLS[neonI % NEON_COLS.length];
+        lightSources.push({ x: fx + Math.sin(ry) * 1.2, y: sm.position.y, z: fz + Math.cos(ry) * 1.2, col: nc, pool: 9, power: 1, ox: Math.sin(ry) * 3, oz: Math.cos(ry) * 3 });
+        neonI++;
+      }
+      // Blade sign sticking out from a corner, on about a third of the lots.
+      if (l.kind !== 'shop' && r() < 0.4) {
+        const [fx, fz, ry, len] = faces[Math.floor(r() * 4)];
+        const tx = Math.cos(ry);
+        const tz = -Math.sin(ry);
+        const along = (r() < 0.5 ? -1 : 1) * (len / 2 - 1.5);
+        const nc = NEON_COLS[(neonI + 3) % NEON_COLS.length];
+        const bs = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 5.6), bladeSign(NEON[(neonI + 5) % NEON.length], nc));
+        const by = y0 + 7 + r() * 4;
+        bs.position.set(fx + tx * along + Math.sin(ry) * 1.0, by, fz + tz * along + Math.cos(ry) * 1.0);
+        bs.rotation.y = ry + Math.PI / 2;
+        scene.add(bs);
+        lightSources.push({ x: bs.position.x + Math.sin(ry) * 0.6, y: by, z: bs.position.z + Math.cos(ry) * 0.6, col: nc, pool: 7, power: 0.8, ox: Math.sin(ry) * 3, oz: Math.cos(ry) * 3 });
         neonI++;
       }
       // Rooftop: stepped crown on the tall ones, plant room, AC units, water tanks, masts with beacons.
@@ -423,6 +623,10 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
         put(unit, roofMat, tx + 1, top + 1.1, tz + 1, 0, 0.25, 2.2, 0.25);
         put(unit, roofMat, tx - 1, top + 1.1, tz - 1, 0, 0.25, 2.2, 0.25);
       }
+      // Antenna whips, a dish, a vent stack: rooftop clutter on most roofs.
+      for (let k = 0, nA = Math.floor(r() * 3); k < nA; k++) put(unit, roofMat, cx + (r() - 0.5) * (w - 4), top + 2.2, cz + (r() - 0.5) * (d - 4), 0, 0.07, 4.4, 0.07);
+      if (r() < 0.4) put(dishGeo, roofMat, cx + (r() - 0.5) * (w - 4), top + 1.4, cz + (r() - 0.5) * (d - 4), r() * 6, 1.1, 1.1, 1.1);
+      if (r() < 0.5) put(tankGeo, roofMat, cx + (r() - 0.5) * (w - 3), top + 1.3, cz + (r() - 0.5) * (d - 3), 0, 0.5, 2.6, 0.5);
       if (l.h > 60) {
         put(unit, roofMat, cx, topY + 4.5, cz, 0, 0.25, 9, 0.25);
         beaconGeos.push(new THREE.SphereGeometry(0.4, 8, 6).translate(cx, topY + 9.1, cz));
@@ -432,40 +636,39 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   for (const g of beaconGeos) g.dispose();
   scene.add(beacons);
 
-  // ── Satoshi Square: fountain, lawns, trees, big sign ──
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#4a3a2c', roughness: 1 });
-  const leafMats = ['#2f6a2f', '#3b7a35', '#28592b'].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
+  // ── Trees: stylised layered crowns (three tiers of soft lobes, lighter on top), hue varied per tree ──
+  const trunkMat = new THREE.MeshStandardMaterial({ color: '#3d3128', roughness: 1 });
+  const leafMats = ['#4f8f3c', '#5ea345', '#6bb04e', '#3f7a35', '#7cb85a'].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, flatShading: true }));
   for (const m of [trunkMat, ...leafMats]) castsShadow.add(m);
-  const trunkGeo = new THREE.CylinderGeometry(0.12, 0.18, 2.4, 7);
+  const trunkGeo = new THREE.CylinderGeometry(0.1, 0.18, 2.6, 7);
   const crownGeo = new THREE.IcosahedronGeometry(1, 1);
   const tree = (x: number, z: number, y = CURB_H, s = 1) => {
-    put(trunkGeo, trunkMat, x, y + 1.2 * s, z, 0, s, s, s);
-    for (let k = 0; k < 3; k++) {
-      const cs = (0.8 + r() * 0.35) * s;
-      put(crownGeo, leafMats[Math.floor(r() * 3)], x + (k - 1) * 0.5 * s, y + (2.9 + (k % 2) * 0.5) * s, z + (k === 1 ? 0.3 : -0.2) * s, r() * 3, cs, cs, cs);
-    }
+    put(trunkGeo, trunkMat, x, y + 1.3 * s, z, 0, s, s, s);
+    const base = Math.floor(r() * 3);
+    // low wide tier, mid tier, small top tuft; each tier a ring of lobes
+    const tiers: [number, number, number, number][] = [
+      [2.5, 1.05, 5, 0.95],
+      [3.3, 0.75, 4, 0.8],
+      [4.0, 0.35, 1, 0.65],
+    ];
+    tiers.forEach(([hy, rad, lobes, ls], ti) => {
+      for (let k = 0; k < lobes; k++) {
+        const a = (k / lobes) * Math.PI * 2 + r();
+        const cs = ls * (0.85 + r() * 0.3) * s;
+        put(crownGeo, leafMats[Math.min(4, base + ti)], x + Math.cos(a) * rad * s, y + (hy + (r() - 0.5) * 0.3) * s, z + Math.sin(a) * rad * s, r() * 3, cs * 1.1, cs * 0.8, cs * 1.1);
+      }
+    });
   };
   const [sqx, sqz] = squareCentre();
-  const stoneMat = new THREE.MeshStandardMaterial({ color: '#c9c3b8', roughness: 0.7 });
-  castsShadow.add(stoneMat);
-  put(new THREE.CylinderGeometry(4.2, 4.4, 0.8, 32), stoneMat, sqx, CURB_H + 0.4, sqz);
-  const waterTop = new THREE.Mesh(new THREE.CircleGeometry(3.8, 32).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: '#2a6f8f', metalness: 0.6, roughness: 0.05, emissive: '#0a3a55', emissiveIntensity: 0.4 }));
-  waterTop.position.set(sqx, CURB_H + 0.75, sqz);
-  scene.add(waterTop);
-  put(new THREE.CylinderGeometry(0.5, 0.7, 2.6, 16), stoneMat, sqx, CURB_H + 1.3, sqz);
-  // A gold "₿" obelisk on top.
-  const goldMat = new THREE.MeshStandardMaterial({ color: '#d4a843', metalness: 1, roughness: 0.25, emissive: '#3a2600', emissiveIntensity: 0.3 });
-  castsShadow.add(goldMat);
-  put(new THREE.OctahedronGeometry(1.1, 0), goldMat, sqx, CURB_H + 3.6, sqz, 0, 0.8, 1.4, 0.8);
+  // Satoshi Square itself (paving, monument, fountain, planters) is built by buildPlaza(); trees go in the planters.
   for (const [ox, oz] of [
     [-16, -16],
     [16, -16],
     [-16, 16],
     [16, 16],
   ]) {
-    put(box(14, 0.06, 14), grassMat, sqx + ox, CURB_H + 0.03, sqz + oz);
-    tree(sqx + ox, sqz + oz, CURB_H, 1.4);
-    tree(sqx + ox + 4, sqz + oz - 3, CURB_H, 1.1);
+    tree(sqx + ox * 1.125 - 2.5 * Math.sign(ox), sqz + oz * 1.125 + 2 * Math.sign(oz), CURB_H + 0.62, 1.5);
+    tree(sqx + ox * 1.125 + 2.5 * Math.sign(ox), sqz + oz * 1.125 - 2.5 * Math.sign(oz), CURB_H + 0.62, 1.2);
   }
   {
     const sm = new THREE.Mesh(new THREE.PlaneGeometry(22, 5.5), neonSign('SATOSHI CITY', '#ff2d3c', 92));
@@ -507,6 +710,7 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
         put(poleGeo, poleMat, x, CURB_H + 3.25, z);
         put(unit, poleMat, x + nx * 0.8, CURB_H + 6.4, z + nz * 0.8, ang, 0.12, 0.12, 1.6);
         put(unit, headMat, x + nx * 1.5, CURB_H + 6.3, z + nz * 1.5, ang, 0.5, 0.15, 0.8);
+        lightSources.push({ x: x + nx * 1.5, y: CURB_H + 6.2, z: z + nz * 1.5, col: r() < 0.8 ? '#ffc27a' : '#cfe6ff', pool: 12, power: 1, ox: nx * 1.6, oz: nz * 1.6 });
         if (b.type === 'city' && r() < 0.7) tree(x + ((bx - ax) * 9) / len - nx * 0.4, z + ((bz - az) * 9) / len - nz * 0.4);
       }
     }
@@ -573,6 +777,7 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   }
   unit.dispose();
   tankGeo.dispose();
+  dishGeo.dispose();
   trunkGeo.dispose();
   crownGeo.dispose();
   poleGeo.dispose();
@@ -581,13 +786,11 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
   const setNight = (night: number, now: number, t: number) => {
     asphalt.roughness = 1 - night * 0.62;
     asphalt.envMapIntensity = 0.9 - night * 0.45;
-    asphalt.color.setScalar(0.3 - night * 0.12);
+    asphalt.color.setScalar(0.3 - night * 0.16);
     for (const m of neonMats) m.emissiveIntensity = 0.3 + night * 1.3;
-    shopMat.emissiveIntensity = 0.2 + night * 0.45;
-    for (const m of towerMats) {
-      m.emissiveIntensity = night * 0.55;
-      m.envMapIntensity = 0.15 + 1.45 * (1 - night);
-    }
+    shopMat.emissiveIntensity = 0.12 + night * 0.9;
+    for (const m of towerMats) m.envMapIntensity = 0.35 + 1.25 * (1 - night);
+    for (const m of landmarkMats) m.color.copy(m.userData.base).multiplyScalar(0.35 + night * 1.25);
     skyMat.emissiveIntensity = night * 0.7;
     headMat.emissiveIntensity = night * 3;
     beacons.visible = night > 0.3 && Math.floor(now / 700) % 2 === 0;
@@ -604,5 +807,5 @@ export function buildWorld(scene: THREE.Scene, blocks: Block[]) {
       m.needsUpdate = true;
     }
   };
-  return { setNight, setEnv, edges, merged };
+  return { setNight, setEnv, edges, merged, lightSources };
 }

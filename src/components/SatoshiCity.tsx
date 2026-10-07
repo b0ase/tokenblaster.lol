@@ -46,6 +46,7 @@ import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
 import { useActionPay } from '@/lib/useActionPay';
 import { HighScores } from './HighScores';
 import { buildCityDetail } from '@/lib/visuals/cityDetail';
+import { buildPlaza, cityUniforms, createStreetLight } from '@/lib/city/art';
 import { QUALITY_PRESETS, autoCityQuality, saveCityQuality, type CityQuality } from '@/lib/visuals/cityQuality';
 import { sharedAudio } from '@/lib/sfx';
 import { useGameFullscreen } from '@/lib/useGameFullscreen';
@@ -166,6 +167,8 @@ export function SatoshiCity() {
     const camBoxes = boxes.filter((b) => b.h > 2.5);
     const world = buildWorld(scene, blocks);
     const detail = buildCityDetail(scene, blocks, quality);
+    const street = createStreetLight(scene, world.lightSources, quality);
+    const plaza = buildPlaza(scene, ...squareCentre(), 60);
     const peds = createPeds(scene, blocks); // sidewalk walkers (real rigged models)
     const edges = world.edges;
     const edgesFrom: Edge[][] = Array.from({ length: N * N }, () => []);
@@ -207,13 +210,23 @@ export function SatoshiCity() {
       }) as typeof gtao.render;
     }
     composer.addPass(gtao);
+    // Clamp HDR before bloom: a hard specular glint (point light on wet glass) can overflow half-float to Inf,
+    // and the bloom blur would smear that over the whole frame.
+    composer.addPass(
+      new ShaderPass({
+        uniforms: { tDiffuse: { value: null } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+        fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+          void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 v = c.rgb; if (any(isnan(v)) || any(isinf(v))) v = vec3(0.0); gl_FragColor = vec4(min(v, vec3(40.0)), c.a); }`,
+      }),
+    );
     const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.25, 0.5, 0.95);
     composer.addPass(bloom);
     const grade = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, amount: { value: 0 }, time: { value: 0 }, night: { value: 0 } },
+      uniforms: { tDiffuse: { value: null }, amount: { value: 0 }, time: { value: 0 }, night: { value: 0 }, haze: { value: new THREE.Color() } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader: `
-        uniform sampler2D tDiffuse; uniform float amount; uniform float time; uniform float night; varying vec2 vUv;
+        uniform sampler2D tDiffuse; uniform float amount; uniform float time; uniform float night; uniform vec3 haze; varying vec2 vUv;
         float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233)) + time) * 43758.5453); }
         void main(){
           vec4 c = texture2D(tDiffuse, vUv);
@@ -222,7 +235,12 @@ export function SatoshiCity() {
           float sh = 1.0 - smoothstep(0.0, 0.35, g);
           base *= mix(vec3(1.0), mix(vec3(0.93, 1.0, 1.06), vec3(0.9, 0.97, 1.12), night), sh);
           base *= mix(vec3(1.0), vec3(1.06, 1.0, 0.92), smoothstep(0.5, 1.5, g) * (1.0 - night));
-          base *= mix(1.0, smoothstep(1.05, 0.35, distance(vUv, vec2(0.5))), 0.35);
+          // DR grade: violet-teal shadows, warm-magenta highlights at night; a low haze band over the horizon.
+          float lg = dot(base, vec3(0.299, 0.587, 0.114));
+          base = mix(base, base * vec3(0.86, 0.9, 1.18) + vec3(0.012, 0.004, 0.03), (1.0 - smoothstep(0.0, 0.4, lg)) * night);
+          base = mix(base, base * vec3(1.08, 0.97, 1.02), smoothstep(0.45, 1.2, lg) * night);
+          float hy = (vUv.y - 0.5) * 3.2; base += haze * exp(-hy * hy) * (0.05 + 0.07 * night);
+          base *= mix(1.0, smoothstep(1.05, 0.3, distance(vUv, vec2(0.5))), 0.42);
           g = dot(base, vec3(0.299, 0.587, 0.114));
           vec3 mono = vec3(g) * vec3(1.05, 0.93, 0.9);
           vec3 col = mix(base, mono, amount);
@@ -308,6 +326,7 @@ export function SatoshiCity() {
     let dead = 0;
     let fling: { vx: number; vy: number; vz: number; spin: number } | null = null;
     let dayT = 0.4;
+    let freezeDay = false;
     let tSec = 0; // game seconds (traffic lights)
     let drift = 0;
     let driftIdle = 0;
@@ -774,6 +793,7 @@ export function SatoshiCity() {
         sun.shadow.map = null;
       }
       detail.setQuality(q);
+      street.setQuality(q);
       needsResize = true;
       setQualityState(q);
     };
@@ -788,6 +808,17 @@ export function SatoshiCity() {
           return true;
         },
         action: () => action(),
+        scene,
+        passes: { bloom, gtao, grade },
+        // Screenshot rig: freeze the clock at dayT, put the player at (x, z) and aim the camera.
+        pose: (d: number, x: number, z: number, yaw: number, pitch = 0.32, dist = 6) => {
+          dayT = d;
+          freezeDay = true;
+          slowFor = -1e9;
+          ped.x = x;
+          ped.z = z;
+          Object.assign(look, { yaw, pitch, dist });
+        },
       };
     control.current = {
       setQuality: (q) => {
@@ -948,6 +979,7 @@ export function SatoshiCity() {
     const HOR_NIGHT = new THREE.Color('#2a1240');
     const HEMI_NIGHT_SKY = new THREE.Color('#6a5cff');
     const HEMI_NIGHT_GND = new THREE.Color('#ff2d7a');
+    const HAZE_NIGHT = new THREE.Color('#3a1a5a');
 
     // ── Sparks (crashes) + exhaust puffs: one pooled additive Points cloud ──
     const SPK = 240;
@@ -1178,7 +1210,7 @@ export function SatoshiCity() {
       const focusZ = car ? car.z : ped.z;
 
       // ── Day cycle ──
-      dayT = (dayT + dt / DAY_S) % 1;
+      if (!freezeDay) dayT = (dayT + dt / DAY_S) % 1;
       const ang = dayT * Math.PI * 2 - Math.PI / 2;
       const elev = Math.sin(ang);
       sun.position.set(focusX + Math.cos(ang) * 150, Math.max(8, elev * 170), focusZ + 70);
@@ -1199,10 +1231,23 @@ export function SatoshiCity() {
         skyDome.visible = true;
         scene.background = sky;
       }
-      (scene.fog as THREE.Fog).color.copy(sky);
+      (scene.fog as THREE.Fog).color.copy(sky).lerp(HAZE_NIGHT, night * 0.6);
+      (grade.uniforms.haze.value as THREE.Color).copy((scene.fog as THREE.Fog).color);
       scene.environmentIntensity = 0.12 + 0.88 * (1 - night);
       grade.uniforms.night.value = night;
+      cityUniforms.uNight.value = night;
+      cityUniforms.uTime.value = now / 1000;
       world.setNight(night, now, tSec);
+      street.setNight(night);
+      street.update(now, focusX, focusZ);
+      plaza.update(now, night);
+      {
+        const fog = scene.fog as THREE.Fog;
+        fog.near = 140 - night * 90;
+        fog.far = 520 - night * 180;
+      }
+      bloom.threshold = 0.95 - night * 0.3;
+      bloom.radius = 0.5 + night * 0.25;
       kit.setNight(night);
       detail.setNight(night);
       detail.update(camera.position);

@@ -92,7 +92,9 @@ export function solidBoxes(blocks: Block[]): Box[] {
   const out: Box[] = [];
   for (const b of blocks) for (const l of b.lots) out.push(l);
   const [fx, fz] = squareCentre();
-  out.push({ x0: fx - 4.2, x1: fx + 4.2, z0: fz - 4.2, z1: fz + 4.2, h: 1 });
+  out.push({ x0: fx - 6.6, x1: fx + 6.6, z0: fz - 6.6, z1: fz + 6.6, h: 1 });
+  // the four raised planters round the monument
+  for (const qx of [-1, 1]) for (const qz of [-1, 1]) out.push({ x0: fx + qx * 18 - 6, x1: fx + qx * 18 + 6, z0: fz + qz * 18 - 6, z1: fz + qz * 18 + 6, h: 0.8 });
   const W = 2;
   out.push(
     { x0: -BOUND - W, x1: BOUND + W, z0: -BOUND - W, z1: -BOUND, h: 1.2 },
