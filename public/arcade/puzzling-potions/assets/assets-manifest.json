@@ -1,0 +1,288 @@
+{
+  "bundles": [
+    {
+      "name": "default",
+      "assets": []
+    },
+    {
+      "name": "common",
+      "assets": [
+        {
+          "alias": [
+            "common/bgm-game.mp3",
+            "bgm-game.mp3"
+          ],
+          "src": [
+            "common/bgm-game-ZJUNcw.mp3",
+            "common/bgm-game-s3jGNg.ogg"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/bgm-main.mp3",
+            "bgm-main.mp3"
+          ],
+          "src": [
+            "common/bgm-main-zkjg1A.mp3",
+            "common/bgm-main-sOS88g.ogg"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/common-atlas",
+            "common-atlas"
+          ],
+          "src": [
+            "common/common-atlas-Yi5FzA@0.5x.png.json",
+            "common/common-atlas-q_rt6w@0.5x.webp.json",
+            "common/common-atlas-ni4t6w.png.json",
+            "common/common-atlas-jtIR.webp.json"
+          ],
+          "data": {
+            "tags": {
+              "m": true,
+              "tps": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-bubble.wav",
+            "sfx-bubble.wav"
+          ],
+          "src": [
+            "common/sfx-bubble-eInoMw.mp3",
+            "common/sfx-bubble-aOxA4g.ogg"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-correct.wav",
+            "sfx-correct.wav"
+          ],
+          "src": [
+            "common/sfx-correct-Y11Yhg.mp3",
+            "common/sfx-correct-Fjc2eg.ogg"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-countdown.wav",
+            "sfx-countdown.wav"
+          ],
+          "src": [
+            "common/sfx-countdown-T-nE3w.mp3",
+            "common/sfx-countdown-pW9UpQ.ogg"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-hover.wav",
+            "sfx-hover.wav"
+          ],
+          "src": [
+            "common/sfx-hover-tVNFMg.ogg",
+            "common/sfx-hover-PMDITw.mp3"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-incorrect.wav",
+            "sfx-incorrect.wav"
+          ],
+          "src": [
+            "common/sfx-incorrect-uTCdzg.ogg",
+            "common/sfx-incorrect-PK-vvA.mp3"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-match.wav",
+            "sfx-match.wav"
+          ],
+          "src": [
+            "common/sfx-match-nsQYTA.mp3",
+            "common/sfx-match-0vc2Vg.ogg"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-points.wav",
+            "sfx-points.wav"
+          ],
+          "src": [
+            "common/sfx-points-Rj62Vg.ogg",
+            "common/sfx-points-6qKB2A.mp3"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-press.wav",
+            "sfx-press.wav"
+          ],
+          "src": [
+            "common/sfx-press-lg8Deg.ogg",
+            "common/sfx-press-1zF3.mp3"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        },
+        {
+          "alias": [
+            "common/sfx-special.wav",
+            "sfx-special.wav"
+          ],
+          "src": [
+            "common/sfx-special-rRY_Xw.mp3",
+            "common/sfx-special-h14r.ogg"
+          ],
+          "data": {
+            "tags": {
+              "m": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "game",
+      "assets": [
+        {
+          "alias": [
+            "game/game-atlas",
+            "game-atlas"
+          ],
+          "src": [
+            "game/game-atlas-UrItXg.webp.json",
+            "game/game-atlas-LSB_aA@0.5x.png.json",
+            "game/game-atlas-kbiIAw@0.5x.webp.json",
+            "game/game-atlas-GiSyaw.png.json"
+          ],
+          "data": {
+            "tags": {
+              "m": true,
+              "tps": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "home",
+      "assets": [
+        {
+          "alias": [
+            "home/home-atlas",
+            "home-atlas"
+          ],
+          "src": [
+            "home/home-atlas-VZZ0fw.webp.json",
+            "home/home-atlas-RNs6bg@0.5x.webp.json",
+            "home/home-atlas-Hc0YEA.png.json",
+            "home/home-atlas-adTYxw@0.5x.png.json"
+          ],
+          "data": {
+            "tags": {
+              "m": true,
+              "tps": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "preload",
+      "assets": [
+        {
+          "alias": [
+            "preload/preload-atlas",
+            "preload-atlas"
+          ],
+          "src": [
+            "preload/preload-atlas-mlLIDA@0.5x.webp.json",
+            "preload/preload-atlas-m1eagg@0.5x.png.json",
+            "preload/preload-atlas-guFIAA.png.json",
+            "preload/preload-atlas-1Dr6JQ.webp.json"
+          ],
+          "data": {
+            "tags": {
+              "m": true,
+              "tps": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "result",
+      "assets": [
+        {
+          "alias": [
+            "result/result-atlas",
+            "result-atlas"
+          ],
+          "src": [
+            "result/result-atlas-q7Z1Ow@0.5x.webp.json",
+            "result/result-atlas-HzCGaQ@0.5x.png.json",
+            "result/result-atlas-gmcXOQ.webp.json",
+            "result/result-atlas-_UY4_g.png.json"
+          ],
+          "data": {
+            "tags": {
+              "m": true,
+              "tps": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

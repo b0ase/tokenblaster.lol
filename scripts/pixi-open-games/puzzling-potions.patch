@@ -1,0 +1,331 @@
+diff -ruN --ex open-games/puzzling-potions/src/main.ts build/potions/src/main.ts
+--- open-games/puzzling-potions/src/main.ts	2026-10-07 06:59:22
++++ build/potions/src/main.ts	2026-10-07 07:05:36
+@@ -1,5 +1,3 @@
+-import '@esotericsoftware/spine-pixi-v8';
+-
+ import { Application } from 'pixi.js';
+ import { initAssets } from './utils/assets';
+ import { navigation } from './utils/navigation';
+@@ -10,6 +8,8 @@
+ import { TiledBackground } from './ui/TiledBackground';
+ import { getUrlParam } from './utils/getUrlParams';
+ import { sound } from '@pixi/sound';
++import { tbOnStart, tbPost } from './utils/tb';
++import { userSettings } from './utils/userSettings';
+ 
+ /** The PixiJS app Application instance, shared across the project */
+ export const app = new Application();
+@@ -78,6 +78,12 @@
+     // Show initial loading screen
+     await navigation.showScreen(LoadScreen);
+ 
++    // Arcade bridge: the page starts the game (coin or practice), always in Normal mode so scores compare
++    tbOnStart(() => {
++        userSettings.setGameMode('normal');
++        navigation.showScreen(GameScreen);
++    });
++
+     // Go to one of the screens if a shortcut is present in url params, otherwise go to home screen
+     if (getUrlParam('game') !== null) {
+         await navigation.showScreen(GameScreen);
+@@ -88,6 +94,7 @@
+     } else {
+         await navigation.showScreen(HomeScreen);
+     }
++    tbPost({ tb: 'ready' });
+ }
+ 
+ // Init everything
+diff -ruN --ex open-games/puzzling-potions/src/screens/GameScreen.ts build/potions/src/screens/GameScreen.ts
+--- open-games/puzzling-potions/src/screens/GameScreen.ts	2026-10-07 06:59:22
++++ build/potions/src/screens/GameScreen.ts	2026-10-07 07:05:36
+@@ -1,3 +1,4 @@
++import { tbPost } from '../utils/tb';
+ import { Container, Ticker } from 'pixi.js';
+ import gsap from 'gsap';
+ import { Match3, Match3OnMatchData, Match3OnMoveData, Match3OnPopData } from '../match3/Match3';
+@@ -263,6 +264,7 @@
+         const performance = this.match3.stats.getGameplayPerformance();
+         userStats.save(this.match3.config.mode, performance);
+         navigation.showScreen(ResultScreen);
++        tbPost({ tb: 'gameover', score: performance.score, secs: this.match3.config.duration });
+     }
+ 
+     /** Auto pause the game when window go out of focus */
+diff -ruN --ex open-games/puzzling-potions/src/screens/HomeScreen.ts build/potions/src/screens/HomeScreen.ts
+--- open-games/puzzling-potions/src/screens/HomeScreen.ts	2026-10-07 06:59:22
++++ build/potions/src/screens/HomeScreen.ts	2026-10-07 07:05:36
+@@ -1,3 +1,4 @@
++import { tbGate } from '../utils/tb';
+ import { Container, NineSliceSprite, Texture } from 'pixi.js';
+ import { navigation } from '../utils/navigation';
+ import { GameScreen } from './GameScreen';
+@@ -84,7 +85,9 @@
+         this.addChild(this.pixiButton);
+ 
+         this.playButton = new LargeButton({ text: i18n.playButton });
+-        this.playButton.onPress.connect(() => navigation.showScreen(GameScreen));
++        this.playButton.onPress.connect(() => {
++            if (!tbGate()) navigation.showScreen(GameScreen);
++        });
+         this.addChild(this.playButton);
+     }
+ 
+diff -ruN --ex open-games/puzzling-potions/src/screens/ResultScreen.ts build/potions/src/screens/ResultScreen.ts
+--- open-games/puzzling-potions/src/screens/ResultScreen.ts	2026-10-07 06:59:22
++++ build/potions/src/screens/ResultScreen.ts	2026-10-07 07:05:36
+@@ -1,3 +1,4 @@
++import { tbGate } from '../utils/tb';
+ import { Container, NineSliceSprite, Sprite, Texture } from 'pixi.js';
+ import gsap from 'gsap';
+ import { Label } from '../ui/Label';
+@@ -115,7 +116,9 @@
+ 
+         this.continueButton = new LargeButton({ text: i18n.resultPlay });
+         this.addChild(this.continueButton);
+-        this.continueButton.onPress.connect(() => navigation.showScreen(GameScreen));
++        this.continueButton.onPress.connect(() => {
++            if (!tbGate()) navigation.showScreen(GameScreen);
++        });
+ 
+         this.maskTransition = new MaskTransition();
+     }
+diff -ruN --ex open-games/puzzling-potions/src/ui/Cauldron.ts build/potions/src/ui/Cauldron.ts
+--- open-games/puzzling-potions/src/ui/Cauldron.ts	2026-10-07 06:59:22
++++ build/potions/src/ui/Cauldron.ts	2026-10-07 07:06:28
+@@ -3,22 +3,21 @@
+ import { randomRange } from '../utils/random';
+ import { registerCustomEase } from '../utils/animation';
+ import { pool } from '../utils/pool';
+-import { Spine } from '@esotericsoftware/spine-pixi-v8';
+ 
+ /** Custom ease curve for splash drops y animation */
+ const easeDropJumpOut = registerCustomEase('M0,0,C0,0,0.07,-0.63,0.402,-0.422,0.83,-0.152,1,1,1,1');
+ 
+ /**
+- * Spine-animated cauldron, with some dynamic functionality, like
+- * play splash animation and set up an inner sprite that follows up the spine animation.
++ * Cauldron sprite (no Spine runtime), with some dynamic functionality, like
++ * play splash animation and set up an inner sprite on top of it.
+  */
+ export class Cauldron extends Container {
+     /** Inner container for the cauldron */
+     private container: Container;
+     /** The optional cauldron shadow, displayed in game screen */
+     private shadow: Sprite;
+-    /** The cauldron spine animation */
+-    private spine: Spine;
++    /** The cauldron sprite */
++    private spine: Container;
+     /** Optional content attached to the cauldron, that will follow its animation */
+     private content?: Container;
+ 
+@@ -38,17 +37,13 @@
+         this.shadow.visible = shadow;
+         this.container.addChild(this.shadow);
+ 
+-        this.spine = Spine.from({
+-            skeleton: 'preload/cauldron-skeleton.json',
+-            atlas: 'preload/cauldron-skeleton.atlas',
+-        });
+-
+-        this.spine.autoUpdate = true;
++        this.spine = new Container();
++        const body = Sprite.from('cauldron');
++        body.anchor.set(0.5, 0.9);
++        this.spine.addChild(body);
+         this.spine.y = 50;
+-        this.spine.state.setAnimation(0, 'animation', true);
+         this.container.addChild(this.spine);
+ 
+-        this.onRender = () => this.renderUpdate();
+     }
+ 
+     /** Show cauldron */
+@@ -112,20 +107,12 @@
+         await gsap.to(this.spine.scale, { x: 1, y: 1, duration: 0.8, ease: 'elastic.out' });
+     }
+ 
+-    /** Add a sprite to the front of the cauldron that will follow up the spine animation */
++    /** Add a sprite to the front of the cauldron, sitting in its mouth */
+     public addContent(content: Container) {
+         if (!this.content) this.content = new Container();
++        this.content.y = -10;
+         this.spine.addChild(this.content);
+         this.content.addChild(content);
+-    }
+-
+-    /** Auto-update every frame */
+-    public renderUpdate() {
+-        if (!this.content) return;
+-        const bone = this.spine.skeleton.bones[1] as any;
+-        this.content.x = bone.ax;
+-        this.content.y = -bone.ay - 5;
+-        this.content.rotation = bone.arotation * -0.015;
+     }
+ }
+ 
+diff -ruN --ex open-games/puzzling-potions/src/ui/Dragon.ts build/potions/src/ui/Dragon.ts
+--- open-games/puzzling-potions/src/ui/Dragon.ts	2026-10-07 06:59:22
++++ build/potions/src/ui/Dragon.ts	2026-10-07 07:04:41
+@@ -1,13 +1,13 @@
+ import { Container } from 'pixi.js';
+ import gsap from 'gsap';
+-import { Spine } from '@esotericsoftware/spine-pixi-v8';
++import { Sprite } from 'pixi.js';
+ 
+ /**
+- * Spine-animated little dragon, that shows up in Home and Result screens.
++ * Little dragon (a static sprite with a gentle idle bob, no Spine runtime), that shows up in Home and Result screens.
+  */
+ export class Dragon extends Container {
+-    /** The spine animation */
+-    private spine: Spine;
++    /** The dragon sprite */
++    private spine: Sprite;
+     /** Inner container for internal animations */
+     private container: Container;
+ 
+@@ -17,31 +17,35 @@
+         this.container = new Container();
+         this.addChild(this.container);
+ 
+-        this.spine = Spine.from({
+-            skeleton: 'common/dragon-skeleton.json',
+-            atlas: 'common/dragon-skeleton.atlas',
+-        });
+-        // this.spine.autoUpdate = true;
+-        this.spine.scale.set(0.3);
+-        this.spine.x = -30;
+-        this.spine.y = 130;
++        this.spine = Sprite.from('character');
++        this.spine.anchor.set(0.5, 1);
++        this.spine.scale.set(0.6);
++        this.spine.x = 0;
++        this.spine.y = 135;
+         this.container.addChild(this.spine);
+         this.playIdle();
+     }
+ 
++    /** Squash-and-stretch loop on the sprite (period in seconds, amount as a scale fraction) */
++    private bob(period: number, amount: number) {
++        gsap.killTweensOf(this.spine.scale);
++        this.spine.scale.set(0.6);
++        gsap.to(this.spine.scale, { x: 0.6 * (1 + amount), y: 0.6 * (1 - amount), duration: period / 2, yoyo: true, repeat: -1, ease: 'sine.inOut' });
++    }
++
+     /** Play dragon's idle animation, in loop */
+     public playIdle() {
+-        this.spine.state.setAnimation(0, 'dragon-idle', true);
++        this.bob(2.2, 0.03);
+     }
+ 
+     /** Play dragon's bubbles animation, in loop */
+     public playBubbles() {
+-        this.spine.state.setAnimation(0, 'dragon-bubbles', true);
++        this.bob(0.5, 0.06);
+     }
+ 
+     /** Play dragon's transition animation, in loop */
+     public playTransition() {
+-        this.spine.state.setAnimation(0, 'dragon-transition', true);
++        this.bob(0.35, 0.08);
+     }
+ 
+     /** Show the dragon */
+diff -ruN --ex open-games/puzzling-potions/src/ui/ModeSwitcher.ts build/potions/src/ui/ModeSwitcher.ts
+--- open-games/puzzling-potions/src/ui/ModeSwitcher.ts	2026-10-07 06:59:22
++++ build/potions/src/ui/ModeSwitcher.ts	2026-10-07 07:05:36
+@@ -76,7 +76,7 @@
+             selectedItem: 0,
+         });
+ 
+-        this.addChild(this.innerView);
++        this.addChild(this.innerView!);
+         this.onChange.connect(() => {
+             sfx.play('common/sfx-press.wav');
+         });
+diff -ruN --ex open-games/puzzling-potions/src/utils/i18n.ts build/potions/src/utils/i18n.ts
+--- open-games/puzzling-potions/src/utils/i18n.ts	2026-10-07 06:59:22
++++ build/potions/src/utils/i18n.ts	2026-10-07 07:05:36
+@@ -1,10 +1,10 @@
+ export const i18n = {
+-    loadingMessage: 'Game Brewing',
++    loadingMessage: 'Minting Potions',
+     loadingDone: 'We’re Ready!',
+     pressMessage: 'Press to start',
+     playButton: 'Start Game',
+     resultTitle: 'Results',
+-    resultPlay: 'Play again',
++    resultPlay: 'Brew again',
+     grade3: 'Incredible!',
+     grade2: 'Well Done!',
+     grade1: 'Good!',
+@@ -13,7 +13,7 @@
+     pointsSuffix: ' Points',
+     bestScorePrefix: 'Best: ',
+     newBestScore: 'NEW BEST SCORE!',
+-    githubButton: 'Fork me\non Github!',
++    githubButton: 'Open game\nby PixiJS',
+     urlGithub: 'https://github.com/pixijs/open-games',
+     urlPixi: 'https://pixijs.com/',
+     infoTitle: 'Info',
+diff -ruN --ex open-games/puzzling-potions/src/utils/tb.ts build/potions/src/utils/tb.ts
+--- open-games/puzzling-potions/src/utils/tb.ts	1970-01-01 01:00:00
++++ build/potions/src/utils/tb.ts	2026-10-07 07:05:36
+@@ -0,0 +1,26 @@
++/**
++ * TokenBlaster.lol bridge. When the game runs inside the arcade page (iframe, ?tb=1) the page owns the
++ * coin slot and the high-score board: it tells us when to start, and we tell it the score at game over.
++ * Same-origin only. Standalone (no ?tb) the game behaves exactly like upstream.
++ */
++export const embedded = new URLSearchParams(window.location.search).has('tb');
++
++export type TbOut = { tb: 'ready' } | { tb: 'gameover'; score: number; secs: number } | { tb: 'menu' };
++
++export function tbPost(msg: TbOut) {
++    if (embedded && window.parent !== window) window.parent.postMessage(msg, window.location.origin);
++}
++
++/** In the arcade the page decides when a game starts (coin or practice), so the in-game start buttons only ask for the menu. */
++export function tbGate(): boolean {
++    if (!embedded) return false;
++    tbPost({ tb: 'menu' });
++    return true;
++}
++
++export function tbOnStart(cb: () => void) {
++    window.addEventListener('message', (e: MessageEvent) => {
++        if (e.origin !== window.location.origin) return;
++        if ((e.data as { tb?: string } | null)?.tb === 'start') cb();
++    });
++}
+--- open-games/puzzling-potions/index.html	2026-10-07 06:59:22
++++ build/potions/index.html	2026-10-07 07:05:36
+@@ -3,7 +3,7 @@
+   <head>
+     <meta charset="UTF-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <title>Puzzling Potions</title>
++    <title>Token Potions</title>
+     <style>
+       html, body {
+         overflow: hidden !important;
+--- open-games/puzzling-potions/package.json	2026-10-07 06:59:22
++++ build/potions/package.json	2026-10-07 07:04:41
+@@ -19,7 +19,6 @@
+   },
+   "dependencies": {
+     "@pixi/sound": "^6.0.1",
+-    "@esotericsoftware/spine-pixi-v8": "^4.2.95",
+     "@pixi/ui": "^2.2.7",
+     "gsap": "^3.13.0",
+     "pixi.js": "^8.14.1"
+@@ -36,4 +35,4 @@
+     "typescript": "^5.9.3",
+     "vite": "^7.2.2"
+   }
+-}
++}
+\ No newline at end of file

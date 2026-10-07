@@ -13,6 +13,7 @@ const GAMES = [
   { href: '/arcade/kweg', img: '/arcade/kweg.jpg', title: "Kweg's Expedition", tag: 'V1 · side-scroller', blurb: "Pilot Professor Kweg's pachyderm submarine through mainnet: sonar pings find hidden $KWEG, and three parody rivals race you to Satoshi's submarine coordinates." },
   { href: '/arcade/rally', img: '/arcade/rally.jpg', title: 'Token Rally', tag: 'V1 · 3D rally', blurb: 'Drift gravel stages against the live chain: every rival car is a mainnet transaction, faster the bigger the move. Handbrake, nitro, splits, high scores.' },
   { href: '/arcade/bubbo-bubbo', img: '/arcade/bubbo-bubbo.jpg', title: 'Coin Pop', tag: 'V1 · bubble shooter', blurb: 'Aim the cannon and pop token coins in groups of three: bombs, super coins and a ceiling that keeps coming. 10p a game or practice free.' },
+  { href: '/arcade/puzzling-potions', img: '/arcade/puzzling-potions.jpg', title: 'Token Potions', tag: 'V1 · match-3', blurb: 'Swap potions, chain combos and build specials before the 60 seconds run out. 10p a game or practice free.' },
 ];
 
 const STACK = [
