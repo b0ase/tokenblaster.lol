@@ -3,13 +3,12 @@
  * obstacle colliders, start/finish/checkpoint gates, skid marks, dust/gravel particles and snow.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clamp, fbm, lerp, rng, smooth } from './noise';
+import { barkTextures, clearProtoCache, foliageAtlas, getProto, grassTuftGeometry, newArr, type Arr, type PlantKind, type Proto } from './plants';
 import type { Stage } from './stages';
 import { groundNormal, groundY, nearest, pointAt, ROAD_HALF, STEP, type Near, type Track } from './track';
 
-export type Quality = 'low' | 'high';
+export type Quality = 'low' | 'high' | 'ultra';
 
 // ───────────────────────────── Terrain ─────────────────────────────
 
@@ -47,7 +46,9 @@ export function loadTerrainTextures(stage: Stage, renderer: THREE.WebGLRenderer)
 
 export function terrainMaterial(stage: Stage, tex: TerrainTex, quality: Quality) {
   const mat = new THREE.MeshStandardMaterial({ map: tex.ground, normalMap: tex.groundN, roughness: 0.95, metalness: 0, color: '#ffffff' });
-  mat.normalScale.set(1.1, 1.1);
+  mat.normalScale.set(1.25, 1.25);
+  const wet = stage.id === 'forest' ? 0.55 : stage.id === 'snow' ? 0.15 : 0.0;
+  const verge = stage.id === 'forest' ? '#5b8a3a' : stage.id === 'desert' ? '#b09a5a' : '#dfe6ee';
   const uniforms = {
     tRoad: { value: tex.road },
     tRoadN: { value: tex.roadN },
@@ -56,57 +57,93 @@ export function terrainMaterial(stage: Stage, tex: TerrainTex, quality: Quality)
     uGroundTint: { value: new THREE.Color(stage.groundTint) },
     uRoadTint: { value: new THREE.Color(stage.roadTint) },
     uRockTint: { value: new THREE.Color(stage.rockTint) },
+    uVerge: { value: new THREE.Color(verge) },
+    uVergeAmt: { value: stage.id === 'forest' ? 0.6 : stage.id === 'desert' ? 0.4 : 0.35 },
+    uWet: { value: wet },
     uRoadHalf: { value: ROAD_HALF },
     uGScale: { value: stage.groundScale },
   };
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aD;\nvarying float vD;\nvarying vec2 vWP;\nvarying vec3 vWN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvD = aD; vWP = position.xz; vWN = normal;');
-    const hi = quality === 'high' ? '#define HQ\n' : '';
-    sh.fragmentShader = hi + sh.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>
+      .replace('#include <common>', '#include <common>\nattribute float aD;\nvarying float vD;\nvarying vec3 vWP3;\nvarying vec3 vWN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvD = aD; vWP3 = position; vWN = normal;');
+    const hi = quality !== 'low' ? '#define HQ\n' : '';
+    sh.fragmentShader =
+      hi +
+      sh.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
 uniform sampler2D tRoad; uniform sampler2D tRoadN; uniform sampler2D tRock; uniform sampler2D tRockN;
-uniform vec3 uGroundTint; uniform vec3 uRoadTint; uniform vec3 uRockTint; uniform float uRoadHalf; uniform float uGScale;
-varying float vD; varying vec2 vWP; varying vec3 vWN;
-float tWRoad; float tWRock; float tRut;`,
-      )
-      .replace(
-        '#include <map_fragment>',
-        `
+uniform vec3 uGroundTint; uniform vec3 uRoadTint; uniform vec3 uRockTint; uniform vec3 uVerge; uniform float uVergeAmt; uniform float uWet; uniform float uRoadHalf; uniform float uGScale;
+varying float vD; varying vec3 vWP3; varying vec3 vWN;
+float tWRoad; float tWRock; float tRut; float tPud; float tDetail;
+float tHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float tNoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(tHash(i), tHash(i+vec2(1,0)), f.x), mix(tHash(i+vec2(0,1)), tHash(i+vec2(1,1)), f.x), f.y); }`,
+        )
+        .replace(
+          '#include <map_fragment>',
+          `
+        vec2 wp = vWP3.xz;
+        float camD = length( vViewPosition );
+        tDetail = 1.0 - smoothstep( 8.0, 45.0, camD );
+        // Parallax-lite: shift the lookups along the view ray by the albedo's own relief.
+        vec3 vdir = normalize( cameraPosition - vWP3 );
+        vec2 par = -vdir.xz / max( vdir.y, 0.25 );
         vec2 gUv = vMapUv;
+        float relief = texture2D( map, gUv ).g - 0.5;
+        vec2 shift = par * relief * 0.06 * tDetail;
+        gUv += shift / uGScale;
         vec3 gA = texture2D( map, gUv ).rgb;
         #ifdef HQ
           vec3 gB = texture2D( map, gUv * 0.173 + vec2(0.37, 0.11) ).rgb;
           float lowN = gB.g;
           gA = mix( gA, gB, 0.4 );
+          vec3 gC = texture2D( map, gUv * 3.7 ).rgb;
+          gA *= mix( vec3( 1.0 ), gC * 1.9, 0.35 * tDetail );
         #else
           float lowN = gA.g;
         #endif
         float edgeN = ( lowN - 0.5 ) * 1.5;
         tWRoad = 1.0 - smoothstep( uRoadHalf - 1.0 + edgeN, uRoadHalf + 0.5 + edgeN, vD );
-        tRut = exp( -pow( ( abs( vD ) - 1.05 ) / 0.3, 2.0 ) ) * tWRoad;
+        float ad = abs( vD );
+        // Two wheel ruts, a raised crown between them and loose gravel kicked to the edges.
+        float rutL = exp( -pow( ( ad - 1.05 ) / 0.28, 2.0 ) );
+        tRut = rutL * tWRoad;
+        float berm = exp( -pow( ( ad - 2.0 ) / 0.6, 2.0 ) ) * tWRoad;
+        float edgeG = smoothstep( uRoadHalf - 1.6, uRoadHalf - 0.2, ad ) * ( 1.0 - smoothstep( uRoadHalf - 0.2, uRoadHalf + 1.2, ad ) );
         tWRock = smoothstep( 0.82, 0.6, normalize( vWN ).y ) * ( 1.0 - tWRoad );
-        vec3 gR = texture2D( tRoad, vWP / 3.2 ).rgb;
-        vec3 gK = texture2D( tRock, vWP / 5.5 ).rgb;
+        vec2 rUv = ( wp + shift ) / 3.2;
+        vec3 gR = texture2D( tRoad, rUv ).rgb;
+        vec3 gR2 = texture2D( tRoad, rUv * 5.3 ).rgb;
+        gR *= mix( vec3( 1.0 ), gR2 * 1.7, 0.4 * tDetail );
+        vec3 gK = texture2D( tRock, wp / 5.5 ).rgb;
         vec3 albedo = gA * uGroundTint;
+        // Verge grass fringe.
+        float vergeM = smoothstep( uRoadHalf + 0.3, uRoadHalf + 1.2, ad ) * ( 1.0 - smoothstep( uRoadHalf + 3.5, uRoadHalf + 9.0, ad + ( tNoise( wp * 0.7 ) - 0.5 ) * 6.0 ) );
+        albedo = mix( albedo, uVerge * ( 0.45 + gA.g * 0.9 ), vergeM * uVergeAmt * ( 0.5 + 0.5 * tNoise( wp * 1.9 ) ) );
         albedo = mix( albedo, gK * uRockTint * 1.5, tWRock );
         vec3 roadCol = gR * uRoadTint * 1.25;
-        roadCol *= 1.0 - tRut * 0.32;
+        roadCol *= 1.0 - tRut * 0.38;
+        roadCol = mix( roadCol, roadCol * 1.18, berm * 0.6 );
+        roadCol = mix( roadCol, gR * uRoadTint * 1.5, edgeG * 0.5 );
         albedo = mix( albedo, roadCol, tWRoad );
+        // Puddles pool in the ruts and low patches.
+        tPud = uWet * tWRoad * smoothstep( 0.6, 0.74, tNoise( wp * 0.45 + 7.0 ) * 0.6 + rutL * 0.45 );
+        albedo = mix( albedo, albedo * vec3( 0.5, 0.48, 0.45 ), tPud );
         diffuseColor.rgb *= albedo;
         `,
-      )
-      .replace(
-        '#include <normal_fragment_maps>',
-        THREE.ShaderChunk.normal_fragment_maps
-          .split('texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0')
-          .join('mix( mix( texture2D( normalMap, vNormalMapUv ).xyz, texture2D( tRockN, vWP / 5.5 ).xyz, tWRock ), texture2D( tRoadN, vWP / 3.2 ).xyz, tWRoad ) * 2.0 - 1.0'),
-      )
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix( roughnessFactor, 0.78, tWRoad * 0.5 );');
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          THREE.ShaderChunk.normal_fragment_maps
+            .split('texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0')
+            .join(
+              `( ( mix( mix( texture2D( normalMap, vNormalMapUv ).xyz, texture2D( tRockN, wp / 5.5 ).xyz, tWRock ), texture2D( tRoadN, wp / 3.2 ).xyz, tWRoad ) * 2.0 - 1.0 + ( texture2D( tRoadN, wp * 1.4 ).xyz * 2.0 - 1.0 ) * vec3( 0.6, 0.6, 0.0 ) * tDetail * 0.6 ) * vec3( 1.0 - tPud * 0.95, 1.0 - tPud * 0.95, 1.0 ) )`,
+            ),
+        )
+        .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix( roughnessFactor, 0.78, tWRoad * 0.5 );\nroughnessFactor = mix( roughnessFactor, 0.035, tPud );');
   };
   mat.customProgramCacheKey = () => `rally-terrain-${quality}`;
   return mat;
@@ -114,7 +151,7 @@ float tWRoad; float tWRock; float tRut;`,
 
 export function buildTerrain(track: Track, mat: THREE.Material, quality: Quality) {
   const group = new THREE.Group();
-  const N = quality === 'high' ? 32 : 16;
+  const N = quality === 'ultra' ? 64 : quality === 'high' ? 48 : 20;
   const need = new Set<number>();
   const R = REACH + CH * 0.7;
   for (let i = 0; i < track.n; i += 4) {
@@ -128,7 +165,7 @@ export function buildTerrain(track: Track, mat: THREE.Material, quality: Quality
   const nrm = { x: 0, y: 1, z: 0 };
   const cell = CH / N;
   const V = N + 1;
-  const index = new Uint16Array(N * N * 6);
+  const index = new Uint32Array(N * N * 6);
   let k = 0;
   for (let j = 0; j < N; j++)
     for (let i = 0; i < N; i++) {
@@ -203,87 +240,56 @@ export type Obstacles = {
   count: number;
 };
 
-type Part = { pos: Float32Array; nor: Float32Array; idx: Uint32Array | Uint16Array; cls: string; uv: Float32Array | null };
-type Proto = { name: string; parts: Part[]; h: number; w: number; kind: 'tree' | 'rock' | 'bush' | 'cactus' | 'prop' };
+export type SceneryMats = { foliage: THREE.MeshStandardMaterial; bark: THREE.MeshStandardMaterial; rock: THREE.MeshStandardMaterial; cactus: THREE.MeshStandardMaterial; grass: THREE.MeshStandardMaterial; wind: { value: number }; atlas: THREE.Texture; barkMap: THREE.Texture; barkBump: THREE.Texture };
 
-const clsOf = (matName: string) => (/bark|wood/i.test(matName) ? 'bark' : /leaf|leafs/i.test(matName) ? 'leaf' : /^grass$/i.test(matName) ? 'moss' : 'rock');
-const kindOf = (n: string): Proto['kind'] =>
-  n.startsWith('tree_') ? 'tree' : n.startsWith('cactus') ? 'cactus' : /^(rock_|cliff_|stone_)/.test(n) ? 'rock' : /^(plant_|flower_|mushroom_|grass)/.test(n) ? 'bush' : 'prop';
-
-async function loadProtos(names: string[]) {
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  const out = new Map<string, Proto>();
-  await Promise.all(
-    [...new Set(names)].map(
-      (name) =>
-        new Promise<void>((res) => {
-          loader.load(
-            `/rally/nature/${name}.glb`,
-            (gltf) => {
-              gltf.scene.updateMatrixWorld(true);
-              const parts: Part[] = [];
-              const box = new THREE.Box3();
-              gltf.scene.traverse((o) => {
-                const m = o as THREE.Mesh;
-                if (!m.isMesh) return;
-                const g = m.geometry.clone();
-                g.applyMatrix4(m.matrixWorld);
-                g.computeBoundingBox();
-                box.union(g.boundingBox!);
-                const mats = Array.isArray(m.material) ? m.material : [m.material];
-                const groups = g.groups.length ? g.groups : [{ start: 0, count: g.index ? g.index.count : g.attributes.position.count, materialIndex: 0 }];
-                for (const gr of groups) {
-                  const cls = clsOf(mats[gr.materialIndex ?? 0]?.name ?? '');
-                  const ind = g.index ? Array.from(g.index.array.slice(gr.start, gr.start + gr.count)) : Array.from({ length: gr.count }, (_, i) => gr.start + i);
-                  // Re-pack to the vertices this group uses.
-                  const remap = new Map<number, number>();
-                  const pos: number[] = [];
-                  const nor: number[] = [];
-                  const idx: number[] = [];
-                  for (const vi of ind) {
-                    let ni = remap.get(vi);
-                    if (ni === undefined) {
-                      ni = remap.size;
-                      remap.set(vi, ni);
-                      pos.push(g.attributes.position.getX(vi), g.attributes.position.getY(vi), g.attributes.position.getZ(vi));
-                      nor.push(g.attributes.normal.getX(vi), g.attributes.normal.getY(vi), g.attributes.normal.getZ(vi));
-                    }
-                    idx.push(ni);
-                  }
-                  parts.push({ pos: new Float32Array(pos), nor: new Float32Array(nor), idx: new Uint32Array(idx), cls, uv: null });
-                }
-              });
-              const h = Math.max(0.1, box.max.y - box.min.y);
-              const w = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
-              out.set(name, { name, parts, h, w, kind: kindOf(name) });
-              res();
-            },
-            undefined,
-            () => res(),
-          );
-        }),
-    ),
-  );
-  return out;
-}
-
-export type SceneryMats = { leaf: THREE.Material; bark: THREE.Material; rock: THREE.Material; moss: THREE.Material };
-
-export function sceneryMaterials(stage: Stage, rockTex: THREE.Texture) {
-  const base = { vertexColors: true, metalness: 0 } as const;
-  const leaf = new THREE.MeshStandardMaterial({ ...base, roughness: 0.82 });
-  const bark = new THREE.MeshStandardMaterial({ ...base, roughness: 0.95 });
-  const rock = new THREE.MeshStandardMaterial({ ...base, roughness: 0.93, map: rockTex });
-  const moss = new THREE.MeshStandardMaterial({ ...base, roughness: stage.snow ? 0.7 : 0.9 });
-  return { leaf, bark, rock, moss };
+export function sceneryMaterials(stage: Stage, rockTex: THREE.Texture): SceneryMats {
+  const wind = { value: 0 };
+  const atlas = foliageAtlas();
+  const bk = barkTextures();
+  const windPatch = (m: THREE.MeshStandardMaterial, amp: number, tag: string, twoSided = false) => {
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = wind;
+      // Alpha cards: light the back face like the front so canopies are not black from behind.
+      if (twoSided) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float aWind; uniform float uTime;')
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec3 wp = vec3(instanceMatrix[3].x, 0.0, instanceMatrix[3].z);
+          #else
+            vec3 wp = vec3(position.x, 0.0, position.z);
+          #endif
+          float ph = uTime * 1.6 + wp.x * 0.21 + wp.z * 0.17;
+          float gust = sin(uTime * 0.37 + wp.x * 0.02) * 0.5 + 0.8;
+          transformed.x += (sin(ph) + sin(ph * 2.3 + 1.7) * 0.4) * aWind * ${amp.toFixed(2)} * gust;
+          transformed.z += (cos(ph * 0.9) * 0.5) * aWind * ${amp.toFixed(2)} * gust;`,
+        );
+    };
+    m.customProgramCacheKey = () => 'wind-' + tag;
+  };
+  const foliage = new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.8 });
+  windPatch(foliage, 0.28, 'f', true);
+  const bark = new THREE.MeshStandardMaterial({ map: bk.map, bumpMap: bk.bump, bumpScale: 2.5, vertexColors: true, roughness: 0.95 });
+  windPatch(bark, 0.12, 'b');
+  const rock = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, map: rockTex });
+  const cactus = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7 });
+  const grass = new THREE.MeshStandardMaterial({ map: atlas, vertexColors: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 });
+  windPatch(grass, 0.4, 'g', true);
+  void stage;
+  return { foliage, bark, rock, cactus, grass, wind, atlas, barkMap: bk.map, barkBump: bk.bump };
 }
 
 const BLOCK = 150; // metres of stage per merged scenery block
+const LOD_DIST = 150;
+
+type Acc = Record<'foliage' | 'bark' | 'rock' | 'cactus', Arr>;
+const mkAcc = (): Acc => ({ foliage: newArr(), bark: newArr(), rock: newArr(), cactus: newArr() });
 
 export async function buildScenery(track: Track, mats: SceneryMats, quality: Quality) {
   const st = track.stage;
-  const names = [...st.trees, ...st.rocks, ...st.bushes];
-  const protos = await loadProtos(names);
+  const hiOk = quality !== 'low';
   const r = rng(st.seed * 977 + 5);
   const group = new THREE.Group();
   const cellsObs = new Map<number, number[]>();
@@ -296,141 +302,177 @@ export async function buildScenery(track: Track, mats: SceneryMats, quality: Qua
     else cellsObs.set(k, [x, z, rad]);
     obsCount++;
   };
-  const pal = {
-    leaf: st.leaf.map((c) => new THREE.Color(c)),
-    bark: new THREE.Color(st.bark),
-    rock: new THREE.Color(st.rock),
-    moss: new THREE.Color(st.moss),
-  };
+  const pal = { leaf: st.leaf.map((c) => new THREE.Color(c)), bark: new THREE.Color('#ffffff'), rock: new THREE.Color(st.rock), moss: new THREE.Color(st.moss) };
   const snowCol = new THREE.Color('#f4f7fb');
   const tmpC = new THREE.Color();
   const tmp: Near = { i: 0, s: 0, lat: 0, dist: 0 };
-  const dens = quality === 'high' ? 1 : 0.5;
+  const dens = quality === 'ultra' ? 1.25 : quality === 'high' ? 1 : 0.5;
   const blocks = Math.ceil(track.len / BLOCK);
 
-  type Acc = { pos: number[]; nor: number[]; col: number[]; uv: number[]; idx: number[] };
-  const mk = (): Record<string, Acc> => ({ leaf: acc(), bark: acc(), rock: acc(), moss: acc() });
-  const acc = (): Acc => ({ pos: [], nor: [], col: [], uv: [], idx: [] });
-
-  const place = (b: Record<string, Acc>, proto: Proto, x: number, z: number, scale: number, yaw: number, leafIdx: number, tintJ: number, hs = 1) => {
-    const y0 = groundY(track, x, z, false, tmp) - 0.12;
-    const cs = Math.cos(yaw) * scale * hs;
-    const sn = Math.sin(yaw) * scale * hs;
-    const sy = scale * (0.92 + r() * 0.2);
-    for (const p of proto.parts) {
-      const a = b[p.cls];
+  const place = (acc: Acc, proto: Proto, x: number, z: number, scale: number, yaw: number, leafIdx: number, tintJ: number, hs: number, y0: number) => {
+    const cs = Math.cos(yaw);
+    const sn = Math.sin(yaw);
+    for (const cls of ['foliage', 'bark', 'rock', 'cactus'] as const) {
+      const src = proto[cls];
+      if (!src) continue;
+      const a = acc[cls];
       const base = a.pos.length / 3;
-      const snowAmt = st.snow ? 0.9 : 0;
-      for (let v = 0; v < p.pos.length; v += 3) {
-        const px = p.pos[v];
-        const py = p.pos[v + 1];
-        const pz = p.pos[v + 2];
-        const wx = x + px * cs + pz * sn;
-        const wz = z - px * sn + pz * cs;
-        const wy = y0 + py * sy;
-        a.pos.push(wx, wy, wz);
-        const nx = p.nor[v];
-        const ny = p.nor[v + 1];
-        const nz = p.nor[v + 2];
-        const wnx = nx * Math.cos(yaw) + nz * Math.sin(yaw);
-        const wnz = -nx * Math.sin(yaw) + nz * Math.cos(yaw);
-        a.nor.push(wnx, ny, wnz);
-        // Vertex colour: palette + per-tree jitter + fake occlusion toward the ground + snow on tops.
-        const hN = clamp(py / proto.h, 0, 1);
-        const ao = lerp(0.62, 1, smooth(0, 0.55, hN));
-        if (p.cls === 'leaf') tmpC.copy(pal.leaf[leafIdx % pal.leaf.length]);
-        else if (p.cls === 'bark') tmpC.copy(pal.bark);
-        else if (p.cls === 'moss') tmpC.copy(pal.moss);
-        else tmpC.copy(pal.rock).multiplyScalar(1.2);
-        tmpC.multiplyScalar(tintJ * ao);
-        if (snowAmt > 0 && p.cls !== 'moss') tmpC.lerp(snowCol, snowAmt * smooth(0.25, 0.7, ny) * (p.cls === 'rock' ? 0.85 : 1));
+      const n = src.pos.length / 3;
+      for (let v = 0; v < n; v++) {
+        const px = src.pos[v * 3] * scale * hs;
+        const py = src.pos[v * 3 + 1] * scale;
+        const pz = src.pos[v * 3 + 2] * scale * hs;
+        a.pos.push(x + px * cs + pz * sn, y0 + py, z - px * sn + pz * cs);
+        const nx = src.nor[v * 3];
+        const nz = src.nor[v * 3 + 2];
+        a.nor.push(nx * cs + nz * sn, src.nor[v * 3 + 1], -nx * sn + nz * cs);
+        a.uv.push(src.uv[v * 2], src.uv[v * 2 + 1]);
+        const ny = src.nor[v * 3 + 1];
+        const cr = src.col[v * 3];
+        const cg = src.col[v * 3 + 1];
+        const cb = src.col[v * 3 + 2];
+        if (cls === 'foliage') tmpC.copy(pal.leaf[leafIdx % pal.leaf.length]).multiplyScalar(st.snow ? 1.15 : 1.9);
+        else if (cls === 'rock') tmpC.copy(pal.rock).multiplyScalar(1.15);
+        else tmpC.setRGB(1, 1, 1);
+        tmpC.r *= cr * tintJ;
+        tmpC.g *= cg * tintJ;
+        tmpC.b *= cb * tintJ;
+        if (st.snow && cls !== 'cactus') tmpC.lerp(snowCol, (cls === 'foliage' ? 0.3 : 0.8) * clamp((ny + 0.1) * 1.1, 0, 1) * (cls === 'bark' ? 0.3 : 1));
         a.col.push(tmpC.r, tmpC.g, tmpC.b);
-        if (p.cls === 'rock') {
-          // Box-projected UVs so the rock photo texture wraps the low-poly shapes.
-          const ax = Math.abs(wnx);
-          const ay = Math.abs(ny);
-          const az = Math.abs(wnz);
-          if (ay >= ax && ay >= az) a.uv.push(wx / 3.2, wz / 3.2);
-          else if (ax >= az) a.uv.push(wz / 3.2, wy / 3.2);
-          else a.uv.push(wx / 3.2, wy / 3.2);
-        } else a.uv.push(0, 0);
+        a.wind.push(src.wind[v] ?? 0);
       }
-      for (let i = 0; i < p.idx.length; i++) a.idx.push(base + p.idx[i]);
+      for (let i = 0; i < src.idx.length; i++) a.idx.push(base + (src.idx[i] ?? 0));
     }
   };
 
-  const pickTree = () => st.trees[Math.floor(r() * st.trees.length)];
-  for (let bi = 0; bi < blocks; bi++) {
-    const acc4 = mk();
-    const s0 = bi * BLOCK;
-    const s1 = Math.min(track.len, s0 + BLOCK);
-    for (let s = s0; s < s1; s += 2.4) {
-      const sp = { x: 0, y: 0, z: 0, yaw: 0 };
-      for (const side of [-1, 1]) {
-        // Trees.
-        const tries = quality === 'high' ? 3 : 2;
-        for (let t = 0; t < tries; t++) {
-          const lat = side * (ROAD_HALF + 3.2 + Math.pow(r(), 1.7) * 55);
-          pointAt(track, s + r() * 2.4, lat, sp);
-          const cl = 0.5 + 0.7 * fbm(sp.x / 55, sp.z / 55, st.seed, 3) + 0.25;
-          const p = st.treeDensity * dens * clamp(cl, 0.05, 1.2) * (Math.abs(lat) > 40 ? 0.55 : 1);
-          if (r() > p * 0.78) continue;
-          nearest(track, sp.x, sp.z, tmp);
-          if (tmp.dist < ROAD_HALF + 3.0) continue;
-          const proto = protos.get(pickTree());
-          if (!proto) continue;
-          const hT = proto.name.includes('Small') ? 6 + r() * 3 : proto.name.includes('palm') ? 7 + r() * 4 : 10 + r() * 8;
-          const sc = hT / proto.h;
-          place(acc4, proto, sp.x, sp.z, sc, r() * 6.283, Math.floor(r() * 3), 0.85 + r() * 0.3, 0.7 + r() * 0.12);
-          addObs(sp.x, sp.z, 0.5 + hT * 0.028);
-        }
-        // Rocks, cacti, props.
-        if (r() < 0.2 * st.rockDensity * (quality === 'high' ? 1 : 0.6)) {
-          const lat = side * (ROAD_HALF + 2.2 + Math.pow(r(), 1.5) * 38);
-          pointAt(track, s + r() * 2.4, lat, sp);
-          nearest(track, sp.x, sp.z, tmp);
-          if (tmp.dist >= ROAD_HALF + 2.0) {
-            const proto = protos.get(st.rocks[Math.floor(r() * st.rocks.length)]);
-            if (proto) {
-              const big = proto.name.includes('large') || proto.name.includes('tall') || proto.name.includes('cliff');
-              const hT =
-                proto.kind === 'rock' ? (big ? 2.4 + r() * 3.8 : 0.8 + r() * 1.3) : proto.kind === 'cactus' ? 3 + r() * 3.2 : proto.name.includes('sign') ? 2.6 : proto.name.includes('stack') ? 1.6 : 0.9 + r() * 0.5;
-              const sc = hT / proto.h;
-              place(acc4, proto, sp.x, sp.z, sc, r() * 6.283, 0, 0.8 + r() * 0.4);
-              const hasHit = proto.kind === 'rock' ? hT > 1.2 : proto.kind === 'cactus' || proto.name.includes('stump') || proto.name.includes('sign');
-              if (hasHit) addObs(sp.x, sp.z, Math.max(0.35, (proto.w * sc) * (proto.kind === 'cactus' ? 0.3 : 0.4)));
-            }
-          }
-        }
-        // Low plants and flowers hugging the verge.
-        if (quality === 'high' && r() < 0.95) {
-          const lat = side * (ROAD_HALF + 1.0 + Math.pow(r(), 1.4) * 22);
-          pointAt(track, s + r() * 2.4, lat, sp);
-          nearest(track, sp.x, sp.z, tmp);
-          if (tmp.dist >= ROAD_HALF + 1.1) {
-            const proto = protos.get(st.bushes[Math.floor(r() * st.bushes.length)]);
-            if (proto) place(acc4, proto, sp.x, sp.z, (proto.kind === 'bush' ? 0.7 + r() * 1.1 : 1 + r()) / Math.max(0.2, proto.h), r() * 6.283, 0, 0.8 + r() * 0.35);
-          }
-        }
-      }
-    }
-    for (const cls of ['leaf', 'bark', 'rock', 'moss'] as const) {
-      const a = acc4[cls];
+  const toMesh = (acc: Acc, into: THREE.Group, cast: boolean) => {
+    for (const cls of ['foliage', 'bark', 'rock', 'cactus'] as const) {
+      const a = acc[cls];
       if (!a.pos.length) continue;
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.Float32BufferAttribute(a.pos, 3));
       g.setAttribute('normal', new THREE.Float32BufferAttribute(a.nor, 3));
-      g.setAttribute('color', new THREE.Float32BufferAttribute(a.col, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(a.uv, 2));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(a.col, 3));
+      g.setAttribute('aWind', new THREE.Float32BufferAttribute(a.wind, 1));
       g.setIndex(new THREE.BufferAttribute(new Uint32Array(a.idx), 1));
       g.computeBoundingSphere();
-      g.computeBoundingBox();
       const m = new THREE.Mesh(g, mats[cls]);
-      m.castShadow = true;
-      m.receiveShadow = cls !== 'leaf' || quality === 'high';
-      group.add(m);
+      m.castShadow = cast;
+      m.receiveShadow = true;
+      into.add(m);
     }
+  };
+
+  type Blk = { hi: THREE.Group; lo: THREE.Group; cx: number; cz: number; grass: THREE.InstancedMesh | null };
+  const blks: Blk[] = [];
+  const grassGeo = quality !== 'low' ? grassTuftGeometry() : null;
+  const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
+  const variant = () => Math.floor(r() * 4);
+  const dummy = new THREE.Object3D();
+
+  for (let bi = 0; bi < blocks; bi++) {
+    const accHi = mkAcc();
+    const accLo = mkAcc();
+    const s0 = bi * BLOCK;
+    const s1 = Math.min(track.len, s0 + BLOCK);
+    const mid = { x: 0, y: 0, z: 0, yaw: 0 };
+    pointAt(track, (s0 + s1) / 2, 0, mid);
+    const put = (kind: PlantKind, x: number, z: number, hT: number, leafIdx: number, hs: number) => {
+      const v = variant();
+      const pl = getProto(kind, v, false);
+      const sc = hT / pl.h;
+      const yaw = r() * 6.283;
+      const j = 0.85 + r() * 0.3;
+      const y0 = groundY(track, x, z, false, tmp) - 0.15;
+      place(accLo, pl, x, z, sc, yaw, leafIdx, j, hs, y0);
+      if (hiOk) place(accHi, getProto(kind, v, true), x, z, hT / getProto(kind, v, true).h, yaw, leafIdx, j, hs, y0);
+      return { pl, sc };
+    };
+    for (let s = s0; s < s1; s += 2.4) {
+      const sp = { x: 0, y: 0, z: 0, yaw: 0 };
+      for (const side of [-1, 1]) {
+        const tries = quality === 'ultra' ? 4 : quality === 'high' ? 3 : 2;
+        for (let t = 0; t < tries; t++) {
+          const lat = side * (ROAD_HALF + 3.4 + Math.pow(r(), 1.7) * 58);
+          pointAt(track, s + r() * 2.4, lat, sp);
+          const cl = 0.5 + 0.7 * fbm(sp.x / 55, sp.z / 55, st.seed, 3) + 0.25;
+          const p = st.treeDensity * dens * clamp(cl, 0.05, 1.2) * (Math.abs(lat) > 42 ? 0.55 : 1);
+          if (r() > p * 0.78) continue;
+          nearest(track, sp.x, sp.z, tmp);
+          if (tmp.dist < ROAD_HALF + 3.2) continue;
+          const kind = pick(st.trees) as PlantKind;
+          const hT = kind === 'palm' ? 7 + r() * 4 : kind === 'oak' || kind === 'birch' ? 8 + r() * 4 : 11 + r() * 8;
+          const { sc } = put(kind, sp.x, sp.z, hT, Math.floor(r() * 3), 1);
+          addObs(sp.x, sp.z, 0.45 + hT * 0.02 * (sc > 0 ? 1 : 1));
+        }
+        if (r() < 0.22 * st.rockDensity * (quality === 'low' ? 0.6 : 1)) {
+          const lat = side * (ROAD_HALF + 2.4 + Math.pow(r(), 1.5) * 40);
+          pointAt(track, s + r() * 2.4, lat, sp);
+          nearest(track, sp.x, sp.z, tmp);
+          const kind = pick(st.rocks) as PlantKind;
+          const big = kind === 'rockTall' || (kind === 'rock' && r() < 0.35);
+          const hT = kind === 'rock' || kind === 'rockTall' ? (big ? 2.6 + r() * 3.4 : 0.8 + r() * 1.3) : kind === 'cactus' ? 3.2 + r() * 2.6 : kind === 'cactusShort' ? 1.0 + r() * 0.6 : 1;
+          const need = ROAD_HALF + 1.6 + (kind === 'rock' || kind === 'rockTall' ? hT * 0.7 : 0.4);
+          if (tmp.dist >= need) {
+            const { pl, sc } = put(kind, sp.x, sp.z, hT, 0, 1);
+            const solid = kind === 'rock' || kind === 'rockTall' ? hT > 1.3 : kind !== 'log';
+            if (solid) addObs(sp.x, sp.z, Math.max(0.35, pl.w * sc * (kind === 'cactus' || kind === 'cactusShort' ? 0.12 : 0.36)));
+          }
+        }
+        if (quality !== 'low' && r() < 0.6) {
+          const lat = side * (ROAD_HALF + 1.2 + Math.pow(r(), 1.3) * 18);
+          pointAt(track, s + r() * 2.4, lat, sp);
+          nearest(track, sp.x, sp.z, tmp);
+          if (tmp.dist >= ROAD_HALF + 1.2) {
+            const kind = pick(st.bushes) as PlantKind;
+            put(kind, sp.x, sp.z, kind === 'cactusShort' ? 0.9 + r() * 0.5 : 0.9 + r() * 0.9, Math.floor(r() * 3), 1);
+          }
+        }
+      }
+    }
+    const hi = new THREE.Group();
+    const lo = new THREE.Group();
+    toMesh(accLo, lo, true);
+    if (hiOk) toMesh(accHi, hi, true);
+    group.add(hi, lo);
+    // Roadside grass tufts (instanced, wind-swayed).
+    let grass: THREE.InstancedMesh | null = null;
+    if (grassGeo && st.id !== 'snow') {
+      const per = quality === 'ultra' ? 1900 : 1000;
+      const inst = new THREE.InstancedMesh(grassGeo, mats.grass, per);
+      let n = 0;
+      const sp = { x: 0, y: 0, z: 0, yaw: 0 };
+      const gc = new THREE.Color();
+      for (let i = 0; i < per; i++) {
+        const side = r() < 0.5 ? -1 : 1;
+        const lat = side * (ROAD_HALF + 0.9 + Math.pow(r(), 1.6) * 12);
+        pointAt(track, s0 + r() * (s1 - s0), lat, sp);
+        nearest(track, sp.x, sp.z, tmp);
+        if (tmp.dist < ROAD_HALF + 0.7) continue;
+        const dry = st.id === 'desert';
+        dummy.position.set(sp.x, groundY(track, sp.x, sp.z, false, tmp) - 0.02, sp.z);
+        const sc = dry ? 0.7 + r() * 0.8 : 0.9 + r() * 1.1;
+        dummy.scale.set(sc, sc * (0.55 + r() * 0.4), sc);
+        dummy.rotation.set(0, r() * 6.28, 0);
+        dummy.updateMatrix();
+        inst.setMatrixAt(n, dummy.matrix);
+        gc.set(dry ? '#c8b070' : st.leaf[1]).multiplyScalar(dry ? 0.9 + r() * 0.2 : 1.5 + r() * 0.6);
+        inst.setColorAt(n, gc);
+        n++;
+      }
+      inst.count = n;
+      inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+      inst.receiveShadow = true;
+      inst.frustumCulled = true;
+      inst.computeBoundingSphere();
+      group.add(inst);
+      grass = inst;
+    }
+    blks.push({ hi, lo, cx: mid.x, cz: mid.z, grass });
   }
+
   const obstacles: Obstacles = {
     count: obsCount,
     hit(x, z, rad, out) {
@@ -463,7 +505,23 @@ export async function buildScenery(track: Track, mats: SceneryMats, quality: Qua
       return found;
     },
   };
-  return { group, obstacles };
+  /** Per frame: swap LODs by distance, advance the wind. */
+  const update = (cx: number, cz: number, time: number) => {
+    mats.wind.value = time;
+    for (const b of blks) {
+      const d = Math.hypot(b.cx - cx, b.cz - cz);
+      const near = d < LOD_DIST && hiOk;
+      b.hi.visible = near;
+      b.lo.visible = !near && d < st.fogFar + 260;
+      if (b.grass) b.grass.visible = d < 260;
+    }
+  };
+  const dispose = () => {
+    group.traverse((o) => (o as THREE.Mesh).geometry?.dispose?.());
+    grassGeo?.dispose();
+    clearProtoCache();
+  };
+  return { group, obstacles, update, dispose };
 }
 
 // ───────────────────────────── Gates ─────────────────────────────

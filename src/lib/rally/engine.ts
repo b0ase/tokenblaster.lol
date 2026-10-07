@@ -3,24 +3,25 @@
  * overlays through callbacks; everything per-frame lives here (no setState in the loop).
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
+import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import type { FeedTx } from '@/lib/feed';
 import { KINDS } from '@/lib/feed';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { sfx } from '@/lib/sfx';
 import { RallyAudio } from './audio';
+import { CarFactory, WHEEL_VIS_R, WHEEL_X, WHEEL_Z, type CarRig, type Livery } from './carBuild';
 import { newCar, stepCar, WHEELS, type CarInput, type CarState, type CarWorld } from './car';
 import { Input, type Touch } from './input';
 import { clamp, lerp, rng, smooth } from './noise';
-import { detailOf, pickRivals, type RivalSpec } from './rivals';
+import { detailOf, pickRivals, RIVAL_PAINT, SPONSORS, type RivalSpec } from './rivals';
 import { CARS, STAGES, type CarSpec, type StageId } from './stages';
 import { buildTrack, groundY, nearest, pointAt, roadY, STEP, type Near, type Track } from './track';
 import {
@@ -103,7 +104,7 @@ export type Options = {
 type RivalRun = {
   spec: RivalSpec;
   root: THREE.Group;
-  wheels: THREE.Group[];
+  rig: CarRig;
   label: THREE.Sprite;
   labelTex: THREE.CanvasTexture;
   labelCanvas: HTMLCanvasElement;
@@ -125,6 +126,7 @@ type RivalRun = {
   roll: number;
   bump: number;
   dustAcc: number;
+  vPrev: number;
 };
 
 type Coin = { group: THREE.Group; beam: THREE.Mesh; mat: THREE.MeshStandardMaterial; active: boolean; s: number; lat: number; x: number; z: number; y: number; t: number; kind: string };
@@ -143,39 +145,111 @@ const angDiff = (a: number, b: number) => {
 };
 
 const GRADE_SHADER = {
-  uniforms: { tDiffuse: { value: null }, uSpeed: { value: 0 }, uNitro: { value: 0 }, uHit: { value: 0 }, uTime: { value: 0 }, uWarm: { value: 0.5 } },
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    tDirt: { value: null as THREE.Texture | null },
+    uSpeed: { value: 0 },
+    uNitro: { value: 0 },
+    uHit: { value: 0 },
+    uTime: { value: 0 },
+    uSunUv: { value: new THREE.Vector2(0.5, 0.8) },
+    uSunOn: { value: 0 },
+    uRays: { value: 1 },
+    uShadow: { value: new THREE.Vector3(1, 1, 1) },
+    uHigh: { value: new THREE.Vector3(1, 1, 1) },
+    uSat: { value: 1.1 },
+    uCon: { value: 1.05 },
+    uRayCol: { value: new THREE.Vector3(1, 0.85, 0.6) },
+    uAspect: { value: 1.6 },
+  },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uSpeed; uniform float uNitro; uniform float uHit; uniform float uTime; uniform float uWarm; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform sampler2D tDirt; uniform float uSpeed; uniform float uNitro; uniform float uHit; uniform float uTime;
+    uniform vec2 uSunUv; uniform float uSunOn; uniform float uRays; uniform vec3 uShadow; uniform vec3 uHigh; uniform float uSat; uniform float uCon; uniform vec3 uRayCol; uniform float uAspect;
+    varying vec2 vUv;
     float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898,78.233)) + uTime) * 43758.5453); }
+    float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
     void main(){
       vec2 d = vUv - 0.5;
       float r = length(d);
-      float blur = (uSpeed * 0.035 + uNitro * 0.05) * smoothstep(0.12, 0.75, r);
+      float blur = (uSpeed * 0.05 + uNitro * 0.06) * smoothstep(0.1, 0.7, r);
       vec3 col = vec3(0.0);
       float wsum = 0.0;
-      for (int i = 0; i < 7; i++) {
-        float k = float(i) / 6.0;
+      for (int i = 0; i < 9; i++) {
+        float k = float(i) / 8.0;
         vec2 o = d * (1.0 - blur * k);
         float w = 1.0 - k * 0.5;
-        // chromatic split grows with the blur and toward the edges
-        float ca = (uSpeed * 0.0025 + uHit * 0.004 + uNitro * 0.003) * r * (0.4 + k);
-        col += vec3(texture2D(tDiffuse, o + 0.5 + normalize(d + 1e-5) * ca).r, texture2D(tDiffuse, o + 0.5).g, texture2D(tDiffuse, o + 0.5 - normalize(d + 1e-5) * ca).b) * w;
+        float ca = (uSpeed * 0.003 + uHit * 0.004 + uNitro * 0.003) * r * (0.4 + k);
+        vec2 nd = normalize(d + 1e-5);
+        col += vec3(texture2D(tDiffuse, o + 0.5 + nd * ca).r, texture2D(tDiffuse, o + 0.5).g, texture2D(tDiffuse, o + 0.5 - nd * ca).b) * w;
         wsum += w;
       }
       col /= wsum;
-      float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      // grade: gentle saturation, teal lift in shadows, warm highlights
-      col = mix(vec3(l), col, 1.1);
-      col *= mix(vec3(0.97, 1.0, 1.04), vec3(1.0), smoothstep(0.0, 0.35, l));
-      col *= mix(vec3(1.0), vec3(1.05, 1.0, 0.93), smoothstep(0.6, 2.0, l) * uWarm);
+      // Sun: god rays through the trees, a warm bloom around it, ghosts and an anamorphic streak (dirty lens).
+      float occ = smoothstep(2.0, 7.0, lum(texture2D(tDiffuse, clamp(uSunUv, 0.01, 0.99)).rgb)) * uSunOn;
+      if (uSunOn > 0.0 && uRays > 0.0) {
+        vec2 sd = (uSunUv - vUv);
+        float rays = 0.0;
+        for (int i = 0; i < 20; i++) {
+          float k = float(i) / 20.0;
+          vec3 sm = texture2D(tDiffuse, vUv + sd * k * 0.92).rgb;
+          rays += smoothstep(1.6, 6.0, lum(sm)) * (1.0 - k);
+        }
+        rays /= 20.0;
+        float sdist = length((vUv - uSunUv) * vec2(uAspect, 1.0));
+        col += uRayCol * rays * 0.9 * uRays * uSunOn;
+        col += uRayCol * exp(-sdist * 3.2) * 0.1 * uSunOn * uRays;
+        float flare = 0.0;
+        vec2 toC = vec2(0.5) - uSunUv;
+        for (int g = 1; g <= 4; g++) {
+          vec2 gp = uSunUv + toC * (float(g) * 0.5);
+          float dd = length((vUv - gp) * vec2(uAspect, 1.0));
+          float rad = 0.025 + 0.02 * float(g);
+          flare += smoothstep(rad, rad * 0.55, dd) * (0.07 / float(g)) + smoothstep(rad * 1.25, rad, dd) * smoothstep(rad * 0.85, rad, dd) * 0.05;
+        }
+        float streak = exp(-abs(vUv.y - uSunUv.y) * 90.0) * exp(-abs(vUv.x - uSunUv.x) * 3.0) * 0.18;
+        vec3 dirt = texture2D(tDirt, vUv * vec2(uAspect * 0.7, 1.0)).rgb;
+        col += (vec3(1.0, 0.72, 0.45) * flare + vec3(0.5, 0.65, 1.0) * streak) * occ * uRays * (1.0 + dirt * 4.0);
+        col += uRayCol * dirt * exp(-sdist * 2.2) * 0.12 * occ * uRays;
+      }
+      float l = lum(col);
+      col = mix(vec3(l), col, uSat);
+      col *= mix(uShadow, vec3(1.0), smoothstep(0.0, 0.4, l));
+      col *= mix(vec3(1.0), uHigh, smoothstep(0.5, 2.0, l));
+      col = (col - 0.18) * uCon + 0.18;
       float vig = smoothstep(1.05, 0.28, r * (1.0 + uSpeed * 0.35));
       col *= mix(1.0, vig, 0.42 + uSpeed * 0.2);
       col = mix(col, col * vec3(1.35, 0.55, 0.5), uHit * smoothstep(0.2, 0.8, r));
       col += (rnd(vUv * 900.0) - 0.5) * 0.012;
-      gl_FragColor = vec4(col, 1.0);
+      gl_FragColor = vec4(max(col, 0.0), 1.0);
     }`,
 };
+
+function lensDirt() {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, 512, 256);
+  const R = rng(77);
+  for (let i = 0; i < 70; i++) {
+    const x = R() * 512;
+    const y = R() * 256;
+    const r = 3 + R() * R() * 40;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    const a = 0.1 + R() * 0.5;
+    gr.addColorStop(0, `rgba(255,255,255,${a})`);
+    gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr;
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
 
 export class RallyEngine {
   readonly opts: Options;
@@ -193,6 +267,10 @@ export class RallyEngine {
   private bloom: UnrealBloomPass | null = null;
   private grade: ShaderPass | null = null;
   private sun!: THREE.DirectionalLight;
+  private csm: CSM | null = null;
+  private csmDone = new WeakSet<THREE.Material>();
+  private bokeh: BokehPass | null = null;
+  private dirtTex: THREE.Texture | null = null;
   private sunDir = new THREE.Vector3(0.4, 0.7, 0.3).normalize();
   private pmrem!: THREE.PMREMGenerator;
   private disposables: { dispose(): void }[] = [];
@@ -202,10 +280,10 @@ export class RallyEngine {
   private parts!: Particles;
   private snow: Snow | null = null;
   private obstacles!: Obstacles;
+  private sceneryUpdate: ((x: number, z: number, t: number) => void) | null = null;
   private carSpec: CarSpec;
-  private cars = new Map<string, Promise<THREE.Group>>();
-  private paintCache = new Map<THREE.Texture | null, THREE.Material>();
-  private player!: { root: THREE.Group; wheels: THREE.Group[] };
+  private factory!: CarFactory;
+  private player!: CarRig;
   private car: CarState = newCar();
   private near: Near = { i: 0, s: 0, lat: 0, dist: 0 };
   private rivals: RivalRun[] = [];
@@ -262,7 +340,7 @@ export class RallyEngine {
     this.el = el;
     this.opts = opts;
     this.quality = opts.quality;
-    this.maxDpr = opts.maxDpr ?? (opts.quality === 'high' ? 1.75 : 1.1);
+    this.maxDpr = opts.maxDpr ?? (opts.quality === 'ultra' ? 2 : opts.quality === 'high' ? 1.75 : 1.1);
     this.carSpec = CARS.find((c) => c.id === opts.car) ?? CARS[0];
     this.stage = STAGES[opts.stage];
   }
@@ -289,7 +367,7 @@ export class RallyEngine {
     const { cb } = this.opts;
     const st = this.stage;
     cb.onLoading('Setting up renderer', 0.02);
-    const hi = this.quality === 'high';
+    const hi = this.quality !== 'low';
     const renderer = new THREE.WebGLRenderer({ antialias: !hi, powerPreference: 'high-performance' });
     this.renderer = renderer;
     this.dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr);
@@ -327,7 +405,14 @@ export class RallyEngine {
     this.scene.backgroundBlurriness = 0.02;
     const fogC = this.horizon.clone().lerp(new THREE.Color(st.fog), 0.7);
     this.scene.fog = new THREE.Fog(fogC, st.fogNear, st.fogFar);
-    this.sun = new THREE.DirectionalLight(st.id === 'desert' ? '#ffd9a8' : st.id === 'snow' ? '#e8f0ff' : '#fff2dc', st.id === 'snow' ? 1.9 : st.id === 'desert' ? 2.8 : 2.3);
+    // Time of day: elevation per stage, azimuth from the sky's brightest spot.
+    {
+      const el = (st.sunElev * Math.PI) / 180;
+      const hz = Math.hypot(this.sunDir.x, this.sunDir.z) || 1;
+      this.sunDir.set((this.sunDir.x / hz) * Math.cos(el), Math.sin(el), (this.sunDir.z / hz) * Math.cos(el)).normalize();
+    }
+    const sunI = st.id === 'snow' ? 2.1 : st.id === 'desert' ? 3.0 : 2.5;
+    this.sun = new THREE.DirectionalLight(st.sunCol, sunI);
     this.sun.castShadow = true;
     const ss = hi ? 2048 : 1024;
     this.sun.shadow.mapSize.set(ss, ss);
@@ -335,7 +420,31 @@ export class RallyEngine {
     Object.assign(this.sun.shadow.camera, { left: -ext, right: ext, top: ext, bottom: -ext, near: 10, far: 360 });
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.07;
-    this.scene.add(this.sun, this.sun.target);
+    if (this.quality !== 'low') {
+      // Cascaded shadows: crisp near the car, long reach for the hillsides.
+      try {
+        this.csm = new CSM({
+          maxFar: this.quality === 'ultra' ? 320 : 240,
+          cascades: this.quality === 'ultra' ? 4 : 3,
+          mode: 'practical',
+          parent: this.scene,
+          shadowMapSize: this.quality === 'ultra' ? 4096 : 2048,
+          lightDirection: this.sunDir.clone().negate(),
+          camera: this.camera,
+          lightIntensity: sunI,
+          lightNear: 1,
+          lightFar: 700,
+          shadowBias: -0.0003,
+        });
+        for (const l of this.csm.lights) {
+          l.color.set(st.sunCol);
+          l.shadow.normalBias = 0.08;
+        }
+      } catch {
+        this.csm = null;
+      }
+    }
+    if (!this.csm) this.scene.add(this.sun, this.sun.target);
     this.dustColor.set(st.dust);
 
     // Textures, terrain.
@@ -358,7 +467,8 @@ export class RallyEngine {
     if (this.disposed) return;
     this.scene.add(sc.group);
     this.obstacles = sc.obstacles;
-    this.disposables.push({ dispose: () => sc.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose()) }, ...Object.values(mats));
+    this.sceneryUpdate = sc.update;
+    this.disposables.push({ dispose: () => sc.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose()) }, mats.foliage, mats.bark, mats.rock, mats.cactus, mats.grass, mats.atlas, mats.barkMap, mats.barkBump);
 
     // Gates.
     this.cps = [];
@@ -391,13 +501,15 @@ export class RallyEngine {
 
     // Cars.
     cb.onLoading('Loading cars', 0.6);
-    this.player = await this.makeCar(this.carSpec.model, this.carSpec.scale);
+    this.factory = new CarFactory(this.quality);
+    this.player = this.factory.build(this.carSpec.body, { base: this.carSpec.base, accent: this.carSpec.accent, trim: this.carSpec.trim, number: this.carSpec.number, sponsors: ['SATOSHI RACING', 'HASH·OIL', 'MEMPOOL ENERGY'], ticker: 'TOKEN RALLY', logo: null, seed: 3 });
     if (this.disposed) return;
     this.scene.add(this.player.root);
     cb.onLoading('Reading the chain for rivals', 0.78);
     await this.makeRivals();
     if (this.disposed) return;
 
+    this.csmSetup();
     this.buildComposer();
     this.resize();
     this.ro = new ResizeObserver(() => this.resize());
@@ -406,6 +518,7 @@ export class RallyEngine {
     document.addEventListener('visibilitychange', this.visHandler);
     this.resetCars();
     cb.onLoading('Ready', 1);
+    this.perfCool = 8; // grace: shader compiles and asset decode spike the first frames
     this.setPhase('menu');
     renderer.setAnimationLoop(this.frame);
   }
@@ -460,54 +573,13 @@ export class RallyEngine {
 
   // ───────────── Cars ─────────────
 
-  private loadCarGltf(model: string) {
-    let p = this.cars.get(model);
-    if (!p) {
-      p = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`/rally/cars/${model}.glb`).then((g) => g.scene);
-      this.cars.set(model, p);
-    }
-    return p;
-  }
-
-  private paint(m: THREE.Material): THREE.Material {
-    const map = (m as THREE.MeshStandardMaterial).map ?? null;
-    let p = this.paintCache.get(map);
-    if (!p) {
-      p = new THREE.MeshPhysicalMaterial({ map, roughness: 0.58, metalness: 0.1, clearcoat: 0.2, clearcoatRoughness: 0.35, envMapIntensity: 0.75 });
-      this.paintCache.set(map, p);
-      this.disposables.push(p);
-    }
-    return p;
-  }
-
-  private async makeCar(model: string, scale: number) {
-    const src = await this.loadCarGltf(model);
-    const root = new THREE.Group();
-    root.rotation.order = 'YXZ';
-    const m = src.clone(true);
-    m.scale.setScalar(scale);
-    root.add(m);
-    const wheels: THREE.Group[] = [];
-    for (const n of ['wheel-front-left', 'wheel-front-right', 'wheel-back-left', 'wheel-back-right']) {
-      const node = m.getObjectByName(n);
-      const pivot = new THREE.Group();
-      pivot.rotation.order = 'YXZ';
-      if (node) {
-        pivot.position.copy(node.position);
-        node.position.set(0, 0, 0);
-        pivot.add(node);
-      }
-      m.add(pivot);
-      wheels.push(pivot);
-    }
-    m.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      mesh.material = Array.isArray(mesh.material) ? mesh.material.map((x) => this.paint(x)) : this.paint(mesh.material);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-    });
-    return { root, wheels };
+  private liveryFor(spec: RivalSpec, run?: RivalRun): Livery {
+    const [base, accent, trim] = RIVAL_PAINT[spec.kind];
+    const meta = spec.token ? tokenMeta(spec.token) : null;
+    const text = run ? this.labelText(run).main : spec.token ? '$' + spec.token.slice(0, 5) : 'TX';
+    const sp = [...SPONSORS];
+    const h = (spec.slot * 7 + spec.id.charCodeAt(spec.id.length - 1)) % sp.length;
+    return { base, accent, trim, number: String(((spec.slot * 13 + 5) % 97) + 2), sponsors: [sp[h], sp[(h + 3) % sp.length], sp[(h + 6) % sp.length]], ticker: text.slice(0, 9), logo: meta?.icon ?? null, seed: spec.slot * 31 + 7 };
   }
 
   private async makeRivals() {
@@ -515,14 +587,11 @@ export class RallyEngine {
     this.liveRivals = live;
     const track = this.track;
     this.rivals = [];
-    const models = [...new Set(rivals.map((r) => r.model))];
-    await Promise.all(models.map((m) => this.loadCarGltf(m).catch(() => null)));
     // Fastest machines take the front of the grid.
     rivals.sort((a, b) => b.skill - a.skill);
     rivals.forEach((r, i) => (r.slot = i));
     for (const spec of rivals) {
-      const c = await this.makeCar(spec.model, 1.55).catch(() => null);
-      if (!c) continue;
+      const c = this.factory.build(spec.model, this.liveryFor(spec), this.quality !== 'low');
       const label = this.makeLabel();
       c.root.add(label.sprite);
       this.scene.add(c.root);
@@ -541,7 +610,7 @@ export class RallyEngine {
       const run: RivalRun = {
         spec,
         root: c.root,
-        wheels: c.wheels,
+        rig: c,
         label: label.sprite,
         labelTex: label.tex,
         labelCanvas: label.canvas,
@@ -563,6 +632,7 @@ export class RallyEngine {
         roll: 0,
         bump: 0,
         dustAcc: 0,
+        vPrev: 0,
       };
       run.finish = run.delay + tt[Math.round(this.finishS / STEP)];
       this.drawLabel(run, true);
@@ -579,7 +649,7 @@ export class RallyEngine {
     tex.anisotropy = 4;
     const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, toneMapped: false });
     const sprite = new THREE.Sprite(mat);
-    sprite.position.set(0, 3.3, 0);
+    sprite.position.set(0, 2.7, 0);
     sprite.renderOrder = 5;
     this.disposables.push(tex, mat);
     return { sprite, tex, canvas };
@@ -598,6 +668,7 @@ export class RallyEngine {
     const { main, meta } = this.labelText(r);
     const key = main + (meta?.icon?.complete ? '+i' : '');
     if (!force && key === r.labelKey) return;
+    if (!force) r.rig.setLivery(this.liveryFor(r.spec, r));
     r.labelKey = key;
     const c = r.labelCanvas;
     const g = c.getContext('2d')!;
@@ -697,9 +768,15 @@ export class RallyEngine {
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: this.fxLevel >= 2 ? 4 : 0 });
     const comp = new EffectComposer(r, rt);
     comp.addPass(new RenderPass(this.scene, this.camera));
+    this.bokeh = null;
+    if (this.fxLevel >= 2) {
+      this.bokeh = new BokehPass(this.scene, this.camera, { focus: 8, aperture: 0.0006, maxblur: 0.012 });
+      this.bokeh.enabled = false;
+      comp.addPass(this.bokeh);
+    }
     if (this.fxLevel >= 3) {
       const gtao = new GTAOPass(this.scene, this.camera, size.x, size.y);
-      gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.4, thickness: 1.5, scale: 1, samples: 10, distanceFallOff: 1 });
+      gtao.updateGtaoMaterial({ radius: 0.9, distanceExponent: 1.4, thickness: 1.5, scale: 1, samples: this.quality === 'ultra' ? 16 : 10, distanceFallOff: 1 });
       gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: 8 });
       gtao.blendIntensity = 0.75;
       comp.addPass(gtao);
@@ -708,7 +785,17 @@ export class RallyEngine {
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), this.fxLevel >= 2 ? 0.26 : 0.2, 0.55, 2.2);
     comp.addPass(this.bloom);
     this.grade = new ShaderPass(GRADE_SHADER);
-    this.grade.uniforms.uWarm.value = this.stage.id === 'snow' ? 0.1 : 0.6;
+    const gu = this.grade.uniforms;
+    const gr = this.stage.grade;
+    gu.uShadow.value.set(gr[0], gr[1], gr[2]);
+    gu.uHigh.value.set(gr[3], gr[4], gr[5]);
+    gu.uSat.value = gr[6];
+    gu.uCon.value = gr[7];
+    gu.uRays.value = this.fxLevel >= 2 ? 1 : 0.6;
+    const sc = new THREE.Color(this.stage.sunCol);
+    gu.uRayCol.value.set(sc.r, sc.g, sc.b);
+    this.dirtTex ??= lensDirt();
+    gu.tDirt.value = this.dirtTex;
     comp.addPass(this.grade);
     comp.addPass(new OutputPass());
     comp.setPixelRatio(this.dpr);
@@ -716,6 +803,29 @@ export class RallyEngine {
     const h = this.el.clientHeight || 1;
     comp.setSize(w, h);
     this.composer = comp;
+  }
+
+  /** Hook every lit material into the cascaded shadow maps (once each). */
+  private csmSetup() {
+    const csm = this.csm;
+    if (!csm) return;
+    this.scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        if (this.csmDone.has(mat)) continue;
+        if (!(mat instanceof THREE.MeshStandardMaterial)) continue;
+        this.csmDone.add(mat);
+        // CSM replaces onBeforeCompile; chain ours (splat / wind / dirt) in front of its hook.
+        const mine = mat.onBeforeCompile;
+        csm.setupMaterial(mat);
+        const theirs = mat.onBeforeCompile;
+        mat.onBeforeCompile = (sh, r) => {
+          mine.call(mat, sh, r);
+          theirs.call(mat, sh, r);
+        };
+      }
+    });
   }
 
   private resize() {
@@ -727,6 +837,8 @@ export class RallyEngine {
     this.camera.updateProjectionMatrix();
     this.composer?.setPixelRatio(this.dpr);
     this.composer?.setSize(w, h);
+    this.csm?.updateFrustums();
+    if (this.grade) this.grade.uniforms.uAspect.value = w / h;
   }
 
   // ───────────── Control ─────────────
@@ -750,6 +862,7 @@ export class RallyEngine {
     this.lastCpS = 0;
     this.lastCpSrc = START_S;
     this.result = null;
+    this.dirtLevel = 0;
     this.driftShown = 0;
     for (const c of this.cps) c.time = null;
     for (const r of this.rivals) {
@@ -784,10 +897,12 @@ export class RallyEngine {
     if (this.phase === 'loading') return;
     for (const r of this.rivals) {
       this.scene.remove(r.root);
+      r.rig.dispose();
       r.labelTex.dispose();
       (r.label.material as THREE.Material).dispose();
     }
     await this.makeRivals();
+    this.csmSetup();
     this.resetCars();
     this.setPhase('menu');
   }
@@ -902,11 +1017,13 @@ export class RallyEngine {
     }
     const live = this.phase === 'racing' || this.phase === 'finished' || this.phase === 'countdown' || this.phase === 'menu';
     if (!frozen && live) {
+      const c0 = this.car;
       let ci: CarInput = { throttle: 0, brake: 0, steer: 0, hand: false, nitro: false };
       if (racing) ci = this.debugInput ?? (this.autopilot ? this.drive() : inp);
       else if (this.phase === 'finished') ci = { throttle: 0, brake: 0.55, steer: 0, hand: false, nitro: false };
       else if (this.phase === 'countdown') ci = { throttle: inp.throttle * 0.0, brake: 0, steer: 0, hand: false, nitro: false };
       this.lastThrottle = ci.throttle;
+      this.braking = ci.brake > 0.1 && c0.fwd > 0.5;
       if (racing && edges.reset) this.respawn();
       this.acc += dt;
       const H = 1 / 120;
@@ -925,6 +1042,7 @@ export class RallyEngine {
     this.effects(dt);
     this.updateCamera(dt);
     this.updateLights();
+    this.sceneryUpdate?.(this.camera.position.x, this.camera.position.z, this.time);
     this.renderFrame();
     // HUD at ~12 Hz.
     this.hudT += dt;
@@ -1072,10 +1190,14 @@ export class RallyEngine {
       this.placeRival(r, t);
       r.pitch = lerp(r.pitch, clamp(-(r.v - before) * 0.05, -0.05, 0.05), 0.2);
       r.spin += (r.v / WHEELS.radius) * dt;
-      r.wheels.forEach((w, i) => {
-        w.rotation.x = r.spin;
-        if (i < 2) w.rotation.y = clamp(tr.kappa[clamp(Math.round(r.s / STEP), 0, tr.n - 1)] * 2.6, -0.4, 0.4);
+      const steerA = clamp(tr.kappa[clamp(Math.round(r.s / STEP), 0, tr.n - 1)] * 2.6, -0.4, 0.4);
+      r.rig.wheels.forEach((w, i) => {
+        w.spin.rotation.x = r.spin * (WHEELS.radius / WHEEL_VIS_R);
+        if (i < 2) w.steer.rotation.y = steerA;
       });
+      r.rig.setLights(r.v < r.vPrev - 0.05 ? 1 : 0, 0.4);
+      r.vPrev = r.v;
+      r.rig.dirt.value = Math.min(0.55, (r.s / this.track.len) * 0.7);
       // Car-to-car contact with the player.
       if (this.phase === 'racing') {
         const dx = this.car.x - r.x;
@@ -1243,10 +1365,20 @@ export class RallyEngine {
     root.rotation.set(c.pitch, c.yaw, c.roll);
     const w = this.player.wheels;
     for (let i = 0; i < 4; i++) {
-      w[i].rotation.x = c.wheelSpin;
-      if (i < 2) w[i].rotation.y = c.steerAngle;
+      w[i].spin.rotation.x = c.wheelSpin * (WHEELS.radius / WHEEL_VIS_R);
+      if (i < 2) w[i].steer.rotation.y = c.steerAngle;
+      // Suspension travel: the wheel follows the ground, the body follows its springs.
+      const fx = i % 2 === 0 ? WHEEL_X : -WHEEL_X;
+      const fz = i < 2 ? WHEEL_Z : -WHEEL_Z;
+      const plane = c.y + c.bodyY - fz * c.pitch + fx * c.roll;
+      const travel = clamp(c.wheelH[i] - plane, -0.16, 0.16);
+      w[i].steer.position.y = WHEEL_VIS_R + (c.air > 0.05 ? -0.12 : travel);
     }
+    this.player.dirt.value = this.dirtLevel;
+    this.player.setLights(this.braking ? 1 : 0, 0.5);
   }
+  private dirtLevel = 0;
+  private braking = false;
 
   private wheelWorld(i: number, out: THREE.Vector3) {
     const c = this.car;
@@ -1262,6 +1394,7 @@ export class RallyEngine {
     const p = this.parts;
     const st = this.stage;
     const camP = this.camera.position;
+    if (this.phase === 'racing' && c.air <= 0) this.dirtLevel = Math.min(1, this.dirtLevel + dt * c.speed * (c.surf === 2 ? 0.0028 : c.surf === 1 ? 0.0014 : 0.0006) * (st.id === 'snow' ? 0.5 : 1));
     // Tyre marks + dust + gravel.
     if (c.air <= 0 && (this.phase === 'racing' || this.phase === 'finished')) {
       for (let i = 0; i < 4; i++) {
@@ -1395,17 +1528,34 @@ export class RallyEngine {
 
   private updateLights() {
     const p = this.car;
-    const sun = this.sun;
-    TMP.set(p.x, p.y, p.z);
-    sun.target.position.copy(TMP);
-    sun.position.copy(TMP).addScaledVector(this.sunDir, 150);
-    sun.target.updateMatrixWorld();
+    if (this.csm) {
+      this.csm.lightDirection.copy(this.sunDir).negate();
+      this.csm.update();
+    } else {
+      const sun = this.sun;
+      TMP.set(p.x, p.y, p.z);
+      sun.target.position.copy(TMP);
+      sun.position.copy(TMP).addScaledVector(this.sunDir, 150);
+      sun.target.updateMatrixWorld();
+    }
     if (this.grade) {
       const u = this.grade.uniforms;
       u.uSpeed.value = lerp(u.uSpeed.value, clamp(p.speed / 50, 0, 1), 0.1);
       u.uNitro.value = lerp(u.uNitro.value, p.nitroOn ? 1 : 0, 0.15);
       u.uHit.value = Math.max(p.impact * 0.7, u.uHit.value * 0.9);
       u.uTime.value = this.time % 10;
+      // Sun position on screen (for rays and flare).
+      TMP.copy(this.camera.position).addScaledVector(this.sunDir, 1000).project(this.camera);
+      u.uSunUv.value.set(TMP.x * 0.5 + 0.5, TMP.y * 0.5 + 0.5);
+      u.uSunOn.value = TMP.z < 1 && Math.abs(TMP.x) < 1.6 && Math.abs(TMP.y) < 1.6 ? 1 : 0;
+    }
+    if (this.bokeh) {
+      const menu = this.phase === 'menu' || this.phase === 'loading';
+      this.bokeh.enabled = menu;
+      if (menu) {
+        const u = (this.bokeh as unknown as { uniforms: Record<string, { value: number }> }).uniforms;
+        u.focus.value = this.camera.position.distanceTo(TMP.set(p.x, p.y + 1, p.z));
+      }
     }
   }
 
@@ -1542,6 +1692,11 @@ export class RallyEngine {
         const m = o as THREE.Mesh;
         if (m.isMesh && m.geometry && !this.coinGeo.includes(m.geometry)) m.geometry.dispose?.();
       });
+      this.csm?.dispose();
+      this.dirtTex?.dispose();
+      this.player?.dispose();
+      for (const r of this.rivals) r.rig.dispose();
+      this.factory?.dispose();
       this.hdrSky?.dispose();
       this.pmrem?.dispose();
       this.renderer.dispose();

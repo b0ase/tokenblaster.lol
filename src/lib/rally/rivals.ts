@@ -14,7 +14,7 @@ export type RivalSpec = {
   /** 0..1: how big the move was. */
   power: number;
   skill: number;
-  model: string;
+  model: 'hatch' | 'coupe' | 'sedan' | 'wagon';
   /** Mutable label parts (a token's ticker arrives later). */
   detail: string;
   color: string;
@@ -23,14 +23,26 @@ export type RivalSpec = {
   slot: number;
 };
 
-export const RIVAL_MODEL: Record<TxKind, string> = {
-  token: 'sedan-sports',
-  inscription: 'suv-luxury',
-  social: 'taxi',
-  data: 'van',
-  payment: 'delivery',
-  blast: 'police',
+/** Body style per tx kind (see carBuild.ts). */
+export const RIVAL_MODEL: Record<TxKind, 'hatch' | 'coupe' | 'sedan' | 'wagon'> = {
+  token: 'coupe',
+  inscription: 'wagon',
+  social: 'hatch',
+  data: 'sedan',
+  payment: 'hatch',
+  blast: 'sedan',
 };
+
+/** Paint scheme per tx kind: [base, accent, trim]. */
+export const RIVAL_PAINT: Record<TxKind, [string, string, string]> = {
+  token: ['#16161b', '#d4a843', '#ffffff'],
+  inscription: ['#c4161c', '#ffffff', '#101010'],
+  social: ['#d33d8c', '#fff2f8', '#2a0a1a'],
+  data: ['#2a2f3a', '#ff5a48', '#e8e8e8'],
+  payment: ['#f4efe2', '#1f8f4a', '#101010'],
+  blast: ['#ffffff', '#111111', '#ff2a2a'],
+};
+export const SPONSORS = ['MEMPOOL ENERGY', 'HASH·OIL', 'SPV TYRES', 'UTXO LUBES', 'NODE-X', 'ORPHAN RACING', 'SATS BANK', 'BLOCK 21 BREW', 'PROOF OF WORK', 'BIT-FUEL'];
 
 const kindColor = (k: TxKind) => KINDS.find((x) => x.id === k)?.color ?? '#ffffff';
 

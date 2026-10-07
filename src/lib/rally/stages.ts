@@ -43,6 +43,10 @@ export type Stage = {
   rockDensity: number;
   bushes: string[];
   par: number;
+  /** Sun elevation in degrees (time of day) and colour grade: [shadow rgb, highlight rgb, saturation, contrast]. */
+  sunElev: number;
+  grade: [number, number, number, number, number, number, number, number];
+  sunCol: string;
 };
 
 export const STAGES: Record<StageId, Stage> = {
@@ -74,12 +78,15 @@ export const STAGES: Record<StageId, Stage> = {
     grip: 1,
     offGrip: 0.62,
     snow: false,
-    trees: ['tree_pineTallA', 'tree_pineTallC', 'tree_pineRoundA', 'tree_pineSmallA', 'tree_default', 'tree_oak'],
+    trees: ['pine', 'pine', 'pine', 'pine', 'oak', 'birch'],
     treeDensity: 1,
-    rocks: ['rock_largeA', 'rock_largeC', 'rock_smallA', 'rock_smallC', 'rock_tallA', 'stump_round', 'log'],
+    rocks: ['rock', 'rock', 'rockTall', 'stump', 'log'],
     rockDensity: 0.5,
-    bushes: ['plant_bush', 'plant_bushLarge', 'mushroom_redGroup', 'flower_yellowA', 'flower_purpleA'],
+    bushes: ['bush', 'fern', 'fern'],
     par: 108,
+    sunElev: 46,
+    sunCol: '#fff0d8',
+    grade: [0.9, 1.03, 1.08, 1.08, 1.02, 0.9, 1.14, 1.08],
   },
   desert: {
     id: 'desert',
@@ -109,12 +116,15 @@ export const STAGES: Record<StageId, Stage> = {
     grip: 0.92,
     offGrip: 0.55,
     snow: false,
-    trees: ['tree_palmTall', 'tree_palmBend'],
+    trees: ['palm'],
     treeDensity: 0.1,
-    rocks: ['rock_largeA', 'rock_largeC', 'rock_largeE', 'rock_tallA', 'rock_tallC', 'rock_smallA', 'rock_smallC', 'cliff_rock', 'cactus_tall', 'cactus_short', 'cactus_tall', 'cactus_short'],
+    rocks: ['rock', 'rock', 'rockTall', 'cactus', 'cactus', 'cactusShort', 'cactusShort'],
     rockDensity: 1.3,
-    bushes: ['plant_bush', 'cactus_short', 'plant_bushLarge'],
+    bushes: ['bush', 'cactusShort'],
     par: 118,
+    sunElev: 21,
+    sunCol: '#ffc88a',
+    grade: [0.95, 0.98, 1.1, 1.18, 1.0, 0.82, 1.2, 1.12],
   },
   snow: {
     id: 'snow',
@@ -130,9 +140,9 @@ export const STAGES: Record<StageId, Stage> = {
     ground: 'snow',
     groundTint: '#e9eef4',
     groundScale: 8,
-    roadTint: '#c8ccd2',
+    roadTint: '#a4a8ae',
     rockTint: '#9a9ea4',
-    leaf: ['#355c46', '#2c4f3d', '#3d6a52'],
+    leaf: ['#2a4a3a', '#223f31', '#30573f'],
     bark: '#4a3a30',
     rock: '#8c9096',
     moss: '#f2f6fa',
@@ -144,12 +154,15 @@ export const STAGES: Record<StageId, Stage> = {
     grip: 0.68,
     offGrip: 0.5,
     snow: true,
-    trees: ['tree_pineTallA', 'tree_pineTallC', 'tree_pineRoundA', 'tree_pineSmallA', 'tree_pineTallA'],
+    trees: ['pine', 'pine', 'pine', 'deadpine'],
     treeDensity: 0.8,
-    rocks: ['rock_largeA', 'rock_largeC', 'rock_tallA', 'rock_smallA', 'rock_smallC', 'rock_smallFlatA', 'log_stack', 'sign'],
+    rocks: ['rock', 'rockTall', 'log', 'stump'],
     rockDensity: 0.6,
-    bushes: ['plant_bush', 'plant_bushLarge', 'rock_smallA'],
+    bushes: ['bush'],
     par: 112,
+    sunElev: 17,
+    sunCol: '#dfe9ff',
+    grade: [0.86, 0.98, 1.16, 1.0, 1.02, 1.08, 1.05, 1.06],
   },
 };
 export const STAGE_LIST = [STAGES.forest, STAGES.desert, STAGES.snow];
@@ -167,10 +180,15 @@ export type CarSpec = {
   mass: number;
   rearBias: number;
   scale: number;
+  body: 'hatch' | 'coupe' | 'sedan' | 'wagon';
+  base: string;
+  accent: string;
+  trim: string;
+  number: string;
 };
 
 export const CARS: CarSpec[] = [
-  { id: 'hatch', name: 'Satoshi GT', model: 'hatchback-sports', blurb: 'Balanced hot hatch. Forgiving, quick to rotate.', power: 1, top: 1, grip: 1, steer: 1, mass: 1, rearBias: 0.62, scale: 1.55 },
-  { id: 'race', name: 'Hash Rocket', model: 'race', blurb: 'Light open-wheel dart. Fastest, twitchy.', power: 1.18, top: 1.12, grip: 0.95, steer: 1.12, mass: 0.85, rearBias: 0.7, scale: 1.5 },
-  { id: 'sedan', name: 'Block Sedan', model: 'sedan-sports', blurb: 'Planted four-door. Stable, a touch slower.', power: 0.94, top: 0.97, grip: 1.1, steer: 0.94, mass: 1.15, rearBias: 0.48, scale: 1.55 },
+  { id: 'hatch', name: 'Satoshi GT', model: 'hatchback-sports', blurb: 'Balanced hot hatch. Forgiving, quick to rotate.', power: 1, top: 1, grip: 1, steer: 1, mass: 1, rearBias: 0.62, scale: 1.55, body: 'hatch', base: '#1747b8', accent: '#ff7a00', trim: '#f5f5f5', number: '7' },
+  { id: 'race', name: 'Hash Rocket', model: 'race', blurb: 'Light open-wheel dart. Fastest, twitchy.', power: 1.18, top: 1.12, grip: 0.95, steer: 1.12, mass: 0.85, rearBias: 0.7, scale: 1.5, body: 'coupe', base: '#f2c200', accent: '#101010', trim: '#ffffff', number: '21' },
+  { id: 'sedan', name: 'Block Sedan', model: 'sedan-sports', blurb: 'Planted four-door. Stable, a touch slower.', power: 0.94, top: 0.97, grip: 1.1, steer: 0.94, mass: 1.15, rearBias: 0.48, scale: 1.55, body: 'sedan', base: '#f2f2f2', accent: '#d41424', trim: '#14141a', number: '1' },
 ];

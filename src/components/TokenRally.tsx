@@ -16,7 +16,7 @@ import { STAGE_LIST, type StageId } from '@/lib/rally/stages';
 import type { Track } from '@/lib/rally/track';
 import type { ScoreGame } from '@/lib/scores';
 
-type QualityPref = 'auto' | 'low' | 'high';
+type QualityPref = 'auto' | 'low' | 'high' | 'ultra';
 type RivalInfo = { name: string; detail: string; color: string; live: boolean; tx: string | null; skill: number; kind: string };
 const BEST = 'tokenblaster:rally-best';
 const PREFS = 'tokenblaster:rally-prefs';
@@ -206,7 +206,7 @@ export function TokenRally() {
     const host = mount.current;
     if (!host || !ready) return;
     const life = { dead: false };
-    const hi = qualityPref === 'auto' ? !isMobileish() : qualityPref === 'high';
+    const q: 'low' | 'high' | 'ultra' = qualityPref === 'auto' ? (isMobileish() ? 'low' : 'high') : qualityPref;
     void Promise.resolve().then(() => {
       if (life.dead) return;
       setPhase('loading');
@@ -217,7 +217,7 @@ export function TokenRally() {
     const eng = new RallyEngine(host, {
       stage: stageId,
       car: carId,
-      quality: hi ? 'high' : 'low',
+      quality: q,
       take: (p) => takeRef.current(p),
       cb: {
         onPhase: (p) => {
@@ -572,7 +572,7 @@ export function TokenRally() {
               </details>
               <div className="flex flex-wrap items-center gap-1 text-[11px]">
                 <span className="text-dim">GRAPHICS</span>
-                {(['auto', 'high', 'low'] as const).map((q) => (
+                {(['auto', 'ultra', 'high', 'low'] as const).map((q) => (
                   <button key={q} onClick={() => setQualityPref(q)} className={`btn px-2 py-0.5 ${qualityPref === q ? 'btn-on' : ''}`}>
                     {q.toUpperCase()}
                   </button>
@@ -662,7 +662,7 @@ export function TokenRally() {
       </div>
       <p className="mt-2 text-xs text-muted">
         Rivals are real transactions sampled from the live BSV chain when you start: tokens drive as sedans wearing their ticker, payments as delivery vans, ordinals as SUVs. The biggest moves are the fastest cars. A credit (10p) buys one stage run;
-        practice sends nothing. Cars: Kenney Car Kit (CC0). Scenery: Kenney Nature Kit (CC0). Ground, rock, gravel textures and skies: Poly Haven (CC0).
+        practice sends nothing. Cars, trees, rocks and grass are generated in code. Ground, rock, gravel textures and skies: Poly Haven (CC0).
       </p>
       {co.chooserEl}
     </section>
