@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { HighScoresPanel } from '@/components/HighScores';
 import { BlockHopper } from '@/components/BlockHopper';
 
-const description = 'A fast side-scrolling platformer built from the live BSV chain: every transaction is ground, blasts are coins, token transfers are enemies, blocks are checkpoints.';
+const description = 'A 3D platformer built from the live BSV chain: every transaction is a platform, token transfers walk out as enemies, blocks are checkpoint gates, and every jump can be a tiny real transaction in LIVE mode. Wall jump, dash, stomp, outrun the reorg.';
 export const metadata = {
   title: 'Block Hopper · TokenBlaster.lol',
   description,
