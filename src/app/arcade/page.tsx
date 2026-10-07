@@ -3,6 +3,7 @@ import { GameBlasts } from '@/components/GameBlasts';
 import { PageHead, SectionHead } from '@/components/dr/site';
 import { Pictogram } from '@/components/dr';
 import { byTitle } from '@/lib/alpha';
+import { GAMES } from '@/lib/games';
 import { ARCADE_CARD, shareImages } from '@/lib/og';
 
 const description = 'Games built on the live BSV chain: shoot your own tokens, dodge real mainnet traffic, and more on the way.';
@@ -13,27 +14,6 @@ export const metadata = {
   twitter: { card: 'summary_large_image', title: 'TokenBlaster Arcade', description, images: shareImages(ARCADE_CARD).twitter },
 };
 
-type Game = { href?: string; title: string; blurb: string; status: 'live' | 'soon'; img: string; version?: string; /** game name in its blasts' OP_RETURN */ tag?: string };
-/** Ours: built and run on tokenblaster.lol. */
-const GAMES: Game[] = [
-  { href: '/arcade/doubleosatoshi', tag: 'doubleo', title: 'Double-O Satoshi', version: 'V1', img: '/arcade/doubleo.jpg', blurb: 'GoldenEye-style spy shooter: Special Agent Kweg Wong fires PNEE at parody crypto villains across five missions. LIVE mode: every bullet is one token on chain.', status: 'live' },
-  { href: '/arcade/bsvgun', tag: 'bsvgun', title: 'BSVGun', version: 'V2', img: '/arcade/bsvgun.jpg', blurb: 'A 3D neon shooting range where the targets are the live chain: clays, ducks, token coins and golden whales, with a flock on every block. Pick your gun (1Sat Ordnance unlocks). Blast Zone still fires 50,000 real transactions.', status: 'live' },
-  { href: '/arena', tag: 'arena', title: 'Arena', version: 'V1', img: '/arcade/arena.jpg', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: every bullet is a real transaction. Multiplayer: hit a player and your token lands in their gun.', status: 'live' },
-  { href: '/arcade/frogger', tag: 'frogger', title: 'Chain Frogger', version: 'V2', img: '/arcade/frogger.jpg', blurb: 'A 3D city crossing where every vehicle is a live mainnet transaction, one way from sender to receiver. Pick a character, arm up, zap traffic.', status: 'live' },
-  { href: '/arcade/hopper', tag: 'hopper', title: 'Block Hopper', version: 'V2', img: '/arcade/hopper.jpg', blurb: 'A high-speed side-scroller where the level is the live chain: every tx is ground, blasts are coins, token transfers are enemies, blocks are checkpoints.', status: 'live' },
-  { href: '/arcade/invaders', tag: 'invaders', title: 'Mempool Invaders', version: 'V2', img: '/arcade/invaders.jpg', blurb: 'A 3D shooter where every ship is a live transaction. Chain combos on the beat, grab power-ups, fight the block boss, shoot gold token ships and catch the token they drop. LIVE mode: every shot is a tiny real tx.', status: 'live' },
-  { href: '/arcade/kweg', tag: 'kweg', title: "Kweg's Expedition", version: 'V1', img: '/arcade/kweg.jpg', blurb: "Pilot Professor Kweg's pachyderm submarine through the live chain: sonar for hidden $KWEG, patent-dash obstacles, outrace three parody rivals to Satoshi's submarine coordinates.", status: 'live' },
-  { href: '/arcade/snake', tag: 'snake', title: 'Token Snake', version: 'V2', img: '/arcade/snake.jpg', blurb: 'A neon 3D arena where the food is the live chain: every bite is a real transaction, token transfers glow with their logo, blocks rise as monoliths. Combos x8, OVERDRIVE, PHASE, MAGNET.', status: 'live' },
-  { href: '/arcade/city', title: 'Satoshi City', version: 'V1', img: '/arcade/city.jpg', blurb: 'Open-world island city where every car on the road is a live mainnet transaction. Walk, carjack, drift, deliver the next block against the clock.', status: 'live' },
-  { href: '/arcade/npg-cards', tag: 'npgcards', title: 'Ninja Punk Girls: Card Battle', version: 'V1', img: '/arcade/npg-cards.jpg', blurb: 'Turn-based card battle: pick your NPG girl, build a deck of NPG element cards (stats from their six attributes), fight the AI or a friend online. LIVE mode: every card played is a transaction.', status: 'live' },
-  { href: '/arcade/npg-runner', tag: 'npg', title: 'Ninja Punk Girls: Erobot Uprising', version: 'V1', img: '/arcade/npg-runner.jpg', blurb: 'NPG platformer: wall-jump, dash and shuriken through three stages and three Erobot bosses. Live token transfers float in as tokens to grab; LIVE mode: every jump is a transaction.', status: 'live' },
-  { href: '/arcade/rally', tag: 'rally', title: 'Token Rally', version: 'V1', img: '/arcade/rally.jpg', blurb: 'Rally racing against the live chain: every rival car is a mainnet transaction, faster the bigger the move. Forest, desert and snow stages, handbrake drifts, nitro coins, splits.', status: 'live' },
-  { href: '/arcade/2048', tag: 'sats2048', title: 'Sat Stack 2048', version: 'V1', img: '/arcade/2048.jpg', blurb: 'The merge puzzle with a coin purse: slide equal sat stacks together, dust to sat to vault, until you cut a 1 BSV tile. Arrows or swipe.', status: 'live' },
-  { href: '/arcade/highway21', tag: 'highway21', title: 'Highway 21M', version: 'V1', img: '/arcade/highway21.jpg', blurb: 'OutRun-style pseudo-3D racer against the clock. Traffic is coloured by live transaction kind and the roadside billboards scroll real BSV-21 token moves.', status: 'live' },
-  { href: '/arcade/bubbo-bubbo', tag: 'bubbo', title: 'Coin Pop', version: 'V1', img: '/arcade/bubbo-bubbo.jpg', blurb: 'Bubble shooter with token coins (PixiJS open game Bubbo Bubbo, reskinned): aim, match three, drop bombs and super coins, beat the ceiling. 10p a game or practice free.', status: 'live' },
-  { href: '/arcade/puzzling-potions', tag: 'potions', title: 'Token Potions', version: 'V1', img: '/arcade/puzzling-potions.jpg', blurb: 'Match-3 with specials and combos against a 60-second clock (PixiJS open game Puzzling Potions, reskinned). 10p a game or practice free.', status: 'live' },
-  { href: '/arcade/bracer', tag: 'bracer', title: 'bRacer', version: 'V1', img: '/arcade/bracer.jpg', blurb: 'Anti-gravity racing at 700 km/h against the live chain: every rival ship is a mainnet transaction. Loops, corkscrews, half-pipes, boost pads, rockets, mines and barrel rolls over a cyber megacity.', status: 'live' },
-];
 
 /** Not ours: other people's BSV games, linked out to their own sites. Not hosted, run or endorsed here. */
 type Other = { href: string; title: string; by: string; site: string; blurb: string };

@@ -217,9 +217,9 @@ export function ChainDashboard() {
 
       <Highway onSelect={onSelect} showMovers={false} />
 
-      <section className="grid min-w-0 gap-3 lg:grid-cols-3">
+      <section className="grid min-w-0 gap-3 lg:grid-cols-3 min-[1800px]:grid-cols-[3fr_2fr]">
         {/* Live feed */}
-        <div className="panel min-w-0 lg:col-span-2">
+        <div className="panel min-w-0 lg:col-span-2 min-[1800px]:col-span-1">
           <div className="panel-header">
             <span className="panel-title">Live feed</span>
             <div className="flex flex-wrap items-center gap-1 text-xs">
@@ -253,7 +253,7 @@ export function ChainDashboard() {
               </button>
             ))}
           </div>
-          <ol className="inset h-[420px] overflow-y-auto overflow-x-hidden text-xs">
+          <ol className="inset h-[420px] overflow-y-auto overflow-x-hidden text-xs min-[1800px]:h-[520px]">
             {s.feed.length === 0 && <li className="p-2 text-dim">{status === 'off' ? 'No feed configured.' : paused ? 'Paused.' : 'Waiting for transactions…'}</li>}
             {s.feed.map((f) => (
               <FeedRow key={f.id} f={f} active={selected?.id === f.id} onClick={() => setSelected(f)} />
@@ -262,7 +262,7 @@ export function ChainDashboard() {
         </div>
 
         {/* Inspector + meter + mempool */}
-        <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3 min-[1800px]:grid min-[1800px]:grid-cols-2 min-[1800px]:content-start">
           <Inspector f={selected} />
           <div className="panel">
             <div className="panel-header">
@@ -277,7 +277,9 @@ export function ChainDashboard() {
               <div className="h-full bg-fg transition-[width]" style={{ width: `${Math.min(100, (Math.log10(1 + rate) / Math.log10(1001)) * 100)}%` }} />
             </div>
           </div>
-          <MempoolGrid cells={s.mempool} />
+          <div className="min-w-0 min-[1800px]:col-span-2">
+            <MempoolGrid cells={s.mempool} />
+          </div>
         </div>
       </section>
 

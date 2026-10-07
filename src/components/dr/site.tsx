@@ -92,7 +92,7 @@ export function SiteFooter() {
   return (
     <footer className="mt-6 border-t-2 border-[var(--hot)] bg-bg">
       <div className="dr-hazard" aria-hidden />
-      <div className="mx-auto w-full max-w-[1440px] px-2.5 pb-6 pt-4">
+      <div className="w-full px-[clamp(12px,2.6vw,64px)] pb-6 pt-4">
         <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
           <div>
             <p className="dr-display dr-logo text-[clamp(26px,7.4vw,92px)] leading-[0.95] text-hot" aria-hidden>

@@ -12,8 +12,10 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
  * Each slide plays a short gameplay loop (public/hero/<game>.mp4 H.264, posters .jpg) full-bleed; only the active
  * slide's video runs, the next one preloads metadata, the rest stay at preload=none. Reduced motion or Save-Data
  * show the poster only; a video that errors falls back to the old static arcade card (public/arcade) with Ken Burns.
- * The loops are practice-mode, High-quality captures (canvas only, DOM overlays hidden) from headless Chrome's CDP
- * screencast, cross-faded head-to-tail and encoded with ffmpeg (1280x720, 30fps, H.264, no audio, faststart).
+ * The loops are practice-mode, High/Ultra-quality captures (canvas only, DOM overlays hidden, rendered at a true
+ * 1920x1080 with devicePixelRatio 1, not upscaled) from headless Chrome's CDP screencast, cross-faded head-to-tail and
+ * encoded with ffmpeg: <game>.mp4 is 1920x1080 30fps H.264 High (yuv420p, no audio, faststart, ~5-6 MB); <game>-720.mp4
+ * is the 1280x720 variant a <source media> hands to phones and small windows; <game>.jpg is the 1920x1080 poster.
  */
 const SLIDES = [
   { href: '/arcade/bracer', img: '/arcade/bracer.jpg', vid: '/hero/bracer', title: 'bRacer', tag: 'Anti-gravity racer', kana: '反重力レース' },
@@ -138,6 +140,7 @@ export function HeroShowcase() {
                     if (want.current === n) void e.currentTarget.play().catch(() => undefined);
                   }}
                 >
+                  <source src={`${x.vid}-720.mp4`} type="video/mp4" media="(max-width: 900px)" />
                   <source src={`${x.vid}.mp4`} type="video/mp4" onError={() => setFailed((f) => (f.includes(n) ? f : [...f, n]))} />
                 </video>
               )}
