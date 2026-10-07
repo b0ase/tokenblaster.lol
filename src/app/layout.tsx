@@ -4,6 +4,7 @@ import { SiteNav } from "@/components/SiteNav";
 import { SiteFooter } from "@/components/dr/site";
 import { drFontClass } from "@/components/dr/fonts";
 import { logoFont } from "@/components/dr/logo-font";
+import { HOME_CARD, shareImages } from "@/lib/og";
 import { PALETTE_SCRIPT } from "@/components/PaletteToggle";
 
 export const metadata: Metadata = {
@@ -16,11 +17,13 @@ export const metadata: Metadata = {
     url: "https://www.tokenblaster.lol",
     siteName: "TokenBlaster.lol",
     type: "website",
+    images: shareImages(HOME_CARD).openGraph,
   },
   twitter: {
     card: "summary_large_image",
     title: "TokenBlaster.lol",
     description: "Load your tokens. Blast them at the chain. Every bullet is a real BSV transaction.",
+    images: shareImages(HOME_CARD).twitter,
   },
   applicationName: "TokenBlaster",
   appleWebApp: { capable: true, title: "TokenBlaster", statusBarStyle: "black-translucent" },
