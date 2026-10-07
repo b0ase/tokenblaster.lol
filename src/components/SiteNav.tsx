@@ -13,6 +13,7 @@ export const ARCADE_GAMES = [
   ['/arena', 'Arena'],
   ['/arcade/doubleosatoshi', 'Double-O Satoshi'],
   ['/arcade/rally', 'Token Rally'],
+  ['/arcade/bracer', 'bRacer'],
   ['/arcade/city', 'Satoshi City'],
   ['/arcade/frogger', 'Chain Frogger'],
   ['/arcade/bsvgun', 'BSVGun'],

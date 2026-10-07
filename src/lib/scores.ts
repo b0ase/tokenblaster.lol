@@ -18,6 +18,9 @@ export const SCORE_GAMES = {
   'rally-forest': { title: 'Token Rally · Mainnet Pines', tag: 'rally', sort: 'score' },
   'rally-desert': { title: 'Token Rally · Mempool Mesa', tag: 'rally', sort: 'score' },
   'rally-snow': { title: 'Token Rally · Orphan Ridge', tag: 'rally', sort: 'score' },
+  'bracer-canyon': { title: 'bRacer · Genesis Canyon', tag: 'bracer', sort: 'score' },
+  'bracer-spiral': { title: 'bRacer · Orphan Spiral', tag: 'bracer', sort: 'score' },
+  'bracer-void': { title: 'bRacer · Coinbase Void', tag: 'bracer', sort: 'score' },
 } as const;
 export type ScoreGame = keyof typeof SCORE_GAMES;
 export const isScoreGame = (g: string | null): g is ScoreGame => !!g && Object.prototype.hasOwnProperty.call(SCORE_GAMES, g);

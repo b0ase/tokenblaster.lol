@@ -28,4 +28,5 @@ loudness-normalised (ffmpeg loudnorm, target -16 LUFS / -1.5 dBTP), edge silence
 | city/tokaido-reload.m4a | Tokaido Reload | NPG-X.com | npgx/public/music/albums/tokyo-gutter-punk/11-a.mp3 |
 
 Playlists (src/lib/sfx.ts `PLAYLISTS`): doubleo → doubleo/; arena + gun → arena/;
-hopper + invaders + snake → arcade/; kweg → kweg/; frogger + city → city/.
+hopper + invaders + snake → arcade/; kweg → kweg/; frogger + city → city/;
+bracer → the fast ones (180-196 BPM): arcade/kintsugi-breaks, arcade/shattered-frequencies, arena/harajuku-chainsaw, arena/akihabara-fury, city/neon-rust, city/veins-of-the-city, arcade/pxel-optik.

@@ -19,7 +19,7 @@ export type SfxName =
   | 'shot' | 'laser' | 'coin' | 'token' | 'jump' | 'spring' | 'stomp' | 'explosion' | 'rekt' | 'hit'
   | 'hurt' | 'gameover' | 'level' | 'click' | 'sonar' | 'stamp' | 'pickup' | 'start'
   | 'shotgun' | 'beam' | 'plasma' | 'rocket' | 'grenade';
-export type Track = 'doubleo' | 'arena' | 'gun' | 'hopper' | 'invaders' | 'snake' | 'kweg' | 'frogger' | 'city';
+export type Track = 'doubleo' | 'arena' | 'gun' | 'hopper' | 'invaders' | 'snake' | 'kweg' | 'frogger' | 'city' | 'bracer';
 
 const LS = 'tb.audio';
 type Prefs = { muted: boolean; music: number; sfx: number };
@@ -576,7 +576,10 @@ const CITY = [
   S('city', 'neon-rust', 'Neon Rust', 'CherryX.space'),
   S('city', 'tokaido-reload', 'Tokaido Reload', 'NPG-X.com'),
 ];
+/** bRacer: the fastest tracks on the site (180-196 BPM). */
+const BRACER = [ARCADE[2], ARCADE[3], PUNK[2], PUNK[3], CITY[1], CITY[0], ARCADE[1]];
 export const PLAYLISTS: Record<Track, Song[]> = {
+  bracer: BRACER,
   doubleo: SPY, arena: PUNK, gun: PUNK, hopper: ARCADE, invaders: ARCADE, snake: ARCADE, kweg: QUIRKY, frogger: CITY, city: CITY,
 };
 
