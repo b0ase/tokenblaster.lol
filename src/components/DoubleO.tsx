@@ -20,7 +20,10 @@ import { TOKEN_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import { useBlaster } from '@/lib/useBlaster';
-import { proveSocialX, verifySocialX, type SocialProof } from '@/lib/socialId';
+import { myHandle, onMyHandle, proveHandle, readWire, verifyWire, type IdWire } from '@/lib/identity';
+import { disposeAvatarTag, fitAvatarTag, makeAvatarTag, tagKey } from '@/lib/avatarTag';
+import { COUNTDOWN_MS, DM_SECS, FRAG_LIMIT, INVULN_MS, MODES, PoseBuffer, RESPAWN_MS, Scores, cleanMode, cleanRoomCode, newRoomCode, pickSpawn, roomLink, roomName, type MpMode } from '@/lib/doubleo/mp';
+import { IdentityPicker, InviteButton, PlayerBadge } from './PlayerBadge';
 import type { WalletInterface } from '@bsv/sdk';
 import { AmmoStrip } from './AmmoStrip';
 import { buildAgent, buildRig, CAST, loadCastModels, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
@@ -54,7 +57,7 @@ const BATCH = 25; // token shots per request
 const FIRE_MS = 170;
 const isPhone = () => typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
 
-type Screen = 'menu' | 'play' | 'paused' | 'debrief' | 'failed';
+type Screen = 'menu' | 'lobby' | 'play' | 'paused' | 'debrief' | 'failed' | 'result';
 type Hud = {
   health: number;
   armor: number;
@@ -79,8 +82,12 @@ type Hud = {
   dirs: number[]; // radians (0 = ahead) to whoever just shot me, for the red damage arcs
 };
 type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[]; sats: number; satsTotal: number; intel: number; intelTotal: number };
-type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void; setQuality: (q: Quality) => void };
-type NetInfo = { status: 'off' | 'connecting' | 'live'; agents: { name: string; host: boolean; me: boolean; vs: boolean }[] };
+type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void; setQuality: (q: Quality) => void; ready: (v: boolean) => void; startMatch: () => void; toLobby: () => void };
+type Phase = 'idle' | 'lobby' | 'play' | 'result';
+/** One agent in the room: presence (roster) merged with what we know from poses and frags. */
+type Agent = { id: string; name: string; x: string | null; v: boolean; host: boolean; me: boolean; vs: boolean; rdy: boolean; ph: string; k: number; d: number };
+type NetInfo = { status: 'off' | 'connecting' | 'live'; agents: Agent[]; mode: MpMode; phase: Phase; countdown: number | null; left: number | null; deadBy: string | null; room: string | null; winner: string | null };
+type FeedItem = { k: number; from: IdWire & { name: string }; to: IdWire & { name: string } | null; why: string };
 /** Level-map letters for each cast kind (also the wire format for the host's actor list). */
 const KIND_CODE: Record<string, string> = { bot: 'g', goon: 'p', hazmat: 'h', kingpin: 'K', custodian: 'U', hoarder: 'L' };
 const CODE_KIND: Record<string, Kind | 'hazmat'> = { g: 'bot', p: 'goon', h: 'hazmat', K: 'kingpin', U: 'custodian', L: 'hoarder', Y: 'partyboy' };
@@ -163,7 +170,14 @@ export function DoubleO() {
   const [name, setName] = useState('');
   const [versus, setVersus] = useState(false);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [net, setNet] = useState<NetInfo>({ status: 'off', agents: [] });
+  const [net, setNet] = useState<NetInfo>({ status: 'off', agents: [], mode: 'solo', phase: 'idle', countdown: null, left: null, deadBy: null, room: null, winner: null });
+  const [mode, setMode] = useState<MpMode>('coop');
+  const [bots, setBots] = useState(false); // DEATHMATCH: also the villains?
+  const [roomCode, setRoomCode] = useState(''); // '' = quick match
+  const [joinCode, setJoinCode] = useState('');
+  const [feed, setFeed] = useState<FeedItem[]>([]);
+  const feedRef = useRef<(from: IdWire & { name: string }, to: (IdWire & { name: string }) | null, why: string) => void>(() => undefined);
+  const [showBoard, setShowBoard] = useState(false);
   const [toasts, setToasts] = useState<{ id: number; text: string; icon: string | null }[]>([]);
   const toast = useRef<(text: string, icon: string | null) => void>(() => undefined);
   useEffect(() => {
@@ -173,10 +187,32 @@ export function DoubleO() {
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
     };
   }, []);
-  const me = useRef({ name: 'Agent', vs: false, gun: '', setVs: ((v: boolean) => void v) as (v: boolean) => void, wallet: null as WalletInterface | null });
   useEffect(() => {
-    me.current = { name: name.trim() || 'Agent', vs: versus, gun: b.gunAddress, setVs: setVersus, wallet: b.wallet?.client ?? null };
-  }, [name, versus, b.gunAddress, b.wallet]);
+    let k = 0;
+    feedRef.current = (from, to, why) => {
+      const item = { k: ++k, from, to, why };
+      setFeed((f) => [item, ...f].slice(0, 6));
+      setTimeout(() => setFeed((f) => f.filter((x) => x !== item)), 7000);
+    };
+  }, []);
+  const me = useRef({ name: 'Agent', vs: false, gun: '', setVs: ((v: boolean) => void v) as (v: boolean) => void, wallet: null as WalletInterface | null, mode: 'coop' as MpMode, bots: false, room: '' });
+  useEffect(() => {
+    me.current = { name: name.trim() || 'Agent', vs: versus, gun: b.gunAddress, setVs: setVersus, wallet: b.wallet?.client ?? null, mode: realtimeConfigured() ? mode : 'solo', bots, room: roomCode };
+  }, [name, versus, b.gunAddress, b.wallet, mode, bots, roomCode]);
+  // Invite links: ?room=CODE&mode=dm&m=facility
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const code = cleanRoomCode(q.get('room'));
+    if (!code) return;
+    const m = cleanMode(q.get('mode'));
+    const lv = LEVELS.findIndex((l) => l.id === q.get('m'));
+    void Promise.resolve().then(() => {
+      setRoomCode(code);
+      setJoinCode(code);
+      if (m && m !== 'solo') setMode(m);
+      if (lv >= 0) setLevel(lv);
+    });
+  }, []);
   // Lobby presence: who is in which mission (shown on the mission cards).
   const lobby = useRef<Room | null>(null);
   useEffect(() => {
@@ -235,7 +271,7 @@ export function DoubleO() {
   const armed = Boolean(b.token) && ammoOk && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE;
   // Home turf: firing $DOUBLEO LIVE shoots gold and hits 1.5x.
   const house = b.token?.id === GAME_COINS.doubleo.id;
-  const inMission = screen === 'play' || screen === 'paused';
+  const inMission = screen === 'play' || screen === 'paused' || screen === 'lobby' || screen === 'result';
   useEffect(() => {
     lobby.current?.track({ m: inMission ? LEVELS[level].id : null });
   }, [inMission, level]);
@@ -552,6 +588,21 @@ export function DoubleO() {
     let running = false;
     let health = 100;
     let armor = 0;
+    // Multiplayer session state (the rest lives in the Multiplayer section below).
+    const myId = Math.random().toString(36).slice(2, 10);
+    let sess: { mode: MpMode; room: string } = { mode: 'solo', room: '' };
+    let mpPhase: Phase = 'idle';
+    let myReady = false;
+    let goAt = 0; // performance.now() when the lobby countdown ends
+    let matchEnd = 0; // performance.now() when the DEATHMATCH clock runs out
+    let winnerId: string | null = null;
+    let deadUntil = 0; // DEATHMATCH: dead until then
+    let invulnUntil = 0;
+    let deadBy: string | null = null;
+    let myDeaths = 0;
+    let lastHitBy: string | null = null;
+    let lastHitAt = 0;
+    const scores = new Scores();
     let objIdx = 0;
     let progress = 0;
     let elapsed = 0;
@@ -952,7 +1003,7 @@ export function DoubleO() {
 
       // Cast.
       const kinds: Record<string, Kind | 'hazmat'> = { g: 'bot', p: 'goon', h: 'hazmat', K: 'kingpin', U: 'custodian', L: 'hoarder', Y: 'partyboy' };
-      grid.rows.forEach((r, z) => [...r].forEach((c, x) => kinds[c] && spawnActor(kinds[c], x, z)));
+      if (sess.mode !== 'dm' || me.current.bots) grid.rows.forEach((r, z) => [...r].forEach((c, x) => kinds[c] && spawnActor(kinds[c], x, z)));
 
       // Player.
       const [sx, sz] = grid.find('S')[0];
@@ -1032,8 +1083,14 @@ export function DoubleO() {
 
     const hitDirs: { ang: number; until: number }[] = [];
     let beatAt = 0; // next low-health heartbeat
-    const damagePlayer = (n: number, from?: THREE.Vector3) => {
+    const damagePlayer = (n: number, from?: THREE.Vector3, by?: string | null) => {
       if (!running) return;
+      const t0 = performance.now();
+      if (t0 < deadUntil || t0 < invulnUntil) return; // DEATHMATCH: dead, or just respawned
+      if (by) {
+        lastHitBy = by;
+        lastHitAt = t0;
+      }
       shake = Math.max(shake, 0.2);
       hurtAmt = 0.5;
       if (from) {
@@ -1044,13 +1101,15 @@ export function DoubleO() {
       armor -= soak;
       health = Math.max(0, health - (n - soak));
       sfx?.hurt();
-      if (health < 30 && !lowSaid) {
+      if (health < 30 && !lowSaid && sess.mode !== 'dm') {
         lowSaid = true;
         say.current(L.id, 'lowHealth');
       }
       setHurt(true);
       setTimeout(() => setHurt(false), 130);
-      if (health <= 0) {
+      if (health <= 0 && sess.mode === 'dm') {
+        dieDm();
+      } else if (health <= 0) {
         running = false;
         sfx?.dead();
         input.current.fire = false;
@@ -1125,7 +1184,7 @@ export function DoubleO() {
         try {
           const txids = await live_.current.fireTokens(n + 1, batch.map((q) => q.extra), to);
           // Tell the agent we hit: their gun just received our tokens.
-          if (target && txids.length && room) room.broadcast('phit', { to: target, from: me.current.name, n: txids.length, tokens: true, sym: live_.current.sym, icon: live_.current.icon });
+          if (target && txids.length && room) room.broadcast('phit', { to: target, id: myId, from: me.current.name, n: txids.length, tokens: true, sym: live_.current.sym, icon: live_.current.icon });
           n += txids.length;
           queue.splice(0, txids.length);
           stats.onChain += txids.length;
@@ -1299,15 +1358,18 @@ export function DoubleO() {
       const from = held ? held.group.localToWorld(held.muzzle.clone()) : camera.position.clone();
       raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * 0.01, (Math.random() - 0.5) * 0.01), camera);
       const alive = actors.filter((a) => a.state !== 'dying');
-      // VERSUS: agents who both have it on can shoot each other.
-      const foes = me.current.vs ? [...remotes.entries()].filter(([, r]) => r.vs && r.act) : [];
+      // VERSUS (co-op: both agents switched it on) or DEATHMATCH (always): agents can shoot each other.
+      const dmm = sess.mode === 'dm';
+      const foes = dmm || me.current.vs ? [...remotes.entries()].filter(([, r]) => (dmm || r.vs) && r.act) : [];
       const hit = raycaster.intersectObjects([...walls, ...alive.map((a) => a.hitbox), ...foes.map(([, r]) => r.rig.hitbox)], false)[0];
       const end = hit ? hit.point.clone() : camera.position.clone().addScaledVector(raycaster.ray.direction, 45);
       const target = hit ? (alive.find((a) => a.hitbox === hit.object) ?? null) : null;
       const foe = hit ? foes.find(([, r]) => r.rig.hitbox === hit.object) : undefined;
       if (target || foe) stats.hits++;
-      if (foe && room && !liveMode) room.broadcast('phit', { to: foe[0], from: me.current.name, n: 1, tokens: false });
-      room?.broadcast('shot', { f: [from.x, from.y, from.z], t: [end.x, end.y, end.z], k: kind ?? undefined, c: ord?.stats.bolt });
+      if (foe) reactRemote(foe[1], end);
+      // PRACTICE: the hit rides on the shot message (one packet per trigger pull keeps the room well under the
+      // Realtime message budget). LIVE: the hit is announced as 'phit' once the token has paid (drain below).
+      room?.broadcast('shot', { id: myId, f: [from.x, from.y, from.z], t: [end.x, end.y, end.z], k: kind ?? undefined, c: ord?.stats.bolt, h: foe && !liveMode ? foe[0] : undefined });
       if (kind && ord) {
         const explosive = kind === 'rocket' || kind === 'grenade';
         ammoFx.fire(
@@ -1331,8 +1393,9 @@ export function DoubleO() {
           a.lastSeen = now;
         }
       if (liveMode) {
-        // A hit on a VERSUS agent sends the token to their gun; everything else is burned.
-        if (foe?.[1].gun) queue.push({ extra: ['doubleo', L.id, 'versus'], to: foe[1].gun, target: foe[0] });
+        // The Arena rule: a hit on another agent sends the token to THEIR gun (and tells them once it has paid);
+        // everything else is burned.
+        if (foe) queue.push({ extra: ['doubleo', L.id, 'versus'], to: foe[1].gun || undefined, target: foe[0] });
         else queue.push({ extra: ['doubleo', L.id, 'shot'] });
         heat = queue.length;
         void drain();
@@ -1353,6 +1416,10 @@ export function DoubleO() {
     const onKey = (e: KeyboardEvent) => {
       if (e.type === 'keydown') keys.add(e.code);
       else keys.delete(e.code);
+      if (e.code === 'Tab' && (running || mpPhase === 'play')) {
+        e.preventDefault();
+        setShowBoard(e.type === 'keydown');
+      }
       if (e.code === 'KeyV' && e.type === 'keydown' && running) {
         me.current.setVs(!me.current.vs);
         me.current.vs = !me.current.vs;
@@ -1424,17 +1491,31 @@ export function DoubleO() {
         if (!sfx) sfx = makeSfx();
         sfx?.resume();
         liveMode = isLive;
+        sess = { mode: realtimeConfigured() ? me.current.mode : 'solo', room: cleanRoomCode(me.current.room) ?? '' };
+        scores.reset();
+        myDeaths = deadUntil = invulnUntil = 0;
+        lastHitBy = null;
         buildLevel(i);
         lowSaid = false;
-        setTimeout(() => running && say.current(L.id, 'start'), 1800);
-        joinMission();
-        running = true;
-        lastTick = performance.now();
-        setScreen('play');
-        setDebrief(null);
-        setRecent([]);
-        setHud((h) => ({ ...h, onChain: 0, last: null }));
-        lockPointer();
+        if (sess.mode === 'solo') {
+          leaveMission();
+          beginRun();
+        } else {
+          joinMission();
+          enterLobby();
+        }
+      },
+      ready: (v) => {
+        myReady = v;
+        track();
+        pushNet();
+      },
+      startMatch: () => callGo(),
+      toLobby: () => {
+        scores.reset();
+        myDeaths = deadUntil = invulnUntil = 0;
+        buildLevel(lvlIdx);
+        enterLobby();
       },
       resume: () => {
         if (!grid || health <= 0) return;
@@ -1698,36 +1779,111 @@ export function DoubleO() {
       animActor(a, dt, now, Math.min(1, gap * 1.5), a.aimAt > 0);
     };
 
-    // ── Multiplayer: one Realtime room per mission. Co-op world simulated by the host (oldest agent). ──
-    const myId = Math.random().toString(36).slice(2, 10);
-    // My verified X handle (if the wallet holds a bWalletX social certificate), bound to myId.
-    let myProof: SocialProof | null = null;
-    let myHandle: string | null = null;
-    let lastId = 0;
-    if (me.current.wallet)
-      void proveSocialX(me.current.wallet, myId).then((r) => {
-        if (!r) return;
-        myProof = r.proof;
-        myHandle = r.handle;
-        lastId = 0;
-      });
-    type Remote = { rig: Rig; to: THREE.Vector3; eye: THREE.Vector3; yaw: number; seen: number; name: string; x: string | null; vs: boolean; gun: string; act: boolean; tag: THREE.Sprite | null; tagKey: string };
+    // ── Multiplayer: one Realtime room per mission (+ mode + optional private code). ──
+    //   CO-OP: world simulated by the host (oldest agent). DEATHMATCH: agents hunt each other; victims report their
+    //   own deaths (frag log, merged by everyone), the host calls the end. Identity (X avatar over every head) comes
+    //   from the shared layer: src/lib/identity.ts + avatarTag.ts. Payments are untouched: see the shoot()/drain() path.
+    type RosterMeta = { id: string; t: number; name: string; rdy: boolean; ph: string; wire: IdWire };
+    type Remote = {
+      rig: Rig;
+      buf: PoseBuffer;
+      eye: THREE.Vector3;
+      seen: number;
+      name: string;
+      vs: boolean;
+      gun: string;
+      act: boolean;
+      aimUntil: number;
+      hurt: number;
+      dyingAt: number;
+      k: number;
+      tag: THREE.Sprite | null;
+      tagK: string;
+      wire: IdWire;
+      verified: boolean;
+      pos: THREE.Vector3;
+      snap: boolean;
+    };
     const remotes = new Map<string, Remote>();
     let room: Room | null = null;
     let joinedAt = 0;
     let rosterReady = false;
-    let roster: Record<string, { id: string; t: number }> = {};
+    let roster: Record<string, RosterMeta> = {};
     let hostId = myId;
     let lastPose = 0;
     let lastState = 0;
     let lastStateIn = 0; // when the host's world state last arrived
     let lastElect = 0;
+    let lastBoard = 0;
+    let lastScore = 0;
+    let lastEndCheck = 0;
+    let lastCount = -1;
+    let sentX = 0;
+    let sentZ = 0;
+    let sentYaw = 0;
     const isHost = () => hostId === myId;
-    const pushNet = (status?: NetInfo['status']) =>
+
+    // My identity: the X handle typed once (identity.ts), proven (blue tick) when the wallet is the bWalletX-linked one.
+    let myWire: IdWire = {};
+    let provedFor = '';
+    const track = () => room?.track({ id: myId, t: joinedAt, name: me.current.name, rdy: myReady, ph: mpPhase, ...myWire });
+    const syncMe = () => {
+      const h = myHandle();
+      if ((h ?? '') !== (myWire.x ?? '')) myWire = h ? { x: h } : {};
+      track();
+      const w = me.current.wallet;
+      if (h && w && provedFor !== h) {
+        provedFor = h;
+        void proveHandle(w, h, myId).then((p) => {
+          if (p && myHandle() === h) {
+            myWire = p;
+            track();
+            pushNet();
+          }
+        });
+      }
+      pushNet();
+    };
+    const unsubHandle = onMyHandle(syncMe);
+
+    const identOf = (id: string): IdWire & { name: string } => {
+      if (id === myId) return { x: myHandle() ?? undefined, name: me.current.name };
+      const r = remotes.get(id);
+      const m = roster[id];
+      return { ...(r?.wire ?? m?.wire ?? {}), name: r?.name ?? m?.name ?? 'agent' };
+    };
+    const agentIds = () => [myId, ...Object.keys(roster).filter((id) => id !== myId)];
+    const agentsList = (): Agent[] => {
+      if (!room) return [];
+      const dmm = sess.mode === 'dm';
+      const rows: Agent[] = [];
+      for (const id of agentIds()) {
+        if (id === myId) {
+          rows.push({ id, name: me.current.name, x: myHandle(), v: Boolean(myWire.xs), host: isHost(), me: true, vs: me.current.vs, rdy: myReady, ph: mpPhase, k: dmm ? scores.kills(id) : stats.kills, d: dmm ? scores.deaths(id) : 0 });
+          continue;
+        }
+        const r = remotes.get(id);
+        const m = roster[id];
+        if (!r && !m) continue;
+        rows.push({ id, name: r?.name ?? m.name, x: r?.wire.x ?? m?.wire.x ?? null, v: Boolean(r?.verified), host: id === hostId, me: false, vs: Boolean(r?.vs), rdy: Boolean(m?.rdy), ph: m?.ph ?? 'play', k: dmm ? scores.kills(id) : (r?.k ?? 0), d: dmm ? scores.deaths(id) : 0 });
+      }
+      return dmm && mpPhase !== 'lobby' ? rows.sort((a, b2) => b2.k - a.k || a.d - b2.d) : rows;
+    };
+    const pushNet = (status?: NetInfo['status']) => {
+      const now = performance.now();
+      const dmm = sess.mode === 'dm';
       setNet((nInfo) => ({
         status: status ?? nInfo.status,
-        agents: room ? [{ name: myHandle ? `@${myHandle} ✓` : me.current.name, host: isHost(), me: true, vs: me.current.vs }, ...[...remotes.entries()].map(([id, r]) => ({ name: r.x ? `@${r.x} ✓` : r.name, host: id === hostId, me: false, vs: r.vs }))] : [],
+        agents: agentsList(),
+        mode: sess.mode,
+        phase: mpPhase,
+        countdown: goAt ? Math.max(0, Math.ceil((goAt - now) / 1000)) : null,
+        left: dmm && mpPhase === 'play' ? Math.max(0, Math.ceil((matchEnd - now) / 1000)) : null,
+        deadBy: now < deadUntil ? deadBy : null,
+        room: room ? sess.room || null : null,
+        winner: winnerId,
       }));
+    };
     const elect = () => {
       // Candidates: me, plus agents whose poses are arriving (a presence entry can outlive a closed tab).
       const grace = Date.now() - joinedAt < 3000;
@@ -1737,16 +1893,17 @@ export function DoubleO() {
         return Boolean(r && r.seen && performance.now() - r.seen < 2000);
       };
       const list = Object.values(roster).filter((m) => m && m.id && (m.id === myId || (grace && !remotes.has(m.id)) || fresh(m.id)));
-      if (!list.some((m) => m.id === myId)) list.push({ id: myId, t: joinedAt });
+      if (!list.some((m) => m.id === myId)) list.push({ id: myId, t: joinedAt, name: '', rdy: false, ph: mpPhase, wire: {} });
       list.sort((a, b2) => a.t - b2.t || (a.id < b2.id ? -1 : 1));
       const was = hostId;
       hostId = list[0].id;
-      if (was !== hostId && hostId === myId && running) toast.current('You are now running the mission (host)', null);
+      if (was !== hostId && hostId === myId && running && sess.mode === 'coop') toast.current('You are now running the mission (host)', null);
       pushNet();
     };
     const dropRemote = (id: string) => {
       const r = remotes.get(id);
       if (!r) return;
+      if (r.tag) disposeAvatarTag(r.tag);
       scene.remove(r.rig.root);
       disposeGroup(r.rig.root);
       remotes.delete(id);
@@ -1754,15 +1911,47 @@ export function DoubleO() {
     const remoteFor = (id: string, nm: string) => {
       let r = remotes.get(id);
       if (!r) {
+        if (remotes.size >= 8) return null;
         const rig = buildAgent(tintFor(id));
         rig.root.traverse((o) => {
           if ((o as THREE.Mesh).isMesh && o !== rig.hitbox) o.castShadow = true;
         });
+        // A sidearm in the agent's right hand, so everyone can see who is armed.
+        const sidearm = new THREE.Group();
+        const gm = new THREE.MeshStandardMaterial({ color: '#15161a', metalness: 0.7, roughness: 0.35 });
+        const slide = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.3), gm);
+        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.07), gm);
+        grip.position.set(0, -0.1, -0.08);
+        sidearm.add(slide, grip);
+        sidearm.position.set(0.3, 1.12, 0.38);
+        rig.root.add(sidearm);
         scene.add(rig.root);
-        r = { rig, to: new THREE.Vector3(), eye: new THREE.Vector3(), yaw: 0, seen: 0, name: nm, x: null, vs: false, gun: '', act: true, tag: null, tagKey: '' };
+        r = { rig, buf: new PoseBuffer(), eye: new THREE.Vector3(), seen: 0, name: nm, vs: false, gun: '', act: true, aimUntil: 0, hurt: 0, dyingAt: 0, k: 0, tag: null, tagK: '', wire: {}, verified: false, pos: new THREE.Vector3(), snap: true };
         remotes.set(id, r);
+        applyIdent(id);
       }
       return r;
+    };
+    const applyIdent = (id: string) => {
+      const r = remotes.get(id);
+      const m = roster[id];
+      if (!r || !m) return;
+      const w = m.wire;
+      if (w.x === r.wire.x && w.xs?.join() === r.wire.xs?.join()) return;
+      r.wire = w;
+      r.verified = false;
+      if (w.xs)
+        void verifyWire(w, id).then((ok) => {
+          if (ok && remotes.get(id) === r && r.wire === w) {
+            r.verified = true;
+            pushNet();
+          }
+        });
+    };
+    /** Hit reaction on a remote agent: flinch + a spark. */
+    const reactRemote = (r: Remote, at?: THREE.Vector3) => {
+      r.hurt = 1;
+      spark(at ?? r.rig.root.position.clone().setY(1.3), 0.8);
     };
     const applyState = (d: { o: number; p: number; k: string; a: number[] }) => {
       if (!grid || isHost()) return;
@@ -1785,8 +1974,136 @@ export function DoubleO() {
         } else if (a.state !== 'dying') a.state = st ? 'alert' : 'patrol';
         a.aimAt = d.a[o + 5] ? 1 : 0;
       });
-      while (objIdx < d.o && objIdx < L.objectives.length && running) completeObjective(true);
+      while (objIdx < d.o && objIdx < L.objectives.length && running && sess.mode !== 'dm') completeObjective(true);
       progress = d.p;
+    };
+
+    // ── DEATHMATCH rules ──
+    const spawnPts = (): [number, number][] => {
+      const out: [number, number][] = [];
+      if (!grid) return out;
+      grid.rows.forEach((r, z) =>
+        [...r].forEach((c, x) => {
+          if ((c === '.' || c === 'S') && grid!.passable(x, z) && !grid!.isLow((x + 0.5) * SIZE, (z + 0.5) * SIZE)) {
+            const p = grid!.centre(x, z);
+            out.push([p.x, p.z]);
+          }
+        }),
+      );
+      return out;
+    };
+    const respawn = () => {
+      const others: [number, number][] = [...remotes.values()].filter((r) => r.act).map((r) => [r.rig.root.position.x, r.rig.root.position.z]);
+      const c = pickSpawn(spawnPts(), others);
+      if (c) {
+        camera.position.set(c[0], EYE, c[1]);
+        yaw = Math.random() * Math.PI * 2;
+        pitch = 0;
+      }
+      health = 100;
+      armor = 0;
+      deadUntil = 0;
+      deadBy = null;
+      invulnUntil = performance.now() + INVULN_MS;
+      pushHud();
+      pushNet();
+    };
+    const finishMatch = (winner: string | null, log?: unknown) => {
+      if (mpPhase !== 'play') return;
+      if (log) scores.merge(log);
+      mpPhase = 'result';
+      winnerId = winner;
+      running = false;
+      trigger = false;
+      input.current.fire = false;
+      deadUntil = 0;
+      if (document.pointerLockElement) document.exitPointerLock();
+      setShowBoard(false);
+      setScreen('result');
+      playSfx('level');
+      track();
+      pushNet();
+    };
+    const checkEnd = () => {
+      if (!room || sess.mode !== 'dm' || mpPhase !== 'play' || !isHost()) return;
+      const ids = agentIds();
+      const w = scores.winner(ids, FRAG_LIMIT);
+      const timeUp = performance.now() >= matchEnd;
+      if (!w && !timeUp) return;
+      const top = scores.rank(ids)[0];
+      const win = w ?? (top && top.k > 0 ? top.id : null);
+      room.broadcast('end', { w: win, log: scores.entries() });
+      finishMatch(win, scores.entries());
+    };
+    /** A frag (or a death with no killer: villains, a fall). Everyone applies the same log, so feed and board agree. */
+    const onFrag = (f: { key: string; k: string | null; v: string }) => {
+      if (!scores.add(f)) return;
+      const killer = f.k && f.k !== f.v ? f.k : null;
+      feedRef.current(killer ? identOf(killer) : identOf(f.v), killer ? identOf(f.v) : null, killer ? 'blasted' : 'got rekt');
+      if (killer === myId) {
+        stats.kills++;
+        markerT = 0.35;
+        markerKill = true;
+        popup('FRAG!', camera.position.clone().add(new THREE.Vector3(-Math.sin(yaw) * 3, 0.3, -Math.cos(yaw) * 3)), '#ff6a4d', true);
+        playSfx('explosion', 0.5);
+      }
+      const rv = remotes.get(f.v);
+      if (rv) rv.dyingAt = performance.now();
+      if (isHost()) checkEnd();
+      pushNet();
+    };
+    const dieDm = () => {
+      const now = performance.now();
+      deadUntil = now + RESPAWN_MS;
+      sfx?.dead();
+      trigger = false;
+      input.current.fire = false;
+      const killer = lastHitBy && lastHitBy !== myId && now - lastHitAt < 5000 && (remotes.has(lastHitBy) || roster[lastHitBy]) ? lastHitBy : null;
+      deadBy = killer ? `@${identOf(killer).x ?? identOf(killer).name}` : 'the villains';
+      lastHitBy = null;
+      const f = { key: `${myId}#${++myDeaths}`, k: killer, v: myId };
+      room?.broadcast('frag', f);
+      onFrag(f);
+      pushNet();
+    };
+
+    // ── Lobby / match flow ──
+    const callGo = () => {
+      if (mpPhase !== 'lobby' || goAt) return;
+      room?.broadcast('go', { in: COUNTDOWN_MS });
+      goAt = performance.now() + COUNTDOWN_MS;
+      pushNet();
+    };
+    const beginRun = () => {
+      goAt = 0;
+      mpPhase = 'play';
+      winnerId = null;
+      elapsed = 0;
+      if (sess.mode === 'dm') {
+        matchEnd = performance.now() + DM_SECS * 1000;
+        if (beacon) beacon.visible = false;
+        respawn();
+      } else setTimeout(() => running && say.current(L.id, 'start'), 1800);
+      running = true;
+      lastTick = performance.now();
+      setScreen('play');
+      setDebrief(null);
+      setRecent([]);
+      setHud((h) => ({ ...h, onChain: 0, last: null }));
+      lockPointer();
+      track();
+      pushNet();
+    };
+    const enterLobby = () => {
+      mpPhase = 'lobby';
+      running = false;
+      myReady = false;
+      goAt = 0;
+      winnerId = null;
+      setScreen('lobby');
+      setDebrief(null);
+      track();
+      pushNet();
     };
     const leaveMission = () => {
       room?.close();
@@ -1794,6 +2111,13 @@ export function DoubleO() {
       for (const id of [...remotes.keys()]) dropRemote(id);
       hostId = myId;
       rosterReady = false;
+      roster = {};
+      mpPhase = 'idle';
+      goAt = 0;
+      myReady = false;
+      winnerId = null;
+      deadUntil = 0;
+      scores.reset();
       pushNet('off');
     };
     const joinMission = () => {
@@ -1803,44 +2127,33 @@ export function DoubleO() {
       roster = {};
       // (the Room constructor reports status synchronously, before `r` is assigned)
       let r: Room | null = null;
-      r = new Room(`doubleokweg-${L.id}`, myId, {
+      r = new Room(roomName(L.id, sess.mode, sess.room || null), myId, {
         onBroadcast: (event, raw) => {
           if (r !== room || !grid) return;
           const now = performance.now();
-          if (event === 'id') {
-            // A verified X handle: checked against bWalletX's certifier and bound to this session id.
-            const d = raw as { id: string; proof: SocialProof };
-            if (!d?.id || d.id === myId) return;
-            void verifySocialX(d.proof, d.id).then((h) => {
-              const rm = remotes.get(d.id);
-              if (rm && h && rm.x !== h) {
-                rm.x = h;
-                pushNet();
-              }
-            });
-            return;
-          }
           if (event === 'pose') {
-            const d = raw as { id: string; x: number; z: number; yaw: number; name: string; vs: boolean; gun: string; act: boolean };
-            const rm = remoteFor(d.id, d.name);
+            const d = raw as { id: string; ts: number; x: number; z: number; yaw: number; name: string; vs: boolean; gun: string; act: boolean; k?: number };
+            if (!d || typeof d.id !== 'string' || d.id === myId) return;
+            const rm = remoteFor(d.id, String(d.name ?? 'agent').slice(0, 16));
+            if (!rm) return;
             const fresh = rm.seen === 0;
             if (fresh) elect();
-            rm.to.set(d.x, 0, d.z);
-            rm.eye.set(rm.eye.x, EYE, rm.eye.z);
-            if (fresh) rm.rig.root.position.copy(rm.to);
-            const changed = rm.name !== d.name || rm.vs !== d.vs;
-            rm.yaw = d.yaw;
-            rm.name = d.name;
-            rm.vs = d.vs;
-            rm.gun = d.gun;
-            rm.act = d.act;
+            if (!rm.buf.push(d, Date.now())) return;
+            if (rm.buf.teleported) rm.snap = true;
+            rm.pos.set(d.x, 0, d.z);
+            const changed = rm.name !== d.name || rm.vs !== d.vs || rm.k !== d.k;
+            rm.name = String(d.name ?? 'agent').slice(0, 16);
+            rm.vs = Boolean(d.vs);
+            rm.gun = typeof d.gun === 'string' ? d.gun.slice(0, 40) : '';
+            if (d.act && !rm.act) rm.dyingAt = 0; // respawned
+            rm.act = Boolean(d.act);
+            rm.k = Number.isFinite(d.k) ? Math.max(0, Math.floor(d.k as number)) : rm.k;
             rm.seen = now;
             if (fresh || changed) pushNet();
           } else if (event === 'state') {
             lastStateIn = now;
             applyState(raw as { o: number; p: number; k: string; a: number[] });
-          }
-          else if (event === 'ehit') {
+          } else if (event === 'ehit') {
             const d = raw as { i: number; p: number[] };
             const a = actors[d.i];
             if (a && isHost()) hitActor(a, new THREE.Vector3(d.p[0], d.p[1], d.p[2]), now, false);
@@ -1851,9 +2164,22 @@ export function DoubleO() {
             const from = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
             for (let k = 0; k + 2 < d.d.length; k += 3) spawnBolt(from, new THREE.Vector3(d.d[k], d.d[k + 1], d.d[k + 2]), a, cast.shotColor, a?.kind === 'hoarder' ? 0.22 : 0.3, cast.shotSpeed, cast.damage, now);
           } else if (event === 'shot') {
-            const d = raw as { f: number[]; t: number[]; k?: Ammo; c?: string };
+            const d = raw as { id?: string; f: number[]; t: number[]; k?: Ammo; c?: string; h?: string };
             const f = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
+            if (typeof d.h === 'string') {
+              // A practice hit on a player.
+              if (d.h === myId) damagePlayer(4, remotes.get(d.id ?? '')?.rig.root.position, typeof d.id === 'string' ? d.id : null);
+              else {
+                const rr = remotes.get(d.h);
+                if (rr) reactRemote(rr);
+              }
+            }
             const t = new THREE.Vector3(d.t[0], d.t[1], d.t[2]);
+            const shooter = d.id ? remotes.get(d.id) : undefined;
+            if (shooter) {
+              shooter.aimUntil = now + 350; // raise the gun, flash the muzzle
+              spark(f, 1.1);
+            }
             if (d.k) {
               ammoFx.fire(d.k, f, t, d.c ?? '#ffd27a'); // their ordnance round (visual; damage comes from the host)
               return;
@@ -1863,17 +2189,52 @@ export function DoubleO() {
             scene.add(m);
             flyers.push({ m, from: f, to: t, t: 0, dur: Math.max(0.05, f.distanceTo(t) / 50), target: null, point: t.clone() });
           } else if (event === 'phit') {
-            const d = raw as { to: string; from: string; n: number; tokens: boolean; sym?: string; icon?: string | null };
-            if (d.to !== myId) return;
-            damagePlayer(4 * d.n);
-            toast.current(d.tokens ? `+${d.n} $${d.sym} from ${d.from} (in your gun)` : `${d.from} hit you`, d.tokens ? (d.icon ?? null) : null);
+            // A hit on a player. PRACTICE: sent when the shot lands. LIVE: sent once the token has paid the target's
+            // gun (the same Arena rule), so damage and payment travel together.
+            const d = raw as { to: string; id?: string; from: string; n: number; tokens: boolean; sym?: string; icon?: string | null };
+            if (!d || typeof d.to !== 'string') return;
+            const n = Math.min(25, Math.max(1, Math.floor(Number(d.n)) || 1));
+            if (d.to === myId) {
+              const src = d.id ? remotes.get(d.id)?.rig.root.position : undefined;
+              damagePlayer(4 * n, src, typeof d.id === 'string' ? d.id : null);
+              if (d.tokens) toast.current(`+${n} $${d.sym} from ${String(d.from).slice(0, 16)} (in your gun)`, d.icon ?? null);
+            } else {
+              const rr = remotes.get(d.to);
+              if (rr) reactRemote(rr);
+            }
+          } else if (event === 'frag') {
+            const d = raw as { key: string; k: string | null; v: string };
+            if (sess.mode !== 'dm' || mpPhase !== 'play' || !d || typeof d.v !== 'string' || typeof d.key !== 'string' || d.key.length > 40 || d.v.length > 24) return;
+            onFrag({ key: d.key, k: typeof d.k === 'string' && d.k.length <= 24 ? d.k : null, v: d.v });
+          } else if (event === 'sc') {
+            const d = raw as { log: unknown; left: number };
+            if (sess.mode !== 'dm') return;
+            scores.merge(d?.log);
+            if (!isHost() && mpPhase === 'play' && Number.isFinite(d?.left)) matchEnd = now + Math.max(0, Math.min(DM_SECS, d.left)) * 1000;
+          } else if (event === 'go') {
+            const d = raw as { in: number };
+            if (mpPhase === 'lobby' && !goAt) {
+              goAt = now + Math.max(0, Math.min(5000, Number(d?.in) || COUNTDOWN_MS));
+              pushNet();
+            }
+          } else if (event === 'end') {
+            const d = raw as { w: string | null; log: unknown };
+            if (sess.mode === 'dm') finishMatch(typeof d?.w === 'string' ? d.w : null, d?.log);
           }
         },
         onPresence: (st) => {
           if (r !== room) return;
           rosterReady = true;
-          roster = Object.fromEntries(Object.entries(st).map(([k, metas]) => [k, metas[0] as { id: string; t: number }]));
+          roster = {};
+          for (const [k, metas] of Object.entries(st)) {
+            const m = metas[metas.length - 1] as Partial<RosterMeta> & Record<string, unknown>;
+            if (!m || typeof m.id !== 'string') continue;
+            roster[k] = { id: m.id, t: Number(m.t) || 0, name: String(m.name ?? 'agent').slice(0, 16), rdy: Boolean(m.rdy), ph: typeof m.ph === 'string' ? m.ph : 'lobby', wire: readWire(m) };
+          }
           for (const id of [...remotes.keys()]) if (!roster[id]) dropRemote(id);
+          for (const id of remotes.keys()) applyIdent(id);
+          // Joining a match already under way: skip the lobby and drop in.
+          if (mpPhase === 'lobby' && !goAt && Object.values(roster).some((m) => m.id !== myId && m.ph === 'play')) beginRun();
           elect();
         },
         onStatus: (status) => {
@@ -1881,19 +2242,22 @@ export function DoubleO() {
         },
       });
       room = r;
-      r.track({ id: myId, t: joinedAt });
+      track();
+      syncMe();
       pushNet('connecting');
     };
     /** Per frame: send my pose, (host) the world, and move everyone else's agent. */
     const netTick = (dt: number, now: number) => {
       if (!room) return;
-      if (myProof && now - lastId > 5000) {
-        lastId = now;
-        room.broadcast('id', { id: myId, proof: myProof });
-      }
-      if (now - lastPose > 100) {
+      const alive = running && health > 0 && now >= deadUntil;
+      // Pose: 10 Hz while moving or turning, a slow heartbeat when standing still (halves the room's traffic).
+      const moved = Math.abs(camera.position.x - sentX) + Math.abs(camera.position.z - sentZ) + Math.abs(yaw - sentYaw) * 2 > 0.02;
+      if (now - lastPose > (running ? (moved ? 100 : 400) : 500)) {
         lastPose = now;
-        room.broadcast('pose', { id: myId, x: +camera.position.x.toFixed(2), z: +camera.position.z.toFixed(2), yaw: +yaw.toFixed(3), name: me.current.name, vs: me.current.vs, gun: me.current.gun, act: running && health > 0 });
+        sentX = camera.position.x;
+        sentZ = camera.position.z;
+        sentYaw = yaw;
+        room.broadcast('pose', { id: myId, ts: Date.now(), x: +camera.position.x.toFixed(2), z: +camera.position.z.toFixed(2), yaw: +yaw.toFixed(3), name: me.current.name, vs: me.current.vs || sess.mode === 'dm', gun: me.current.gun, act: alive, k: stats.kills });
       }
       // Re-elect every second, and at once if the host's world updates stop (someone else takes over).
       if (rosterReady && (now - lastElect > 1000 || (!isHost() && lastStateIn && now - lastStateIn > 1500))) {
@@ -1901,7 +2265,38 @@ export function DoubleO() {
         if (!isHost() && lastStateIn && now - lastStateIn > 1500) lastStateIn = now; // one takeover attempt per stall
         elect();
       }
-      if (isHost() && rosterReady && grid && now - lastState > 100) {
+      // Lobby: countdown, and the host starts once everyone present is ready.
+      if (mpPhase === 'lobby') {
+        if (goAt) {
+          if (now >= goAt) beginRun();
+          else {
+            const c = Math.ceil((goAt - now) / 1000);
+            if (c !== lastCount) {
+              lastCount = c;
+              pushNet();
+            }
+          }
+        } else if (isHost() && rosterReady) {
+          const rows = agentsList().filter((a) => a.ph === 'lobby');
+          if (rows.length >= 2 && rows.every((a) => a.rdy)) callGo();
+        }
+      } else lastCount = -1;
+      if (mpPhase === 'play') {
+        if (sess.mode === 'dm' && isHost() && now - lastEndCheck > 500) {
+          lastEndCheck = now;
+          checkEnd();
+        }
+        if (sess.mode === 'dm' && isHost() && now - lastScore > 2000) {
+          lastScore = now;
+          room.broadcast('sc', { log: scores.entries(), left: Math.max(0, Math.round((matchEnd - now) / 1000)) });
+        }
+        // The roster/board/clock refresh once a second (not per frame).
+        if (now - lastBoard > 1000) {
+          lastBoard = now;
+          pushNet();
+        }
+      }
+      if (isHost() && mpPhase === 'play' && rosterReady && grid && now - lastState > 100) {
         lastState = now;
         const a: number[] = [];
         let k = '';
@@ -1911,32 +2306,42 @@ export function DoubleO() {
         }
         room.broadcast('state', { o: objIdx, p: +progress.toFixed(3), k, a });
       }
+      const wall = Date.now();
       for (const [id, r] of remotes) {
         if (r.seen && now - r.seen > 6000) {
           dropRemote(id);
           elect(); // the host may have gone silent (closed tab): hand off
           continue;
         }
+        // Interpolated ~120 ms in the past between the last snapshots (PoseBuffer), not chased with a lerp.
+        const s = r.buf.sample(wall);
         const p = r.rig.root.position;
-        const gap = p.distanceTo(r.to);
-        p.lerp(r.to, Math.min(1, dt * 8));
+        let gap = 0;
+        if (s) {
+          gap = r.snap ? 0 : Math.hypot(s.x - p.x, s.z - p.z);
+          p.set(s.x, 0, s.z);
+          r.rig.root.rotation.y = s.yaw + Math.PI;
+          r.snap = false;
+        }
         r.eye.set(p.x, EYE, p.z);
-        r.rig.root.rotation.y = r.yaw + Math.PI;
-        r.rig.root.visible = r.act;
-        poseRig(r.rig, dt, Math.min(1, gap * 2), false, now);
-        const key = `${r.name}|${r.x}|${r.vs}`;
-        if (key !== r.tagKey) {
-          r.tagKey = key;
-          if (r.tag) {
-            r.rig.root.remove(r.tag);
-            r.tag.material.map?.dispose();
-            r.tag.material.dispose();
-          }
-          const who = r.x ? `@${r.x} ✓` : r.name;
-          r.tag = nameTag(r.vs ? `${who} · VERSUS` : who, r.vs ? '#ff7060' : r.x ? '#1d9bf0' : tintFor(id));
-          r.tag.position.y = 2.35;
+        const dying = r.dyingAt > 0 && now - r.dyingAt < 900;
+        r.rig.root.visible = r.act || dying;
+        // Hit reaction (flinch) and the death collapse.
+        r.hurt = Math.max(0, r.hurt - dt * 4);
+        const fall = r.dyingAt > 0 && !r.act ? Math.min(1, (now - r.dyingAt) / 350) : 0;
+        r.rig.body.rotation.x = -0.35 * r.hurt - 1.45 * fall;
+        poseRig(r.rig, dt, Math.min(1, gap / Math.max(dt, 0.001) / 6), now < r.aimUntil, now);
+        // The X avatar billboard over the head (sprite: hidden from the AO pass by the GTAO wrapper above).
+        const o = { handle: r.wire.x ?? null, name: r.name, ring: tintFor(id), verified: r.verified };
+        const key = tagKey(o);
+        if (key !== r.tagK) {
+          r.tagK = key;
+          if (r.tag) disposeAvatarTag(r.tag);
+          r.tag = makeAvatarTag(o, 0.62);
+          r.tag.position.y = 2.15;
           r.rig.root.add(r.tag);
         }
+        if (r.tag) fitAvatarTag(r.tag, camera, 0.035, 1.8);
       }
     };
 
@@ -1967,6 +2372,10 @@ export function DoubleO() {
       const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
       const mv = fwd.multiplyScalar(f).add(right.multiplyScalar(s));
       if (mv.lengthSq() > 1) mv.normalize();
+      // DEATHMATCH: a dead agent lies still until the respawn timer ends.
+      const dead = sess.mode === 'dm' && now < deadUntil;
+      if (sess.mode === 'dm' && deadUntil && !dead) respawn();
+      if (dead) mv.set(0, 0, 0);
       mv.multiplyScalar(speed);
       const pad = 0.4;
       const nx = camera.position.x + mv.x;
@@ -1975,9 +2384,9 @@ export function DoubleO() {
       if (!grid.solidAt(camera.position.x, nz + Math.sign(mv.z) * pad)) camera.position.z = nz;
       const moving = mv.lengthSq() > 0;
       walkPhase += moving ? dt * 10 : 0;
-      camera.position.y = EYE + (moving ? Math.sin(walkPhase) * 0.035 : 0);
+      camera.position.y = dead ? 0.45 : EYE + (moving ? Math.sin(walkPhase) * 0.035 : 0);
 
-      if (trigger || input.current.fire || input.current.pulse) shoot(now);
+      if (!dead && (trigger || input.current.fire || input.current.pulse)) shoot(now);
       input.current.pulse = false; // a quick tap still fires one shot even if it ends before the next frame
       ammoFx.update(dt);
       const whine = Boolean((trigger || input.current.fire) && running && isMinigunOrdnance(armed ?? undefined));
@@ -2032,7 +2441,7 @@ export function DoubleO() {
       }
 
       // Objective.
-      const o = L.objectives[objIdx];
+      const o = sess.mode === 'dm' ? undefined : L.objectives[objIdx];
       if (o) {
         const tgt = objTarget();
         // Co-op: the host decides objectives (any agent can reach them); guests follow its state.
@@ -2228,7 +2637,7 @@ export function DoubleO() {
       } else slowFor = 0;
       if (running) step(dt, performance.now());
       else if (!grid) yaw += dt * 0.15; // menu: slow look around
-      else if (room && isHost()) for (const a of actors) thinkActor(a, dt, performance.now()); // paused host keeps the co-op world going
+      else if (room && isHost() && mpPhase === 'play') for (const a of actors) thinkActor(a, dt, performance.now()); // paused host keeps the co-op world going
       netTick(dt, performance.now());
       fx(dt, performance.now());
       held?.mixer?.update(dt);
@@ -2251,7 +2660,7 @@ export function DoubleO() {
           pushHud();
           composer.render();
         },
-        state: () => ({ host: isHost(), hostId, me: myId, remotes: [...remotes.keys()], running, health, armor, objIdx, level: L.id, pos: [camera.position.x, camera.position.z], actors: actors.map((a) => ({ k: a.kind, hp: a.hp, st: a.state, p: [a.root.position.x, a.root.position.z] })), stats }),
+        state: () => ({ host: isHost(), hostId, me: myId, phase: mpPhase, mode: sess.mode, deadUntil, agents: agentsList(), tags: [...remotes.values()].map((r) => ({ tag: Boolean(r.tag), vis: r.rig.root.visible, tilt: r.rig.body.rotation.x })), rp: [...remotes.entries()].map(([id, r]) => [id, +r.rig.root.position.x.toFixed(1), +r.rig.root.position.z.toFixed(1), r.act, r.dyingAt > 0]), yaw, scores: scores.entries(), remotes: [...remotes.keys()], running, health, armor, objIdx, level: L.id, pos: [camera.position.x, camera.position.z], actors: actors.map((a) => ({ k: a.kind, hp: a.hp, st: a.state, p: [a.root.position.x, a.root.position.z] })), stats }),
         goTo: (c: string) => {
           const cell = grid?.find(c)[0];
           if (cell && grid) {
@@ -2342,7 +2751,7 @@ export function DoubleO() {
       const dt = Math.min(0.05, (now - lastTick) / 1000);
       lastTick = now;
       if (running) step(dt, now);
-      else if (grid && isHost()) for (const a of actors) thinkActor(a, dt, now);
+      else if (grid && isHost() && mpPhase === 'play') for (const a of actors) thinkActor(a, dt, now);
       netTick(dt, now);
     }, 250);
 
@@ -2352,6 +2761,7 @@ export function DoubleO() {
       cancelAnimationFrame(raf);
       minigun(false);
       ammoFx.dispose();
+      unsubHandle();
       leaveMission();
       engine.current = null;
       window.removeEventListener('keydown', onKey);
@@ -2387,8 +2797,16 @@ export function DoubleO() {
     setLevel(i);
     setEmpty(false);
     setLive(isLive);
-    setBrief({ level: i, live: isLive });
+    if (mode === 'dm' && realtimeConfigured()) {
+      // DEATHMATCH has no story: straight to the lobby (this click is the gesture that lets the game lock the mouse).
+      me.current = { ...me.current, mode, bots, room: roomCode };
+      engine.current?.start(i, isLive);
+    } else setBrief({ level: i, live: isLive });
   };
+  const rtOn = realtimeConfigured();
+  const privateLink = typeof window !== 'undefined' && roomCode ? roomLink(window.location.origin, window.location.pathname, LEVELS[level].id, mode, roomCode) : '';
+  const meAgent = net.agents.find((a) => a.me);
+  const dmView = net.mode === 'dm';
   // The ammo flow: 1 connect → 2 pick token + amount, LOAD (one approval) → 3 PLAY.
   const ammoPanel = (
     <AmmoStrip
@@ -2424,9 +2842,6 @@ export function DoubleO() {
           }}
           className="inset w-40 bg-input px-2 py-0.5 text-hot"
         />
-        <button onClick={() => setVersus((v) => !v)} className={`btn px-2 py-0.5 text-xs ${versus ? 'btn-on' : ''}`} title="Agents with VERSUS on can shoot each other (V in game)">
-          VERSUS {versus ? 'ON' : 'OFF'}
-        </button>
         <span className="ml-auto flex items-center gap-1 text-xs">
           <span className="font-bold tracking-widest text-dim">GRAPHICS</span>
           {(['low', 'high'] as const).map((q) => (
@@ -2436,11 +2851,66 @@ export function DoubleO() {
           ))}
         </span>
       </div>
-      <p className="text-xs text-dim">
-        {realtimeConfigured()
-          ? 'Co-op: everyone in the same mission plays it together; objectives and bosses count for the whole squad. VERSUS: agents who both switch it on can shoot each other. In LIVE each hit sends your token to their gun.'
-          : 'Multiplayer is offline on this server: solo missions only.'}
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <IdentityPicker verified={Boolean(meAgent?.v)} />
+      </div>
+      {rtOn ? (
+        <div className="flex flex-col gap-2" data-doubleo-modes>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-xs font-bold tracking-widest text-dim">MODE</span>
+            {MODES.map((m) => (
+              <button key={m.id} onClick={() => setMode(m.id)} data-mode={m.id} className={`btn px-2 py-0.5 text-xs ${mode === m.id ? 'btn-on' : 'opacity-70'}`} title={m.blurb}>
+                {m.name}
+              </button>
+            ))}
+            {mode === 'dm' && (
+              <button onClick={() => setBots((v) => !v)} className={`btn px-2 py-0.5 text-xs ${bots ? 'btn-on' : 'opacity-70'}`} title="Also the villains?">
+                VILLAINS {bots ? 'ON' : 'OFF'}
+              </button>
+            )}
+          </div>
+          {mode !== 'solo' && (
+            <div className="flex flex-wrap items-center gap-1" data-doubleo-room>
+              <span className="text-xs font-bold tracking-widest text-dim">ROOM</span>
+              <button onClick={() => (setRoomCode(''), setJoinCode(''))} className={`btn px-2 py-0.5 text-xs ${!roomCode ? 'btn-on' : 'opacity-70'}`} title="Join whoever else is playing this mission">
+                QUICK MATCH
+              </button>
+              <button onClick={() => (setRoomCode((c) => c || newRoomCode()), setJoinCode((c) => c || ''))} className={`btn px-2 py-0.5 text-xs ${roomCode ? 'btn-on' : 'opacity-70'}`} title="A private room for your group chat">
+                PRIVATE ROOM
+              </button>
+              <input
+                value={joinCode}
+                onChange={(e) => {
+                  setJoinCode(e.target.value);
+                  const c = cleanRoomCode(e.target.value);
+                  if (c) setRoomCode(c);
+                }}
+                placeholder="room code"
+                maxLength={12}
+                aria-label="Private room code"
+                className="inset w-24 bg-input px-1 py-0.5 text-xs text-hot"
+              />
+              {roomCode && <span className="text-xs text-accent">code {roomCode}</span>}
+            </div>
+          )}
+          {mode !== 'solo' && roomCode && <InviteButton link={privateLink} game="Double-O Satoshi" />}
+          <p className="text-xs text-dim">
+            {mode === 'coop' && 'CO-OP: 2-4 agents run the same mission together; objectives and bosses count for the squad. Everyone sees each other with their X avatar.'}
+            {mode === 'dm' && `DEATHMATCH: hunt each other through the map, first to ${FRAG_LIMIT} frags (or most when ${DM_SECS / 60} min is up). In LIVE every hit sends your token to the other agent's gun.`}
+            {mode === 'solo' && 'SOLO: just you and the villains.'}
+            {mode === 'coop' && (
+              <>
+                {' '}
+                <button onClick={() => setVersus((v) => !v)} className={`btn px-1.5 py-0 text-[11px] ${versus ? 'btn-on' : ''}`} title="Agents with VERSUS on can shoot each other (V in game)">
+                  VERSUS {versus ? 'ON' : 'OFF'}
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+      ) : (
+        <p className="text-xs text-dim">Multiplayer is offline on this server: solo missions only.</p>
+      )}
     </div>
   );
 
@@ -2468,18 +2938,57 @@ export function DoubleO() {
               </div>
             ))}
             {/* Squad (multiplayer) */}
-            {net.agents.length > 1 && (
-              <div className="pointer-events-none absolute bottom-16 left-2 flex flex-col gap-0.5 text-xs">
-                {net.agents.map((a, i) => (
-                  <span key={i} className={`inset w-fit bg-black/70 px-2 ${a.me ? 'text-hot' : 'text-accent'}`}>
-                    {a.name}
-                    {a.host ? ' ★' : ''}
-                    {a.vs ? ' · VERSUS' : ''}
+            {net.agents.length > 1 && !dmView && (
+              <div className="pointer-events-none absolute bottom-16 left-2 flex flex-col gap-0.5 text-xs" data-doubleo-squad>
+                {net.agents.map((a) => (
+                  <span key={a.id} className={`inset flex w-fit items-center gap-1 bg-black/70 px-2 ${a.me ? 'text-hot' : 'text-accent'}`}>
+                    <PlayerBadge handle={a.x} name={a.name} verified={a.v} size={16} />
+                    <span className="text-dim">
+                      {a.k} kills{a.host ? ' ★' : ''}
+                      {a.vs ? ' · VERSUS' : ''}
+                    </span>
                   </span>
                 ))}
               </div>
             )}
-            {versus && <div className="pointer-events-none absolute bottom-16 right-2 inset bg-black/70 px-2 text-xs font-bold text-hot">VERSUS ON (V)</div>}
+            {dmView && (
+              <>
+                <div className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 text-center" data-dm-hud>
+                  <div className="inset bg-black/75 px-3 py-1 text-xs">
+                    <span className="font-bold tracking-widest text-hot">DEATHMATCH</span> <span className="text-dim">first to {FRAG_LIMIT}</span>
+                    {net.left !== null && <span className="ml-2 tabular-nums text-fg">{fmtTime(net.left)}</span>}
+                  </div>
+                </div>
+                <div className={`pointer-events-none absolute right-2 top-2 flex flex-col gap-0.5 text-xs ${showBoard ? 'bg-black/85 p-2' : ''}`} data-scoreboard>
+                  {(showBoard ? net.agents : net.agents.slice(0, 4)).map((a) => (
+                    <span key={a.id} className={`inset flex items-center gap-1 bg-black/70 px-2 ${a.me ? 'text-hot' : 'text-fg'}`} data-score-row={a.x ?? a.name}>
+                      <PlayerBadge handle={a.x} name={a.name} verified={a.v} ring={a.me ? '#f4efe2' : undefined} size={16} className="flex-1" />
+                      <span className="tabular-nums" data-k>{a.k}</span>
+                      {showBoard && <span className="tabular-nums text-dim">/ {a.d}</span>}
+                    </span>
+                  ))}
+                  <span className="text-right text-[10px] text-dim max-sm:hidden">hold TAB: K / D</span>
+                </div>
+                {net.deadBy && (
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-red-900/40 text-center" data-dm-dead>
+                    <p className="text-3xl font-bold text-hot">ELIMINATED</p>
+                    <p className="text-sm text-fg">by {net.deadBy} · respawning</p>
+                  </div>
+                )}
+              </>
+            )}
+            {feed.length > 0 && (
+              <div className="pointer-events-none absolute bottom-28 right-2 flex flex-col items-end gap-1 text-xs" data-kill-feed>
+                {feed.map((f) => (
+                  <div key={f.k} className="flex items-center gap-1 bg-black/75 px-2 py-0.5 text-fg">
+                    <PlayerBadge handle={f.from.x} name={f.from.name} size={16} />
+                    <span className="text-hot">{f.why}</span>
+                    {f.to && <PlayerBadge handle={f.to.x} name={f.to.name} size={16} />}
+                  </div>
+                ))}
+              </div>
+            )}
+            {versus && !dmView && <div className="pointer-events-none absolute bottom-16 right-2 inset bg-black/70 px-2 text-xs font-bold text-hot">VERSUS ON (V)</div>}
             {toasts.length > 0 && (
               <div className="pointer-events-none absolute left-1/2 top-24 flex -translate-x-1/2 flex-col items-center gap-1">
                 {toasts.map((t) => (
@@ -2492,7 +3001,7 @@ export function DoubleO() {
               </div>
             )}
             {/* Objective + compass */}
-            <div className="pointer-events-none absolute left-2 top-2 flex max-w-[60%] flex-col gap-1">
+            <div className={`pointer-events-none absolute left-2 top-2 flex max-w-[60%] flex-col gap-1 ${dmView ? 'hidden' : ''}`}>
               <div className="inset bg-black/75 px-2 py-1 text-xs sm:text-sm">
                 <span className="text-dim">
                   {L.codename} · OBJECTIVE {Math.min(hud.objIdx + 1, hud.objTotal)}/{hud.objTotal}
@@ -2603,6 +3112,82 @@ export function DoubleO() {
           </>
         )}
 
+        {/* Multiplayer lobby */}
+        {screen === 'lobby' && (
+          <div className="absolute inset-0 flex flex-col items-center gap-3 overflow-y-auto bg-black/85 px-4 py-5 text-center" data-doubleo-lobby>
+            <p className="text-xs tracking-widest text-dim">
+              {L.codename} · {L.name.toUpperCase()} · {net.mode === 'dm' ? 'DEATHMATCH' : 'CO-OP'} · {net.room ? `PRIVATE ROOM ${net.room}` : 'QUICK MATCH'}
+            </p>
+            <p className="text-3xl font-bold text-hot">{net.countdown !== null ? `GET READY ${net.countdown}` : 'LOBBY'}</p>
+            <p className="text-xs text-dim">
+              {net.status === 'live' ? (net.agents.length > 1 ? `${net.agents.length} agents here.` : 'Waiting for other agents. Invite your group chat, or start alone.') : net.status === 'connecting' ? 'Connecting...' : 'Offline'}
+              {net.mode === 'dm' ? ` First to ${FRAG_LIMIT} frags.` : ' Objectives and bosses count for the whole squad.'} Click the game once it starts to capture the mouse.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <IdentityPicker verified={Boolean(meAgent?.v)} />
+              <InviteButton link={privateLink || (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?mode=${net.mode}&m=${L.id}` : 'https://www.tokenblaster.lol/arcade/doubleosatoshi')} game="Double-O Satoshi" />
+            </div>
+            <div className="flex max-w-3xl flex-wrap justify-center gap-2" data-lobby-roster>
+              {net.agents.map((a) => (
+                <div key={a.id} className={`inset flex min-w-[11rem] items-center gap-2 bg-black/60 px-3 py-2 text-left ${a.me ? 'border-fg' : ''}`} data-lobby-agent={a.x ?? a.name}>
+                  <PlayerBadge handle={a.x} name={a.name} verified={a.v} ring={a.me ? '#f4efe2' : undefined} size={28} className={`text-sm ${a.me ? 'text-hot' : 'text-fg'}`} />
+                  <span className={`ml-auto text-xs ${a.ph === 'play' ? 'text-accent' : a.rdy ? 'text-[#60ff90]' : 'text-dim'}`}>
+                    {a.host ? '★ ' : ''}
+                    {a.ph === 'play' ? 'IN GAME' : a.rdy ? 'READY' : 'not ready'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button onClick={() => engine.current?.ready(!meAgent?.rdy)} className={meAgent?.rdy ? 'btn px-4 py-2 font-bold' : 'btn-fire'} data-ready>
+                {meAgent?.rdy ? 'READY ✓ (click to cancel)' : 'READY'}
+              </button>
+              {meAgent?.host && net.countdown === null && (
+                <button onClick={() => engine.current?.startMatch()} className="btn px-4 py-2 font-bold" data-start-match>
+                  START NOW
+                </button>
+              )}
+              <button onClick={() => setScreen('menu')} className="btn px-3 py-2">
+                LEAVE
+              </button>
+            </div>
+            <p className="text-xs text-dim">The match starts 3 seconds after everyone is ready, or when the host (★) presses START NOW.</p>
+            {live && <p className="text-xs text-accent">LIVE: every hit on another agent sends your ${sym} to their gun.</p>}
+          </div>
+        )}
+        {/* Deathmatch result */}
+        {screen === 'result' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto bg-black/85 px-4 py-5 text-center" data-dm-result>
+            <p className="text-xs tracking-widest text-dim">{L.codename} · {L.name.toUpperCase()} · DEATHMATCH</p>
+            <p className="text-3xl font-bold text-[#60ff90]">
+              {net.winner ? (
+                <span className="inline-flex items-center gap-2">
+                  <PlayerBadge handle={net.agents.find((a) => a.id === net.winner)?.x} name={net.agents.find((a) => a.id === net.winner)?.name ?? 'agent'} size={36} /> WINS
+                </span>
+              ) : (
+                'TIME: NO WINNER'
+              )}
+            </p>
+            <div className="flex w-full max-w-md flex-col gap-1" data-final-board>
+              {net.agents.map((a, i) => (
+                <div key={a.id} className={`inset flex items-center gap-2 bg-black/60 px-3 py-1 text-sm ${a.me ? 'text-hot' : 'text-fg'}`} data-score-row={a.x ?? a.name}>
+                  <span className="w-5 text-dim">{i + 1}</span>
+                  <PlayerBadge handle={a.x} name={a.name} verified={a.v} size={22} className="flex-1" />
+                  <span className="tabular-nums" data-k>{a.k}</span>
+                  <span className="tabular-nums text-dim">/ {a.d}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => engine.current?.toLobby()} className="btn-fire">
+                BACK TO LOBBY
+              </button>
+              <button onClick={() => setScreen('menu')} className="btn px-3 py-2">
+                LEAVE
+              </button>
+            </div>
+          </div>
+        )}
         {/* Menu / pause */}
         {(screen === 'menu' || screen === 'paused') && (
           <div className="absolute inset-0 flex flex-col items-center gap-4 overflow-y-auto bg-black/80 px-4 py-5 text-center">
