@@ -16,7 +16,7 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { HighScores, useRunClock } from './HighScores';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
-import { InsertCoin, useCoinOp, type CoinOp } from './InsertCoin';
+import { CoinOpButtons, useCoinOp, type CoinOp } from './InsertCoin';
 import { LIVES_PER_CREDIT } from '@/lib/coinop';
 import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
@@ -412,19 +412,6 @@ export function TokenSnake() {
   );
 }
 
-/** Title / game-over controls: INSERT COIN, PLAY (spends a credit), PRACTICE (free). */
 function TitleButtons({ co, start }: { co: CoinOp; start: (paid: boolean) => void }) {
-  return (
-    <div className="flex flex-col items-center gap-2">
-      <InsertCoin co={co} />
-      <div className="flex flex-wrap justify-center gap-2">
-        <button onClick={() => start(true)} disabled={co.credits < 1} className="btn btn-on px-3 py-1 text-sm font-bold disabled:opacity-40">
-          ▶ PLAY · 1 CREDIT
-        </button>
-        <button onClick={() => start(false)} className="btn px-3 py-1 text-sm">
-          ▶ PRACTICE · FREE
-        </button>
-      </div>
-    </div>
-  );
+  return <CoinOpButtons co={co} start={start} />;
 }

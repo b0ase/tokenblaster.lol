@@ -96,12 +96,14 @@ export function NpgCards() {
 function CoinSlot({ co, credit, setCredit, msg }: { co: CoinOp; credit: boolean; setCredit: (b: boolean) => void; msg: string | null }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/70 p-2 font-mono">
-      <InsertCoin co={co} perCredit={PER_CREDIT} />
+      <span className="text-xs text-zinc-400">Next match vs AI:</span>
       <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-        <span className="text-xs text-zinc-400">Next match vs AI:</span>
-        <button onClick={() => setCredit(true)} disabled={co.credits < 1 && !credit} aria-pressed={credit} className={`btn px-3 py-1 font-bold disabled:opacity-40 ${credit ? 'btn-on' : ''}`}>
-          ▶ 1 CREDIT
-        </button>
+        {credit && co.credits > 0 ? (
+          <span className="btn btn-on px-3 py-1 font-bold">✓ PAID MATCH · 1 CREDIT READY</span>
+        ) : (
+          // Pays (one approval) and sets the next match as paid; then pick VS AI to start.
+          <InsertCoin co={co} perCredit={PER_CREDIT} start={(paid) => setCredit(paid)} playLabel="PAID MATCH" />
+        )}
         <button onClick={() => setCredit(false)} aria-pressed={!credit} className={`btn px-3 py-1 ${!credit ? 'btn-on' : ''}`}>
           ▶ PRACTICE · FREE
         </button>

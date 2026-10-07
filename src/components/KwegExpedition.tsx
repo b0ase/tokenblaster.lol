@@ -1309,7 +1309,7 @@ export function KwegExpedition() {
               Professor Doctor Sir Kweg S Wong esq. races three rivals to Satoshi&apos;s submarine coordinates. Arrows / WASD or drag to steer · SPACE = sonar ping (finds hidden $KWEG
               and elephants) · X = patent-stamp dash.
             </p>
-            <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><CoinOpButtons co={co} start={start} perCredit="1 credit = 1 expedition, until the hull gives out." playLabel="▶ BEGIN · 1 CREDIT" practiceLabel="▶ BEGIN · PRACTICE" /></div>
+            <div className="rounded-xl bg-[#1d1d2b] p-3 font-mono"><CoinOpButtons co={co} start={start} perCredit="1 credit = 1 expedition, until the hull gives out." playLabel="BEGIN" practiceLabel="▶ BEGIN · PRACTICE" /></div>
           </div>
         )}
         {card && (phase === 'card' || phase === 'over' || phase === 'won') && (

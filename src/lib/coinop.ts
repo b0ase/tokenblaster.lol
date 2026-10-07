@@ -56,7 +56,7 @@ export async function insertCoin(client: WalletInterface, o: { game: string; tag
         outputDescription: `TokenBlaster coin-op tag: ${o.tag}`,
       },
     ],
-    labels: ['tokenblaster', 'coinop'],
+    // No labels: BRC-100 wallets ask permission for every new label, which piled prompts onto a 10p coin.
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
   });
   const txid = r.txid ?? (r.tx ? Transaction.fromAtomicBEEF(r.tx).id('hex') : '');

@@ -558,7 +558,7 @@ export function TokenRally() {
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="▶ START STAGE · 1 CREDIT" practiceLabel="▶ START STAGE · PRACTICE" />
+                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="START STAGE" practiceLabel="▶ START STAGE · PRACTICE" />
                 {bestTime ? <span className="text-sm text-hot">BEST {fmt(bestTime)}</span> : null}
               </div>
               <details className="text-[11px] text-dim">
@@ -651,7 +651,7 @@ export function TokenRally() {
                 <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.paid} txid={run.txid} meta={run.paid ? { car: result.car, pos: result.pos, coinop: 1 } : { car: result.car, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
               </div>
               <div className="flex flex-wrap justify-center gap-2">
-                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="▶ RACE AGAIN · 1 CREDIT" practiceLabel="▶ RACE AGAIN · PRACTICE" />
+                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" />
                 <button onClick={toMenu} className="btn">
                   STAGE SELECT / NEW RIVALS
                 </button>

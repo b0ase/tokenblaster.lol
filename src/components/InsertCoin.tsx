@@ -6,7 +6,7 @@
  * button plus the CREDITS counter. Starting a paid game calls `consume()`, which spends one credit
  * and returns that coin's txid (record it with the run). Render `chooserEl` once (wallet picker).
  */
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { COINOP_HOUSE, COIN_PENCE, coinSats, insertCoin, isCancel, LIVES_PER_CREDIT } from '@/lib/coinop';
 import { useWalletConnect } from './OrdnanceArsenal';
 
@@ -28,6 +28,8 @@ export function useCoinOp(game: string, tag: string) {
   const [paying, setPaying] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string; txid?: string } | null>(null);
   const [wantPay, setWantPay] = useState(false);
+  // The game to start as soon as the coin lands (PLAY · 10p): paying IS pressing start.
+  const startNext = useRef<((paid: boolean) => void) | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -58,8 +60,12 @@ export function useCoinOp(game: string, tag: string) {
       const txid = await insertCoin(w.wallet.client, { game, tag, sats, n: ++coinN });
       credits.set(tag, [...(credits.get(tag) ?? []), txid]);
       emit();
-      setMsg({ ok: true, text: `Coin accepted: 1 credit (${sats.toLocaleString('en-GB')} sats).`, txid });
+      setMsg({ ok: true, text: `Coin accepted (${sats.toLocaleString('en-GB')} sats).`, txid });
+      const go = startNext.current;
+      startNext.current = null;
+      go?.(true);
     } catch (e) {
+      startNext.current = null;
       setMsg({ ok: false, text: isCancel(e) ? 'Cancelled in the wallet. No coin taken.' : `Coin not taken: ${e instanceof Error ? e.message : String(e)}` });
     } finally {
       setPaying(false);
@@ -83,6 +89,16 @@ export function useCoinOp(game: string, tag: string) {
     void w.connectWallet();
   }, [sats, paying, w, pay]);
 
+  /** PLAY · 10p: use a credit if there is one, otherwise take a coin and start the moment it lands. */
+  const playPaid = useCallback(
+    (start: (paid: boolean) => void) => {
+      if ((credits.get(tag)?.length ?? 0) > 0) return start(true);
+      startNext.current = start;
+      insert();
+    },
+    [tag, insert],
+  );
+
   /** Spend one credit; returns its coin's txid, or null when there are no credits. */
   const consume = useCallback((): string | null => {
     const list = credits.get(tag) ?? [];
@@ -93,54 +109,57 @@ export function useCoinOp(game: string, tag: string) {
     return txid;
   }, [tag]);
 
-  return { credits: count, sats, rateErr, paying: paying || w.busy, msg, walletErr: w.error, insert, consume, chooserEl: w.chooserEl, enabled: Boolean(COINOP_HOUSE) };
+  return { credits: count, sats, rateErr, paying: paying || w.busy, msg, walletErr: w.error, insert, playPaid, consume, chooserEl: w.chooserEl, enabled: Boolean(COINOP_HOUSE) };
 }
 
 export type CoinOp = ReturnType<typeof useCoinOp>;
 
-const txUrl = (txid: string) => `https://whatsonchain.com/tx/${txid}`;
-
-/** The coin slot: INSERT COIN button, CREDITS, and any plain-English result. */
-export function InsertCoin({ co, perCredit }: { co: CoinOp; perCredit?: string }) {
-  const label = !co.enabled ? 'COIN SLOT CLOSED' : co.paying ? 'CHECK YOUR WALLET…' : co.sats ? `INSERT COIN · ${COIN_PENCE}p (${co.sats.toLocaleString('en-GB')} sats)` : co.rateErr ? 'PRICE UNAVAILABLE' : 'PRICING…';
+/**
+ * The coin slot: ONE big button. With credits left it says PLAY · 1 CREDIT; without, PLAY · 10p, which takes
+ * the coin and starts the game the moment it lands (owner, 7 Oct 2026: paying then hunting for a
+ * separate start button was bad design). Without `start` it only takes a coin (a credit for later).
+ */
+export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY' }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string }) {
+  const label = !co.enabled
+    ? 'COIN SLOT CLOSED'
+    : co.paying
+      ? 'APPROVE IN YOUR WALLET…'
+      : co.credits > 0 && start
+        ? `▶ ${playLabel} · 1 CREDIT (${co.credits} left)`
+        : co.sats
+          ? `🪙 ${start ? `${playLabel} · ` : 'INSERT COIN · '}${COIN_PENCE}p (${co.sats.toLocaleString('en-GB')} sats)`
+          : co.rateErr
+            ? 'PRICE UNAVAILABLE'
+            : 'PRICING…';
+  const canUseCredit = Boolean(start) && co.credits > 0;
   return (
     <div className="flex flex-col items-center gap-1" onKeyDown={(e) => e.stopPropagation()}>
       <button
-        onClick={co.insert}
-        disabled={!co.enabled || !co.sats || co.paying}
-        className="btn btn-on border-2 border-[#ffd36a] px-4 py-2 text-base font-bold tracking-widest text-[#ffd36a] shadow-[0_0_14px_#ffd36a80] disabled:opacity-50 sm:text-lg"
+        onClick={() => (start ? co.playPaid(start) : co.insert())}
+        disabled={!co.enabled || co.paying || (!canUseCredit && !co.sats)}
+        className="btn btn-on border-2 border-[#ffd36a] px-5 py-2.5 text-base font-bold tracking-widest text-[#ffd36a] shadow-[0_0_14px_#ffd36a80] disabled:opacity-50 sm:text-lg"
       >
-        🪙 {label}
+        {label}
       </button>
-      <p className="text-xs font-bold tracking-[0.3em] text-hot">CREDITS: {co.credits}</p>
       {co.enabled ? (
         <p className="text-[10px] text-dim">
-          {perCredit ?? `1 credit = 1 game, ${LIVES_PER_CREDIT} lives.`} Paid to the house in one wallet approval, plus the network fee. No payouts.
+          {perCredit ?? `1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} One wallet approval, then the game starts. Plus the network fee. No payouts.
         </p>
       ) : (
         <p className="text-[10px] text-dim">Paid play is off here: no house address is set (NEXT_PUBLIC_TB_HOUSE_ADDRESS). Practice is free.</p>
       )}
-      {co.msg && (
-        <p className={`text-xs ${co.msg.ok ? 'text-[#60ff90]' : 'text-accent'}`}>
-          {co.msg.text}{' '}
-          {co.msg.txid && (
-            <a href={txUrl(co.msg.txid)} target="_blank" rel="noopener noreferrer" className="underline">
-              tx ↗
-            </a>
-          )}
-        </p>
-      )}
+      {co.msg && !co.msg.ok && <p className="text-xs text-accent">{co.msg.text}</p>}
       {co.walletErr && <p className="text-xs text-accent">{co.walletErr}</p>}
     </div>
   );
 }
 
-/** Title / game-over controls: INSERT COIN, PLAY (spends a credit), PRACTICE (free). */
+/** Title / game-over controls: PLAY · 10p (pays and starts), PRACTICE (free). */
 export function CoinOpButtons({
   co,
   start,
   perCredit,
-  playLabel = '▶ PLAY · 1 CREDIT',
+  playLabel = 'PLAY',
   practiceLabel = '▶ PRACTICE · FREE',
 }: {
   co: CoinOp;
@@ -151,15 +170,10 @@ export function CoinOpButtons({
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <InsertCoin co={co} perCredit={perCredit} />
-      <div className="flex flex-wrap justify-center gap-2">
-        <button onClick={() => start(true)} disabled={co.credits < 1} className="btn btn-on px-3 py-1 text-sm font-bold disabled:opacity-40">
-          {playLabel}
-        </button>
-        <button onClick={() => start(false)} className="btn px-3 py-1 text-sm">
-          {practiceLabel}
-        </button>
-      </div>
+      <InsertCoin co={co} perCredit={perCredit} start={start} playLabel={playLabel} />
+      <button onClick={() => start(false)} className="btn px-3 py-1 text-sm">
+        {practiceLabel}
+      </button>
     </div>
   );
 }
