@@ -6,7 +6,8 @@
 # Placement (glTF / three.js frame: Y up, front +Z), in the chibi's model space:
 #   horns : origin -> face anchor (head mesh centre x/z, mask centre height)
 #   weapon: origin -> item.L / item.R bone head
-#   then + (0, fit.y, fit.z), rotation Euler(pitch, turn, roll, 'XZY'), scale fit.scale.
+#   lweapon (08 cards): item.R; "mirror": true mirrors the GLB across X first
+#   then + (fit.x, fit.y, fit.z), rotation Euler(pitch, turn, roll, 'XZY'), scale fit.scale.
 import bpy, sys, json, math
 from mathutils import Vector, Matrix, Euler
 
@@ -29,12 +30,13 @@ sock = {s: rig.matrix_world @ rig.pose.bones[f"item.{s}"].head for s in "LR"}  #
 C = Matrix(((1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))  # glTF -> Blender
 
 def place(pid):
-    p = parts[pid]; f = {"scale": 1, "y": 0, "z": 0, "turn": 0, "pitch": 0, "roll": 0, **p.get("fit", {})}
+    p = parts[pid]; f = {"scale": 1, "x": 0, "y": 0, "z": 0, "turn": 0, "pitch": 0, "roll": 0, **p.get("fit", {})}
     before = set(bpy.context.scene.objects)
     bpy.ops.import_scene.gltf(filepath=pub + p["url"])
     new = [o for o in bpy.context.scene.objects if o not in before]
-    anc = sock[p.get("socket", "L")] if p["slot"] == "weapon" else face
-    Mg = Matrix.Translation((0, f["y"], f["z"])) @ Euler((f["pitch"], f["turn"], f["roll"]), "XZY").to_matrix().to_4x4() @ Matrix.Scale(f["scale"], 4)
+    anc = sock[p.get("socket", "R" if p["slot"] == "lweapon" else "L")] if p["slot"] in ("weapon", "lweapon") else face
+    mir = Matrix.Diagonal((-1, 1, 1, 1)) if p.get("mirror") else Matrix.Identity(4)
+    Mg = Matrix.Translation((f["x"], f["y"], f["z"])) @ Euler((f["pitch"], f["turn"], f["roll"]), "XZY").to_matrix().to_4x4() @ Matrix.Scale(f["scale"], 4) @ mir
     M = Matrix.Translation(anc) @ C @ Mg @ C.inverted()
     for o in new:
         if o.parent is None: o.matrix_world = M @ o.matrix_world

@@ -3,13 +3,15 @@
   "id": "09_001_Horns_Phi-Phi-Horn",
   "name": "Phi Phi Horn",
   "slot": "horns",
-  "url": "/arena/models/npg/stack/09_001_Horns_Phi-Phi-Horn.glb"
+  "url": "/arena/models/npg/stack/09_001_Horns_Phi-Phi-Horn.glb",
+  "card": "09_001"
  },
  {
   "id": "M011MechaMask",
   "name": "Mecha-Style",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/M011MechaMask.glb"
+  "url": "/arena/models/npg/stack/M011MechaMask.glb",
+  "card": "11_011"
  },
  {
   "id": "11_001_Mask_Yama-Mask",
@@ -21,43 +23,50 @@
    "y": 0.06,
    "z": 0.005,
    "turn": -0.007
-  }
+  },
+  "card": "11_001"
  },
  {
   "id": "11_002_Mask_Payne-Patch",
   "name": "Payne Patch",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_002_Mask_Payne-Patch.glb"
+  "url": "/arena/models/npg/stack/11_002_Mask_Payne-Patch.glb",
+  "card": "11_002"
  },
  {
   "id": "11_003_Mask_Ayumi-Mask",
   "name": "Ayumi Mask",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_003_Mask_Ayumi-Mask.glb"
+  "url": "/arena/models/npg/stack/11_003_Mask_Ayumi-Mask.glb",
+  "card": "11_003"
  },
  {
   "id": "11_004_Mask_Kimi-Mask",
   "name": "Kimi Mask",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_004_Mask_Kimi-Mask.glb"
+  "url": "/arena/models/npg/stack/11_004_Mask_Kimi-Mask.glb",
+  "card": "11_004"
  },
  {
   "id": "11_005_Mask_Medical",
   "name": "Medical",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_005_Mask_Medical.glb"
+  "url": "/arena/models/npg/stack/11_005_Mask_Medical.glb",
+  "card": "11_005"
  },
  {
   "id": "11_006_Mask_Spiked",
   "name": "Spiked",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_006_Mask_Spiked.glb"
+  "url": "/arena/models/npg/stack/11_006_Mask_Spiked.glb",
+  "card": "11_006"
  },
  {
   "id": "11_007_Mask_Studded",
   "name": "Studded",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_007_Mask_Studded.glb"
+  "url": "/arena/models/npg/stack/11_007_Mask_Studded.glb",
+  "card": "11_007"
  },
  {
   "id": "11_009_Mask_Miami-Sunglasses",
@@ -71,31 +80,36 @@
    "turn": 0,
    "pitch": 0,
    "bend": 0
-  }
+  },
+  "card": "11_009"
  },
  {
   "id": "11_010_Mask_Bluetooth-Mic",
   "name": "Bluetooth Mic",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_010_Mask_Bluetooth-Mic.glb"
+  "url": "/arena/models/npg/stack/11_010_Mask_Bluetooth-Mic.glb",
+  "card": "11_010"
  },
  {
   "id": "11_014_Mask_Plain",
   "name": "Plain",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_014_Mask_Plain.glb"
+  "url": "/arena/models/npg/stack/11_014_Mask_Plain.glb",
+  "card": "11_014"
  },
  {
   "id": "11_015_Mask_Racing-Goggles",
   "name": "Racing Goggles",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_015_Mask_Racing-Goggles.glb"
+  "url": "/arena/models/npg/stack/11_015_Mask_Racing-Goggles.glb",
+  "card": "11_015"
  },
  {
   "id": "11_016_Mask_Polkadot",
   "name": "Polkadot",
   "slot": "mask",
-  "url": "/arena/models/npg/stack/11_016_Mask_Polkadot.glb"
+  "url": "/arena/models/npg/stack/11_016_Mask_Polkadot.glb",
+  "card": "11_016"
  },
  {
   "id": "11_020_Mask_Glasses",
@@ -110,70 +124,80 @@
    "pitch": -1.571,
    "roll": 0,
    "bend": 0
-  }
+  },
+  "card": "11_020"
  },
  {
   "id": "wrap_11_002_Mask_Payne-Patch",
   "name": "Payne Patch (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_002_Mask_Payne-Patch.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_002"
  },
  {
   "id": "wrap_11_003_Mask_Ayumi-Mask",
   "name": "Ayumi Mask (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_003_Mask_Ayumi-Mask.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_003"
  },
  {
   "id": "wrap_11_004_Mask_Kimi-Mask",
   "name": "Kimi Mask (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_004_Mask_Kimi-Mask.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_004"
  },
  {
   "id": "wrap_11_005_Mask_Medical",
   "name": "Medical (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_005_Mask_Medical.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_005"
  },
  {
   "id": "wrap_11_007_Mask_Studded",
   "name": "Studded (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_007_Mask_Studded.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_007"
  },
  {
   "id": "wrap_11_011_Mask_Mecha-Style",
   "name": "Mecha Style (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_011_Mask_Mecha-Style.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_011"
  },
  {
   "id": "wrap_11_014_Mask_Plain",
   "name": "Plain (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_014_Mask_Plain.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_014"
  },
  {
   "id": "wrap_11_015_Mask_Racing-Goggles",
   "name": "Racing Goggles (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_015_Mask_Racing-Goggles.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_015"
  },
  {
   "id": "wrap_11_016_Mask_Polkadot",
   "name": "Polkadot (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_016_Mask_Polkadot.glb",
-  "wrapped": true
+  "wrapped": true,
+  "card": "11_016"
  },
  {
   "id": "hand_09_001_phiphi",
@@ -187,21 +211,38 @@
    "y": 0.04,
    "z": -0.02,
    "turn": 0
-  }
+  },
+  "card": "09_001"
  },
  {
   "id": "hand_09_002_scarlet",
   "name": "Scarlet Horns (hand-built)",
   "slot": "horns",
   "url": "/arena/models/npg/stack/hand/09_002_scarlet_horns.glb",
-  "handBuilt": true
+  "handBuilt": true,
+  "card": "09_002",
+  "fit": {
+   "scale": 1,
+   "x": 0.0,
+   "y": 0.001,
+   "z": 0,
+   "turn": 0
+  }
  },
  {
   "id": "hand_09_003_small",
   "name": "Small Horns (hand-built)",
   "slot": "horns",
   "url": "/arena/models/npg/stack/hand/09_003_small_horns.glb",
-  "handBuilt": true
+  "handBuilt": true,
+  "card": "09_003",
+  "fit": {
+   "scale": 1,
+   "x": 0.0,
+   "y": 0.001,
+   "z": 0,
+   "turn": 0
+  }
  },
  {
   "id": "hand_09_004_spikes",
@@ -214,7 +255,8 @@
    "y": 0.06,
    "z": 0.07,
    "turn": 0
-  }
+  },
+  "card": "09_004"
  },
  {
   "id": "hand_07_026_bat",
@@ -225,11 +267,13 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.027,
+   "y": -0.027,
    "z": 0,
    "turn": 0,
-   "roll": -0.89
-  }
+   "roll": -0.891
+  },
+  "card": "07_026"
  },
  {
   "id": "hand_07_003_axe",
@@ -240,11 +284,13 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.043,
+   "y": -0.009,
    "z": 0,
    "turn": 0,
-   "roll": -1.239
-  }
+   "roll": -1.124
+  },
+  "card": "07_003"
  },
  {
   "id": "hand_07_009_katana",
@@ -255,11 +301,13 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.039,
+   "y": -0.025,
    "z": 0,
    "turn": 0,
    "roll": -1.082
-  }
+  },
+  "card": "07_009"
  },
  {
   "id": "hand_07_008_sai",
@@ -270,25 +318,43 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.048,
+   "y": -0.025,
    "z": 0,
    "turn": 0,
-   "roll": -1.047
-  }
+   "roll": -1.073
+  },
+  "card": "07_008"
  },
  {
   "id": "hand_23_002_hikaru",
   "name": "Hikaru Horns (hand-built)",
   "slot": "horns",
   "url": "/arena/models/npg/stack/hand/23_002_hikaru_horns.glb",
-  "handBuilt": true
+  "handBuilt": true,
+  "card": "23_002",
+  "fit": {
+   "scale": 1,
+   "x": 0.001,
+   "y": -0.002,
+   "z": 0,
+   "turn": 0
+  }
  },
  {
   "id": "hand_23_004_bigred",
   "name": "Big Red Horns (hand-built)",
   "slot": "horns",
   "url": "/arena/models/npg/stack/hand/23_004_big_red_horns.glb",
-  "handBuilt": true
+  "handBuilt": true,
+  "card": "23_004",
+  "fit": {
+   "scale": 1,
+   "x": 0.001,
+   "y": 0.003,
+   "z": 0,
+   "turn": 0
+  }
  },
  {
   "id": "hand_07_004_blackaxe",
@@ -299,11 +365,13 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.088,
+   "y": -0.043,
    "z": 0,
    "turn": 0,
-   "roll": -2.705
-  }
+   "roll": -2.757
+  },
+  "card": "07_004"
  },
  {
   "id": "hand_07_020_machete",
@@ -314,11 +382,13 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.06,
+   "y": -0.019,
    "z": 0,
    "turn": 0,
    "roll": -1.047
-  }
+  },
+  "card": "07_020"
  },
  {
   "id": "hand_07_011_can",
@@ -329,11 +399,13 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.235,
+   "y": -0.182,
    "z": 0,
    "turn": 0,
-   "roll": 0
-  }
+   "roll": 0.0
+  },
+  "card": "07_011"
  },
  {
   "id": "hand_07_037_guitar",
@@ -344,10 +416,156 @@
   "socket": "L",
   "fit": {
    "scale": 1,
-   "y": 0,
+   "x": 0.039,
+   "y": 0.15,
    "z": 0,
    "turn": 0,
-   "roll": -0.803
+   "roll": -0.812
+  },
+  "card": "07_037"
+ },
+ {
+  "id": "hand_08_004_blackaxe",
+  "name": "Black Axe (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_004_black_axe.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_004",
+  "fit": {
+   "scale": 1,
+   "x": -0.065,
+   "y": -0.066,
+   "z": 0,
+   "turn": 0,
+   "roll": 2.722
+  }
+ },
+ {
+  "id": "hand_08_005_sai",
+  "name": "Sai (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_008_sai.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_005",
+  "fit": {
+   "scale": 1,
+   "x": -0.013,
+   "y": -0.059,
+   "z": 0,
+   "turn": 0,
+   "roll": 1.073
+  }
+ },
+ {
+  "id": "hand_08_007_katana",
+  "name": "Katana (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_009_katana.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_007",
+  "fit": {
+   "scale": 1,
+   "x": -0.02,
+   "y": -0.038,
+   "z": 0,
+   "turn": 0,
+   "roll": 1.07
+  }
+ },
+ {
+  "id": "hand_08_008_axe",
+  "name": "Red Axe (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_003_red_axe.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_008",
+  "fit": {
+   "scale": 1,
+   "x": -0.019,
+   "y": -0.01,
+   "z": 0,
+   "turn": 0,
+   "roll": 1.154
+  }
+ },
+ {
+  "id": "hand_08_012_can",
+  "name": "Graffiti Can (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_011_graffiti_can.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_012",
+  "fit": {
+   "scale": 1,
+   "x": -0.206,
+   "y": -0.195,
+   "z": 0,
+   "turn": 0,
+   "roll": 0.0
+  }
+ },
+ {
+  "id": "hand_08_021_machete",
+  "name": "Machete (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_020_machete.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_021",
+  "fit": {
+   "scale": 1,
+   "x": -0.042,
+   "y": -0.036,
+   "z": 0,
+   "turn": 0,
+   "roll": 1.047
+  }
+ },
+ {
+  "id": "hand_08_027_bat",
+  "name": "Spiked Bat (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_026_spiked_bat.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_027",
+  "fit": {
+   "scale": 1,
+   "x": -0.013,
+   "y": -0.043,
+   "z": 0,
+   "turn": 0,
+   "roll": 0.864
+  }
+ },
+ {
+  "id": "hand_08_037_guitar",
+  "name": "Guitar (hand-built, mirrored)",
+  "slot": "lweapon",
+  "url": "/arena/models/npg/stack/hand/07_037_guitar.glb",
+  "handBuilt": true,
+  "socket": "R",
+  "mirror": true,
+  "card": "08_037",
+  "fit": {
+   "scale": 1,
+   "x": 0.011,
+   "y": 0.14,
+   "z": 0,
+   "turn": 0,
+   "roll": 0.786
   }
  }
 ]

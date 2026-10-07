@@ -19,7 +19,7 @@ The chibi's own mask is the **Ayumi** design. Pick "Base mask (chibi) = Ayumi" i
 ## How a part gets placed
 
 - Every part attaches to a bone: hair, horns and masks on `head`; weapons on the `item.L` / `item.R` sockets (children of the hand bones). Planned: boots on the feet, tops on the chest.
-- **Right-weapon cards (07) draw the weapon in the character's LEFT hand** (viewer's right), so they go on `item.L`. Left-weapon cards (08) will go on `item.R`.
+- **Right-weapon cards (07) draw the weapon in the character's LEFT hand** (viewer's right), so they go on `item.L`. Left-weapon cards (08) go on `item.R` (LEFT WEAPON row in the builder).
 - The **slot** is a box on the base, expressed in the bone's space. Hair uses the base `hair` mesh. Masks use the base `mask` mesh. Horns use the top of the hair box.
 - Tripo models often come out "lying along Z", with their width running front to back. Those get a quarter turn automatically.
 - Some models (for example Glasses) come out lying on their back and need **pitch −90°**.
@@ -74,6 +74,54 @@ style chosen per material by name: `wood*` grain, metal names (`steel`, `edge`, 
 sheen bands + bright edge highlight, `tape`/`wrap`/`grip` matte, everything else "paint" (darker same-hue
 rim, broken highlight streaks, chips). Ink on hard edges + AO crevices for all. `texture_bake.py` stays the
 exact Phi-Phi recipe. Name materials so the right style is picked (Red Axe's pink strip is `rim`, not `edge`).
+
+## How 2D NPGs assemble (ninja-punk-girls-com)
+
+- **One canvas.** Every card is a 961×1441 transparent PNG drawn full-canvas at (0, 0), no offsets
+  (`src/components/canvas/NFTCanvas.tsx`, mint page `aspect-[961/1441]`). A card's position, size and angle
+  on the canvas *is* its placement on the body. Cards: `public/assets/<NN>-<Category>/NN_NNN_<Category>_<Name>.png` + `.json`
+  (character, rarity, stats); ~650 PNGs across 27 categories.
+- **Draw order, back to front:** 29 Background, 28 Glow, 27 Banner, 26 Decals, **24 Rear-Hair, 23 Rear-Horns, 22 Back**
+  (behind the body), 21 Body, 20 Arms, 19 Underwear, 18 Face, 17 Shorts, 16 Bra, 15 Collar, 14 Jewellery, 13 Boots, 12 Top,
+  11 Mask, 10 Hair, 09 Horns, **08 Left-Weapon, 07 Right-Weapon** (on top of everything), 06 Effects, 05 Interface,
+  04 Team, 02 Copyright, 01 Logo. (03 and 25 don't exist.)
+- **Hands:** 07 Right-Weapon cards are drawn on the viewer's right = the character's LEFT hand (`item.L`).
+  08 Left-Weapon cards are drawn on the viewer's left = her RIGHT hand (`item.R`). Most 08 cards are the mirror
+  image of the matching 07 card (flipped-alpha IoU 0.5–0.95), at the mirrored angle.
+- **Slot machine** (`src/app/mint/SlotMachinePreloader.tsx`): one random card per layer from Background, Body, Arms,
+  Underwear, Face, Bra, Boots, Top, Mask, Hair, Left-Weapon, Right-Weapon. Mints can hue-shift a layer
+  (`metadata.rgbHue`, CSS `hue-rotate`), so recoloured horns/hair in a preview won't pixel-match their card.
+- **Series 2 on chain:** 3,334 NPGs (`src/data/canonicalSlots.ts`, `canonicalSlotsData.json`). Their item names
+  ("Kimiko Studded", "Weapon Graffitti") are an older naming and don't map 1:1 onto today's card files.
+- **References:** 36 flattened composites in `public/slot-machine-previews/` (0021_Meya is corrupt). They are built
+  from today's card files, so `compare_stack.py` recovers their part list by template matching (match ≥ 0.7, or the
+  best partly covered Body/Face).
+- **3D ↔ canvas:** 1 card px = K = 0.00107 chibi units, card face centre (484.5, 669.5) = the chibi face anchor. With an
+  orthographic front camera framed to the canvas, the chibi overlays the 2D body almost exactly (head, shoulders, boots).
+
+## Stack compare + card-derived fits
+
+`scripts/npg-handmodel/compare_stack.py` (+ `compare_stack_bl.py`, Blender, one at a time):
+
+- `python3 compare_stack.py --preview 0007` (or `--cards 07_009 08_005 10_011 …`): identifies the cards, composites the
+  2D stack in the site's order, assembles the parts that exist in 3D on the chibi (hand-built, wrapped masks, Tripo masks,
+  hair GLBs; 08 = mirrored 07), renders an ortho front view on the same canvas and writes
+  `.private/handmodel/stack-compare/<npg>_side.png` (preview | 2D stack | 3D | 50% overlay), `_overlay.png`, and a JSON
+  with the part list and what's missing in 3D.
+- `python3 compare_stack.py --derive-fits [--write]`: projects every hand-built part at its fit, rasterises it on the card
+  canvas and fits it to the card alpha. Weapons: roll about the grip + x/y shift (principal-axis angle tried both ways
+  round, then an IoU search). Head parts: x/y from the bbox centre, only where no fit was saved by hand (Phi-Phi and
+  Spikes keep the owner's fits). Weapon IoU vs card after fitting: Graffiti Can 0.94, Machete 0.80, Bat 0.63, Katana 0.60,
+  Black Axe 0.57, Sai 0.54, Red Axe 0.42, Guitar 0.41 (the rest is shape, not placement).
+- parts.json entries now carry `"card": "NN_NNN"`. Fits have an `x` (left/right) as well; the Stack Builder has a
+  left/right slider.
+- **Left weapon slot** (`"slot": "lweapon"`, socket `R`): the 8 built 07 pieces whose 08 card is the mirror design
+  (Black Axe, Sai, Katana, Red Axe, Graffiti Can, Machete, Spiked Bat, Guitar) reuse the 07 GLB with `"mirror": true`.
+
+Gaps seen in the previews (most common first): rear horns (Big Horn, Big Black Horns, Miyuki Horn), boots, Back (Wings,
+Cape), collars, most guns/whips/gloves (Golden Uzi, Uzi, Boxing Glove, Little Thrasher, Bullwhip, Small Knife), most hair
+cards (only Miyuki, Yamarashii, Hikaru, Nao exist in 3D) and rear hair. Hair placement in the compare render is an
+approximation of the builder's (Nao turned 90° in Blender's frame).
 
 ## Generator verdicts (owner review in the 3D viewer)
 

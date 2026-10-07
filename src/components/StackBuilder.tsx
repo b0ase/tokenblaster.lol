@@ -24,7 +24,7 @@ const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: 
 ];
 // Rigid parts: Tripo image-to-3D (older) and hand-built (scripts/npg-handmodel). The list lives in parts.json
 // so new batches show up without code changes.
-const ZERO = { scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
+const ZERO = { scale: 1, x: 0, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
 const PARTS = '/arena/models/npg/stack/parts.json';
 // wrapped: card art painted onto the base mask mesh (scripts/npg-masks). Its vertices are already in
 // the chibi's model space, so it sits exactly where the base mask is and ignores the fit sliders.
@@ -32,19 +32,23 @@ const PARTS = '/arena/models/npg/stack/parts.json';
 // for every card, so no auto-scaling. Head parts have their origin at the card's face centre; weapons
 // at the grip. They're placed in the chibi's model space (fit y/z/yaw/pitch/roll on top), then
 // re-expressed in the bone they ride: the head, or the item.L / item.R weapon socket.
-// socket: right-weapon cards draw the weapon in the character's LEFT hand (viewer's right), so 'L'.
-type Slot = 'mask' | 'horns' | 'weapon';
-type Part = { id: string; name: string; slot: Slot; url: string; fit?: Fit; wrapped?: boolean; handBuilt?: boolean; socket?: 'L' | 'R'; hidesHair?: boolean };
+// socket: right-weapon cards (07) draw the weapon in the character's LEFT hand (viewer's right), so 'L';
+// left-weapon cards (08) draw it in her RIGHT hand (viewer's left), so 'R'.
+// mirror: an 08 card that is the mirror image of a built 07 piece reuses its GLB, mirrored across X.
+type Slot = 'mask' | 'horns' | 'weapon' | 'lweapon';
+type Part = { id: string; name: string; slot: Slot; url: string; fit?: Fit; wrapped?: boolean; handBuilt?: boolean; socket?: 'L' | 'R'; mirror?: boolean; hidesHair?: boolean };
+const isWeapon = (s: Slot) => s === 'weapon' || s === 'lweapon';
 const SLOTS: { kind: Slot; label: string }[] = [
   { kind: 'mask', label: 'MASK' },
   { kind: 'horns', label: 'HORNS' },
   { kind: 'weapon', label: 'RIGHT WEAPON' },
+  { kind: 'lweapon', label: 'LEFT WEAPON' },
 ];
 
 export function StackBuilder() {
   const mount = useRef<HTMLDivElement>(null);
   const [hair, setHair] = useState('miyuki');
-  const [fit, setFit] = useState({ scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 });
+  const [fit, setFit] = useState(ZERO);
   const [showClothes, setShowClothes] = useState(true);
   const [parts, setParts] = useState<Part[]>([]);
   const [mask, setMask] = useState('');
@@ -53,6 +57,8 @@ export function StackBuilder() {
   const [hornsFit, setHornsFit] = useState(ZERO);
   const [weapon, setWeapon] = useState('');
   const [weaponFit, setWeaponFit] = useState(ZERO);
+  const [lweapon, setLweapon] = useState('');
+  const [lweaponFit, setLweaponFit] = useState(ZERO);
   const [status, setStatus] = useState('loading…');
   const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setPart: (slot: Slot, p: Part | null, f: typeof fit) => void } | null>(null);
 
@@ -102,7 +108,7 @@ export function StackBuilder() {
       if (baseHair) baseHair.visible = !hairIsCard && !hairHidden;
       if (current) current.visible = !hairHidden;
     };
-    let fitNow = { scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
+    let fitNow = { ...ZERO };
     const cache = new Map<string, THREE.Object3D>();
 
     let maskSlot: THREE.Box3 | null = null; // the base mask's bounds in head space
@@ -111,26 +117,27 @@ export function StackBuilder() {
       mask: { obj: null, fit: { ...ZERO }, want: '', parent: null },
       horns: { obj: null, fit: { ...ZERO }, want: '', parent: null },
       weapon: { obj: null, fit: { ...ZERO }, want: '', parent: null },
+      lweapon: { obj: null, fit: { ...ZERO }, want: '', parent: null },
     };
     const sockets: Partial<Record<'L' | 'R', THREE.Object3D>> = {};
     let faceAnchor: THREE.Vector3 | null = null; // card face centre on the chibi, in her model space
-    const parentFor = (p: Part) => (p.slot === 'weapon' ? (sockets[p.socket ?? 'L'] ?? null) : head);
+    const parentFor = (p: Part) => (isWeapon(p.slot) ? (sockets[p.socket ?? (p.slot === 'lweapon' ? 'R' : 'L')] ?? null) : head);
     const placeRigid = (kind: Slot) => {
       const r = rigid[kind];
       if (r.obj?.userData.handBuilt && r.parent && base) {
         const f = r.fit;
-        const anchor = kind === 'weapon' ? base.worldToLocal(r.parent.getWorldPosition(new THREE.Vector3())) : faceAnchor;
+        const anchor = isWeapon(kind) ? base.worldToLocal(r.parent.getWorldPosition(new THREE.Vector3())) : faceAnchor;
         if (!anchor) return;
         const local = new THREE.Matrix4().compose(
-          anchor.clone().add(new THREE.Vector3(0, f.y, f.z)),
+          anchor.clone().add(new THREE.Vector3(f.x ?? 0, f.y, f.z)),
           new THREE.Quaternion().setFromEuler(new THREE.Euler(f.pitch ?? 0, f.turn, f.roll ?? 0, 'XZY')),
-          new THREE.Vector3(f.scale, f.scale, f.scale),
+          new THREE.Vector3(r.obj.userData.mirror ? -f.scale : f.scale, f.scale, f.scale),
         );
         r.parent.matrixWorld.clone().invert().multiply(base.matrixWorld).multiply(local).decompose(r.obj.position, r.obj.quaternion, r.obj.scale);
         return;
       }
       const into = kind === 'mask' ? maskSlot : slot;
-      if (!r.obj || !into || kind === 'weapon') return;
+      if (!r.obj || !into || isWeapon(kind)) return;
       if (r.obj.userData.wrapped && head && base) {
         // Model space -> head bone space, at the bind pose (no animation plays here).
         const m = (head as THREE.Object3D).matrixWorld.clone().invert().multiply(base.matrixWorld);
@@ -160,7 +167,7 @@ export function StackBuilder() {
         y = into.max.y - into.getSize(new THREE.Vector3()).y * 0.2 - rb.min.y * k;
         z = c.z - rc.z * k;
       }
-      r.obj.position.set(c.x - rc.x * k, y + r.fit.y, z + r.fit.z * faceSign);
+      r.obj.position.set(c.x - rc.x * k + (r.fit.x ?? 0) * faceSign, y + r.fit.y, z + r.fit.z * faceSign);
     };
     const setRigid = async (kind: Slot, p: Part | null) => {
       const r = rigid[kind];
@@ -188,6 +195,7 @@ export function StackBuilder() {
         obj.userData.id = p.id;
         obj.userData.wrapped = !!p.wrapped;
         obj.userData.handBuilt = !!p.handBuilt;
+        obj.userData.mirror = !!p.mirror;
         cache.set(p.id, obj);
       }
       if (r.want !== p.id) return; // picked something else while loading
@@ -213,7 +221,7 @@ export function StackBuilder() {
       // Sink it onto the scalp: hair cards include volume above the head line.
       const y = slot.max.y - rb.max.y * k - slot.getSize(new THREE.Vector3()).y * 0.12;
       const z = faceSign > 0 ? slot.max.z - rb.max.z * k : slot.min.z - rb.min.z * k;
-      current.position.set(x, y + fitNow.y, z + fitNow.z * faceSign);
+      current.position.set(x + (fitNow.x ?? 0), y + fitNow.y, z + fitNow.z * faceSign);
     };
 
     const setHairPart = async (id: string) => {
@@ -351,10 +359,12 @@ export function StackBuilder() {
   useEffect(() => api.current?.setPart('mask', parts.find((p) => p.id === mask) ?? null, maskFit), [parts, mask, maskFit, status]);
   useEffect(() => api.current?.setPart('horns', parts.find((p) => p.id === horns) ?? null, hornsFit), [parts, horns, hornsFit, status]);
   useEffect(() => api.current?.setPart('weapon', parts.find((p) => p.id === weapon) ?? null, weaponFit), [parts, weapon, weaponFit, status]);
+  useEffect(() => api.current?.setPart('lweapon', parts.find((p) => p.id === lweapon) ?? null, lweaponFit), [parts, lweapon, lweaponFit, status]);
   const pickState: Record<Slot, [string, (id: string) => void, (f: Required<Fit>) => void]> = {
     mask: [mask, setMask, setMaskFit],
     horns: [horns, setHorns, setHornsFit],
     weapon: [weapon, setWeapon, setWeaponFit],
+    lweapon: [lweapon, setLweapon, setLweaponFit],
   };
 
   return (
@@ -404,6 +414,7 @@ export function StackBuilder() {
       {mask && !parts.find((p) => p.id === mask)?.wrapped && <FitSliders label="MASK" card={mask} fit={maskFit} onChange={setMaskFit} />}
       {horns && <FitSliders label="HORNS" card={horns} fit={hornsFit} onChange={setHornsFit} />}
       {weapon && <FitSliders label="WEAPON" card={weapon} fit={weaponFit} onChange={setWeaponFit} />}
+      {lweapon && <FitSliders label="LWEAPON" card={lweapon} fit={lweaponFit} onChange={setLweaponFit} />}
       <p className="mt-1 text-xs text-dim">Fit tweaks get saved per card once the set is final.</p>
     </section>
   );
@@ -478,7 +489,7 @@ function bendPart(root: THREE.Object3D, bend: number) {
   parent?.add(root);
 }
 
-type Fit = { scale: number; y: number; z: number; turn: number; pitch?: number; roll?: number; bend?: number };
+type Fit = { scale: number; x?: number; y: number; z: number; turn: number; pitch?: number; roll?: number; bend?: number };
 const withPitch = (f?: Fit) => ({ ...ZERO, ...f });
 
 function FitSliders({ label, card, fit, onChange }: { label: string; card: string; fit: Required<Fit>; onChange: (f: Required<Fit>) => void }) {
@@ -487,6 +498,7 @@ function FitSliders({ label, card, fit, onChange }: { label: string; card: strin
     slot: label.toLowerCase(),
     card,
     scale: Number(fit.scale.toFixed(3)),
+    x: Number((fit.x ?? 0).toFixed(3)),
     y: Number(fit.y.toFixed(3)),
     z: Number(fit.z.toFixed(3)),
     turn: Number(fit.turn.toFixed(3)),
@@ -502,9 +514,9 @@ function FitSliders({ label, card, fit, onChange }: { label: string; card: strin
   return (
     <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-dim">
       <span className="w-10">{label}</span>
-      {(['scale', 'y', 'z', 'turn', 'pitch', 'roll', 'bend'] as const).map((k) => (
+      {(['scale', 'x', 'y', 'z', 'turn', 'pitch', 'roll', 'bend'] as const).map((k) => (
         <label key={k} className="flex items-center gap-1">
-          {k === 'scale' ? 'size' : k === 'y' ? 'up/down' : k === 'z' ? 'fwd/back' : k === 'turn' ? 'yaw' : k}
+          {k === 'scale' ? 'size' : k === 'x' ? 'left/right' : k === 'y' ? 'up/down' : k === 'z' ? 'fwd/back' : k === 'turn' ? 'yaw' : k}
           <input
             type="range"
             min={k === 'scale' ? 0.3 : k === 'turn' || k === 'pitch' || k === 'roll' ? -Math.PI : k === 'bend' ? -1 : -0.3}
@@ -516,7 +528,7 @@ function FitSliders({ label, card, fit, onChange }: { label: string; card: strin
           />
         </label>
       ))}
-      <button onClick={() => onChange({ scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 })} className="btn text-xs">
+      <button onClick={() => onChange({ ...ZERO })} className="btn text-xs">
         reset
       </button>
       <button onClick={copy} className="btn text-xs">
