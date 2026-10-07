@@ -30,6 +30,7 @@ import { WalletChooser } from './WalletChooser';
 import { cleanRoomCode, type RaceInfo, type RaceLink } from '@/lib/racemp/session';
 import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
 import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
+import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
 
 type QualityPref = 'auto' | 'low' | 'high' | 'ultra';
 type RivalInfo = { name: string; detail: string; color: string; live: boolean; tx: string | null; team: string; kind: string };
@@ -210,10 +211,12 @@ export function BRacer() {
   const [goTick, setGoTick] = useState(0);
   const readyPaid = useRef(false);
   const coRef = useRef<ReturnType<typeof useCoinOp> | null>(null);
+  const xHandle = useMyHandle();
   const room = useRaceRoom<BRaceCfg>({
     game: 'bracer',
     enabled: ready,
-    profile: { name: pilot || 'PILOT', vehicle: shipId, team: teamId, gun: b.gunAddress || undefined },
+    wallet: b.wallet?.client ?? null,
+    profile: { name: pilot || 'PILOT', vehicle: shipId, team: teamId, gun: b.gunAddress || undefined, x: xHandle ?? undefined },
     cfg: { track: trackId, diff: difficulty },
     quickKey: (c) => c.track,
     quickCfg: (c) => ({ ...c, diff: 'normal' }),
@@ -617,6 +620,11 @@ export function BRacer() {
 
         {/* ── HUD ── */}
         <div className={`pointer-events-none absolute inset-0 transition-opacity ${racing ? 'opacity-100' : 'opacity-0'}`}>
+          {mpOn && xHandle && (
+            <div className="absolute left-3 top-24 bg-black/70 px-2 py-1 text-xs text-white sm:top-28" data-hud-me={xHandle}>
+              <PlayerBadge handle={xHandle} name={xHandle} verified={Boolean(meId && room.verified[meId])} ring={(TEAMS.find((t) => t.id === teamId) ?? TEAMS[0]).base} size={22} />
+            </div>
+          )}
           {/* Position + lap */}
           <div className="absolute left-3 top-3 flex items-stretch">
             <div className="flex items-baseline gap-1 px-3 py-1" style={{ background: DR.colour.signal, ...hudFont }}>
@@ -970,6 +978,9 @@ export function BRacer() {
                       NEW PRIVATE ROOM
                     </button>
                   </div>
+                  <div className="mt-1.5">
+                    <IdentityPicker />
+                  </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
                     <input value={joinCode} placeholder="ROOM CODE" maxLength={8} onChange={(e) => setJoinCode(cleanRoomCode(e.target.value))} className="w-28 border border-white/25 bg-black px-1.5 py-0.5 text-fg" aria-label="Room code" />
                     <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
@@ -1008,6 +1019,7 @@ export function BRacer() {
                     if (engine.current) engine.current.opts.mp = undefined;
                   }}
                   onStart={() => room.go()}
+                  verified={room.verified}
                   controls={
                     meRow?.ready ? (
                       <>

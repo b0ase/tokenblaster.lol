@@ -9,6 +9,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import type { RacePlayer, RaceStanding, RoomStatus } from '@/lib/racemp/session';
 import { MAX_PLAYERS } from '@/lib/racemp/session';
+import { Avatar, IdentityPicker, InviteButton, PlayerBadge } from '@/components/PlayerBadge';
 
 const short = (n: string) => (n.length > 14 ? `${n.slice(0, 6)}…${n.slice(-4)}` : n);
 
@@ -41,6 +42,8 @@ export type RaceLobbyProps = {
   bar?: ReactNode;
   onLeave(): void;
   onStart(): void;
+  /** Player ids with a proven X handle (room.verified). */
+  verified?: Record<string, boolean>;
 };
 
 export function RaceLobby(p: RaceLobbyProps) {
@@ -79,8 +82,12 @@ export function RaceLobby(p: RaceLobbyProps) {
           <button onClick={copy} className="btn px-2 py-0.5 text-[11px]">
             {copied ? 'COPIED' : 'COPY LINK'}
           </button>
+          <InviteButton link={link} game={p.game} />
         </div>
       )}
+      <div className="mt-1">
+        <IdentityPicker compact verified={Boolean(p.mine && p.verified?.[p.mine])} />
+      </div>
       <div className="mt-1.5 grid gap-1" role="list" aria-label="Pilots in the room">
         {slots.map((x, i) => {
           if (!x) {
@@ -96,7 +103,7 @@ export function RaceLobby(p: RaceLobbyProps) {
             <div key={x.id} className="flex items-center gap-2 overflow-hidden px-2 py-0.5" style={{ background: you ? '#14141c' : '#0a0a0f', borderLeft: `6px solid ${p.teamColour(x)}`, outline: you ? '1px solid #f4efe2' : undefined }} role="listitem" data-player={x.name}>
               <span className="w-4 text-[11px] text-dim">{i + 1}</span>
               <span className="min-w-0 truncate text-base leading-none text-white" style={p.titleStyle}>
-                {short(x.name)}
+                <PlayerBadge handle={x.x} name={short(x.name)} verified={p.verified?.[x.id]} ring={p.teamColour(x)} size={20} />
               </span>
               {you && <span className="text-[9px] tracking-widest text-hot">YOU</span>}
               {x.id === p.leader && x.st === 'lobby' && !p.quick && (
@@ -150,7 +157,8 @@ export function RaceStandings({ rows, final, teamColour, fmt }: { rows: RaceStan
         <div key={r.id} className={`flex items-center gap-1 py-0.5 ${r.me ? 'font-bold text-white' : ''}`}>
           <span className="w-5 text-dim">{i + 1}</span>
           <span className="inline-block h-2 w-2 shrink-0" style={{ background: teamColour(r.team) }} />
-          <span className={`truncate ${r.me ? 'text-hot' : 'text-fg'}`}>{short(r.name)}</span>
+          <Avatar handle={r.x} size={14} />
+          <span className={`truncate ${r.me ? 'text-hot' : 'text-fg'}`}>{r.x ? `@${r.x}` : short(r.name)}</span>
           <span className="ml-auto tabular-nums">{r.t !== null ? fmt(r.t) : r.dnf ? 'DNF' : 'RACING…'}</span>
           {r.t !== null && first !== null && r.t > first && <span className="w-14 text-right tabular-nums text-dim">+{(r.t - first).toFixed(2)}</span>}
         </div>

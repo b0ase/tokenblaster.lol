@@ -18,6 +18,8 @@ import { newShip, noInput, SHIPS, stepShip, WEAPONS, type ShipSpec, type SimInpu
 import { buildShip, Trail, type Rig } from './ships';
 import { FONTS } from './signs';
 import { SnapshotBuffer } from '@/lib/racemp/buffer';
+import { readWire, verifyWire } from '@/lib/identity';
+import { disposeAvatarTag, makeAvatarTag } from '@/lib/avatarTag';
 import type { RaceLink } from '@/lib/racemp/session';
 import { teamOfKind, TEAMS, type Team } from './teams';
 import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, TRACKS, type Frame, type Track, type TrackId } from './track';
@@ -168,6 +170,8 @@ type RemoteRun = {
   rkAt: number;
   qkAt: number;
   gun?: string;
+  /** X avatar billboard (src/lib/avatarTag.ts) when the pilot set a handle. */
+  avatar: THREE.Sprite | null;
 };
 const HUMAN_SLOTS = [5, 6, 7, 4, 3, 2, 1, 0];
 const VCAP = 260;
@@ -745,7 +749,8 @@ export class HyperEngine {
   private addRemote(id: string, info: { name: string; vehicle: string; team: string; gun?: string }, slot: number) {
     const spec = SHIPS.find((s) => s.id === info.vehicle) ?? SHIPS[1];
     const team = TEAMS.find((t) => t.id === info.team) ?? TEAMS[0];
-    const name = String(info.name || 'PILOT').slice(0, 14);
+    const xid = readWire(info);
+    const name = xid.x ? `@${xid.x}` : String(info.name || 'PILOT').slice(0, 14);
     const accent = team.accent === '#ffffff' || team.accent === '#f4efe2' || team.accent === '#f2f2ee' ? team.base : team.accent;
     const rig = buildShip(spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent);
     this.scene.add(rig.root);
@@ -755,7 +760,18 @@ export class HyperEngine {
       id, name, team, spec, slot, rig, label: label.sprite, labelCanvas: label.canvas, labelTex: label.tex,
       trail: this.opts.quality === 'low' ? null : new Trail(14, new THREE.Color(accent).multiplyScalar(2), 0.28),
       buf: new SnapshotBuffer({ maxSpeed: VCAP, clamp: CHANNELS, frozenBit: 8 }), S: 0, lat: 0, h: 1.3, vs: 0, yaw: 0, pitch: 0, roll: 0, fl: 0, hp: 1, gone: false, wasDead: false, finT: null, rkAt: 0, qkAt: 0, gun: info.gun,
+      avatar: null,
     };
+    if (xid.x) {
+      const put = (verified: boolean) => {
+        if (r.avatar) disposeAvatarTag(r.avatar);
+        r.avatar = makeAvatarTag({ handle: xid.x!, name, ring: team.base, verified }, 4);
+        r.avatar.renderOrder = 6;
+        rig.root.add(r.avatar);
+      };
+      put(false);
+      void verifyWire(xid, id).then((ok) => ok && this.remotes.includes(r) && put(true));
+    }
     if (r.trail) this.scene.add(r.trail.mesh);
     this.drawRemoteLabel(r);
     this.resetRemote(r);
@@ -782,6 +798,7 @@ export class HyperEngine {
       r.rig.dispose();
       r.labelTex.dispose();
       (r.label.material as THREE.Material).dispose();
+      if (r.avatar) disposeAvatarTag(r.avatar);
       if (r.trail) {
         this.scene.remove(r.trail.mesh);
         r.trail.dispose();
@@ -1659,6 +1676,14 @@ export class HyperEngine {
       r.label.position.y = 2.6 + lw * 0.12;
       (r.label.material as THREE.SpriteMaterial).opacity = Math.max(0, Math.min(1, (620 - d) / 200));
       r.label.visible = d < 620 && d > 6;
+      if (r.avatar) {
+        // Avatar sits on top of the name plate, same distance scaling, readable at speed.
+        const ah = lw * 0.42;
+        r.avatar.scale.set(ah * 0.8, ah, 1);
+        r.avatar.position.y = r.label.position.y + lw * 0.15;
+        (r.avatar.material as THREE.SpriteMaterial).opacity = (r.label.material as THREE.SpriteMaterial).opacity;
+        r.avatar.visible = r.label.visible;
+      }
     }
     void dt;
     void tr;

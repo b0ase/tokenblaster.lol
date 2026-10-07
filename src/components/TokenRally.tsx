@@ -14,6 +14,7 @@ import { HighScores } from './HighScores';
 import { WalletChooser } from './WalletChooser';
 import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
 import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
+import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
 import { cleanRoomCode, type RaceInfo } from '@/lib/racemp/session';
 import { DRIVER_COLOURS, driverColour, validateRallyCfg, type RallyCfg } from '@/lib/rally/mp';
 import { useBlaster } from '@/lib/useBlaster';
@@ -187,10 +188,12 @@ export function TokenRally() {
   const [joinCode, setJoinCode] = useState('');
   const pendingGo = useRef<RaceInfo<RallyCfg> | null>(null);
   const [goTick, setGoTick] = useState(0);
+  const xHandle = useMyHandle();
   const room = useRaceRoom<RallyCfg>({
     game: 'rally',
     enabled: ready,
-    profile: { name: pilot || 'DRIVER', vehicle: carId, team: colourId, gun: b.gunAddress || undefined },
+    wallet: b.wallet?.client ?? null,
+    profile: { name: pilot || 'DRIVER', vehicle: carId, team: colourId, gun: b.gunAddress || undefined, x: xHandle ?? undefined },
     cfg: { stage: stageId },
     quickKey: (c) => c.stage,
     sameCfg: (x, y) => x.stage === y.stage,
@@ -573,6 +576,11 @@ export function TokenRally() {
 
         {/* ── HUD ── */}
         <div className={`pointer-events-none absolute inset-0 transition-opacity ${racing ? 'opacity-100' : 'opacity-0'}`} style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>
+          {mpOn && xHandle && (
+            <div className="absolute bottom-28 right-3 bg-black/60 px-2 py-1 text-xs text-white" data-hud-me={xHandle}>
+              <PlayerBadge handle={xHandle} name={xHandle} verified={Boolean(meId && room.verified[meId])} ring={driverColour(colourId).base} size={22} />
+            </div>
+          )}
           <div className="absolute left-3 top-3">
             {run.live && (
               <div className="mb-1 w-40 bg-black/55 px-2 py-1 text-[10px] sm:w-56 sm:text-xs">
@@ -819,6 +827,9 @@ export function TokenRally() {
                       <button key={c.id} onClick={() => setColourId(c.id)} aria-pressed={c.id === colourId} aria-label={`${c.name} paint`} title={c.name} className="h-5 w-5 border-2" style={{ background: c.base, borderColor: c.id === colourId ? '#fff' : '#333' }} />
                     ))}
                   </div>
+                  <div className="mt-1.5">
+                    <IdentityPicker />
+                  </div>
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
                     <button onClick={room.joinQuick} className="btn btn-on px-3 py-1 text-sm" data-rally-quick>
                       QUICK RACE · {stage.name}
@@ -859,6 +870,7 @@ export function TokenRally() {
                     if (engine.current) engine.current.opts.mp = undefined;
                   }}
                   onStart={() => room.go()}
+                  verified={room.verified}
                   controls={
                     meRow?.ready ? (
                       <>
