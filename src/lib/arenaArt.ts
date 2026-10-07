@@ -100,6 +100,32 @@ export function makeSfx() {
       tone('square', 780, 780, 0.1, 0.3, 0.08);
     },
     dead: () => tone('triangle', 400, 30, 1.2, 0.5),
+    /** Hit confirm: a short high tick (pitch rises with `step` so a streak of hits climbs). */
+    tick: (step = 0) => tone('square', 1500 + Math.min(6, step) * 90, 1100, 0.04, 0.16),
+    /** Kill confirm: a bright two-note ding on top of the death groan. */
+    kill: () => {
+      tone('triangle', 880, 880, 0.12, 0.3);
+      tone('triangle', 1320, 1320, 0.2, 0.3, 0.07);
+    },
+    /** Soft footfall; `alt` alternates left and right. */
+    step: (alt = false) => {
+      tone('sine', alt ? 95 : 80, 45, 0.09, 0.22);
+      noise(0.05, 0.08, 500);
+    },
+    /** Low-health heartbeat: lub-dub. */
+    beat: () => {
+      tone('sine', 60, 38, 0.14, 0.5);
+      tone('sine', 52, 34, 0.16, 0.4, 0.17);
+    },
+    /** Monster winding up a swing. */
+    snarl: (vol = 0.3) => {
+      tone('sawtooth', 210, 90, 0.28, vol);
+      noise(0.18, vol * 0.5, 900);
+    },
+    respawn: () => {
+      tone('triangle', 220, 660, 0.35, 0.3);
+      tone('triangle', 330, 990, 0.35, 0.2, 0.08);
+    },
   };
 }
 export type Sfx = NonNullable<ReturnType<typeof makeSfx>>;
