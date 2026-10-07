@@ -22,13 +22,24 @@ const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: 
   { id: 'hikaru', name: 'Hikaru hair', url: '/arena/models/npg/stack/E003HikaruHair.glb', turn: 0 },
   { id: 'nao', name: 'Nao hair', url: '/arena/models/npg/stack/E011NaoHair.glb', turn: Math.PI },
 ];
-// Rigid head parts made in Tripo (image-to-3D from each 2D card). The list lives in parts.json
+// Rigid parts: Tripo image-to-3D (older) and hand-built (scripts/npg-handmodel). The list lives in parts.json
 // so new batches show up without code changes.
 const ZERO = { scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
 const PARTS = '/arena/models/npg/stack/parts.json';
 // wrapped: card art painted onto the base mask mesh (scripts/npg-masks). Its vertices are already in
 // the chibi's model space, so it sits exactly where the base mask is and ignores the fit sliders.
-type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string; fit?: Fit; wrapped?: boolean };
+// handBuilt: modelled by hand in Blender (scripts/npg-handmodel) at true size: one card-px -> metre factor
+// for every card, so no auto-scaling. Head parts have their origin at the card's face centre; weapons
+// at the grip. They're placed in the chibi's model space (fit y/z/yaw/pitch/roll on top), then
+// re-expressed in the bone they ride: the head, or the item.L / item.R weapon socket.
+// socket: right-weapon cards draw the weapon in the character's LEFT hand (viewer's right), so 'L'.
+type Slot = 'mask' | 'horns' | 'weapon';
+type Part = { id: string; name: string; slot: Slot; url: string; fit?: Fit; wrapped?: boolean; handBuilt?: boolean; socket?: 'L' | 'R' };
+const SLOTS: { kind: Slot; label: string }[] = [
+  { kind: 'mask', label: 'MASK' },
+  { kind: 'horns', label: 'HORNS' },
+  { kind: 'weapon', label: 'RIGHT WEAPON' },
+];
 
 export function StackBuilder() {
   const mount = useRef<HTMLDivElement>(null);
@@ -40,8 +51,10 @@ export function StackBuilder() {
   const [horns, setHorns] = useState('');
   const [maskFit, setMaskFit] = useState(ZERO);
   const [hornsFit, setHornsFit] = useState(ZERO);
+  const [weapon, setWeapon] = useState('');
+  const [weaponFit, setWeaponFit] = useState(ZERO);
   const [status, setStatus] = useState('loading…');
-  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setPart: (slot: Part['slot'], p: Part | null, f: typeof fit) => void } | null>(null);
+  const api = useRef<{ setHair: (id: string) => void; setFit: (f: typeof fit) => void; setClothes: (v: boolean) => void; setPart: (slot: Slot, p: Part | null, f: typeof fit) => void } | null>(null);
 
   useEffect(() => {
     const el = mount.current;
@@ -88,14 +101,30 @@ export function StackBuilder() {
 
     let maskSlot: THREE.Box3 | null = null; // the base mask's bounds in head space
     let baseMask: THREE.Object3D | null = null;
-    const rigid: Record<Part['slot'], { obj: THREE.Object3D | null; fit: typeof fitNow; want: string }> = {
-      mask: { obj: null, fit: { ...ZERO }, want: '' },
-      horns: { obj: null, fit: { ...ZERO }, want: '' },
+    const rigid: Record<Slot, { obj: THREE.Object3D | null; fit: typeof fitNow; want: string; parent: THREE.Object3D | null }> = {
+      mask: { obj: null, fit: { ...ZERO }, want: '', parent: null },
+      horns: { obj: null, fit: { ...ZERO }, want: '', parent: null },
+      weapon: { obj: null, fit: { ...ZERO }, want: '', parent: null },
     };
-    const placeRigid = (kind: Part['slot']) => {
+    const sockets: Partial<Record<'L' | 'R', THREE.Object3D>> = {};
+    let faceAnchor: THREE.Vector3 | null = null; // card face centre on the chibi, in her model space
+    const parentFor = (p: Part) => (p.slot === 'weapon' ? (sockets[p.socket ?? 'L'] ?? null) : head);
+    const placeRigid = (kind: Slot) => {
       const r = rigid[kind];
+      if (r.obj?.userData.handBuilt && r.parent && base) {
+        const f = r.fit;
+        const anchor = kind === 'weapon' ? base.worldToLocal(r.parent.getWorldPosition(new THREE.Vector3())) : faceAnchor;
+        if (!anchor) return;
+        const local = new THREE.Matrix4().compose(
+          anchor.clone().add(new THREE.Vector3(0, f.y, f.z)),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(f.pitch ?? 0, f.turn, f.roll ?? 0, 'XZY')),
+          new THREE.Vector3(f.scale, f.scale, f.scale),
+        );
+        r.parent.matrixWorld.clone().invert().multiply(base.matrixWorld).multiply(local).decompose(r.obj.position, r.obj.quaternion, r.obj.scale);
+        return;
+      }
       const into = kind === 'mask' ? maskSlot : slot;
-      if (!r.obj || !into) return;
+      if (!r.obj || !into || kind === 'weapon') return;
       if (r.obj.userData.wrapped && head && base) {
         // Model space -> head bone space, at the bind pose (no animation plays here).
         const m = (head as THREE.Object3D).matrixWorld.clone().invert().multiply(base.matrixWorld);
@@ -127,13 +156,13 @@ export function StackBuilder() {
       }
       r.obj.position.set(c.x - rc.x * k, y + r.fit.y, z + r.fit.z * faceSign);
     };
-    const setRigid = async (kind: Part['slot'], p: Part | null) => {
+    const setRigid = async (kind: Slot, p: Part | null) => {
       const r = rigid[kind];
       if (!head) return;
       r.want = p?.id ?? '';
       if (kind === 'mask' && baseMask) baseMask.visible = !p;
       if (r.obj && r.obj.userData.id !== r.want) {
-        head.remove(r.obj);
+        r.parent?.remove(r.obj);
         r.obj = null;
       }
       if (!p || r.obj) return placeRigid(kind);
@@ -147,11 +176,15 @@ export function StackBuilder() {
         obj.userData.flat = obj.userData.raw.clone();
         obj.userData.id = p.id;
         obj.userData.wrapped = !!p.wrapped;
+        obj.userData.handBuilt = !!p.handBuilt;
         cache.set(p.id, obj);
       }
       if (r.want !== p.id) return; // picked something else while loading
+      const parent = parentFor(p);
+      if (!parent) return;
       r.obj = obj;
-      head.add(obj);
+      r.parent = parent;
+      parent.add(obj);
       placeRigid(kind);
     };
 
@@ -212,6 +245,9 @@ export function StackBuilder() {
           if (o.name === 'hair' && (o as THREE.Mesh).isMesh !== undefined) baseHair = o;
           if (o.name === 'clothes') clothes = o;
           if ((o as THREE.Mesh).isMesh) o.frustumCulled = false;
+          // weapon sockets: item.L / item.R (GLTFLoader drops the dot from node names)
+          const sock = /^item\.?([LR])$/.exec(o.name);
+          if (sock && !(o as THREE.Mesh).isMesh) sockets[sock[1] as 'L' | 'R'] = o;
         });
         if (!head) throw new Error('No head bone in the base model.');
         const hb = baseHair as THREE.Object3D | null;
@@ -228,6 +264,16 @@ export function StackBuilder() {
             if ((face as THREE.Object3D).name === 'mask') {
               baseMask = face;
               maskSlot = new THREE.Box3().setFromObject(face, true).applyMatrix4(inv);
+              // Face anchor for hand-built head parts: head mesh centre across and front-to-back,
+              // mask centre for height (= the card's face centre).
+              let headMesh: THREE.Object3D | null = null;
+              (base as THREE.Object3D).traverse((o) => {
+                if (!headMesh && (o as THREE.Mesh).isMesh && /^head(_\d+)?$/.test(o.name)) headMesh = o;
+              });
+              const toModel = (base as THREE.Object3D).matrixWorld.clone().invert();
+              const mc = new THREE.Box3().setFromObject(face, true).applyMatrix4(toModel).getCenter(new THREE.Vector3());
+              const hc = headMesh ? new THREE.Box3().setFromObject(headMesh, true).applyMatrix4(toModel).getCenter(new THREE.Vector3()) : mc;
+              faceAnchor = new THREE.Vector3(hc.x, mc.y, hc.z);
             }
             const fc = new THREE.Box3().setFromObject(face, true).applyMatrix4(inv).getCenter(new THREE.Vector3());
             faceSign = fc.z >= slot.getCenter(new THREE.Vector3()).z ? 1 : -1;
@@ -291,6 +337,12 @@ export function StackBuilder() {
   }, []);
   useEffect(() => api.current?.setPart('mask', parts.find((p) => p.id === mask) ?? null, maskFit), [parts, mask, maskFit, status]);
   useEffect(() => api.current?.setPart('horns', parts.find((p) => p.id === horns) ?? null, hornsFit), [parts, horns, hornsFit, status]);
+  useEffect(() => api.current?.setPart('weapon', parts.find((p) => p.id === weapon) ?? null, weaponFit), [parts, weapon, weaponFit, status]);
+  const pickState: Record<Slot, [string, (id: string) => void, (f: Required<Fit>) => void]> = {
+    mask: [mask, setMask, setMaskFit],
+    horns: [horns, setHorns, setHornsFit],
+    weapon: [weapon, setWeapon, setWeaponFit],
+  };
 
   return (
     <section className="panel">
@@ -313,17 +365,17 @@ export function StackBuilder() {
           CLOTHES
         </button>
       </div>
-      {(['mask', 'horns'] as const).map((kind) => {
+      {SLOTS.map(({ kind, label }) => {
         const list = parts.filter((p) => p.slot === kind);
-        const cur = kind === 'mask' ? mask : horns;
+        const [cur, setCur, setCurFit] = pickState[kind];
         const pick = (id: string) => {
-          (kind === 'mask' ? setMask : setHorns)(id);
-          (kind === 'mask' ? setMaskFit : setHornsFit)(withPitch(list.find((p) => p.id === id)?.fit)); // owner's saved fit
+          setCur(id);
+          setCurFit(withPitch(list.find((p) => p.id === id)?.fit)); // owner's saved fit
         };
         if (!list.length) return null;
         return (
           <div key={kind} className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <span className="text-dim">{kind.toUpperCase()} CARD:</span>
+            <span className="text-dim">{label} CARD:</span>
             <button onClick={() => pick('')} className={`btn ${cur === '' ? 'btn-on' : ''}`}>
               {kind === 'mask' ? 'Base mask (chibi)' : 'None'}
             </button>
@@ -338,6 +390,7 @@ export function StackBuilder() {
       <FitSliders label="HAIR" card={hair} fit={fit} onChange={setFit} />
       {mask && !parts.find((p) => p.id === mask)?.wrapped && <FitSliders label="MASK" card={mask} fit={maskFit} onChange={setMaskFit} />}
       {horns && <FitSliders label="HORNS" card={horns} fit={hornsFit} onChange={setHornsFit} />}
+      {weapon && <FitSliders label="WEAPON" card={weapon} fit={weaponFit} onChange={setWeaponFit} />}
       <p className="mt-1 text-xs text-dim">Fit tweaks get saved per card once the set is final.</p>
     </section>
   );

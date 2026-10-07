@@ -174,5 +174,105 @@
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_016_Mask_Polkadot.glb",
   "wrapped": true
+ },
+ {
+  "id": "hand_09_001_phiphi",
+  "name": "Phi Phi Horn (hand-built)",
+  "slot": "horns",
+  "url": "/arena/models/npg/stack/hand/09_001_phiphi_horn.glb",
+  "handBuilt": true,
+  "fit": {
+   "scale": 1,
+   "y": 0.13,
+   "z": 0,
+   "turn": 0
+  }
+ },
+ {
+  "id": "hand_09_002_scarlet",
+  "name": "Scarlet Horns (hand-built)",
+  "slot": "horns",
+  "url": "/arena/models/npg/stack/hand/09_002_scarlet_horns.glb",
+  "handBuilt": true
+ },
+ {
+  "id": "hand_09_003_small",
+  "name": "Small Horns (hand-built)",
+  "slot": "horns",
+  "url": "/arena/models/npg/stack/hand/09_003_small_horns.glb",
+  "handBuilt": true
+ },
+ {
+  "id": "hand_09_004_spikes",
+  "name": "Spikes (hand-built)",
+  "slot": "horns",
+  "url": "/arena/models/npg/stack/hand/09_004_spikes_heart.glb",
+  "handBuilt": true,
+  "fit": {
+   "scale": 1,
+   "y": 0.06,
+   "z": 0.07,
+   "turn": 0
+  }
+ },
+ {
+  "id": "hand_07_026_bat",
+  "name": "Spiked Bat (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_026_spiked_bat.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": -0.89
+  }
+ },
+ {
+  "id": "hand_07_003_axe",
+  "name": "Red Axe (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_003_red_axe.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": -1.239
+  }
+ },
+ {
+  "id": "hand_07_009_katana",
+  "name": "Katana (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_009_katana.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": -1.082
+  }
+ },
+ {
+  "id": "hand_07_008_sai",
+  "name": "Sai (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_008_sai.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": -1.047
+  }
  }
 ]
