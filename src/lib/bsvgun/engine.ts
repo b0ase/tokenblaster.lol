@@ -19,6 +19,8 @@ import { buildRange, RANGE, type Range } from './range';
 import { Fx } from './fx';
 import { buildTarget, halo, kindOf, labelOf, sizeOf, synthTx, TARGET_INFO, type Pattern, type TargetKind, type TargetRig } from './targets';
 import type { RangeWeapon } from './weapons';
+import { COUNTDOWN, GRACE, ROUND_SECS, claimPoints, planTx, rng, type Claim, type PlanEv } from './versus';
+import { VersusLayer, type VsPlayer, type VsRow } from './vsLayer';
 
 export type Quality = 'low' | 'high';
 export type Phase = 'menu' | 'play' | 'over';
@@ -56,6 +58,10 @@ export type Hooks = {
   reticle?: (x: number, y: number, show: boolean) => void;
   /** Dry-fire / out of ammo. */
   dry?: () => void;
+  /** VERSUS: send a gameplay message to the room (aim 'a', shot 's', claim 'c', claims sync 'cs'). */
+  net?: (ev: string, payload: unknown) => void;
+  /** VERSUS: the live scoreboard (rows ranked), 4 times a second; `final` once the round is settled. */
+  vsRows?: (rows: VsRow[], timeLeft: number, final: boolean) => void;
 };
 
 type T = {
@@ -86,9 +92,11 @@ type T = {
   flock?: number;
   hanger?: THREE.Object3D;
   dead: boolean;
+  /** VERSUS: index in the shared round plan. */
+  planIdx?: number;
 };
 
-const ROUND = 75;
+const ROUND = ROUND_SECS;
 const G_CLAY = 11;
 const fov2 = (base: number, z: number) => THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(base) / 2) / z));
 const BASE_FOV = 58;
@@ -163,6 +171,27 @@ export class RangeEngine {
   private demoT = 1;
   private paused = false;
   private rngState = 12345;
+  /** VERSUS run (null in solo play). */
+  private vs: {
+    layer: VersusLayer;
+    me: string;
+    t0: number;
+    W: number;
+    simT: number;
+    cursor: number;
+    ended: boolean;
+    done: boolean;
+    nextSync: number;
+    aimDir: THREE.Vector3;
+    aimSent: number;
+    count: number;
+    aimT: number;
+    rowsT: number;
+    /** performance.now() of the last 's' message (cosmetic traffic is capped at ~9/s per shooter). */
+    netAt: number;
+    /** Test hook: exact per-step positions of the first plan targets, to compare clients. */
+    trace?: Map<string, string>;
+  } | null = null;
   private uptime = 0;
   private hitStop = 0;
   private fpsEma = 60;
@@ -421,6 +450,7 @@ export class RangeEngine {
   // ── Run control ────────────────────────────────────────────────────
 
   start(weaponId: string, live: boolean) {
+    this.endVersus();
     void this.setWeapon(weaponId);
     this.live = live;
     for (const t of [...this.targets]) this.removeTarget(t);
@@ -439,11 +469,13 @@ export class RangeEngine {
   }
 
   toMenu() {
+    this.endVersus();
     for (const t of [...this.targets]) this.removeTarget(t);
     this.setPhase('menu');
   }
 
   setPaused(p: boolean) {
+    if (this.vs) return; // a shared round can't be paused
     this.paused = p;
     if (p && this.mgOn) {
       minigun(false);
@@ -481,8 +513,171 @@ export class RangeEngine {
     this.trigger = false;
     sfx('gameover');
     const acc = this.shots ? this.hits / this.shots : 0;
-    this.hooks.current.over({ score: Math.round(this.score), shots: this.shots, hits: this.hits, acc, bestStreak: this.bestStreak, kills: { ...this.kills }, secs: ROUND, weapon: this.weapon?.name ?? '', blocks: this.blocks });
+    const final = this.vs ? this.vs.layer.myScore() : Math.round(this.score);
+    this.hooks.current.over({ score: final, shots: this.shots, hits: this.hits, acc, bestStreak: this.bestStreak, kills: { ...this.kills }, secs: ROUND, weapon: this.weapon?.name ?? '', blocks: this.blocks });
     this.pushHud(true);
+    this.pushRows(true);
+  }
+
+
+  // ── VERSUS ─────────────────────────────────────────────────────────
+
+  /**
+   * Start a shared round. Every client calls this at the same moment (the room's 'go'), with the same rid and roster,
+   * so planRound() gives the same schedule and the fixed-step clock flies the same targets. `players` is in grid order.
+   */
+  startVersus(o: { weaponId: string; live: boolean; rid: string; me: string; players: VsPlayer[] }) {
+    this.endVersus();
+    void this.setWeapon(o.weaponId);
+    this.live = o.live;
+    for (const t of [...this.targets]) this.removeTarget(t);
+    this.score = this.streak = this.bestStreak = this.shots = this.hits = this.blocks = 0;
+    this.kills = {};
+    this.timeLeft = ROUND;
+    this.elapsed = 0;
+    this.banner = '';
+    this.paused = false;
+    this.hitStop = 0;
+    this.slowT = 0;
+    const layer = new VersusLayer({
+      scene: this.scene,
+      fx: this.fx,
+      rid: o.rid,
+      me: o.me,
+      players: o.players,
+      weapons: this.opts.weapons,
+      send: (ev, p) => this.hooks.current.net?.(ev, p),
+      onWon: (c, who) => this.vsRemoteWin(c, who),
+      onBeaten: (_c, who) => this.announce(`${this.vsWho(who)} GOT IT FIRST`, 0.9),
+    });
+    const t0 = performance.now() + COUNTDOWN * 1000;
+    layer.setClock(() => (performance.now() - t0) / 1000);
+    this.vs = { layer, me: o.me, t0, W: -COUNTDOWN, simT: 0, cursor: 0, ended: false, done: false, nextSync: ROUND, aimDir: new THREE.Vector3(), aimSent: 0, count: 99, aimT: 0, rowsT: 0, netAt: 0 };
+    this.setPhase('play');
+    this.pushHud(true);
+    this.pushRows(false);
+  }
+
+  /** Leave versus mode (menu, solo start, dispose). */
+  endVersus() {
+    if (!this.vs) return;
+    this.vs.layer.dispose();
+    this.vs = null;
+  }
+
+  get inVersus() {
+    return !!this.vs;
+  }
+
+  /** The room's verified-handle map changed. */
+  vsVerified(v: Record<string, boolean>) {
+    this.vs?.layer.setVerified(v);
+  }
+
+  /** A gameplay message from the room. */
+  vsMsg(ev: string, p: unknown) {
+    this.vs?.layer.onMsg(ev, p);
+  }
+
+  private vsWho(p: VsPlayer) {
+    return p.x ? `@${p.x}` : p.name;
+  }
+
+  /** Someone else's claim won a target: it shatters here too, with their name on the popup. */
+  private vsRemoteWin(c: Claim, who: VsPlayer) {
+    const v = this.vs;
+    if (!v) return;
+    const t = this.targets.find((x) => x.planIdx === c.n && !x.dead);
+    if (!t) return; // not spawned here yet (the spawner skips claimed targets) or already gone
+    const info = TARGET_INFO[t.kind];
+    const pos = this.tF.copy(t.g.position);
+    const big = t.kind === 'whale' || t.kind === 'block';
+    this.fx.shatter(pos, info.color, big ? (this.high ? 60 : 24) : this.high ? 18 : 9, big ? 13 : 9, big ? 2 : 1, t.kind === 'social');
+    this.fx.sparks(pos, who.color, big ? 40 : 14, big ? 14 : 10);
+    this.fx.ring(pos, who.color, big ? 7 : 3, 0.4);
+    sfx(big ? 'explosion' : 'stamp', big ? 0.5 : 0.25);
+    const pts = claimPoints(v.layer.plan[c.n], c);
+    this.popupWorld(`${this.vsWho(who)} +${pts.toLocaleString()}`, pos, who.color, big ? 1.3 : 0.9);
+    this.removeTarget(t);
+  }
+
+  private vsSpawn(ev: PlanEv) {
+    const v = this.vs!;
+    if (v.layer.book.winners.has(ev.i)) return; // already claimed by a shooter whose clock is a hair ahead
+    this.spawn(planTx(ev), ev.kind, ev);
+  }
+
+  /** Advance the fixed-step target simulation to the shared round clock (the same steps on every client). */
+  private vsSim() {
+    const v = this.vs!;
+    const H = 1 / 120;
+    const goal = Math.min(Math.max(0, v.W), ROUND + 1);
+    let steps = 0;
+    while (v.simT + H <= goal && steps < 3000) {
+      while (v.cursor < v.layer.plan.length && v.layer.plan[v.cursor].t <= v.simT) this.vsSpawn(v.layer.plan[v.cursor++]);
+      this.updateTargets(H);
+      if (v.trace) for (const t of this.targets) if (t.planIdx !== undefined && t.planIdx < 80) v.trace.set(`${t.planIdx}@${Math.round(t.age / H)}`, `${t.g.position.x.toFixed(3)},${t.g.position.y.toFixed(3)},${t.g.position.z.toFixed(3)}`);
+      v.simT += H;
+      steps++;
+    }
+    if (steps >= 3000) v.simT = goal; // far behind (a throttled tab): jump to now rather than crawl
+  }
+
+  /** Round clock, countdown, end of round, results. */
+  private vsClock() {
+    const v = this.vs!;
+    v.W = (performance.now() - v.t0) / 1000;
+    this.timeLeft = Math.min(ROUND, Math.max(0, ROUND - Math.max(0, v.W)));
+    if (v.W < 0) {
+      const k = Math.ceil(-v.W);
+      if (k !== v.count) {
+        v.count = k;
+        this.announce(String(k), 0.95);
+        sfx('click', 0.5);
+      }
+    } else if (v.count !== 0) {
+      v.count = 0;
+      this.announce('GO!', 1);
+      sfx('start');
+    }
+    if (!v.ended && v.W >= ROUND) {
+      v.ended = true;
+      this.announce('TIME!', 1.6);
+      this.trigger = false;
+    }
+    // Broadcasts are best-effort: say all my claims again a few times at the end so a drop can't change the result.
+    if (v.ended && v.W >= v.nextSync && v.nextSync < ROUND + GRACE) {
+      v.nextSync += 1.2;
+      v.layer.syncMine();
+    }
+    if (v.ended && !v.done && v.W >= ROUND + GRACE) {
+      v.done = true;
+      this.finish();
+    }
+  }
+
+  private pushRows(final: boolean) {
+    const v = this.vs;
+    if (!v) return;
+    v.rowsT = 0.25;
+    this.hooks.current.vsRows?.(v.layer.rows(), this.timeLeft, final);
+  }
+
+  /** My kill in a versus round: claim it (the claim book, not my local counter, is the score). */
+  private vsClaim(t: T, dist: number, bullseye: boolean) {
+    const v = this.vs;
+    if (!v || t.planIdx === undefined) return;
+    v.layer.claimLocal(t.planIdx, (performance.now() - v.t0) / 1000, dist, bullseye, this.mult());
+  }
+
+  private vsSendShot(dir: THREE.Vector3, end: THREE.Vector3, w: RangeWeapon) {
+    const v = this.vs;
+    if (!v) return;
+    const now = performance.now();
+    if (now - v.netAt < 150) return; // auto-fire: the others see every ninth tracer, not every one
+    v.netAt = now;
+    const r = (n: number) => Math.round(n * 100) / 100;
+    this.hooks.current.net?.('s', { i: v.me, d: [r(dir.x), r(dir.y), r(dir.z)], e: [r(end.x), r(end.y), r(end.z)], w: w.id });
   }
 
   // ── Targets ────────────────────────────────────────────────────────
@@ -493,17 +688,21 @@ export class RangeEngine {
     return n;
   }
 
-  private spawn(tx: FeedTx, forceKind?: TargetKind) {
+  private spawn(tx: FeedTx, forceKind?: TargetKind, plan?: PlanEv) {
+    // VERSUS: every launch parameter comes from the plan entry's seed, so all clients fly the same target.
+    const rnd = plan ? rng(plan.seed) : () => this.rnd();
     const kind = forceKind ?? kindOf(tx);
     const info = TARGET_INFO[kind];
-    let pattern = info.pattern;
-    // Tokens and ordinals ride a rail or are lobbed; variety keeps the sky busy.
-    if ((kind === 'token' || kind === 'inscription') && (this.count('rail') >= 3 || this.rnd() < 0.3)) pattern = 'clay';
-    if (kind === 'data' && this.count('popup') >= 4) pattern = 'clay';
-    if (kind === 'social' && this.count('duck') >= 4) pattern = 'clay';
-    if (kind === 'whale' && this.count('float') >= 1) return null;
-    if (kind === 'block' && this.count('blockrail') >= 1) return null;
-    if (this.targets.length >= 18) return null;
+    let pattern = plan?.pattern ?? info.pattern;
+    if (!plan) {
+      // Tokens and ordinals ride a rail or are lobbed; variety keeps the sky busy.
+      if ((kind === 'token' || kind === 'inscription') && (this.count('rail') >= 3 || rnd() < 0.3)) pattern = 'clay';
+      if (kind === 'data' && this.count('popup') >= 4) pattern = 'clay';
+      if (kind === 'social' && this.count('duck') >= 4) pattern = 'clay';
+      if (kind === 'whale' && this.count('float') >= 1) return null;
+      if (kind === 'block' && this.count('blockrail') >= 1) return null;
+      if (this.targets.length >= 18) return null;
+    }
 
     const size = kind === 'block' ? 1 : sizeOf(tx);
     const rig = buildTarget(kind, tx, size);
@@ -524,8 +723,8 @@ export class RangeEngine {
       life: 9,
       label: kind === 'block' ? `BLOCK #${tx.op ?? ''}` : labelOf(tx, kind),
       pts: info.pts,
-      side: this.rnd() < 0.5 ? 0 : 1,
-      seed: this.rnd() * 10,
+      side: rnd() < 0.5 ? 0 : 1,
+      seed: rnd() * 10,
       hold: 0,
       up: 0,
       station: -1,
@@ -534,6 +733,8 @@ export class RangeEngine {
       logoT: 0,
       hittable: true,
       dead: false,
+      planIdx: plan?.i,
+      flock: plan?.flock ? 1 : undefined,
     };
     const sgn = t.side === 0 ? 1 : -1; // direction of travel: from the left trap goes right
     if (pattern === 'clay') {
@@ -541,15 +742,15 @@ export class RangeEngine {
       g.position.set(trap.x + sgn * 1.1, 2.0, trap.z);
       // Arc planned so its apex stays inside the camera's view (never over the top edge): pick an apex height,
       // lower it until the apex's elevation angle from the eye is <= ~28 degrees, then solve the flight time to the landing point.
-      const destX = sgn * (2 + this.rnd() * 13) * (kind === 'blast' ? 1.4 : 1);
-      const destZ = -(14 + this.rnd() * 26);
+      const destX = sgn * (2 + rnd() * 13) * (kind === 'blast' ? 1.4 : 1);
+      const destZ = -(14 + rnd() * 26);
       const y0 = g.position.y;
-      let ya = 6.5 + this.rnd() * 5.5;
+      let ya = 6.5 + rnd() * 5.5;
       let vy0 = 0;
       let T = 3;
       for (let i = 0; i < 6; i++) {
         vy0 = Math.sqrt(2 * G_CLAY * (ya - y0));
-        const landY = THREE.MathUtils.clamp(3 + this.rnd() * 6, 3, ya - 0.8);
+        const landY = THREE.MathUtils.clamp(3 + rnd() * 6, 3, ya - 0.8);
         T = (vy0 + Math.sqrt(Math.max(0, vy0 * vy0 - 2 * G_CLAY * (landY - y0)))) / G_CLAY;
         const zA = g.position.z + ((destZ - g.position.z) / T) * (vy0 / G_CLAY);
         const d = Math.max(3, -zA);
@@ -563,33 +764,34 @@ export class RangeEngine {
       sfx('click', 0.25);
       t.life = 8;
     } else if (pattern === 'duck') {
-      const z = -(16 + this.rnd() * 22);
+      const z = -(16 + rnd() * 22);
       // Fly in a band 11 to 21 degrees above the eye line: clear sky above the skyline, under the top edge of the view.
-      const duckY = RANGE.eye + -z * Math.tan(0.19 + this.rnd() * 0.18);
+      const duckY = RANGE.eye + -z * Math.tan(0.19 + rnd() * 0.18);
       g.position.set(-sgn * 36, duckY, z);
-      t.v.set(sgn * (8 + this.rnd() * 6), 0, (this.rnd() - 0.5) * 2);
+      t.v.set(sgn * (8 + rnd() * 6), 0, (rnd() - 0.5) * 2);
       t.life = 12;
       t.base.copy(g.position);
     } else if (pattern === 'popup') {
-      const free = this.range.stations.map((s, i) => ({ s, i })).filter(({ i }) => !this.targets.some((o) => o.station === i));
+      // VERSUS: no occupancy test (it depends on who shot what); the plan's seed picks the plate.
+      const free = this.range.stations.map((s, i) => ({ s, i })).filter(({ i }) => !!plan || !this.targets.some((o) => o.station === i));
       if (!free.length) {
         rig.dispose();
         return null;
       }
-      const pick = free[Math.floor(this.rnd() * free.length)];
+      const pick = free[Math.floor(rnd() * free.length)];
       t.station = pick.i;
       g.position.copy(pick.s);
-      t.hold = 2.0 + this.rnd() * 1.4;
+      t.hold = 2.0 + rnd() * 1.4;
       t.hittable = false;
       g.visible = false;
       t.life = 8;
     } else if (pattern === 'rail') {
-      const lower = this.rnd() < 0.4;
+      const lower = rnd() < 0.4;
       const z = lower ? RANGE.rail2Z : RANGE.railZ;
       const topY = lower ? RANGE.rail2Y : RANGE.railY;
       const hang = 1.9 + r;
       g.position.set(-sgn * 29, topY - hang, z);
-      t.v.set(sgn * (lower ? 8 + this.rnd() * 4 : 6 + this.rnd() * 4), 0, 0);
+      t.v.set(sgn * (lower ? 8 + rnd() * 4 : 6 + rnd() * 4), 0, 0);
       t.life = 12;
       const h = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, hang, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffb800').multiplyScalar(1.5), toneMapped: false }));
       h.position.y = hang / 2;
@@ -597,9 +799,9 @@ export class RangeEngine {
       t.hanger = h;
       t.base.set(0, topY - hang, z);
     } else if (pattern === 'float') {
-      g.position.set((this.rnd() - 0.5) * 26, 0.5, -(40 + this.rnd() * 14));
+      g.position.set((rnd() - 0.5) * 26, 0.5, -(40 + rnd() * 14));
       t.base.copy(g.position);
-      t.base.y = 8 + this.rnd() * 3.5;
+      t.base.y = 8 + rnd() * 3.5;
       t.life = 10;
       this.announce('GOLDEN WHALE!', 1.6);
       sfx('pickup');
@@ -722,6 +924,7 @@ export class RangeEngine {
   private tryShoot(edge: boolean) {
     const w = this.weapon;
     if (!w || this.phase !== 'play') return;
+    if (this.vs && (this.vs.W < 0 || this.vs.ended)) return; // countdown / time up
     const now = performance.now();
     if (now < this.nextShot) return;
     if (!w.auto && !edge) return;
@@ -742,6 +945,7 @@ export class RangeEngine {
     this.aimRay(org, dir);
     const mz = this.muzzleWorld(this.tD).clone();
     this.shots++;
+    const vsEnd = this.vs ? new THREE.Vector3() : null;
     let hitAny = 0;
     let killsThisShot = 0;
     const end = new THREE.Vector3();
@@ -777,7 +981,9 @@ export class RangeEngine {
       const width = w.ammo === 'laser' ? 0.1 : w.ammo === 'plasma' ? 0.07 : w.ammo === 'rocket' ? 0.2 : w.ammo === 'grenade' ? 0.16 : w.ammo === 'pellet' ? 0.035 : 0.05;
       const life = w.ammo === 'laser' ? 0.17 : w.ammo === 'rocket' || w.ammo === 'grenade' ? 0.22 : 0.08;
       this.fx.tracer(mz, end, w.bolt, width, life);
+      if (vsEnd && p === 0) vsEnd.copy(end);
     }
+    if (vsEnd) this.vsSendShot(dir, vsEnd, w);
     if (splashAt && w.splash > 0) {
       this.fx.ring(splashAt, w.bolt, w.splash * 1.3, 0.5);
       this.fx.sparks(splashAt, w.bolt, 26, 12);
@@ -837,7 +1043,7 @@ export class RangeEngine {
       this.fx.sparks(at, TARGET_INFO[t.kind].glow, 14, 9);
       sfx('hit', 0.6);
       const chip = Math.round(t.pts * 0.08 * this.mult());
-      this.score += chip;
+      if (!this.vs) this.score += chip; // versus: only claimed kills score
       this.popupWorld(`+${chip}`, at, '#ffd24a', 0.9);
       this.pulse = Math.min(1, this.pulse + 0.4);
       return false;
@@ -846,7 +1052,8 @@ export class RangeEngine {
     const dBonus = 1 + Math.min(1, dist / 90);
     let pts = Math.round(t.pts * dBonus * mult * (bullseye ? 1.5 : 1));
     if (t.flock) pts = Math.round(pts * 1.2);
-    this.score += pts;
+    if (this.vs) this.vsClaim(t, dist, bullseye);
+    else this.score += pts;
     this.kills[t.kind] = (this.kills[t.kind] ?? 0) + 1;
     const info = TARGET_INFO[t.kind];
     const pos = this.tF.copy(t.g.position);
@@ -911,6 +1118,11 @@ export class RangeEngine {
     if (document.hidden) return;
     this.watchFps(dtReal);
     this.pollPad(dtReal);
+    if (this.vs) {
+      // A shared round never slows down for one shooter.
+      this.hitStop = 0;
+      this.slowT = 0;
+    }
     if (this.hitStop > 0) {
       this.hitStop -= dtReal;
       dtReal *= 0.1;
@@ -918,7 +1130,7 @@ export class RangeEngine {
     if (this.slowT > 0) this.slowT -= dtReal;
     const targetScale = this.slowT > 0 ? 0.22 : 1;
     this.timeScale += (targetScale - this.timeScale) * Math.min(1, dtReal * 9);
-    const dt = this.paused ? 0 : dtReal * this.timeScale;
+    const dt = this.paused && !this.vs ? 0 : dtReal * this.timeScale;
     this.uptime += dtReal;
     this.clock += dt;
     this.step(dt, dtReal);
@@ -948,12 +1160,15 @@ export class RangeEngine {
 
   private step(dt: number, dtReal: number) {
     const play = this.phase === 'play';
-    if (play && !this.paused) {
-      this.timeLeft -= dtReal;
-      this.elapsed += dtReal;
-      if (this.timeLeft <= 0) {
-        this.timeLeft = 0;
-        this.finish();
+    if (play && (!this.paused || this.vs)) {
+      if (this.vs) this.vsClock();
+      else {
+        this.timeLeft -= dtReal;
+        this.elapsed += dtReal;
+        if (this.timeLeft <= 0) {
+          this.timeLeft = 0;
+          this.finish();
+        }
       }
       // Auto fire while held.
       if (this.trigger && this.weapon?.auto) this.tryShoot(false);
@@ -961,9 +1176,11 @@ export class RangeEngine {
         this.mgOn = false;
         minigun(false);
       }
-      // Blocks: a real new block (tip height changed) or the scheduled one.
+      // Blocks: a real new block (tip height changed) or the scheduled one. (Versus has its own block in the plan.)
       const h = this.hooks.current.height();
-      if (h && this.lastHeight && h > this.lastHeight) {
+      if (this.vs) {
+        /* the plan schedules the block */
+      } else if (h && this.lastHeight && h > this.lastHeight) {
         this.lastHeight = h;
         this.blockWave(h, false);
       } else if (this.elapsed > this.blockDue) {
@@ -972,9 +1189,28 @@ export class RangeEngine {
         this.blockWave(h, true);
       }
     }
-    if (this.phase !== 'over') this.director(dt);
+    if (!this.vs && this.phase !== 'over') this.director(dt);
     this.demo(dt);
-    this.updateTargets(dt);
+    if (this.vs) {
+      this.vsSim();
+      this.vs.layer.update(dtReal, this.camera);
+      // My aim, 8 times a second, so the others see my gun follow my crosshair.
+      const vs = this.vs;
+      vs.aimT -= dtReal;
+      if (vs.aimT <= 0 && this.phase === 'play' && vs.W > -1.5 && !vs.ended && performance.now() - vs.netAt > 150) {
+        vs.aimT = 0.2; // 5 Hz at most, and only when the aim moved (or once a second as a heartbeat); a shot message carries the aim too
+        this.aimRay(this.tA, this.tC);
+        const now = performance.now();
+        if (vs.aimDir.distanceToSquared(this.tC) > 1e-5 || now - vs.aimSent > 1000) {
+          vs.aimDir.copy(this.tC);
+          vs.aimSent = now;
+          const r = (n: number) => Math.round(n * 100) / 100;
+          this.hooks.current.net?.('a', { i: vs.me, d: [r(this.tC.x), r(this.tC.y), r(this.tC.z)], w: this.weapon?.id });
+        }
+      }
+      vs.rowsT -= dtReal;
+      if (vs.rowsT <= 0) this.pushRows(vs.done); // after the round the table keeps following late claims
+    } else this.updateTargets(dt);
     this.fx.update(dt, this.camera);
     this.pulse = Math.max(0, this.pulse - dtReal * 2.2);
     this.range.update(this.uptime, dtReal, this.pulse);
@@ -1177,7 +1413,7 @@ export class RangeEngine {
     void force;
     const w = this.weapon;
     this.hooks.current.hud({
-      score: Math.round(this.score),
+      score: this.vs ? this.vs.layer.myScore() : Math.round(this.score),
       timeLeft: this.timeLeft,
       streak: this.streak,
       mult: this.mult(),
@@ -1228,12 +1464,27 @@ export class RangeEngine {
         });
       },
       nearest: () => this.targets.map((t) => ({ kind: t.kind, pattern: t.pattern, p: [t.g.position.x, t.g.position.y, t.g.position.z] })),
+      vs: () => (this.vs ? { ...this.vs.layer.debug(), W: this.vs.W, simT: this.vs.simT, cursor: this.vs.cursor, live: this.targets.filter((t) => t.planIdx !== undefined).map((t) => ({ n: t.planIdx, kind: t.kind, p: [Math.round(t.g.position.x * 100) / 100, Math.round(t.g.position.y * 100) / 100, Math.round(t.g.position.z * 100) / 100] })) } : null),
+      vsTrace: () => {
+        if (this.vs) this.vs.trace ??= new Map();
+        return this.vs?.trace?.size ?? 0;
+      },
+      vsTraceDump: () => (this.vs?.trace ? Object.fromEntries(this.vs.trace) : {}),
+      vsShoot: (n: number) => {
+        const t = this.targets.find((x) => x.planIdx === n && !x.dead);
+        if (!t) return false;
+        t.hp = 0;
+        this.vsClaim(t, 20, false);
+        this.removeTarget(t);
+        return true;
+      },
       whale: () => this.spawn({ id: 'simwhale', kind: 'payment', bytes: 300, sats: 2e9, mined: false }),
     };
   }
 
   dispose() {
     this.disposed = true;
+    this.endVersus();
     cancelAnimationFrame(this.raf);
     this.ro?.disconnect();
     for (const c of this.cleanup) c();

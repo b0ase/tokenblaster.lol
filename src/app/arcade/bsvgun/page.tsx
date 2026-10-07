@@ -27,7 +27,7 @@ export default function BSVGunPage() {
         </p>
       </header>
       <BSVGun />
-      <HighScoresPanel games={['bsvgun-range']} label="RANGE SCORE" />
+      <HighScoresPanel games={['bsvgun-range', 'bsvgun-versus']} titles={['RANGE', 'VERSUS']} label="SCORE" />
     </main>
   );
 }

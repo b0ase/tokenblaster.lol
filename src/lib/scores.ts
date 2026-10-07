@@ -25,6 +25,7 @@ const STATIC_GAMES = {
   bubbo: { title: 'Coin Pop (Bubbo Bubbo)', tag: 'bubbo', sort: 'score' },
   potions: { title: 'Token Potions (Puzzling Potions)', tag: 'potions', sort: 'score' },
   'bsvgun-range': { title: 'BSVGun Range', tag: 'bsvgun', sort: 'score' },
+  'bsvgun-versus': { title: 'BSVGun Versus', tag: 'bsvgun', sort: 'score' },
 } as const;
 
 type GameInfo = { title: string; tag: string; sort: 'score' };
