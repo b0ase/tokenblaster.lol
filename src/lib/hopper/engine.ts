@@ -22,6 +22,7 @@ import { Input } from './input';
 import { Level, type Drop, type Enemy, type Fresh } from './level';
 import { HeroRig } from './rig';
 import { Hero, P, type Plat, type SimInput } from './sim';
+import { advanceWall, caughtByWall, classifyContact, respawnSpot } from './rules';
 
 export { setFonts };
 export type Quality = 'low' | 'high';
@@ -178,6 +179,7 @@ export class HopperEngine {
   private lastGroundY = 4;
   /** Test hook: let the demo bot drive a real run (used by the headless checks). */
   autoplay = false;
+  private jumpHeld = false;
   private noAmmoAt = -9;
   private botJump = 0;
   private botDashT = 0;
@@ -869,15 +871,12 @@ export class HopperEngine {
     return { x: 1, jump, dash };
   }
 
-  private enemyBox(e: Enemy) {
-    return { x0: e.x - 0.62, x1: e.x + 0.62, y0: e.y, y1: e.y + 1.25 };
-  }
-
   private step(dt: number, scored: boolean, inp: SimInput) {
     const h = this.hero;
     const lvl = this.level;
     if (this.inv > 0) this.inv -= dt;
     if (this.hurtT > 0) this.hurtT -= dt;
+    this.jumpHeld = inp.jump;
     let use = scored && this.overT > 0 ? { x: 0, jump: false, dash: false } : inp;
     const live = scored && this.opts.pay.live();
     if (live && ((use.jump && !h.jumping) || (use.dash && h.dashT <= 0)) && !this.opts.pay.can()) {
@@ -1025,27 +1024,21 @@ export class HopperEngine {
         e.x = Math.max(e.plat.x0 + 1, Math.min(e.plat.x1 - 1, e.x));
       }
       e.y = e.plat.top;
-      const b = this.enemyBox(e);
-      if (h.x + P.HW > b.x0 && h.x - P.HW < b.x1 && h.y < b.y1 && h.y + P.H > b.y0) {
-        if (h.dashT > 0) this.killEnemy(e, scored, true);
-        else if (h.vy < 0 && h.y > e.y + 0.55) this.killEnemy(e, scored, false);
-        else if (this.inv <= 0 && scored) this.hurt('enemy', e.x);
-        else if (!scored) h.launch(8);
+      const c = classifyContact(h, e, this.inv);
+      if (c === 'dash') this.killEnemy(e, scored, true);
+      else if (c === 'stomp') this.killEnemy(e, scored, false);
+      else if (c === 'hurt') {
+        if (scored) this.hurt('enemy', e.x);
+        else h.launch(8);
       }
     }
 
     // The wall.
     if (scored) {
-      if (this.waveGrace > 0) this.waveGrace -= dt;
-      else {
-        const diff = Math.min(1, this.maxX / 1800);
-        let spd = 3.7 + diff * 5.2;
-        const gap = h.x - this.waveX;
-        if (gap > 34) spd *= 0.15;
-        this.waveX += spd * dt;
-      }
-      if (h.x - this.waveX > 58) this.waveX = h.x - 58;
-      if (h.x - P.HW < this.waveX + 0.3 && this.overT <= 0) this.hurt('wall', 0);
+      const w = advanceWall(this.waveX, h.x, this.maxX, this.waveGrace, dt);
+      this.waveX = w.waveX;
+      this.waveGrace = w.grace;
+      if (caughtByWall(h.x, this.waveX) && this.overT <= 0) this.hurt('wall', 0);
       if (h.y < -9 && this.overT <= 0) this.hurt('pit', 0);
     } else if (h.y < -9 || h.x - this.cam.x < -30) {
       // Demo bot fell off: put it back on the chain.
@@ -1065,7 +1058,7 @@ export class HopperEngine {
     this.combo++;
     const mult = Math.min(5, 1 + this.combo - 1);
     if (!dash) {
-      h.launch(this.input.read().inp.jump ? P.STOMP_HELD_V : P.STOMP_V);
+      h.launch(this.jumpHeld ? P.STOMP_HELD_V : P.STOMP_V);
       this.sq = -0.2;
     } else h.dashAvail = true;
     this.freeze = 0.06;
@@ -1075,7 +1068,7 @@ export class HopperEngine {
     if (scored) this.addScore(100 * mult);
     this.parts.burst(e.x, e.y + 0.7, 0.4, 22, 8, 0.6, 0.9, C(ACCENT.acid, 2.2), 8);
     this.popup(`${dash ? 'DASH ' : ''}+${100 * mult}${this.combo > 1 ? `  x${this.combo}` : ''}`, e.x, e.y + 2, ACCENT.acid, this.combo > 2);
-    if (e.loot) this.level.addDrop(e.x, e.y + 1.2, e.loot, 9);
+    if (e.loot) this.level.addDrop(e.x, e.y + 1.2, e.loot, 9, e.plat);
   }
 
   private checkpoint(p: Plat) {
@@ -1139,19 +1132,10 @@ export class HopperEngine {
       this.inv = 1.8;
     } else {
       // Back onto the chain: the last safe footing, or a bit past the wall.
-      let p: Plat | null = null;
-      let x = 0;
-      if (why === 'pit' && this.safe && this.safe.plat.solid && this.level.plats.includes(this.safe.plat)) {
-        p = this.safe.plat;
-        x = this.safe.x;
-      } else {
-        p = this.level.platAt(Math.max(this.waveX + 26, h.x));
-        x = p ? Math.max(p.x0 + 2, this.waveX + 26) : 0;
-        if (p) x = Math.min(p.x1 - 1.5, x);
-      }
-      if (p) {
-        h.place(x, p.top, p);
-        this.waveX = Math.min(this.waveX, x - 26);
+      const spot = respawnSpot(this.level, why, this.safe, this.waveX, h.x);
+      if (spot) {
+        h.place(spot.x, spot.plat.top, spot.plat);
+        this.waveX = Math.min(this.waveX, spot.x - 26);
         this.waveGrace = 1.5;
       }
       this.inv = 2.2;
