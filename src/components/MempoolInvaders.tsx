@@ -1,563 +1,811 @@
 'use client';
 
 /**
- * Mempool Invaders: Space Invaders where every invader is a live BSV transaction. Each wave's
- * formation is built from the txs hitting the network right now (shape and colour by kind), new
- * txs keep diving in from the top while you fight, blasts fly across as bonus saucers, and token
- * transfers wear their token: shoot one and it drops that token for you to catch (loot).
- *
- * PAID mode: every shot is a real transaction (1 sat to the house + network fee).
+ * Mempool Invaders: the shell (title poster, HUD, pause, results, touch) around the three.js game in
+ * src/lib/invaders/engine.ts. Every invader is a live BSV transaction; shoot the gold token ships and catch the
+ * BSV-21 token they drop. Coin-op: 10p buys a credit, a credit is one game of 3 lives (src/lib/coinop.ts);
+ * PRACTICE is free. Visual language: src/components/dr.
  */
-import { useEffect, useRef, useState } from 'react';
-import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
-import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
-import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
-import { useChainFeed } from '@/lib/useChainFeed';
-import { HighScores, useRunClock } from './HighScores';
-import { LootHud, LootLine, LootPanel } from './LootPanel';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { HighScores } from './HighScores';
 import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
-import { HoldButton } from './HoldButton';
+import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { GameAudio } from './SoundToggle';
-import { sfx } from '@/lib/sfx';
+import { ChevronBar, Display, HazardBar, Kana, Pictogram, PosterFrame, ProductCode, Sticker, gridBg } from './dr';
+import { drDisplay, drFontClass, drJp, drMono } from './dr/fonts';
+import { DR } from '@/lib/dr/tokens';
+import { useLoot, type Haul } from '@/lib/loot';
+import { useBlaster } from '@/lib/useBlaster';
+import { TOKEN_FEE } from '@/lib/gun';
+import { GAME_COINS, houseFirst, houseHeld, type GameCoin } from '@/lib/gameCoins';
+import { WalletChooser } from './WalletChooser';
+import { BuyHouse, HouseBadge } from './HouseAmmo';
+import { useChainFeed } from '@/lib/useChainFeed';
+import { setFonts } from '@/lib/invaders/art';
+import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/invaders/brand';
+import { InvadersEngine, type Banner, type Hud, type Phase, type Result, type Toast } from '@/lib/invaders/engine';
+import { KIND_HEX, KIND_NAME, KIND_ORDER, KIND_POINTS, POWER_META, POWERS, type Power } from '@/lib/invaders/sim';
 
-const W = 320;
-const H = 400;
-const COLS = 8;
-const ROWS = 4;
-const CW = 32;
-const CH = 26;
-const PY = H - 26;
+/** LIVE token-blasting: every shot / purge / power-up is one tiny real tx (1 sat or 1 token to the house + network fee), paid from loaded ammo. */
+const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
+const PER_ACTION = 1;
+const EST_FEE = 26; // sats: ~260-byte tx at 100 sat/kB
+const LOADS = [1_000, 10_000, 100_000];
+const TOKEN_LOADS = [10, 100, 1_000];
+/** This game's own coin, listed first when one exists in gameCoins (none yet: the wallet's own tokens are offered). */
+const HOUSE_COIN = (GAME_COINS as Record<string, GameCoin | undefined>)[GAME_SLUG];
+type QualityPref = 'auto' | 'low' | 'high';
+const PREFS = `tokenblaster:${GAME_SLUG}-prefs`;
+const BEST = `tokenblaster:${GAME_SLUG}-best`;
+const hudFont = { fontFamily: DR.font.display, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' } as const;
+const PICTO: Record<Power, 'bolt' | 'arrow' | 'turbo' | 'shield' | 'mine'> = { spread: 'turbo', rail: 'arrow', overdrive: 'bolt', shield: 'shield', bomb: 'mine' };
 
-const KIND_COLOR = Object.fromEntries(KINDS.map((k) => [k.id, k.color])) as Record<TxKind, string>;
-const POINTS: Record<TxKind, number> = { payment: 10, data: 20, social: 30, inscription: 40, token: 50, blast: 300 };
-
-// 11x8 sprites, two animation frames each.
-const SPRITES = {
-  crab: [
-    ['..X.....X..', '...X...X...', '..XXXXXXX..', '.XX.XXX.XX.', 'XXXXXXXXXXX', 'X.XXXXXXX.X', 'X.X.....X.X', '...XX.XX...'],
-    ['..X.....X..', 'X..X...X..X', 'X.XXXXXXX.X', 'XXX.XXX.XXX', 'XXXXXXXXXXX', '.XXXXXXXXX.', '..X.....X..', '.X.......X.'],
-  ],
-  squid: [
-    ['....XXX....', '...XXXXX...', '..XXXXXXX..', '.XX.XXX.XX.', '.XXXXXXXXX.', '...X...X...', '..X.XXX.X..', '.X.X...X.X.'],
-    ['....XXX....', '...XXXXX...', '..XXXXXXX..', '.XX.XXX.XX.', '.XXXXXXXXX.', '....X.X....', '...X...X...', '....X.X....'],
-  ],
-  octo: [
-    ['...XXXXX...', '.XXXXXXXXX.', 'XXXXXXXXXXX', 'XXX..X..XXX', 'XXXXXXXXXXX', '..XXX.XXX..', '.XX..X..XX.', '..XX...XX..'],
-    ['...XXXXX...', '.XXXXXXXXX.', 'XXXXXXXXXXX', 'XXX..X..XXX', 'XXXXXXXXXXX', '...XX.XX...', '..XX.X.XX..', 'XX.......XX'],
-  ],
+const isMobileish = () => {
+  if (typeof window === 'undefined') return false;
+  const coarse = window.matchMedia?.('(pointer: coarse)').matches;
+  const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+  return Boolean(coarse) || mem <= 4 || (navigator.hardwareConcurrency ?? 8) <= 4 || window.innerWidth < 720;
 };
-const SHAPE: Record<TxKind, keyof typeof SPRITES> = { payment: 'crab', data: 'crab', social: 'squid', inscription: 'squid', token: 'octo', blast: 'octo' };
 
-type Inv = { kind: TxKind; color: string; loot: Loot | null; alive: boolean; label: string; x: number; y: number; diver?: boolean; vy?: number; quiet?: boolean };
-type Shot = { x: number; y: number; vy: number };
-type Drop = { x: number; y: number; loot: Loot };
-type Boom = { x: number; y: number; t: number; color: string };
-type HUD = { score: number; lives: number; wave: number; left: number };
+/** HUD nodes written straight to the DOM from the engine loop, without React renders. */
+class HudDom {
+  private n: Record<string, HTMLElement | null> = {};
+  private v: Record<string, string> = {};
+  ref = (k: string) => (el: HTMLElement | null) => {
+    this.n[k] = el;
+  };
+  text(k: string, t: string) {
+    const el = this.n[k];
+    if (el && this.v[k] !== t) {
+      this.v[k] = t;
+      el.textContent = t;
+    }
+  }
+  css(k: string, st: Partial<CSSStyleDeclaration>) {
+    const el = this.n[k];
+    if (el) Object.assign(el.style, st);
+  }
+  update(h: Hud) {
+    this.text('score', h.score.toLocaleString());
+    this.text('hi', `HI ${Math.max(h.hi, h.score).toLocaleString()}`);
+    this.text('wave', `WAVE ${h.wave}`);
+    this.text('mult', `×${h.mult}`);
+    this.css('mult', { transform: `scale(${1 + h.beat * 0.12 + (h.mult > 1 ? 0.1 : 0)}) skewX(-8deg)`, opacity: h.combo > 0 ? '1' : '0.35', color: h.mult >= 5 ? DR.colour.amber : h.mult >= 3 ? DR.colour.acid : DR.colour.paper });
+    this.css('comboBar', { width: `${Math.round(h.comboT * 100)}%`, background: h.comboT < 0.3 ? DR.colour.signal : DR.colour.cyan });
+    this.text('comboTxt', h.combo > 0 ? `${h.combo} CHAIN${h.nextAt ? ` · NEXT ×${h.mult + 1} AT ${h.nextAt}` : ' · MAX'}` : 'KILL TO CHAIN');
+    this.css('press', { width: `${Math.round(h.pressure * 100)}%`, background: h.pressure > 0.66 ? DR.colour.signal : h.pressure > 0.33 ? DR.colour.amber : DR.colour.cyan });
+    this.text('pressTxt', `${h.txs < 0.1 ? 'QUIET' : `${h.txs.toFixed(h.txs < 10 ? 1 : 0)} TX/S`}`);
+    this.text('left', `${h.left} IN RANGE`);
+    this.css('beat', { opacity: String(0.25 + h.beat * 0.75), transform: `scaleX(${1 + h.beat * 0.04})` });
+    this.css('bossBox', { display: h.boss ? 'block' : 'none' });
+    if (h.boss) {
+      this.text('bossName', h.boss.name);
+      this.css('bossBar', { width: `${Math.round(h.boss.hp * 100)}%`, background: h.boss.hp < 0.5 ? DR.colour.signal : DR.colour.amber });
+    }
+    for (const k of ['spread', 'rail', 'overdrive'] as const) {
+      const p = h.powers.find((x) => x.key === k);
+      this.css(`pw-${k}`, { display: p ? 'flex' : 'none' });
+      if (p) this.css(`pwBar-${k}`, { width: `${Math.round(p.t * 100)}%` });
+    }
+  }
+}
+
+type Slow = { lives: number; bombs: number; shield: boolean };
+type BannerState = Banner & { id: number };
 
 export function MempoolInvaders() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mount = useRef<HTMLDivElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
   const feed = useChainFeed();
-  // Coin-op: 10p buys a credit, a credit is one game of 3 lives (src/lib/coinop.ts). Practice is free.
-  const co = useCoinOp('Mempool Invaders', 'invaders');
-  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const feedRef = useRef(feed);
   useEffect(() => {
     feedRef.current = feed;
   });
-  const loot = useLoot('invaders');
+  // Coin-op: 10p buys a credit, a credit is one game of 3 lives (src/lib/coinop.ts). Practice is free.
+  const co = useCoinOp(GAME_NAME, GAME_SLUG);
+  const [run, setRun] = useState<{ paid: boolean; txid: string | null; live?: boolean }>({ paid: false, txid: null });
+  const loot = useLoot(GAME_SLUG);
   const lootRef = useRef(loot);
   useEffect(() => {
     lootRef.current = loot;
   });
   useEffect(() => () => lootRef.current.end(), []);
+  const engine = useRef<InvadersEngine | null>(null);
   const [lastRun, setLastRun] = useState<Haul>({});
-  const [hud, setHud] = useState<HUD>({ score: 0, lives: 3, wave: 1, left: 0 });
-  const [phase, setPhase] = useState<'ready' | 'play' | 'over'>('ready');
-  const runSecs = useRunClock(phase === 'play');
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [loading, setLoading] = useState({ msg: 'Starting', pct: 0 });
+  const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState(0);
+  const [qualityPref, setQualityPref] = useState<QualityPref>('auto');
+  const [ready, setReady] = useState(false);
   const [best, setBest] = useState(0);
-  const [fromChain, setFromChain] = useState(0);
-  const control = useRef<{ restart: () => void; key: (k: string, down: boolean) => void } | null>(null);
-
+  const [result, setResult] = useState<Result | null>(null);
+  const [slow, setSlow] = useState<Slow>({ lives: 3, bombs: 1, shield: false });
+  const slowRef = useRef<Slow>(slow);
+  const [toasts, setToasts] = useState<(Toast & { id: number })[]>([]);
+  const toastId = useRef(0);
+  const [banner, setBanner] = useState<BannerState | null>(null);
+  const bannerId = useRef(0);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [perf, setPerf] = useState<{ fps: number; level: number } | null>(null);
+  const [touch, setTouch] = useState(false);
+  const [fs, setFs] = useState(false);
+  const [hud] = useState(() => new HudDom());
+  const bestRef = useRef(0);
+  // ── LIVE mode: the same pay-per-action path as Chain Frogger (queue + drain, useBlaster ammo) ──
+  const b = useBlaster();
+  const [liveOn, setLiveOn] = useState(false);
+  const [payWith, setPayWith] = useState<'sats' | 'token'>('sats');
+  const [onChain, setOnChain] = useState(0);
+  const [lastTx, setLastTx] = useState<string | null>(null);
+  const [payErr, setPayErr] = useState<string | null>(null);
+  const [needAmmo, setNeedAmmo] = useState(false);
+  const payTok = payWith === 'token' && !!b.token && b.mode === 'tokens';
+  const payRef = useRef({ paid: false, sats: 0, queued: 0, tok: false, tokens: 0 });
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
-    ctx.imageSmoothingEnabled = false;
-
-    let state: 'ready' | 'play' | 'over' = 'ready';
-    let invs: Inv[] = [];
-    let divers: Inv[] = [];
-    let shots: Shot[] = [];
-    let bombs: Shot[] = [];
-    let drops: Drop[] = [];
-    let booms: Boom[] = [];
-    let popups: { x: number; y: number; t: number; text: string }[] = [];
-    let ufo: { x: number; dir: number; label: string } | null = null;
-    let ox = 0;
-    let oy = 0;
-    let dir = 1;
-    let wave = 1;
-    let score = 0;
-    let lives = 3;
-    let chainN = 0;
-    let frame = 0;
-    let cool = 0;
-    let invuln = 0;
-    let nextDiver = 120;
-    let banner = 0;
-    let shake = 0;
-    const pl = { x: W / 2 };
-    const keys = { left: false, right: false, fire: false };
-    const stars = Array.from({ length: 50 }, (_, i) => ({ x: (i * 73) % W, y: (i * 151) % H, s: (i % 3) + 1 }));
-
-    const fromTx = (f: FeedTx | null): Inv => {
-      if (!f) return { kind: 'payment', color: '#4a1414', loot: null, alive: true, label: 'mempool quiet', x: 0, y: 0, quiet: true };
-      chainN++;
-      return { kind: f.kind, color: KIND_COLOR[f.kind] ?? '#ff5a48', loot: lootFrom(f), alive: true, label: `${f.kind} ${f.id.slice(0, 8)}`, x: 0, y: 0 };
-    };
-
-    const buildWave = () => {
-      invs = [];
-      // Token transfers lead from the back row so their loot is the prize at the top.
-      for (let r = 0; r < ROWS; r++)
-        for (let c = 0; c < COLS; c++) {
-          const f = r === 0 ? (feedRef.current.take((x) => x.kind === 'token') ?? feedRef.current.take((x) => x.kind !== 'blast')) : feedRef.current.take((x) => x.kind !== 'blast');
-          const inv = fromTx(f);
-          inv.x = c * CW;
-          inv.y = r * CH;
-          invs.push(inv);
-        }
-      ox = (W - COLS * CW) / 2;
-      oy = 40 + Math.min(60, (wave - 1) * 8);
-      dir = 1;
-      banner = 90;
-    };
-
-    const reset = () => {
-      wave = 1;
-      score = 0;
-      lives = 3;
-      chainN = 0;
-      shots = [];
-      bombs = [];
-      drops = [];
-      booms = [];
-      popups = [];
-      divers = [];
-      ufo = null;
-      pl.x = W / 2;
-      invuln = 0;
-      buildWave();
-    };
-    reset();
-
-    const popup = (x: number, y: number, text: string) => popups.push({ x, y, t: 45, text });
-
-    const kill = (v: Inv, cx: number, cy: number, mult = 1) => {
-      v.alive = false;
-      const pts = (v.quiet ? 5 : POINTS[v.kind]) * mult;
-      score += pts;
-      sfx('explosion', 0.4);
-      booms.push({ x: cx, y: cy, t: 18, color: v.color });
-      popup(cx, cy - 6, `+${pts}`);
-      if (v.loot) drops.push({ x: cx, y: cy, loot: v.loot });
-    };
-
-    const gameOver = () => {
-      sfx('gameover');
-      state = 'over';
-      setPhase('over');
-      setBest((b) => Math.max(b, score));
-      setLastRun({ ...lootRef.current.run });
-      lootRef.current.end();
-    };
-
-    const hit = () => {
-      if (invuln > 0) return;
-      lives--;
-      shake = 14;
-      sfx('rekt');
-      booms.push({ x: pl.x, y: PY, t: 30, color: '#ffd0c0' });
-      invuln = 100;
-      if (lives <= 0) gameOver();
-    };
-
-    const step = () => {
-      frame++;
-      if (banner > 0) banner--;
-      if (invuln > 0) invuln--;
-      if (shake > 0) shake--;
-      const mv = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-      pl.x = Math.max(12, Math.min(W - 12, pl.x + mv * 2.8));
-      if (cool > 0) cool--;
-      if (keys.fire && cool === 0 && shots.length < 2 && lives > 0) {
-        shots.push({ x: pl.x, y: PY - 8, vy: -6 });
-        sfx('laser');
-        cool = 14;
+    payRef.current.sats = b.ammo;
+    payRef.current.tok = payTok;
+    payRef.current.tokens = b.tokenAmmo;
+  }, [b.ammo, payTok, b.tokenAmmo]);
+  const queue = useRef<string[][]>([]);
+  const draining = useRef(false);
+  const counter = useRef(0);
+  const fireBatchRef = useRef(b.fireBatch);
+  const fireTokensRef = useRef(b.fireTokens);
+  useEffect(() => {
+    fireBatchRef.current = b.fireBatch;
+    fireTokensRef.current = b.fireTokens;
+  }, [b.fireBatch, b.fireTokens]);
+  /** One real transaction per action, chained in batches off the frame loop. */
+  const drain = useRef(async () => {
+    if (draining.current) return;
+    draining.current = true;
+    while (queue.current.length) {
+      const tok = payRef.current.tok;
+      const batch = queue.current.slice(0, tok ? 25 : 40);
+      try {
+        const txids = tok ? await fireTokensRef.current(counter.current + 1, batch, HOUSE) : await fireBatchRef.current(counter.current + 1, batch, { address: HOUSE, sats: PER_ACTION });
+        counter.current += txids.length;
+        queue.current.splice(0, txids.length);
+        payRef.current.queued = queue.current.length;
+        setOnChain((n) => n + txids.length);
+        if (txids.length) setLastTx(txids[txids.length - 1]);
+        setPayErr(null);
+        if (!txids.length) throw new Error('Out of ammo: load more to keep firing.');
+      } catch (e) {
+        setPayErr(e instanceof Error ? e.message : String(e));
+        queue.current.length = 0;
+        payRef.current.queued = 0;
+        break;
       }
-
-      // Formation march: faster as it thins out and as waves go by.
-      const alive = invs.filter((v) => v.alive);
-      const speed = 0.25 + (1 - alive.length / invs.length) * 1.3 + wave * 0.07;
-      let minX = Infinity;
-      let maxX = -Infinity;
-      let maxY = -Infinity;
-      for (const v of alive) {
-        minX = Math.min(minX, ox + v.x);
-        maxX = Math.max(maxX, ox + v.x + 22);
-        maxY = Math.max(maxY, oy + v.y + 16);
-      }
-      ox += dir * speed;
-      if ((dir > 0 && maxX + dir * speed > W - 4) || (dir < 0 && minX + dir * speed < 4)) {
-        dir *= -1;
-        oy += 10;
-      }
-      if (alive.length && maxY >= PY - 10) {
-        lives = 0;
-        gameOver();
-        return;
-      }
-
-      // Formation fires from the bottom of a random column.
-      if (alive.length && Math.random() < 0.012 + wave * 0.004) {
-        const shooter = alive[Math.floor(Math.random() * alive.length)];
-        const below = alive.filter((v) => v.x === shooter.x && v.y > shooter.y);
-        const s = below.length ? below[below.length - 1] : shooter;
-        bombs.push({ x: ox + s.x + 11, y: oy + s.y + 16, vy: 2 + wave * 0.15 });
-      }
-
-      // Live divers: fresh txs drop in from the top while you fight.
-      if (--nextDiver <= 0) {
-        nextDiver = Math.max(50, 160 - wave * 12);
-        const f = feedRef.current.take((x) => x.kind !== 'blast');
-        if (f) {
-          const d = fromTx(f);
-          d.diver = true;
-          d.x = 16 + Math.random() * (W - 54);
-          d.y = -16;
-          d.vy = 0.5 + wave * 0.06;
-          divers.push(d);
-        }
-      }
-      for (const d of divers) {
-        d.y += d.vy ?? 0.6;
-        d.x += Math.sin((frame + d.y) / 30) * 0.6;
-        if (d.y > PY - 16) {
-          d.alive = false;
-          hit();
-          booms.push({ x: d.x + 11, y: d.y + 8, t: 18, color: d.color });
-        } else if (invuln === 0 && Math.abs(d.x + 11 - pl.x) < 16 && d.y + 16 > PY - 8) {
-          d.alive = false;
-          hit();
-        }
-      }
-      divers = divers.filter((d) => d.alive);
-
-      // Blasts fly across the top as bonus saucers.
-      if (!ufo && frame % 60 === 0) {
-        const f = feedRef.current.take((x) => x.kind === 'blast');
-        if (f) {
-          chainN++;
-          const d = Math.random() < 0.5 ? 1 : -1;
-          ufo = { x: d > 0 ? -24 : W + 24, dir: d, label: f.id.slice(0, 8) };
-        }
-      }
-      if (ufo) {
-        ufo.x += ufo.dir * 1.2;
-        if (ufo.x < -30 || ufo.x > W + 30) ufo = null;
-      }
-
-      // Player shots.
-      for (const s of shots) {
-        s.y += s.vy;
-        let used = false;
-        for (const v of alive) {
-          if (!v.alive) continue;
-          const vx = ox + v.x;
-          const vy = oy + v.y;
-          if (s.x > vx && s.x < vx + 22 && s.y > vy && s.y < vy + 16) {
-            kill(v, vx + 11, vy + 8);
-            used = true;
-            break;
-          }
-        }
-        if (!used)
-          for (const d of divers) {
-            if (d.alive && s.x > d.x && s.x < d.x + 22 && s.y > d.y && s.y < d.y + 16) {
-              kill(d, d.x + 11, d.y + 8, 2);
-              used = true;
-              break;
-            }
-          }
-        if (!used && ufo && Math.abs(s.x - ufo.x) < 14 && s.y < 30 && s.y > 12) {
-          score += POINTS.blast;
-          sfx('coin');
-          booms.push({ x: ufo.x, y: 20, t: 24, color: '#ffffff' });
-          popup(ufo.x, 26, `BLAST +${POINTS.blast}`);
-          ufo = null;
-          used = true;
-        }
-        if (used) s.y = -99;
-      }
-      shots = shots.filter((s) => s.y > -10);
-      divers = divers.filter((d) => d.alive);
-
-      // Bombs.
-      for (const s of bombs) {
-        s.y += s.vy;
-        if (lives > 0 && s.y > PY - 8 && s.y < PY + 6 && Math.abs(s.x - pl.x) < 10) {
-          s.y = H + 99;
-          hit();
-        }
-      }
-      bombs = bombs.filter((s) => s.y < H);
-
-      // Token loot falls; catch it with the ship.
-      for (const d of drops) {
-        d.y += 1.3;
-        if (Math.abs(d.x - pl.x) < 16 && Math.abs(d.y - PY) < 14) {
-          d.y = H + 99;
-          d.loot = refreshLoot(d.loot);
-          lootRef.current.pickup(d.loot);
-          sfx('token');
-          score += 100;
-          popup(pl.x, PY - 20, `+1 ${d.loot.sym}`);
-        }
-      }
-      drops = drops.filter((d) => d.y < H + 10);
-
-      for (const b of booms) b.t--;
-      booms = booms.filter((b) => b.t > 0);
-      for (const q of popups) q.t--;
-      popups = popups.filter((q) => q.t > 0);
-
-      if (state === 'play' && !invs.some((v) => v.alive) && !divers.length) {
-        wave++;
-        score += 250;
-        sfx('level');
-        bombs = [];
-        buildWave();
-      }
-    };
-
-    const sprite = (kind: TxKind, x: number, y: number, color: string, f: number) => {
-      const rows = SPRITES[SHAPE[kind]][f];
-      ctx.fillStyle = color;
-      for (let r = 0; r < 8; r++) for (let c = 0; c < 11; c++) if (rows[r][c] === 'X') ctx.fillRect(Math.round(x) + c * 2, Math.round(y) + r * 2, 2, 2);
-    };
-
-    const drawInv = (v: Inv, x: number, y: number, t: number) => {
-      const f = Math.floor(frame / 30) % 2;
-      sprite(v.kind, x, y, v.quiet ? '#4a1414' : v.loot ? '#d4a843' : v.color, f);
-      if (v.loot) drawLoot(ctx, v.loot, x + 11, y + 6, 11, t);
-    };
-
-    const draw = (t: number) => {
-      ctx.save();
-      if (shake) ctx.translate((Math.random() * 2 - 1) * 2, (Math.random() * 2 - 1) * 2);
-      ctx.fillStyle = '#050202';
-      ctx.fillRect(-4, -4, W + 8, H + 8);
-      for (const s of stars) {
-        ctx.fillStyle = s.s === 3 ? '#3a1010' : '#200808';
-        ctx.fillRect(s.x, (s.y + frame * s.s * 0.15) % H, s.s, s.s);
-      }
-      ctx.fillStyle = 'rgba(255,90,72,0.03)';
-      for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
-      // Ground line.
-      ctx.fillStyle = '#8a2222';
-      ctx.fillRect(0, PY + 10, W, 1);
-
-      for (const v of invs) if (v.alive) drawInv(v, ox + v.x, oy + v.y, t);
-      for (const d of divers) {
-        ctx.fillStyle = 'rgba(255,90,72,0.15)';
-        ctx.fillRect(Math.round(d.x) + 10, 0, 2, Math.max(0, d.y));
-        drawInv(d, d.x, d.y, t);
-      }
-      if (ufo) {
-        const ux = Math.round(ufo.x);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(ux - 10, 18, 20, 4);
-        ctx.fillRect(ux - 6, 14, 12, 4);
-        ctx.fillRect(ux - 13, 22, 26, 3);
-        ctx.fillStyle = '#ff5a48';
-        if (Math.floor(frame / 6) % 2) for (let i = -9; i <= 9; i += 6) ctx.fillRect(ux + i, 23, 2, 1);
-      }
-      // Shots and bombs.
-      ctx.fillStyle = '#ffd0c0';
-      for (const s of shots) ctx.fillRect(Math.round(s.x) - 1, Math.round(s.y), 2, 7);
-      ctx.fillStyle = '#ff5a48';
-      for (const s of bombs) {
-        const z = Math.floor(s.y / 4) % 2;
-        ctx.fillRect(Math.round(s.x) - 1 + z, Math.round(s.y), 2, 3);
-        ctx.fillRect(Math.round(s.x) - z, Math.round(s.y) + 3, 2, 3);
-      }
-      for (const d of drops) drawLoot(ctx, d.loot, d.x, d.y + Math.sin(t / 150 + d.x) * 1.5, 14, t);
-      // Player ship.
-      if (lives > 0 && (invuln === 0 || Math.floor(frame / 5) % 2 === 0)) {
-        const x = Math.round(pl.x);
-        ctx.fillStyle = '#ff5a48';
-        ctx.fillRect(x - 11, PY + 2, 22, 6);
-        ctx.fillRect(x - 8, PY - 1, 16, 3);
-        ctx.fillStyle = '#ffd0c0';
-        ctx.fillRect(x - 2, PY - 7, 4, 6);
-        ctx.fillRect(x - 1, PY - 9, 2, 2);
-      }
-      for (const b of booms) {
-        ctx.fillStyle = b.color;
-        const r = (18 - b.t) * 0.9 + 2;
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          ctx.fillRect(Math.round(b.x + Math.cos(a) * r), Math.round(b.y + Math.sin(a) * r), 2, 2);
-        }
-      }
-      ctx.font = '8px monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#ffd0c0';
-      for (const q of popups) ctx.fillText(q.text, q.x, q.y - (45 - q.t) * 0.4);
-      if (banner > 0 && state === 'play') {
-        ctx.font = 'bold 16px monospace';
-        ctx.fillStyle = '#ff5a48';
-        ctx.fillText(`WAVE ${wave}`, W / 2, H / 2);
-        ctx.font = '8px monospace';
-        ctx.fillStyle = '#b06e66';
-        ctx.fillText(`${invs.filter((v) => !v.quiet).length} live txs in formation`, W / 2, H / 2 + 16);
-      }
-      ctx.restore();
-    };
-
-    let raf = 0;
-    let last = performance.now();
-    let acc = 0;
-    let hudTick = 0;
-    const loop = (now: number) => {
-      raf = requestAnimationFrame(loop);
-      acc += Math.min(100, now - last);
-      last = now;
-      while (acc >= 1000 / 60) {
-        acc -= 1000 / 60;
-        if (state === 'play') step();
-      }
-      draw(now);
-      if (++hudTick % 6 === 0 && state === 'play') {
-        setHud({ score, lives, wave, left: invs.filter((v) => v.alive).length + divers.length });
-        setFromChain(chainN);
-      }
-    };
-    raf = requestAnimationFrame(loop);
-
-    control.current = {
-      restart: () => {
-        lootRef.current.end();
-        setLastRun({});
-        reset();
-        state = 'play';
-        setPhase('play');
-        setHud({ score: 0, lives: 3, wave: 1, left: invs.length });
-      },
-      key: (k, down) => {
-        if (k === 'left') keys.left = down;
-        if (k === 'right') keys.right = down;
-        if (k === 'fire') keys.fire = down;
-      },
-    };
-    const map: Record<string, string> = { ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ' ': 'fire', ArrowUp: 'fire', w: 'fire', W: 'fire' };
-    const onKey = (down: boolean) => (e: KeyboardEvent) => {
-      const k = map[e.key];
-      if (!k) return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      e.preventDefault();
-      control.current?.key(k, down);
-    };
-    const kd = onKey(true);
-    const ku = onKey(false);
-    window.addEventListener('keydown', kd);
-    window.addEventListener('keyup', ku);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('keydown', kd);
-      window.removeEventListener('keyup', ku);
-    };
-  }, []);
-
-  /** Start a game: a credit game spends one credit (its coin's txid goes with the run), practice is free. */
-  const start = (paid: boolean) => {
-    const txid = paid ? co.consume() : null;
-    if (paid && !txid) return;
-    setRun({ paid, txid });
-    control.current?.restart();
+    }
+    draining.current = false;
+  });
+  /** Ask to pay for an action; false = no ammo, so the game refuses it. Practice and credit games are free here. */
+  const payFor = useRef((action: string[]) => {
+    const pr = payRef.current;
+    if (!pr.paid) return true;
+    const n = pr.queued + 1;
+    if (pr.tok ? pr.tokens < n || pr.sats < n * TOKEN_FEE : pr.sats - n * (PER_ACTION + EST_FEE) < 0) return false;
+    queue.current.push(['invaders', ...action]);
+    pr.queued = queue.current.length;
+    void drain.current();
+    return true;
+  });
+  const heldTok = b.token ? houseHeld(b.tokens, { id: b.token.id } as GameCoin) : 0;
+  const actionsLeft = payTok ? Math.min(Math.floor(b.tokenAmmo), Math.floor(b.ammo / TOKEN_FEE)) : Math.floor(b.ammo / (PER_ACTION + EST_FEE));
+  const chooseSats = () => {
+    b.setMode('sats');
+    setPayWith('sats');
+  };
+  const chooseToken = (id?: string) => {
+    const t = b.tokens.find((x) => x.id === (id ?? b.token?.id)) ?? b.tokens[0];
+    if (!t) return;
+    b.setToken(t);
+    b.setMode('tokens');
+    setPayWith('token');
   };
 
+  useEffect(() => {
+    setFonts({ display: drDisplay.style.fontFamily, mono: drMono.style.fontFamily, jp: drJp.style.fontFamily });
+    void Promise.resolve().then(() => {
+      setTouch(Boolean(window.matchMedia?.('(pointer: coarse)').matches));
+      try {
+        const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { q?: QualityPref };
+        if (p.q === 'auto' || p.q === 'low' || p.q === 'high') setQualityPref(p.q);
+        const b = Number(localStorage.getItem(BEST) ?? 0) || 0;
+        bestRef.current = b;
+        setBest(b);
+      } catch {
+        /* storage blocked */
+      }
+      setReady(true);
+    });
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      localStorage.setItem(PREFS, JSON.stringify({ q: qualityPref }));
+    } catch {
+      /* storage blocked */
+    }
+  }, [ready, qualityPref]);
+
+  const pushToast = useCallback((t: Toast) => {
+    const id = ++toastId.current;
+    setToasts((a) => [...a.slice(-2), { ...t, id }]);
+    setTimeout(() => setToasts((a) => a.filter((x) => x.id !== id)), 2400);
+  }, []);
+
+  const onHud = useCallback(
+    (h: Hud) => {
+      hud.update(h);
+      const s = slowRef.current;
+      if (s.lives !== h.lives || s.bombs !== h.bombs || s.shield !== h.shield) {
+        slowRef.current = { lives: h.lives, bombs: h.bombs, shield: h.shield };
+        setSlow(slowRef.current);
+      }
+    },
+    [hud],
+  );
+
+  useEffect(() => {
+    const host = mount.current;
+    if (!host || !ready) return;
+    const life = { dead: false };
+    const q: 'low' | 'high' = qualityPref === 'auto' ? (isMobileish() ? 'low' : 'high') : qualityPref;
+    void Promise.resolve().then(() => {
+      if (life.dead) return;
+      setPhase('loading');
+      setLoading({ msg: 'Starting', pct: 0 });
+      setError(null);
+    });
+    const eng = new InvadersEngine(host, {
+      quality: q,
+      hi: bestRef.current,
+      take: (p) => feedRef.current.take(p),
+      payFor: (a) => payFor.current(a),
+      waiting: () => feedRef.current.waiting(),
+      status: () => feedRef.current.status,
+      cb: {
+        onPhase: (p) => !life.dead && setPhase(p),
+        onHud,
+        onToast: (t) => !life.dead && pushToast(t),
+        onBanner: (b) => {
+          if (life.dead) return;
+          const id = ++bannerId.current;
+          setBanner({ ...b, id });
+          setTimeout(() => !life.dead && setBanner((x) => (x && x.id === id ? null : x)), 2300);
+        },
+        onLoading: (msg, pct) => !life.dead && setLoading({ msg, pct }),
+        onLoot: (l) => lootRef.current.pickup(l),
+        onFlash: (k) => {
+          if (life.dead) return;
+          setFlash(k);
+          setTimeout(() => !life.dead && setFlash(null), 380);
+        },
+        onPerf: (p) => !life.dead && setPerf(p),
+        onNoAmmo: () => !life.dead && setNeedAmmo(true),
+        onOver: (r) => {
+          if (life.dead) return;
+          setResult(r);
+          setLastRun({ ...lootRef.current.run });
+          lootRef.current.end();
+          if (r.score > bestRef.current) {
+            bestRef.current = r.score;
+            setBest(r.score);
+            try {
+              localStorage.setItem(BEST, String(r.score));
+            } catch {
+              /* storage blocked */
+            }
+          }
+        },
+      },
+    });
+    engine.current = eng;
+    eng
+      .init()
+      .then(() => {
+        if (life.dead) return;
+        if (process.env.NODE_ENV !== 'production') (window as unknown as { __invaders?: InvadersEngine }).__invaders = eng;
+      })
+      .catch((e: unknown) => {
+        if (!life.dead) setError(e instanceof Error ? e.message : 'Could not start the 3D scene');
+      });
+    // Fonts used by the canvas labels (best effort, never blocks).
+    void Promise.race([Promise.all([document.fonts.load(`900 40px ${drDisplay.style.fontFamily}`), document.fonts.load(`700 20px ${drMono.style.fontFamily}`)]), new Promise((r) => setTimeout(r, 1500))]).catch(() => undefined);
+    return () => {
+      life.dead = true;
+      eng.dispose();
+      if (engine.current === eng) engine.current = null;
+    };
+  }, [ready, qualityPref, session, onHud, pushToast, payFor]);
+
+  /** Start a game: a credit game spends one credit (its coin's txid goes with the run), practice is free. */
+  const start = (paid: boolean, live = false) => {
+    const eng = engine.current;
+    if (!eng) return;
+    if (live && actionsLeft < 1) {
+      setLiveOn(true);
+      setNeedAmmo(true);
+      return;
+    }
+    payRef.current.paid = live;
+    setNeedAmmo(false);
+    if (live) {
+      counter.current = 0;
+      setOnChain(0);
+      setLastTx(null);
+    }
+    const txid = paid && !live ? co.consume() : null;
+    if (paid && !live && !txid) return;
+    lootRef.current.end();
+    setLastRun({});
+    setResult(null);
+    setRun({ paid: paid || live, txid, live });
+    slowRef.current = { lives: 3, bombs: 1, shield: false };
+    setSlow(slowRef.current);
+    eng.begin();
+  };
+
+  const playing = phase === 'playing' || phase === 'paused';
+  const cover = playing && touch;
+  const enterFs = () => {
+    const el = wrap.current;
+    if (!el || document.fullscreenElement || !el.requestFullscreen) return;
+    try {
+      void el.requestFullscreen().catch(() => undefined);
+    } catch {
+      /* not allowed here */
+    }
+  };
+  const fullscreen = () => (document.fullscreenElement ? void document.exitFullscreen().catch(() => undefined) : enterFs());
+  useEffect(() => {
+    const on = () => {
+      setFs(Boolean(document.fullscreenElement));
+      if (!document.fullscreenElement) engine.current?.pause(true);
+    };
+    document.addEventListener('fullscreenchange', on);
+    return () => document.removeEventListener('fullscreenchange', on);
+  }, []);
+
+  const accent = DR.colour.signal;
+  const hullPips = Array.from({ length: 3 }, (_, i) => i < slow.lives);
+
+  const hasWallet = !!b.wallet;
+  const tokHeld = payTok && b.token ? Math.max(0, Math.floor(b.tokens.find((t) => t.id === b.token!.id)?.balance ?? heldTok)) : 0;
+  const ammoPanel = (
+    <div className="inset flex flex-col gap-2 bg-black/80 px-3 py-2 text-sm" onKeyDown={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-bold tracking-widest text-hot">LIVE AMMO</span>
+        <span className="text-dim">Every shot is a tiny real transaction.</span>
+      </div>
+      {!hasWallet ? (
+        <button onClick={b.connectWallet} disabled={!!b.busy} className="btn btn-on self-start px-3 py-1">
+          {b.busy === 'connecting' ? 'CONNECTING…' : '1 · CONNECT WALLET'}
+        </button>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-dim">PAY:</span>
+            <button onClick={chooseSats} disabled={!!b.busy} className={`btn ${!payTok ? 'btn-on' : ''}`}>
+              SATS
+            </button>
+            <button onClick={() => chooseToken()} disabled={!!b.busy || !b.tokens.length} title={b.tokens.length ? '1 token per action' : 'Your wallet holds no tokens'} className={`btn flex items-center gap-1 disabled:opacity-40 ${payTok ? 'btn-on' : ''}`}>
+              ${b.token?.sym ?? 'TOKEN'} {HOUSE_COIN && b.token?.id === HOUSE_COIN.id && <HouseBadge label="HOUSE" />}
+            </button>
+            {payTok && b.tokens.length > 1 && (
+              <select value={b.token?.id ?? ''} onChange={(e) => chooseToken(e.target.value)} className="border border-[var(--border-dim)] bg-input px-1 py-0.5 text-hot" aria-label="Token to pay with">
+                {houseFirst(b.tokens, HOUSE_COIN).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.sym}
+                  </option>
+                ))}
+              </select>
+            )}
+            {HOUSE_COIN && !houseHeld(b.tokens, HOUSE_COIN) && <BuyHouse coin={HOUSE_COIN} />}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-dim">{payTok ? `1 $${b.token?.sym} + ~${TOKEN_FEE} sats fee` : `${PER_ACTION} sat + ~${EST_FEE} sats fee`} per action ·</span>
+            <span className="text-hot">{actionsLeft.toLocaleString()} actions loaded</span>
+            {(payTok ? TOKEN_LOADS.filter((n) => n <= tokHeld) : LOADS).map((n) => (
+              <button key={n} onClick={() => (payTok ? void b.loadTokenAmmo(n) : b.load(n, `Mempool Invaders: ${n.toLocaleString()} sats of ammo`))} disabled={!!b.busy} className="btn">
+                {b.busy ? 'APPROVE…' : `LOAD ${n.toLocaleString()} ${payTok ? `$${b.token?.sym}` : 'sats'}`}
+              </button>
+            ))}
+            {(b.ammo > 0 || b.gunTokens.length > 0) && (
+              <button onClick={b.unload} disabled={!!b.busy} className="btn">
+                UNLOAD
+              </button>
+            )}
+          </div>
+          {payTok && b.tokenAmmo < 1 && <p className="font-bold text-hot">Load some ${b.token?.sym} first (and a few sats for fees), then press START LIVE.</p>}
+        </>
+      )}
+      {needAmmo && actionsLeft < 1 && <p className="font-bold text-hot">Needs ammo: load some above, approve it, then START LIVE.</p>}
+      {(payErr || b.error) && <p className="text-hot">⚠ {payErr ?? b.error}</p>}
+      <button onClick={() => start(true, true)} disabled={actionsLeft < 1 || !hasWallet} className="btn btn-on self-start px-4 py-2 disabled:opacity-40">
+        ⚡ START LIVE · {actionsLeft.toLocaleString()} ACTIONS
+      </button>
+    </div>
+  );
+
   return (
-    <section className="panel">
+    <section className={`panel ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
       <GameAudio track="invaders" />
-      <div className="relative mx-auto w-full max-w-[560px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}` }}>
-        <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" style={{ imageRendering: 'pixelated' }} />
-        <div className="pointer-events-none absolute left-2 top-1 flex flex-wrap items-center gap-3 text-xs text-hot">
-          <span>SCORE {hud.score.toLocaleString()}</span>
-          <span>{'♥'.repeat(Math.max(0, hud.lives))}</span>
-          <span>WAVE {hud.wave}</span>
-          <LootHud haul={loot.run} max={3} />
-        </div>
-        <div className="pointer-events-none absolute right-2 top-1 text-xs text-dim">chain: {feed.status}</div>
-        {phase === 'play' && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
-            <span className="border border-[var(--border-canvas)] bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</span>
-          </div>
-        )}
-        {phase === 'ready' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 px-3 text-center">
-            <p className="text-2xl font-bold text-hot">MEMPOOL INVADERS</p>
-            <p className="text-xs text-dim">Every invader is a live transaction. ←/→ or A/D to move, SPACE / ↑ / W to fire. Shoot gold token invaders and catch the token they drop.</p>
-            <CoinOpButtons co={co} start={start} />
-          </div>
-        )}
-        {phase === 'over' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-3 text-center">
-            <p className="text-3xl font-bold text-hot">GAME OVER</p>
-            <p className="text-sm text-fg">
-              Score {hud.score.toLocaleString()} · wave {hud.wave}. Best: {Math.max(best, hud.score).toLocaleString()}.
-            </p>
-            <LootLine haul={lastRun} />
-            <HighScores game="invaders" score={hud.score} secs={runSecs} live={run.paid} txid={run.txid} meta={run.paid ? { coinop: 1 } : undefined} />
-            <CoinOpButtons co={co} start={start} />
-          </div>
-        )}
+      <div className="panel-header">
+        <span className="panel-title">{GAME_NAME}</span>
+        <span className="text-accent">
+          {feed.status === 'live' ? (
+            <>
+              <span className="blink">●</span> LIVE: INVADERS ARE MAINNET TXS
+            </>
+          ) : feed.status === 'off' ? (
+            'no feed configured: ghost txs only'
+          ) : (
+            'connecting to the chain…'
+          )}
+        </span>
       </div>
-      <div className="mx-auto mt-2 flex max-w-[560px] select-none items-center justify-between gap-2 sm:hidden" style={{ touchAction: 'none' }}>
-        <div className="flex gap-2">
-          <HoldButton ctl={control} k="left" className="btn h-14 w-14 text-xl">
-            ◀
-          </HoldButton>
-          <HoldButton ctl={control} k="right" className="btn h-14 w-14 text-xl">
-            ▶
-          </HoldButton>
+      <div className="relative" style={{ height: 'min(80vh, 820px)', minHeight: 460 }}>
+        <div ref={wrap} className={`select-none overflow-hidden bg-black ${cover || fs ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={cover || fs ? { height: '100dvh' } : undefined}>
+          <div ref={mount} data-invaders-canvas className="absolute inset-0 touch-none" />
+          {flash && (
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{ background: flash === 'hit' ? 'rgba(232,38,29,0.3)' : flash === 'bomb' ? 'rgba(255,184,0,0.35)' : flash === 'power' ? 'rgba(39,230,255,0.14)' : 'rgba(255,255,255,0.05)' }}
+            />
+          )}
+
+          {/* ── HUD ── */}
+          <div className={`pointer-events-none absolute inset-0 transition-opacity duration-300 ${playing ? 'opacity-100' : 'opacity-0'}`}>
+            <style>{`@keyframes miBan { 0% { transform: translateX(-60px) skewX(-10deg); opacity: 0 } 14% { transform: translateX(0) skewX(-10deg); opacity: 1 } 80% { opacity: 1 } 100% { transform: translateX(40px) skewX(-10deg); opacity: 0 } }
+              @keyframes miToast { 0% { transform: translateY(8px) rotate(-2deg); opacity: 0 } 12% { transform: none; opacity: 1 } 85% { opacity: 1 } 100% { opacity: 0 } }`}</style>
+            {/* Score */}
+            <div className="absolute left-2 top-2 flex items-stretch sm:left-3 sm:top-3">
+              <div className="px-2 py-0.5 sm:px-3 sm:py-1" style={{ background: accent, ...hudFont }}>
+                <div ref={hud.ref('score')} className="text-3xl tabular-nums text-white sm:text-6xl" style={{ lineHeight: 0.86 }}>
+                  0
+                </div>
+              </div>
+              <div className="flex flex-col justify-between bg-black/70 px-2 py-0.5" style={hudFont}>
+                <span ref={hud.ref('wave')} className="text-base text-white sm:text-2xl">
+                  WAVE 1
+                </span>
+                <span ref={hud.ref('hi')} className="text-[10px] sm:text-xs" style={{ color: DR.colour.amber }}>
+                  HI 0
+                </span>
+              </div>
+            </div>
+            {/* Hull + bombs */}
+            <div className="absolute right-2 top-2 flex flex-col items-end gap-1 sm:right-3 sm:top-3">
+              <div className="flex items-center gap-1.5 bg-black/65 px-2 py-1">
+                <span className="text-[10px]" style={{ ...hudFont, color: DR.colour.grey }}>
+                  HULL
+                </span>
+                {hullPips.map((on, i) => (
+                  <span key={i} className="inline-block h-3.5 w-5 sm:h-4 sm:w-6" style={{ background: on ? DR.colour.acid : 'rgba(255,255,255,0.12)', clipPath: 'polygon(0 100%, 50% 0, 100% 100%, 50% 75%)' }} />
+                ))}
+                {slow.shield && <Pictogram name="shield" size={18} colour={DR.colour.blue} />}
+              </div>
+              <div className="flex items-center gap-1 bg-black/65 px-2 py-1">
+                <span className="text-[10px]" style={{ ...hudFont, color: DR.colour.grey }}>
+                  PURGE
+                </span>
+                {[0, 1, 2].map((i) => (
+                  <span key={i} className="inline-block" style={{ opacity: i < slow.bombs ? 1 : 0.18 }}>
+                    <Pictogram name="mine" size={16} colour={DR.colour.amber} />
+                  </span>
+                ))}
+              </div>
+              <div className="pointer-events-auto flex gap-1">
+                <button onClick={() => engine.current?.pause(phase !== 'paused')} className="btn px-2 py-1 text-xs" aria-label="Pause">
+                  {phase === 'paused' ? '▶' : 'Ⅱ'}
+                </button>
+                <button onClick={fullscreen} className="btn px-2 py-1 text-xs" aria-label="Fullscreen">
+                  ⛶
+                </button>
+              </div>
+            </div>
+            {/* Boss bar */}
+            <div ref={hud.ref('bossBox')} className="absolute left-1/2 top-2 hidden w-[min(46vw,460px)] -translate-x-1/2 sm:top-3 max-sm:top-16">
+              <div className="flex items-baseline justify-between px-1" style={hudFont}>
+                <span ref={hud.ref('bossName')} className="text-lg" style={{ color: DR.colour.amber }}>
+                  BLOCK
+                </span>
+                <span className="text-xs text-white">BOSS</span>
+              </div>
+              <div className="h-3 bg-black/70" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 14px, rgba(0,0,0,0.9) 14px 16px)' }}>
+                <div ref={hud.ref('bossBar')} className="h-full" style={{ width: '100%', background: DR.colour.amber }} />
+              </div>
+            </div>
+            {/* Combo */}
+            <div className="absolute bottom-3 right-2 flex flex-col items-end sm:right-3 max-sm:bottom-[5.8rem]">
+              <div className="flex items-end gap-2 bg-black/55 px-3 py-1">
+                <span ref={hud.ref('mult')} className="text-5xl tabular-nums text-white sm:text-7xl" style={{ ...hudFont, lineHeight: 0.84, display: 'inline-block', transformOrigin: 'bottom center' }}>
+                  ×1
+                </span>
+                <span className="pb-1 text-xs" style={{ ...hudFont, color: DR.colour.amber }}>
+                  COMBO
+                </span>
+              </div>
+              <div className="h-1.5 w-[min(44vw,240px)] bg-black/70">
+                <div ref={hud.ref('comboBar')} className="h-full" style={{ width: '0%', background: DR.colour.cyan }} />
+              </div>
+              <span ref={hud.ref('comboTxt')} className="mt-0.5 bg-black/55 px-2 text-[10px] tracking-widest text-white/80">
+                KILL TO CHAIN
+              </span>
+              <div ref={hud.ref('beat')} className="mt-1 w-[min(44vw,240px)]">
+                <ChevronBar n={22} h={5} colour={DR.colour.cyan} />
+              </div>
+            </div>
+            {/* Mempool pressure + power-ups */}
+            <div className="absolute bottom-3 left-2 flex flex-col gap-1 sm:left-3 max-sm:bottom-[5.8rem]">
+              {POWERS.filter((k) => k === 'spread' || k === 'rail' || k === 'overdrive').map((k) => (
+                <div key={k} ref={hud.ref(`pw-${k}`)} className="hidden items-center gap-1.5 bg-black/70 px-2 py-0.5" style={{ borderLeft: `4px solid ${POWER_META[k].colour}` }}>
+                  <Pictogram name={PICTO[k]} size={14} colour={POWER_META[k].colour} />
+                  <span className="w-20 text-xs" style={{ ...hudFont, color: POWER_META[k].colour }}>
+                    {POWER_META[k].label}
+                  </span>
+                  <div className="h-1.5 w-14 bg-white/15">
+                    <div ref={hud.ref(`pwBar-${k}`)} className="h-full" style={{ width: '100%', background: POWER_META[k].colour }} />
+                  </div>
+                </div>
+              ))}
+              <div className="w-[min(40vw,190px)] bg-black/65 px-2 py-1">
+                <div className="flex items-baseline justify-between" style={hudFont}>
+                  <span className="text-[10px]" style={{ color: DR.colour.grey }}>
+                    MEMPOOL
+                  </span>
+                  <span ref={hud.ref('pressTxt')} className="text-xs text-white">
+                    QUIET
+                  </span>
+                </div>
+                <div className="h-1.5 bg-white/15">
+                  <div ref={hud.ref('press')} className="h-full transition-[width] duration-500" style={{ width: '10%', background: DR.colour.cyan }} />
+                </div>
+                <span ref={hud.ref('left')} className="text-[9px] tracking-widest text-white/50">
+                  0 IN RANGE
+                </span>
+              </div>
+            </div>
+            {run.live && (
+              <div className="absolute left-1/2 top-[3.6rem] -translate-x-1/2 bg-black/70 px-3 py-0.5 text-center sm:top-1" data-invaders-tx>
+                <span className="text-sm font-bold tabular-nums" style={{ ...hudFont, color: DR.colour.cyan }}>
+                  {onChain.toLocaleString()} TX ON CHAIN
+                </span>
+                <span className="ml-2 text-[10px] tracking-widest text-white/70">{actionsLeft.toLocaleString()} LEFT</span>
+                {needAmmo && <span className="ml-2 text-[10px] font-bold tracking-widest" style={{ color: DR.colour.signal }}>OUT OF AMMO</span>}
+              </div>
+            )}
+            {/* Loot + mode */}
+            <div className="absolute right-2 top-[6.6rem] flex flex-col items-end gap-1 text-xs sm:right-3 sm:top-[8.6rem]">
+              <span className="bg-black/60 px-2 py-0.5 text-[#ffd36a]">
+                <LootHud haul={loot.run} max={3} />
+              </span>
+            </div>
+            <div className="absolute left-2 top-[4.4rem] max-sm:max-w-[58vw] max-sm:overflow-hidden max-sm:text-ellipsis max-sm:whitespace-nowrap sm:left-3 sm:top-[5.4rem]">
+              <span className={`border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest ${run.paid ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`} data-invaders-mode={run.live ? 'live' : run.paid ? 'paid' : 'practice'}>
+                {run.live ? 'LIVE · EVERY SHOT ON CHAIN' : coinOpModeLabel(run.paid, co.credits)}
+              </span>
+            </div>
+            {/* Toasts */}
+            <div className="absolute left-2 top-[7.4rem] flex flex-col items-start gap-1 sm:left-3 sm:top-[9rem]">
+              {toasts.map((t) => (
+                <div key={t.id} style={{ animation: 'miToast 2.4s ease-out both' }}>
+                  <Sticker bg={t.tone === 'good' ? DR.colour.acid : t.tone === 'bad' ? DR.colour.signal : DR.colour.paper} fg={t.tone === 'bad' ? '#fff' : '#111'} size={15} rot={-2}>
+                    {t.text}
+                  </Sticker>
+                </div>
+              ))}
+            </div>
+            {/* Wave banner */}
+            {banner && (
+              <div key={banner.id} className="absolute inset-x-0 top-[26%] flex flex-col items-center" style={{ animation: 'miBan 2.3s ease-out both' }}>
+                <Display size="clamp(54px, 11vw, 150px)" colour={banner.tone === 'boss' ? DR.colour.amber : banner.tone === 'clear' ? DR.colour.acid : DR.colour.paper} style={{ WebkitTextStroke: '3px #000', textShadow: '0 8px 0 #000, 0 0 40px rgba(232,38,29,0.5)' }}>
+                  {banner.title}
+                </Display>
+                <div className="mt-2 bg-black/75 px-3 py-1" style={{ ...hudFont, color: DR.colour.cyan, fontSize: 'clamp(12px, 2vw, 20px)' }}>
+                  {banner.sub}
+                </div>
+                <div className="mt-2 w-[min(70vw,520px)]">
+                  <ChevronBar n={26} h={10} colour={banner.tone === 'boss' ? DR.colour.signal : DR.colour.amber} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Touch: bomb + hint (drag the ship, it auto-fires) ── */}
+          {touch && phase === 'playing' && (
+            <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+              <span className="bg-black/55 px-2 py-1 text-[10px] tracking-widest text-white/70">DRAG TO MOVE · AUTO-FIRE</span>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  if (engine.current) engine.current.touch.bomb = true;
+                }}
+                onContextMenu={(e) => e.preventDefault()}
+                className="btn btn-on h-14 w-20 touch-none text-xs"
+              >
+                PURGE
+              </button>
+            </div>
+          )}
+
+          {/* ── Loading ── */}
+          {phase === 'loading' && !error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black" style={gridBg()}>
+              <Display size="clamp(44px,9vw,100px)">{GAME_NAME.split(' ')[0]}</Display>
+              <Kana size={16} colour={DR.colour.amber}>
+                {GAME_KANA}
+              </Kana>
+              <div className="w-[min(80vw,420px)]">
+                <ChevronBar n={30} h={14} colour={DR.colour.amber} />
+                <div className="mt-1 h-1.5 bg-white/10">
+                  <div className="h-full transition-all" style={{ width: `${Math.round(loading.pct * 100)}%`, background: DR.colour.signal }} />
+                </div>
+              </div>
+              <p className="text-xs tracking-widest text-dim">{loading.msg.toUpperCase()}…</p>
+            </div>
+          )}
+          {error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-4 text-center">
+              <p className="text-2xl font-bold text-hot">Could not start the 3D scene</p>
+              <p className="max-w-md text-sm text-dim">
+                {error}. {GAME_NAME} needs WebGL: try a recent Chrome, Edge, Firefox or Safari with hardware acceleration on.
+              </p>
+              <button onClick={() => setSession((s) => s + 1)} className="btn btn-on">
+                RETRY
+              </button>
+            </div>
+          )}
+
+          {/* ── Title poster ── */}
+          {phase === 'menu' && (
+            <div className="absolute inset-0 overflow-y-auto p-2 sm:p-5" style={{ background: 'linear-gradient(90deg, rgba(5,3,10,0.95) 0%, rgba(5,3,10,0.8) 44%, rgba(5,3,10,0) 76%)' }}>
+              <div className="flex max-w-[35rem] flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <Sticker bg={DR.colour.signal} fg="#fff" size={13} rot={-3}>
+                    LIVE MAINNET
+                  </Sticker>
+                  <Sticker bg={DR.colour.cyan} size={13} rot={2}>
+                    EVERY SHIP IS A TX
+                  </Sticker>
+                  <Kana size={11} colour={DR.colour.amber} className="max-sm:hidden">
+                    {GAME_KANA}
+                  </Kana>
+                </div>
+                <div className="leading-none">
+                  <div>
+                    <Display size="clamp(56px, 11.5vw, 148px)" colour={DR.colour.paper} style={{ textShadow: '0.04em 0.05em 0 #000' }}>
+                      MEMPOOL
+                    </Display>
+                  </div>
+                  <div className="-mt-1 sm:-mt-3">
+                    <Display size="clamp(46px, 9.4vw, 120px)" colour={DR.colour.signal} style={{ textShadow: '0.04em 0.05em 0 #000', letterSpacing: '0.02em' }}>
+                      INVADERS
+                    </Display>
+                  </div>
+                </div>
+                <ChevronBar n={34} h={14} colour={DR.colour.amber} />
+                <p className="max-w-[30rem] text-sm text-white/90" style={{ textShadow: '0 1px 6px #000' }}>
+                  {GAME_TAGLINE}. Every ship is a transaction that just hit the network. Shoot the gold token ships and catch the BSV-21 token they drop. Chain kills for a multiplier, hit on the beat for double, and when a block lands the block itself comes for you.
+                </p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {KIND_ORDER.map((k) => (
+                    <span key={k} className="flex items-center gap-1 bg-black/55 px-1.5 py-0.5 text-[10px] tracking-widest text-white/85">
+                      <span className="inline-block h-2.5 w-2.5" style={{ background: KIND_HEX[k], boxShadow: `0 0 8px ${KIND_HEX[k]}` }} />
+                      {KIND_NAME[k]} {KIND_POINTS[k]}
+                    </span>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] tracking-widest text-white/70">
+                  <span>← → / A D MOVE</span>
+                  <span>SPACE FIRE</span>
+                  <span>X PURGE</span>
+                  <span>P PAUSE</span>
+                  <span>PAD / TOUCH OK</span>
+                </div>
+                <CoinOpButtons co={co} start={(p) => start(p)} onPress={() => (touch ? enterFs() : undefined)} />
+                <button onClick={() => setLiveOn((v) => !v)} aria-pressed={liveOn} className={`btn self-start px-3 py-1.5 text-sm ${liveOn ? 'btn-on' : ''}`}>
+                  ⚡ LIVE · TOKEN-BLAST MODE · EVERY SHOT ON CHAIN
+                </button>
+                {liveOn && ammoPanel}
+                <div className="flex items-center gap-1 text-[10px] tracking-widest text-dim">
+                  <span>QUALITY</span>
+                  {(['auto', 'low', 'high'] as const).map((q) => (
+                    <button key={q} onClick={() => setQualityPref(q)} className={`btn px-2 py-0.5 ${qualityPref === q ? 'btn-on' : ''}`}>
+                      {q.toUpperCase()}
+                    </button>
+                  ))}
+                  {perf && <span className="ml-2">{perf.fps} FPS</span>}
+                  {best > 0 && <span className="ml-2" style={{ color: DR.colour.amber }}>BEST {best.toLocaleString()}</span>}
+                </div>
+              </div>
+              <div className="pointer-events-none absolute bottom-3 right-3 hidden sm:block">
+                <ProductCode code="MI-001" label="TB" colour={DR.colour.paper} />
+              </div>
+            </div>
+          )}
+
+          {/* ── Pause ── */}
+          {phase === 'paused' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/65">
+              <Display size="clamp(48px,9vw,110px)" colour={DR.colour.amber}>
+                PAUSED
+              </Display>
+              <div className="flex gap-2">
+                <button onClick={() => engine.current?.pause(false)} className="btn btn-on px-4 py-2">
+                  ▶ RESUME
+                </button>
+                <button onClick={fullscreen} className="btn px-3 py-2">
+                  ⛶ FULLSCREEN
+                </button>
+              </div>
+              <p className="text-xs tracking-widest text-dim">P / ESC TO RESUME</p>
+            </div>
+          )}
+
+          {/* ── Results poster ── */}
+          {phase === 'over' && result && (
+            <div className="absolute inset-0 flex items-center justify-center overflow-y-auto bg-black/60 p-2">
+              <PosterFrame accent={DR.colour.signal} code="MI-END" kana="ゲームオーバー" className="w-full max-w-md">
+                <div className="flex flex-col items-center gap-2 px-3 py-4 text-center">
+                  <Display size="clamp(40px,8vw,72px)" colour={DR.colour.paper}>
+                    GAME OVER
+                  </Display>
+                  <div className="flex items-baseline gap-2" style={hudFont}>
+                    <span className="text-5xl tabular-nums" style={{ color: DR.colour.amber, lineHeight: 0.9 }}>
+                      {result.score.toLocaleString()}
+                    </span>
+                    <span className="text-sm text-white/70">PTS</span>
+                  </div>
+                  <div className="grid w-full grid-cols-4 gap-1 text-center text-[10px] tracking-widest text-white/70">
+                    {[
+                      ['WAVE', result.wave],
+                      ['KILLS', result.kills],
+                      ['BEST CHAIN', result.maxCombo],
+                      ['BOSSES', result.bosses],
+                    ].map(([k, v]) => (
+                      <div key={k} className="bg-white/5 px-1 py-1">
+                        <div className="text-base text-white" style={hudFont}>
+                          {v}
+                        </div>
+                        {k}
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-dim">Best: {Math.max(best, result.score).toLocaleString()}</p>
+                  <LootLine haul={lastRun} />
+                  <HighScores game="invaders" score={result.score} secs={result.secs} live={run.paid} txid={run.live ? lastTx : run.txid} meta={run.live ? { live: 1, tx: onChain } : run.paid ? { coinop: 1 } : undefined} />
+                  <CoinOpButtons co={co} start={(p) => start(p)} />
+                  {run.live && (
+                  <button onClick={() => start(true, true)} disabled={actionsLeft < 1} className="btn px-3 py-1 text-sm disabled:opacity-40">
+                    ⚡ PLAY LIVE AGAIN · {actionsLeft.toLocaleString()} ACTIONS
+                  </button>
+                  )}
+                </div>
+              </PosterFrame>
+            </div>
+          )}
         </div>
-        <HoldButton ctl={control} k="fire" className="btn-fire h-14 min-w-0 flex-1 !px-2">
-          FIRE
-        </HoldButton>
       </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {POWERS.map((k) => (
+          <span key={k} className="flex items-center gap-1 border border-[var(--border-dim)] px-1.5 py-0.5 text-[10px] tracking-widest text-white/80" style={{ borderLeft: `3px solid ${POWER_META[k].colour}` }}>
+            <Pictogram name={PICTO[k]} size={12} colour={POWER_META[k].colour} />
+            {POWER_META[k].label} · {POWER_META[k].blurb}
+          </span>
+        ))}
+      </div>
+      <HazardBar colour={DR.colour.amber} h={8} className="mt-2 opacity-60" />
       <p className="mt-2 text-xs text-muted">
-        The invaders are mainnet, live: {fromChain.toLocaleString()} real transactions have marched in so far. Payments and data are crabs, social posts and inscriptions are
-        squids, token transfers are gold invaders wearing their token, blasts fly over as bonus saucers, and fresh txs keep diving in while you fight.
+        The invaders are mainnet, live: payments are cyan darts, data is blue slabs, social posts are magenta spikes, inscriptions are red gems, token transfers are gold ships wearing their token, and blasts cross as bonus saucers. A busy mempool means a bigger formation and faster dive-bombers; a new block brings the boss. Quiet mempool? Ghost ships fill in, worth almost nothing.
       </p>
-      <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
-        <div className="inset px-2 py-1">
-          <span className="text-dim">Score: </span>
-          <span className="text-hot">{hud.score.toLocaleString()}</span>
-        </div>
-        <div className="inset px-2 py-1">
-          <span className="text-dim">Wave: </span>
-          <span className="text-hot">{hud.wave}</span>
-        </div>
-        <div className="inset px-2 py-1">
-          <span className="text-dim">Best: </span>
-          <span className="text-hot">{Math.max(best, hud.score).toLocaleString()}</span>
-        </div>
-      </div>
       <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
       {co.chooserEl}
+      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
   );
 }
