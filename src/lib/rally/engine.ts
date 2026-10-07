@@ -38,6 +38,9 @@ import {
   type Quality,
 } from './world';
 
+import type { SpendKind } from './spend';
+import { DRIFT_PTS, FUEL_M, NITRO_TICK_S } from './spend';
+
 export type Phase = 'loading' | 'menu' | 'countdown' | 'racing' | 'paused' | 'finished';
 export type Hud = {
   kmh: number;
@@ -88,6 +91,8 @@ export type Callbacks = {
   onFinish(r: Result): void;
   onMap(m: MapData): void;
   onStartRequest?(): void;
+  /** LIVE races only: something the car just burned (the shell turns it into one real transaction). */
+  onSpend?(kind: SpendKind, tag: string): void;
   onPerf?(info: { fps: number; level: number; dpr: number }): void;
 };
 
@@ -332,6 +337,12 @@ export class RallyEngine {
   private hdrSky: THREE.Texture | null = null;
   private horizon = new THREE.Color('#aab8c6');
   private driftShown = 0;
+  /** LIVE race economy, driven by the shell: `live` turns spend events on, `dry` cuts the throttle and nitro (coasting). */
+  econ = { live: false, dry: false };
+  private fuelM = 0;
+  private nitroT = 0;
+  private nitroPrev = false;
+  private driftPaid = 0;
   private visHandler = () => {
     if (document.hidden && this.phase === 'racing') this.pause(true);
   };
@@ -864,6 +875,10 @@ export class RallyEngine {
     this.result = null;
     this.dirtLevel = 0;
     this.driftShown = 0;
+    this.fuelM = 0;
+    this.nitroT = 0;
+    this.nitroPrev = false;
+    this.driftPaid = 0;
     for (const c of this.cps) c.time = null;
     for (const r of this.rivals) {
       r.s = r.s0;
@@ -1022,6 +1037,7 @@ export class RallyEngine {
       if (racing) ci = this.debugInput ?? (this.autopilot ? this.drive() : inp);
       else if (this.phase === 'finished') ci = { throttle: 0, brake: 0.55, steer: 0, hand: false, nitro: false };
       else if (this.phase === 'countdown') ci = { throttle: inp.throttle * 0.0, brake: 0, steer: 0, hand: false, nitro: false };
+      if (racing && this.econ.live && this.econ.dry) ci = { ...ci, throttle: 0, nitro: false }; // out of fuel: coast
       this.lastThrottle = ci.throttle;
       this.braking = ci.brake > 0.1 && c0.fwd > 0.5;
       if (racing && edges.reset) this.respawn();
@@ -1260,6 +1276,7 @@ export class RallyEngine {
         // Must pass through the road, not cut across the hills.
         if (near.dist < 14) {
           cp.time = this.raceT + this.penalty;
+          if (this.econ.live) this.opts.cb.onSpend?.('split', cp.label);
           if (cp.label === 'FINISH') {
             this.finish();
             return;
@@ -1288,6 +1305,35 @@ export class RallyEngine {
       if (this.offT > 2.5) {
         this.offT = 0;
         this.opts.cb.onToast({ text: 'OFF COURSE: press R to get back on the road', tone: 'bad' });
+      }
+    }
+    // LIVE economy: what the car burned this frame.
+    if (this.econ.live && this.opts.cb.onSpend) {
+      const sp = this.opts.cb.onSpend;
+      if (this.lastThrottle > 0.05 && c.speed > 1) {
+        this.fuelM += c.speed * dt;
+        let k = 0;
+        while (this.fuelM >= FUEL_M && k++ < 3) {
+          this.fuelM -= FUEL_M;
+          sp('fuel', String(Math.round(near.s)));
+        }
+        if (this.fuelM > FUEL_M * 3) this.fuelM = 0;
+      }
+      if (c.nitroOn) {
+        if (!this.nitroPrev) {
+          this.nitroT = 0;
+          sp('nitro', 'burst');
+        }
+        this.nitroT += dt;
+        if (this.nitroT >= NITRO_TICK_S) {
+          this.nitroT -= NITRO_TICK_S;
+          sp('nitro', 'burn');
+        }
+      }
+      this.nitroPrev = c.nitroOn;
+      if (c.driftPts - this.driftPaid >= DRIFT_PTS) {
+        this.driftPaid = c.driftPts;
+        sp('drift', String(Math.round(c.driftPts)));
       }
     }
     // Nitro / drift toasts.

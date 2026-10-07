@@ -3,13 +3,18 @@
 /**
  * Token Rally: a 3D rally game where the rivals are live BSV transactions. This component is the
  * shell (menu, HUD, results, touch controls); the game itself is src/lib/rally/engine.ts.
- * Coin-op: INSERT COIN (10p) buys a credit, one credit is one stage run (src/lib/coinop.ts); the coin's
- * txid verifies the run on the board. PRACTICE is free: nothing is sent to the chain, no wallet is touched.
+ * Two ways to play. PRACTICE is free: nothing is sent to the chain, no wallet is touched. RACE LIVE burns your
+ * loaded coin as fuel: every 20 m of throttle, every nitro burst, drift bonus and checkpoint is one tiny real
+ * transaction, queued and sent in the background through the same gun paths Chain Frogger uses (src/lib/rally/spend.ts).
+ * The first tx of a live race is its proof on the score board.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameAudio } from './SoundToggle';
 import { HighScores } from './HighScores';
-import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
+import { WalletChooser } from './WalletChooser';
+import { useBlaster } from '@/lib/useBlaster';
+import { TOKEN_FEE } from '@/lib/gun';
+import { actionsForStage, FUEL_M, MIN_START_ACTIONS, SpendMeter, type SpendKind, type SpendLine } from '@/lib/rally/spend';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { CARS, fmt, RallyEngine, STAGES, type Hud, type MapData, type Phase, type Result, type Toast } from '@/lib/rally/engine';
 import { STAGE_LIST, type StageId } from '@/lib/rally/stages';
@@ -20,6 +25,14 @@ type QualityPref = 'auto' | 'low' | 'high' | 'ultra';
 type RivalInfo = { name: string; detail: string; color: string; live: boolean; tx: string | null; skill: number; kind: string };
 const BEST = 'tokenblaster:rally-best';
 const PREFS = 'tokenblaster:rally-prefs';
+/** Where fuel burns go: 1 sat / 1 token per burn to TokenBlaster (the same public receiving address Chain Frogger uses). The player's gun pays the network fee. */
+const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU';
+const EST_FEE = 26; // sats per SATS-mode tx (~260 bytes at 100 sat/kB)
+const SAT_LOADS = [5_000, 20_000, 100_000];
+const TOK_LOADS = [250, 1_000, 5_000];
+const KIND_ICON: Record<SpendKind, string> = { fuel: '◆', nitro: '»', drift: '↯', split: '⚑' };
+type Spent = { sent: number; requested: number; queued: number; first: string | null; last: string | null; err: string | null; by: Record<SpendKind, number>; ticker: SpendLine[] };
+const NO_SPEND: Spent = { sent: 0, requested: 0, queued: 0, first: null, last: null, err: null, by: { fuel: 0, nitro: 0, drift: 0, split: 0 }, ticker: [] };
 
 const isMobileish = () => {
   if (typeof window === 'undefined') return false;
@@ -62,6 +75,23 @@ class HudDom {
   }
 }
 
+/** Burns a gun can pay for: SATS mode is bounded by sats, a coin by the coin and the sats fee. */
+const loadedBurns = (ammo: number, tokens: number, tokMode: boolean) =>
+  tokMode ? Math.max(0, Math.min(Math.floor(tokens), Math.floor(ammo / TOKEN_FEE))) : Math.max(0, Math.floor(ammo / (1 + EST_FEE)));
+
+/** Dev-only test seam (like window.__rally): a stub wallet so the LIVE queue can be exercised with no broadcast. Never present in production builds. */
+type RallyMock = { ammo: number; send: (n: number, batch: string[][]) => Promise<string[]> };
+const devMock = (): RallyMock | null => (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined' ? ((window as unknown as { __rallyMock?: RallyMock }).__rallyMock ?? null) : null);
+type PayState = { ammo: number; tokens: number; tokMode: boolean; live: boolean; raceNeed: number };
+type FireFns = { batch: ReturnType<typeof useBlaster>['fireBatch']; tokens: ReturnType<typeof useBlaster>['fireTokens'] };
+/** The wallet side of the meter: the gun's own batch paths, read through refs so the game loop never re-renders. */
+const makeIo = (pay: { current: PayState }, fire: { current: FireFns }, snap: { current: () => void }) => ({
+  send: (n: number, batch: string[][]) => (devMock() ? devMock()!.send(n, batch) : pay.current.tokMode ? fire.current.tokens(n, batch, HOUSE) : fire.current.batch(n, batch, { address: HOUSE, sats: 1 })),
+  canPay: (n: number) => n <= (devMock() ? loadedBurns(devMock()!.ammo, 0, false) : loadedBurns(pay.current.ammo, pay.current.tokens, pay.current.tokMode)),
+  batchMax: () => (pay.current.tokMode ? 25 : 40),
+  onChange: () => snap.current(),
+});
+
 const readBest = (): Record<string, number> => {
   try {
     return JSON.parse(localStorage.getItem(BEST) ?? '{}') as Record<string, number>;
@@ -78,9 +108,57 @@ export function TokenRally() {
     takeRef.current = feed.take;
   });
   const engine = useRef<RallyEngine | null>(null);
+  const startRef = useRef<() => void>(() => undefined);
 
-  const co = useCoinOp('Token Rally', 'rally');
-  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
+  const b = useBlaster();
+  /** The mode picked on the menu, and the mode of the race in progress / just finished. */
+  const [liveMode, setLiveMode] = useState(false);
+  const [run, setRun] = useState<{ live: boolean }>({ live: false });
+  const [spent, setSpent] = useState<Spent>(NO_SPEND);
+  const [dry, setDry] = useState(false);
+  // What the game loop needs about paying, without re-running the 3D effect.
+  const payRef = useRef({ ammo: 0, tokens: 0, tokMode: false, live: false, raceNeed: 0 });
+  useEffect(() => {
+    payRef.current.ammo = b.ammo;
+    payRef.current.tokens = b.tokenAmmo;
+    payRef.current.tokMode = b.mode === 'tokens' && Boolean(b.token);
+  }, [b.ammo, b.tokenAmmo, b.mode, b.token]);
+  const fireRef = useRef({ batch: b.fireBatch, tokens: b.fireTokens });
+  useEffect(() => {
+    fireRef.current = { batch: b.fireBatch, tokens: b.fireTokens };
+  }, [b.fireBatch, b.fireTokens]);
+  /** Burns the wallet can still pay for, not counting the queue. */
+  const burnsLoaded = useCallback(() => (devMock() ? loadedBurns(devMock()!.ammo, 0, false) : loadedBurns(payRef.current.ammo, payRef.current.tokens, payRef.current.tokMode)), []);
+  const snapRef = useRef<() => void>(() => undefined);
+  // The refs are only read later, inside the wallet callbacks (never during render).
+  const [meter] = useState(() => new SpendMeter(makeIo(payRef, fireRef, snapRef)));
+  /** Can the wallet pay for one more burn on top of what is queued? */
+  const burnsLoaded2 = () => meter.queued + 1 <= burnsLoaded();
+  useEffect(() => {
+    snapRef.current = () => {
+      setSpent({ sent: meter.sent, requested: meter.requested, queued: meter.queued, first: meter.firstTx, last: meter.lastTx, err: meter.error, by: { ...meter.byKind }, ticker: [...meter.ticker] });
+      const eng = engine.current;
+      if (eng && eng.econ.live) {
+        eng.econ.dry = !burnsLoaded2();
+        setDry(eng.econ.dry);
+      }
+    };
+  });
+  // Loading more (or a failed batch) changes what the tank holds: re-check dry.
+  useEffect(() => {
+    snapRef.current();
+  }, [b.ammo, b.tokenAmmo, b.mode]);
+  const spend = useRef((kind: SpendKind, tag: string) => {
+    if (!meter.request(kind, tag)) {
+      const eng = engine.current;
+      if (eng) eng.econ.dry = true;
+      setDry(true);
+    } else {
+      const d = !burnsLoaded2();
+      if (engine.current) engine.current.econ.dry = d;
+      setDry(d);
+    }
+  });
   const [stageId, setStageId] = useState<StageId>('forest');
   const [carId, setCarId] = useState('hatch');
   const [qualityPref, setQualityPref] = useState<QualityPref>('auto');
@@ -249,11 +327,8 @@ export function TokenRally() {
           } else setNewBest(false);
           setBest(b);
         },
-        onStartRequest: () => {
-          if (life.dead) return;
-          setRun({ paid: false, txid: null }); // Enter / pad START from the menu is a practice run
-          eng.begin();
-        },
+        onStartRequest: () => !life.dead && startRef.current(), // Enter / pad START: whatever mode is picked on the menu
+        onSpend: (k, tag) => !life.dead && spend.current(k, tag),
         onPerf: (p) => !life.dead && setPerf(p),
       },
     });
@@ -273,7 +348,7 @@ export function TokenRally() {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, stageId, carId, qualityPref, session, onHud, pushToast, drawMini, bakeMini]);
+  }, [ready, stageId, carId, qualityPref, session, onHud, pushToast, drawMini, bakeMini, spend]);
 
   // Token tickers and logos arrive a moment after the grid is built: refresh the menu list.
   useEffect(() => {
@@ -288,19 +363,109 @@ export function TokenRally() {
   const car = CARS.find((c) => c.id === carId) ?? CARS[0];
   const bestTime = best[`${stageId}:${carId}`];
   const racing = phase === 'racing' || phase === 'countdown' || phase === 'paused';
-  /** Start a stage run: a credit run spends one credit (its coin's txid goes with the run), practice is free. */
-  const start = (paid: boolean) => {
+  const need = actionsForStage(stage.length);
+  const tokModeNow = b.mode === 'tokens' && Boolean(b.token);
+  const mock = devMock();
+  const burns = Math.max(0, (mock ? loadedBurns(mock.ammo, 0, false) : loadedBurns(b.ammo, b.tokenAmmo, tokModeNow)) - spent.queued);
+  const canGoLive = (Boolean(b.wallet) || Boolean(mock)) && burns >= MIN_START_ACTIONS && !b.busy;
+  /** Start a stage run. LIVE needs a loaded tank; PRACTICE is free and touches no wallet. */
+  const start = (live = liveMode) => {
     const eng = engine.current;
-    if (!eng) return;
-    const txid = paid ? co.consume() : null;
-    if (paid && !txid) return;
-    setRun({ paid, txid });
+    if (!eng || (live && !canGoLive)) return;
+    meter.reset();
+    setSpent(NO_SPEND);
+    eng.econ.live = live;
+    eng.econ.dry = false;
+    setDry(false);
+    payRef.current.live = live;
+    setRun({ live });
     eng.begin();
   };
+  useEffect(() => {
+    startRef.current = () => start();
+  });
+  // Fuel gauge + tx counter straight to the DOM (4 Hz), like the rest of the HUD.
+  useEffect(() => {
+    if (!run.live || !racing) return;
+    const id = setInterval(() => {
+      const left = Math.max(0, burnsLoaded() - meter.queued);
+      hud.css('fuelbar', { width: `${Math.round(Math.min(1, left / Math.max(1, need)) * 100)}%`, background: left < 12 ? '#ff2d2d' : left < 40 ? '#ffb000' : '#7dff9a' });
+      hud.text('fuel', `${left.toLocaleString()} burns · ${((left * FUEL_M) / 1000).toFixed(1)} km`);
+      hud.text('txs', `${meter.sent.toLocaleString()} txs this race${meter.queued ? ` · ${meter.queued} sending` : ''}`);
+    }, 250);
+    return () => clearInterval(id);
+  });
   const toMenu = () => {
     setResult(null);
     void engine.current?.toMenu();
   };
+
+  const heldTok = Math.floor(b.token?.balance ?? 0);
+  const tokOpts = (() => {
+    const o = TOK_LOADS.filter((n) => n <= heldTok);
+    return o.length || heldTok < 1 ? o : [heldTok];
+  })();
+  const tokPicks = [...b.tokens].sort((x, y) => (y.balance ?? 0) - (x.balance ?? 0)).slice(0, 6);
+  const tokMode = b.mode === 'tokens' && Boolean(b.token);
+  const fuelPanel = (
+    <div className="inset flex flex-col gap-1.5 bg-black/60 p-2 text-[11px]">
+      {!b.wallet ? (
+        <>
+          <p className="text-dim">Live races burn a little of your coin as fuel: about one tiny real transaction every {FUEL_M} m, per nitro burst, drift bonus and checkpoint. Connect a wallet to load a tank.</p>
+          <button onClick={b.connectWallet} disabled={!!b.busy} className="btn btn-on self-start">
+            {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT WALLET'}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-dim">FUEL:</span>
+            <button onClick={() => b.setMode('sats')} disabled={!!b.busy} className={`btn px-2 py-0.5 ${!tokMode ? 'btn-on' : ''}`}>
+              SATS
+            </button>
+            {tokPicks.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  b.setToken(t);
+                  b.setMode('tokens');
+                }}
+                disabled={!!b.busy}
+                title={`${Math.floor(t.balance ?? 0).toLocaleString()} $${t.sym} in your wallet`}
+                className={`btn px-2 py-0.5 ${tokMode && b.token?.id === t.id ? 'btn-on' : ''}`}
+              >
+                ${t.sym}
+              </button>
+            ))}
+          </div>
+          <p className="text-dim">
+            1 {tokMode ? `$${b.token?.sym}` : 'sat'} to TokenBlaster + ~{tokMode ? TOKEN_FEE : EST_FEE} sats network fee per burn · <span className="text-hot">{burns.toLocaleString()} burns</span> loaded (~{((burns * FUEL_M) / 1000).toFixed(1)} km
+            {tokMode ? `, ${Math.floor(b.tokenAmmo).toLocaleString()} $${b.token?.sym} + ${b.ammo.toLocaleString()} sats` : `, ${b.ammo.toLocaleString()} sats`}). A full {(stage.length / 1000).toFixed(1)} km stage takes about {need}.
+          </p>
+          <div className="flex flex-wrap items-center gap-1">
+            {tokMode
+              ? tokOpts.map((n) => (
+                  <button key={n} onClick={() => void b.loadTokenAmmo(n)} disabled={!!b.busy} className="btn px-2 py-0.5">
+                    {b.busy === 'loading-tokens' ? 'APPROVE…' : `LOAD ${n.toLocaleString()} $${b.token?.sym}`}
+                  </button>
+                ))
+              : SAT_LOADS.map((n) => (
+                  <button key={n} onClick={() => void b.load(n, `Token Rally: ${n.toLocaleString()} sats of fuel`)} disabled={!!b.busy} className="btn px-2 py-0.5">
+                    {b.busy === 'loading' ? 'APPROVE…' : `LOAD ${n.toLocaleString()} sats`}
+                  </button>
+                ))}
+            {tokMode && tokOpts.length === 0 && <span className="text-hot">You hold none of ${b.token?.sym}: pick another coin or use SATS.</span>}
+            {(b.ammo > 0 || b.gunTokens.length > 0) && (
+              <button onClick={b.unload} disabled={!!b.busy} className="btn px-2 py-0.5">
+                {b.busy === 'unloading' ? 'UNLOADING…' : 'UNLOAD'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+      {b.error && <p className="text-hot">⚠ {b.error}</p>}
+    </div>
+  );
 
   const hold = (k: 'left' | 'right' | 'gas' | 'brake' | 'hand' | 'nitro') => ({
     onPointerDown: (e: React.PointerEvent) => {
@@ -355,6 +520,20 @@ export function TokenRally() {
         {/* ── HUD ── */}
         <div className={`pointer-events-none absolute inset-0 transition-opacity ${racing ? 'opacity-100' : 'opacity-0'}`} style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>
           <div className="absolute left-3 top-3">
+            {run.live && (
+              <div className="mb-1 w-40 bg-black/55 px-2 py-1 text-[10px] sm:w-56 sm:text-xs">
+                <div ref={hud.ref('txs')} className="font-black tabular-nums text-hot">
+                  0 txs this race
+                </div>
+                <div className="mt-1 hidden flex-col gap-0.5 text-[10px] text-dim sm:flex">
+                  {spent.ticker.slice(-4).map((t, i) => (
+                    <span key={`${t.tx}${i}`} className="truncate">
+                      {KIND_ICON[t.kind]} {t.kind} {t.kind === 'fuel' ? `${t.tag} m` : t.tag} · <span className="text-accent">{t.tx?.slice(0, 10)}…</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex items-baseline gap-2 bg-black/55 px-3 py-1">
               <span ref={hud.ref('pos')} className="text-xl font-black text-white sm:text-3xl">
                 P1/8
@@ -398,6 +577,15 @@ export function TokenRally() {
               <div className="mt-1 h-2 w-full bg-white/10">
                 <div ref={hud.ref('rpm')} className="h-full" style={{ width: '10%', background: '#ffb000' }} />
               </div>
+              {run.live && (
+                <div className="mt-1 flex w-full items-center gap-2">
+                  <span className="text-[10px] tracking-widest text-dim">FUEL</span>
+                  <div className="h-2 flex-1 bg-white/10">
+                    <div ref={hud.ref('fuelbar')} className="h-full" style={{ width: '0%', background: '#7dff9a' }} />
+                  </div>
+                  <span ref={hud.ref('fuel')} className="w-24 text-right text-[10px] tabular-nums text-dim" />
+                </div>
+              )}
               <div className="mt-1 flex w-full items-center gap-2">
                 <span className="text-[10px] tracking-widest text-dim">NITRO</span>
                 <div className="h-2 flex-1 bg-white/10">
@@ -407,6 +595,12 @@ export function TokenRally() {
             </div>
           </div>
           <div ref={hud.ref('drift')} className="absolute bottom-24 left-1/2 -translate-x-1/2 text-xl font-black text-hot opacity-0 transition-opacity" style={{ textShadow: '0 2px 0 #000' }} />
+          {run.live && dry && (
+            <div className="absolute left-1/2 top-[28%] -translate-x-1/2 bg-red-700/85 px-4 py-2 text-center text-xl font-black text-white sm:text-3xl">
+              OUT OF FUEL · COASTING
+              <div className="text-xs font-bold text-white/80">Pause (P) and load more to keep driving</div>
+            </div>
+          )}
           <div ref={hud.ref('wrong')} className="absolute left-1/2 top-1/3 -translate-x-1/2 bg-red-700/80 px-4 py-2 text-2xl font-black text-white opacity-0">
             WRONG WAY
           </div>
@@ -471,8 +665,8 @@ export function TokenRally() {
           </>
         )}
         {racing && (
-          <div data-rally-mode={run.paid ? 'paid' : 'practice'} className={`pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:text-xs ${run.paid ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`}>
-            {run.paid ? 'PAID · 1 CREDIT' : 'PRACTICE'}
+          <div data-rally-mode={run.live ? 'live' : 'practice'} className={`pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:text-xs ${run.live ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`}>
+            {run.live ? 'LIVE · FUEL ON CHAIN' : 'PRACTICE'}
           </div>
         )}
         {racing && (
@@ -557,8 +751,22 @@ export function TokenRally() {
                   ↻ NEW RIVALS FROM THE CHAIN
                 </button>
               </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button onClick={() => setLiveMode(false)} aria-pressed={!liveMode} className={`btn flex flex-col items-start px-2 py-1.5 text-left ${!liveMode ? 'btn-on' : ''}`}>
+                  <span className="text-xs font-bold">{!liveMode ? '● ' : '○ '}PRACTICE · FREE</span>
+                  <span className="text-[10px] opacity-70">Nothing is sent to the chain.</span>
+                </button>
+                <button onClick={() => setLiveMode(true)} aria-pressed={liveMode} disabled={!HOUSE} className={`btn flex flex-col items-start px-2 py-1.5 text-left ${liveMode ? 'btn-on' : ''}`}>
+                  <span className="text-xs font-bold">{liveMode ? '● ' : '○ '}RACE LIVE · ON-CHAIN</span>
+                  <span className="text-[10px] opacity-70">Your coin is the fuel: loads of tiny txs.</span>
+                </button>
+              </div>
+              {liveMode && fuelPanel}
               <div className="flex flex-wrap items-center gap-2">
-                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="START STAGE" practiceLabel="▶ START STAGE · PRACTICE" />
+                <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
+                  {liveMode ? '▶ START LIVE RACE' : '▶ START STAGE · PRACTICE'}
+                </button>
+                {liveMode && !canGoLive && <span className="text-[11px] text-hot">{b.wallet ? `Load at least ${MIN_START_ACTIONS} burns of fuel first.` : 'Connect a wallet and load fuel.'}</span>}
                 {bestTime ? <span className="text-sm text-hot">BEST {fmt(bestTime)}</span> : null}
               </div>
               <details className="text-[11px] text-dim">
@@ -587,7 +795,8 @@ export function TokenRally() {
         {phase === 'paused' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
             <p className="text-3xl font-black text-hot">PAUSED</p>
-            <p className="text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</p>
+            <p className="text-xs font-bold tracking-widest text-dim">{run.live ? `LIVE · ${spent.sent.toLocaleString()} TXS ON CHAIN` : 'PRACTICE · FREE'}</p>
+            {run.live && <div className="w-[min(92vw,30rem)]">{fuelPanel}</div>}
             <button onClick={() => engine.current?.pause(false)} className="btn-fire px-6 py-2 text-lg">
               RESUME
             </button>
@@ -631,6 +840,34 @@ export function TokenRally() {
                 </div>
               </div>
               <p className="text-2xl font-black text-hot">SCORE {result.score.toLocaleString()}</p>
+              {run.live && (
+                <div className="inset w-full max-w-md bg-black/70 p-2 text-sm">
+                  <p className="text-2xl font-black tabular-nums text-white">
+                    {spent.sent.toLocaleString()} <span className="text-base text-hot">TXS PUT ON CHAIN</span>
+                  </p>
+                  <p className="text-xs text-dim">
+                    {spent.by.fuel} fuel · {spent.by.nitro} nitro · {spent.by.drift} drift · {spent.by.split} checkpoints
+                    {spent.queued ? ` · ${spent.queued} still sending…` : ''}
+                  </p>
+                  <p className="text-xs">
+                    {spent.first && (
+                      <a href={`https://whatsonchain.com/tx/${spent.first}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                        first tx ↗
+                      </a>
+                    )}
+                    {spent.last && spent.last !== spent.first && (
+                      <>
+                        {' · '}
+                        <a href={`https://whatsonchain.com/tx/${spent.last}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                          last tx ↗
+                        </a>
+                      </>
+                    )}
+                    {spent.first && <span className="text-dim"> · every burn is a tx from your gun, tagged &quot;rally&quot;</span>}
+                  </p>
+                  {spent.err && <p className="text-xs text-hot">⚠ {spent.err}</p>}
+                </div>
+              )}
               <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-center">
                 <div className="inset w-full bg-black/70 p-2 text-left text-xs sm:max-w-sm">
                   <p className="mb-1 text-center font-bold tracking-widest text-dim">THE FIELD (LIVE TXS)</p>
@@ -648,10 +885,12 @@ export function TokenRally() {
                     </div>
                   ))}
                 </div>
-                <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.paid} txid={run.txid} meta={run.paid ? { car: result.car, pos: result.pos, coinop: 1 } : { car: result.car, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
+                <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.live} txid={spent.first} meta={run.live ? { car: result.car, pos: result.pos, txs: spent.sent } : { car: result.car, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
               </div>
               <div className="flex flex-wrap justify-center gap-2">
-                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 stage run (one race)." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" />
+                <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
+                  {liveMode ? '▶ RACE AGAIN · LIVE' : '▶ RACE AGAIN · PRACTICE'}
+                </button>
                 <button onClick={toMenu} className="btn">
                   STAGE SELECT / NEW RIVALS
                 </button>
@@ -661,10 +900,10 @@ export function TokenRally() {
         )}
       </div>
       <p className="mt-2 text-xs text-muted">
-        Rivals are real transactions sampled from the live BSV chain when you start: tokens drive as sedans wearing their ticker, payments as delivery vans, ordinals as SUVs. The biggest moves are the fastest cars. A credit (10p) buys one stage run;
+        Rivals are real transactions sampled from the live BSV chain when you start: tokens drive as sedans wearing their ticker, payments as delivery vans, ordinals as SUVs. The biggest moves are the fastest cars. RACE LIVE burns your loaded coin as fuel, one tiny real transaction every {FUEL_M} m plus nitro, drift and checkpoint bursts;
         practice sends nothing. Cars, trees, rocks and grass are generated in code. Ground, rock, gravel textures and skies: Poly Haven (CC0).
       </p>
-      {co.chooserEl}
+      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
   );
 }
