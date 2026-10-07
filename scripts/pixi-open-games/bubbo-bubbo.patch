@@ -1,6 +1,20 @@
-diff -ruN --ex open-games/bubbo-bubbo/src/game/Game.ts build/bubbo/src/game/Game.ts
---- open-games/bubbo-bubbo/src/game/Game.ts	2026-10-07 06:59:22
-+++ build/bubbo/src/game/Game.ts	2026-10-07 07:02:54
+diff -ruN open-games/bubbo-bubbo/index.html build/bubbo/index.html
+--- open-games/bubbo-bubbo/index.html	2025-11-11 14:45:25
++++ build/bubbo/index.html	2026-10-07 09:15:13
+@@ -3,8 +3,8 @@
+   <head>
+     <meta charset="UTF-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <link rel="icon" type="image/x-icon" href="images/favicon.png">
+-    <title>Bubbo Bubbo</title>
++    <link rel="icon" type="image/x-icon" href="assets/images/favicon.png">
++    <title>Coin Pop</title>
+     <style>
+       html, body {
+         margin: 0;
+diff -ruN open-games/bubbo-bubbo/src/game/Game.ts build/bubbo/src/game/Game.ts
+--- open-games/bubbo-bubbo/src/game/Game.ts	2025-11-11 14:45:25
++++ build/bubbo/src/game/Game.ts	2026-10-07 09:15:13
 @@ -1,3 +1,4 @@
 +import { tbPost } from '../tb';
  import gsap from 'gsap';
@@ -26,9 +40,25 @@ diff -ruN --ex open-games/bubbo-bubbo/src/game/Game.ts build/bubbo/src/game/Game
          });
      }
  
-diff -ruN --ex open-games/bubbo-bubbo/src/game/systems/PauseSystem.ts build/bubbo/src/game/systems/PauseSystem.ts
---- open-games/bubbo-bubbo/src/game/systems/PauseSystem.ts	2026-10-07 06:59:22
-+++ build/bubbo/src/game/systems/PauseSystem.ts	2026-10-07 07:02:54
+diff -ruN open-games/bubbo-bubbo/src/game/systems/CannonSystem.ts build/bubbo/src/game/systems/CannonSystem.ts
+--- open-games/bubbo-bubbo/src/game/systems/CannonSystem.ts	2025-11-11 14:45:25
++++ build/bubbo/src/game/systems/CannonSystem.ts	2026-10-07 09:15:22
+@@ -1,3 +1,4 @@
++import { tbPost } from '../../tb';
+ import type { FederatedPointerEvent } from 'pixi.js';
+ import { Container, Point } from 'pixi.js';
+ import { Signal } from 'typed-signals';
+@@ -174,6 +175,7 @@
+ 
+         // Increment the number of shots fired
+         this._shotProjectiles++;
++        tbPost({ tb: 'action', a: 'shot' });
+ 
+         // Create a bubble instance from the LevelSystem
+         const bubble = this.game.systems.get(LevelSystem).createBubble();
+diff -ruN open-games/bubbo-bubbo/src/game/systems/PauseSystem.ts build/bubbo/src/game/systems/PauseSystem.ts
+--- open-games/bubbo-bubbo/src/game/systems/PauseSystem.ts	2025-11-11 14:45:25
++++ build/bubbo/src/game/systems/PauseSystem.ts	2026-10-07 09:15:13
 @@ -1,3 +1,4 @@
 +import { tbPost } from '../../tb';
  import { navigation } from '../../navigation';
@@ -42,9 +72,9 @@ diff -ruN --ex open-games/bubbo-bubbo/src/game/systems/PauseSystem.ts build/bubb
          }
      }
  }
-diff -ruN --ex open-games/bubbo-bubbo/src/main.ts build/bubbo/src/main.ts
---- open-games/bubbo-bubbo/src/main.ts	2026-10-07 06:59:22
-+++ build/bubbo/src/main.ts	2026-10-07 07:02:54
+diff -ruN open-games/bubbo-bubbo/src/main.ts build/bubbo/src/main.ts
+--- open-games/bubbo-bubbo/src/main.ts	2025-11-11 14:45:25
++++ build/bubbo/src/main.ts	2026-10-07 09:15:13
 @@ -8,6 +8,7 @@
  import { LoadScreen } from './screens/LoadScreen';
  import { TitleScreen } from './screens/TitleScreen';
@@ -75,9 +105,9 @@ diff -ruN --ex open-games/bubbo-bubbo/src/main.ts build/bubbo/src/main.ts
  }
  
  // Init everything
-diff -ruN --ex open-games/bubbo-bubbo/src/screens/ResultScreen.ts build/bubbo/src/screens/ResultScreen.ts
---- open-games/bubbo-bubbo/src/screens/ResultScreen.ts	2026-10-07 06:59:22
-+++ build/bubbo/src/screens/ResultScreen.ts	2026-10-07 07:02:54
+diff -ruN open-games/bubbo-bubbo/src/screens/ResultScreen.ts build/bubbo/src/screens/ResultScreen.ts
+--- open-games/bubbo-bubbo/src/screens/ResultScreen.ts	2025-11-11 14:45:25
++++ build/bubbo/src/screens/ResultScreen.ts	2026-10-07 09:15:13
 @@ -1,3 +1,4 @@
 +import { tbGate } from '../tb';
  import gsap from 'gsap';
@@ -93,9 +123,9 @@ diff -ruN --ex open-games/bubbo-bubbo/src/screens/ResultScreen.ts build/bubbo/sr
              navigation.goToScreen(GameScreen);
          });
  
-diff -ruN --ex open-games/bubbo-bubbo/src/screens/TitleScreen.ts build/bubbo/src/screens/TitleScreen.ts
---- open-games/bubbo-bubbo/src/screens/TitleScreen.ts	2026-10-07 06:59:22
-+++ build/bubbo/src/screens/TitleScreen.ts	2026-10-07 07:02:54
+diff -ruN open-games/bubbo-bubbo/src/screens/TitleScreen.ts build/bubbo/src/screens/TitleScreen.ts
+--- open-games/bubbo-bubbo/src/screens/TitleScreen.ts	2025-11-11 14:45:25
++++ build/bubbo/src/screens/TitleScreen.ts	2026-10-07 09:15:13
 @@ -14,6 +14,7 @@
  import { PixiLogo } from '../ui/PixiLogo';
  import { Porthole } from '../ui/Porthole';
@@ -114,9 +144,9 @@ diff -ruN --ex open-games/bubbo-bubbo/src/screens/TitleScreen.ts build/bubbo/src
              navigation.goToScreen(GameScreen);
          });
  
-diff -ruN --ex open-games/bubbo-bubbo/src/tb.ts build/bubbo/src/tb.ts
+diff -ruN open-games/bubbo-bubbo/src/tb.ts build/bubbo/src/tb.ts
 --- open-games/bubbo-bubbo/src/tb.ts	1970-01-01 01:00:00
-+++ build/bubbo/src/tb.ts	2026-10-07 07:02:54
++++ build/bubbo/src/tb.ts	2026-10-07 09:15:22
 @@ -0,0 +1,26 @@
 +/**
 + * TokenBlaster.lol bridge. When the game runs inside the arcade page (iframe, ?tb=1) the page owns the
@@ -125,7 +155,7 @@ diff -ruN --ex open-games/bubbo-bubbo/src/tb.ts build/bubbo/src/tb.ts
 + */
 +export const embedded = new URLSearchParams(window.location.search).has('tb');
 +
-+export type TbOut = { tb: 'ready' } | { tb: 'gameover'; score: number; secs: number } | { tb: 'menu' };
++export type TbOut = { tb: 'ready' } | { tb: 'gameover'; score: number; secs: number } | { tb: 'menu' } | { tb: 'action'; a: string };
 +
 +export function tbPost(msg: TbOut) {
 +    if (embedded && window.parent !== window) window.parent.postMessage(msg, window.location.origin);
@@ -144,9 +174,9 @@ diff -ruN --ex open-games/bubbo-bubbo/src/tb.ts build/bubbo/src/tb.ts
 +        if ((e.data as { tb?: string } | null)?.tb === 'start') cb();
 +    });
 +}
-diff -ruN --ex open-games/bubbo-bubbo/src/ui/Title.ts build/bubbo/src/ui/Title.ts
---- open-games/bubbo-bubbo/src/ui/Title.ts	2026-10-07 06:59:22
-+++ build/bubbo/src/ui/Title.ts	2026-10-07 07:02:54
+diff -ruN open-games/bubbo-bubbo/src/ui/Title.ts build/bubbo/src/ui/Title.ts
+--- open-games/bubbo-bubbo/src/ui/Title.ts	2025-11-11 14:45:25
++++ build/bubbo/src/ui/Title.ts	2026-10-07 09:15:13
 @@ -41,7 +41,7 @@
          const bottomWrapper = new Container();
          // Add bottom part of the title
@@ -156,9 +186,9 @@ diff -ruN --ex open-games/bubbo-bubbo/src/ui/Title.ts build/bubbo/src/ui/Title.t
              style: {
                  fontSize: 90,
                  fontWeight: '900',
-diff -ruN --ex open-games/bubbo-bubbo/src/utils/i18n-en.ts build/bubbo/src/utils/i18n-en.ts
---- open-games/bubbo-bubbo/src/utils/i18n-en.ts	2026-10-07 06:59:22
-+++ build/bubbo/src/utils/i18n-en.ts	2026-10-07 07:02:54
+diff -ruN open-games/bubbo-bubbo/src/utils/i18n-en.ts build/bubbo/src/utils/i18n-en.ts
+--- open-games/bubbo-bubbo/src/utils/i18n-en.ts	2025-11-11 14:45:25
++++ build/bubbo/src/utils/i18n-en.ts	2026-10-07 09:15:13
 @@ -3,10 +3,11 @@
   */
  export const i18nDict = {
@@ -189,16 +219,3 @@ diff -ruN --ex open-games/bubbo-bubbo/src/utils/i18n-en.ts build/bubbo/src/utils
      resultsBreakdownPowerups: 'Powerups used',
      resultsBreakdownCombo: 'Best combo',
      resultsScoreTitle: 'FINAL SCORE',
---- open-games/bubbo-bubbo/index.html	2026-10-07 06:59:22
-+++ build/bubbo/index.html	2026-10-07 07:07:17
-@@ -3,8 +3,8 @@
-   <head>
-     <meta charset="UTF-8" />
-     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
--    <link rel="icon" type="image/x-icon" href="images/favicon.png">
--    <title>Bubbo Bubbo</title>
-+    <link rel="icon" type="image/x-icon" href="assets/images/favicon.png">
-+    <title>Coin Pop</title>
-     <style>
-       html, body {
-         margin: 0;
