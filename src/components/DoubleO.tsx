@@ -284,6 +284,22 @@ export function DoubleO() {
     gtao.updateGtaoMaterial({ radius: 0.7, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 8, distanceFallOff: 1, screenSpaceRadius: false });
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, radiusExponent: 1, rings: 2, samples: 8 });
     gtao.enabled = qualities[quality].ao;
+    // GTAOPass draws the scene with a normal/depth override material and only hides Points and Lines, so every
+    // Sprite (muzzle flash, sparks, glows) became an opaque near-camera quad that AO-darkened everything behind it:
+    // the "big black square" on each shot. Hide sprites for its passes.
+    {
+      const sprites: THREE.Object3D[] = [];
+      const aoRender = gtao.render.bind(gtao) as (...a: unknown[]) => void;
+      gtao.render = ((...a: unknown[]) => {
+        sprites.length = 0;
+        scene.traverseVisible((o) => {
+          if ((o as THREE.Sprite).isSprite) sprites.push(o);
+        });
+        for (const o of sprites) o.visible = false;
+        aoRender(...a);
+        for (const o of sprites) o.visible = true;
+      }) as typeof gtao.render;
+    }
     composer.addPass(gtao);
     const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), qualities[quality].bloom, 0.4, 2.0); // high threshold: only lamps, flashes and screens glow, not lit walls
     composer.addPass(bloom);
@@ -358,7 +374,23 @@ export function DoubleO() {
     /** The viewmodel never casts a shadow (it would show up on the wall in front of you). */
     const noShadow = (o: THREE.Object3D) => o.traverse((m) => (m.castShadow = false));
     noShadow(gunHolder);
-    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.6, 1.4), toneMapped: false, transparent: true, depthWrite: false, depthTest: false }));
+    // Muzzle glow: a SOFT radial falloff, additive. (The pixel-art fireball texture is an opaque-ish orange square;
+    // drawn with normal blending it showed as a hard dark square in front of the gun.)
+    const glowCv = document.createElement('canvas');
+    glowCv.width = glowCv.height = 128;
+    {
+      const c = glowCv.getContext('2d')!;
+      const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0, 'rgba(255,250,220,1)');
+      g.addColorStop(0.25, 'rgba(255,190,90,0.7)');
+      g.addColorStop(0.6, 'rgba(255,110,30,0.2)');
+      g.addColorStop(1, 'rgba(255,80,0,0)');
+      c.fillStyle = g;
+      c.fillRect(0, 0, 128, 128);
+    }
+    const glowTex = new THREE.CanvasTexture(glowCv);
+    glowTex.colorSpace = THREE.SRGBColorSpace;
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(2.4, 1.9, 1.0), toneMapped: false, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
     flash.scale.setScalar(0.25);
     flash.visible = false;
     flash.renderOrder = 11;
@@ -382,7 +414,9 @@ export function DoubleO() {
         c.fill();
       }
     }
-    const flash2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(starCv), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+    const starTex = new THREE.CanvasTexture(starCv);
+    starTex.colorSpace = THREE.SRGBColorSpace;
+    const flash2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex, color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
     flash2.scale.setScalar(0.5);
     flash2.visible = false;
     flash2.renderOrder = 12;
