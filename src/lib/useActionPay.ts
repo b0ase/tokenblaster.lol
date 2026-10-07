@@ -78,6 +78,13 @@ export function useActionPay(game: string, title: string, houseKey?: GameKey) {
     q.st.tokenAmmo = stub ? 1e9 : tokenAmmo;
   }, [game, sym, live, payToken, stub, ammo, tokenAmmo, fireTokens, fireBatch]);
 
+  // Dev stub only: let a headless check force a paid run (no coin) and read the queue.
+  useEffect(() => {
+    if (!stub) return;
+    const w = window as unknown as { __tbAP?: Record<string, unknown> };
+    w.__tbAP = { ...w.__tbAP, [game]: { setRun: setRunning, pending: () => qRef.current?.pending() ?? 0 } };
+  }, [stub, game]);
+
   /** Stable: gate each action with `if (!ap.pay.current(['jump'])) return;`. Practice (no queue yet / not live) = always true. */
   const pay = useRef((action: string[]) => qRef.current?.ask(action) ?? true);
 

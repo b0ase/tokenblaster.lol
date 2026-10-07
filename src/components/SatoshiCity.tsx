@@ -733,6 +733,18 @@ export function SatoshiCity() {
       needsResize = true;
       setQualityState(q);
     };
+    // Dev only: a headless check walks the player up to the nearest parked car.
+    if (process.env.NODE_ENV !== 'production')
+      (window as unknown as { __tbCity?: unknown }).__tbCity = {
+        toCar: () => {
+          const b = bodies.find((x) => x !== car);
+          if (!b) return false;
+          ped.x = b.x + b.b.w / 2 + 1.2;
+          ped.z = b.z;
+          return true;
+        },
+        action: () => action(),
+      };
     control.current = {
       setQuality: (q) => {
         saveCityQuality(q);
