@@ -250,7 +250,12 @@ export function sceneryMaterials(stage: Stage, rockTex: THREE.Texture): SceneryM
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uTime = wind;
       // Alpha cards: light the back face like the front so canopies are not black from behind.
-      if (twoSided) sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
+      if (twoSided) {
+        sh.fragmentShader = sh.fragmentShader
+          .replace('#include <normal_fragment_begin>', THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'))
+          // Cards close to the lens dissolve (dithered) instead of reading as big dark shards.
+          .replace('#include <alphatest_fragment>', '{ float nd = smoothstep( 2.5, 11.0, length( vViewPosition ) ); if ( nd < 1.0 && fract( sin( dot( gl_FragCoord.xy, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 ) > nd ) discard; }\n#include <alphatest_fragment>');
+      }
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nattribute float aWind; uniform float uTime;')
         .replace(

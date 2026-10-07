@@ -101,24 +101,23 @@ function loft(o: LoftOpts) {
   return g;
 }
 
-/** Livery atlas: [0,.33] left flank, [.33,.66] right flank, [.66,1] roof/hood. */
+/** Livery atlas: [0,.33] left flank, [.33,.66] right flank, [.66,1] roof/hood. Two UV sets, blended per pixel. */
 function addUVs(g: THREE.BufferGeometry, len: number) {
   const p = g.attributes.position;
-  const nrm = g.attributes.normal;
   const uv = new Float32Array(p.count * 2);
+  const uvTop = new Float32Array(p.count * 2);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i);
     const y = p.getY(i);
     const z = p.getZ(i);
     const t = z / (L * len) + 0.5;
-    const ny = nrm.getY(i);
-    const top = clamp((ny - 0.72) / 0.2, 0, 1);
-    const side = x < 0 ? t * 0.33 : 0.33 + (1 - t) * 0.33;
-    const topU = 0.66 + 0.34 * clamp((x + 1) / 2, 0, 1);
-    uv[i * 2] = side * (1 - top) + topU * top;
-    uv[i * 2 + 1] = (y / 1.5) * (1 - top) + clamp(t, 0, 1) * top;
+    uv[i * 2] = x < 0 ? t * 0.33 : 0.33 + (1 - t) * 0.33;
+    uv[i * 2 + 1] = y / 1.5;
+    uvTop[i * 2] = 0.66 + 0.34 * clamp((x + 1) / 2, 0, 1);
+    uvTop[i * 2 + 1] = clamp(t, 0, 1);
   }
   g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('uvTop', new THREE.BufferAttribute(uvTop, 2));
 }
 
 /** Split triangles into paint and glass by surface orientation. */
@@ -314,11 +313,13 @@ export class CarFactory {
       gp.setAttribute('position', cab.attributes.position);
       gp.setAttribute('normal', cab.attributes.normal);
       gp.setAttribute('uv', cab.attributes.uv);
+      gp.setAttribute('uvTop', cab.attributes.uvTop);
       gp.setIndex(s.paint);
       const gl = new THREE.BufferGeometry();
       gl.setAttribute('position', cab.attributes.position);
       gl.setAttribute('normal', cab.attributes.normal);
       gl.setAttribute('uv', cab.attributes.uv);
+      gl.setAttribute('uvTop', cab.attributes.uvTop);
       gl.setIndex(s.glass);
       this.geo.set('cabpaint:' + key, gp);
       this.geo.set('cabglass:' + key, gl);
@@ -342,6 +343,14 @@ export class CarFactory {
     const dirt = { value: 0 };
     const dirtCol = new THREE.Color('#5c4630');
     const paint = new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.42, metalness: 0.32, clearcoat: 1, clearcoatRoughness: 0.07, envMapIntensity: 1.25 });
+    paint.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec2 uvTop; varying vec2 vUvTop; varying vec3 vONrm;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvUvTop = uvTop; vONrm = normal;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vUvTop; varying vec3 vONrm;')
+        .replace('#include <map_fragment>', 'vec4 lvS = texture2D( map, vMapUv ); vec4 lvT = texture2D( map, vUvTop ); diffuseColor *= mix( lvS, lvT, smoothstep( 0.74, 0.9, normalize( vONrm ).y ) );');
+    };
     dirtify(paint, dirt, dirtCol, 'paint');
     const rimM = (this.mats.rim as THREE.MeshStandardMaterial).clone();
     dirtify(rimM, dirt, dirtCol, 'rim');

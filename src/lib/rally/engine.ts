@@ -438,7 +438,7 @@ export class RallyEngine {
         });
         for (const l of this.csm.lights) {
           l.color.set(st.sunCol);
-          l.shadow.normalBias = 0.08;
+          l.shadow.normalBias = 0.12;
         }
       } catch {
         this.csm = null;
