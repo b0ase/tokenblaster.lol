@@ -4,6 +4,8 @@ import { ChainDashboard } from '@/components/ChainDashboard';
 import { Barcode, Pictogram } from '@/components/dr';
 import { SectionHead } from '@/components/dr/site';
 import { HeroShowcase } from '@/components/HeroShowcase';
+import { HeroSound } from '@/components/HeroSound';
+import { ArcadeGrid } from '@/components/ArcadeGrid';
 import { HeroLive } from '@/components/HeroLive';
 import { byTitle } from '@/lib/alpha';
 
@@ -32,8 +34,6 @@ const STACK = [
   ['Games', 'Three.js: real-time 3D, live transactions as the world'],
   ['Source', 'MIT open source on GitHub'],
 ];
-
-const pad = (n: number) => String(n).padStart(2, '0');
 
 export default function Home() {
   return (
@@ -72,7 +72,8 @@ export default function Home() {
               <span className="dr-sticker text-base sm:text-xl">Every bullet = 1 real BSV tx</span>
               <span className="dr-sticker dr-sticker-red text-xs sm:text-sm">No fake coins</span>
             </div>
-            <div className="mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
+            <div className="mt-4"><HeroSound /></div>
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
               <Link href="/blast" className="btn-fire inline-flex items-center justify-center !text-xl sm:!text-2xl">
                 Blast now &raquo;
               </Link>
@@ -147,25 +148,7 @@ export default function Home() {
         >
           Arcade
         </SectionHead>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {byTitle(GAMES).map((g, i) => (
-            <Link key={g.title} href={g.href} className="group relative flex flex-col border-2 border-[var(--border)] bg-panel transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:border-[var(--hot)] hover:shadow-[5px_5px_0_var(--accent-fill)]">
-              <div className="relative aspect-[1200/630] overflow-hidden border-b-2 border-[var(--border)]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={g.img} alt={`${g.title}`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
-                <span className="dr-display absolute left-0 top-0 bg-[var(--accent-fill)] px-2 py-0.5 text-lg text-[var(--on-accent)]">{pad(i + 1)}</span>
-                <span className="dr-sticker absolute bottom-2 right-2 text-[11px]">{g.tag.split(' · ')[1] ?? g.tag}</span>
-              </div>
-              <div className="flex flex-1 flex-col p-3">
-                <span className="dr-code">
-                  TB-{pad(i + 1)} / {g.tag.split(' · ')[0]}
-                </span>
-                <span className="dr-display mt-1 text-[26px] text-hot group-hover:text-[var(--accent)]">{g.title}</span>
-                <p className="mt-2 text-[13px] text-dim">{g.blurb}</p>
-              </div>
-            </Link>
-          ))}
-        </div>
+        <ArcadeGrid games={byTitle(GAMES)} />
       </section>
 
       {/* Wallets + bGames */}

@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { PreviewButton } from '@/components/PreviewButton';
+import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
 
 /**
  * The home hero's cycling showcase of the flagship games: full-colour frames, a Ken Burns push, a chevron wipe with
@@ -38,6 +40,11 @@ export function HeroShowcase() {
     setFirst(false);
   };
   const s = SLIDES[i];
+  const pv = usePreview();
+  // While the label is hovered/focused its game's music plays, following the slide as it changes.
+  useEffect(() => {
+    if (hold && pv.enabled && !pv.locked) startPreview(s.href, trackFor(s.href));
+  }, [hold, i, pv.enabled, pv.locked, s.href]);
 
   return (
     <>
@@ -56,9 +63,15 @@ export function HeroShowcase() {
       <div
         className="absolute right-2 top-2 z-20 w-[min(300px,calc(100%-1rem))] border-2 border-[var(--hot)] bg-[var(--panel)] shadow-[5px_5px_0_var(--accent-fill)] lg:bottom-16 lg:right-5 lg:top-auto lg:w-[320px]"
         onMouseEnter={() => setHold(true)}
-        onMouseLeave={() => setHold(false)}
+        onMouseLeave={() => {
+          setHold(false);
+          stopPreview(s.href);
+        }}
         onFocus={() => setHold(true)}
-        onBlur={() => setHold(false)}
+        onBlur={() => {
+          setHold(false);
+          stopPreview(s.href);
+        }}
         role="region"
         aria-roledescription="carousel"
         aria-label="Flagship games"
@@ -74,6 +87,7 @@ export function HeroShowcase() {
               {s.kana}
             </p>
           </div>
+          <PreviewButton href={s.href} title={s.title} className="!opacity-100 shrink-0" />
           <Link href={s.href} className="btn-fire inline-flex shrink-0 items-center !px-3 !py-1.5 !text-lg">
             Play <span aria-hidden>&nbsp;▶</span>
           </Link>
