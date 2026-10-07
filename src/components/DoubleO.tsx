@@ -895,7 +895,9 @@ export function DoubleO() {
         }
         if (mat.isMeshStandardMaterial) {
           m.receiveShadow = true;
-          m.castShadow = m !== floor && m !== ceil;
+          // Ceiling fittings (pipes, trays, light panels) sit right beside the key spotlight: as casters they
+          // throw big blurry blobs on the walls, so they only receive.
+          m.castShadow = m !== floor && m !== ceil && m !== panelIm && !(!(m as THREE.InstancedMesh).isInstancedMesh && m.position.y > WALL_H - 0.6);
         }
       });
 
@@ -2261,7 +2263,7 @@ export function DoubleO() {
           health = 1e6;
         },
         place: (x: number, z: number) => camera.position.set(x, EYE, z),
-        dbg: { scene, renderer, bloom, gtao, grade, composer, hurt: () => hurtAmt },
+        dbg: { scene, renderer, bloom, gtao, grade, composer, key, camera, hurt: () => hurtAmt },
       };
     }
 

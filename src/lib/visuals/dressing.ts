@@ -222,7 +222,7 @@ export function dressLevel(g: THREE.Group, grid: Grid, L: Level, spec: LookSpec,
   }
   addInst(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial({ map: grimeTex(), transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 }), grimeM);
   addInst(new THREE.BoxGeometry(1, 1, 1), trimMat, skirtM);
-  addInst(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: spec.ceilingTint, roughness: 0.8, metalness: 0.3 }), beamM, undefined, high);
+  addInst(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: spec.ceilingTint, roughness: 0.8, metalness: 0.3 }), beamM); // beams hang beside the key light: no shadows (they smeared blobs across the walls)
 
   // ── Props against walls ──
   const barrelM: THREE.Matrix4[] = [];
