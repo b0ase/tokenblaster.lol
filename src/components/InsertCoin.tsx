@@ -18,14 +18,22 @@ import { WalletChooser } from './WalletChooser';
  * player sees ONE approval, the 10p (owner, 7 Oct 2026: one "pay 10p to play?" and that's it).
  */
 let coinWallet: WalletInterface | null = null;
+/**
+ * waitForAuthentication makes a BRC-73 wallet show the site's grouped permissions (/manifest.json) ONCE,
+ * incl. a small monthly spending allowance; after that each coin goes through without its own prompt.
+ */
+async function authorise(w: WalletInterface): Promise<WalletInterface> {
+  await w.waitForAuthentication({}).catch(() => undefined);
+  coinWallet = w;
+  return w;
+}
 async function findCoinWallet(): Promise<WalletInterface | 'choose'> {
   if (coinWallet) return coinWallet;
   const all = await discoverWallets().catch(() => [] as WalletEntry[]);
   const id = rememberedWallet();
   const entry = all.find((w) => w.kind === 'in-app') ?? (id ? all.find((w) => w.id === id) : undefined);
   if (!entry) return 'choose';
-  coinWallet = entry.wallet;
-  return coinWallet;
+  return authorise(entry.wallet);
 }
 
 // Credits live for the session (this tab), per game: each entry is the txid of a paid coin.
@@ -106,8 +114,7 @@ export function useCoinOp(game: string, tag: string) {
     (entry: WalletEntry) => {
       setChoosing(false);
       rememberWallet(entry.id);
-      coinWallet = entry.wallet;
-      void payWith(entry.wallet);
+      void authorise(entry.wallet).then(payWith);
     },
     [payWith],
   );
