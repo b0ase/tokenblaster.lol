@@ -113,13 +113,6 @@
   }
  },
  {
-  "id": "wrap_11_001_Mask_Yama-Mask",
-  "name": "Yama Mask (wrapped)",
-  "slot": "mask",
-  "url": "/arena/models/npg/stack/masks/11_001_Mask_Yama-Mask.glb",
-  "wrapped": true
- },
- {
   "id": "wrap_11_002_Mask_Payne-Patch",
   "name": "Payne Patch (wrapped)",
   "slot": "mask",
@@ -145,13 +138,6 @@
   "name": "Medical (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_005_Mask_Medical.glb",
-  "wrapped": true
- },
- {
-  "id": "wrap_11_006_Mask_Spiked",
-  "name": "Spiked (wrapped)",
-  "slot": "mask",
-  "url": "/arena/models/npg/stack/masks/11_006_Mask_Spiked.glb",
   "wrapped": true
  },
  {

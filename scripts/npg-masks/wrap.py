@@ -65,7 +65,7 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
     cid = os.path.splitext(os.path.basename(crop))[0]
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=chibi)
-    mode = 'eyes' if cid in EYE_CARDS else 'planar' if cid == '11_003_Mask_Ayumi-Mask' else 'mask'
+    mode = 'eyes' if cid in EYE_CARDS else 'mask'
     src = bpy.data.objects['head' if mode == 'eyes' else 'mask']
     me = src.data.copy()
     me.transform(src.matrix_world)  # rest pose, model space
@@ -132,13 +132,13 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
                 hits += 1
         for l in f.loops:
             l[uvl].uv = uv_of(l.vert.co)
-        if hits < 3:  # needs real coverage, so no ragged slivers on the outline
+        if hits < 1:
             dead.append(f)
     bmesh.ops.delete(bm, geom=dead, context='FACES')
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
 
-    # Flush: shrinkwrap EVERY vertex to the face (nearest surface point), 2 mm out, keeping only
-    # a little of the original relief (at most +3 mm) so no beak stands off in side view.
+    # Flush: outline onto the face 1.5 mm out; everything else keeps half its height off the face,
+    # so the respirator/nose form stays 3D but the side-view beak is halved.
     # UVs are already set, so the art doesn't slide.
     def gap(co):
         hit = face_bvh.find_nearest(co)
@@ -148,8 +148,8 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
     for v in bm.verts:
         loc, nrm, d = gap(v.co)
         if loc is not None:
-            relief = 0 if v in edge else min(0.003, 0.25 * max(0.0, d - 0.002))  # outline sits flat
-            moved.append((v, loc + nrm.normalized() * (0.002 + relief)))
+            relief = 0 if v in edge else 0.5 * max(0.0, d - 0.0015)  # outline flat, form at half height
+            moved.append((v, loc + nrm.normalized() * (0.0015 + relief)))
     for v, co in moved:
         v.co = co
     if cid in TALL_CARDS:
