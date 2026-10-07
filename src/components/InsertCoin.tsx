@@ -8,7 +8,25 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { COINOP_HOUSE, COIN_PENCE, coinSats, insertCoin, isCancel, LIVES_PER_CREDIT } from '@/lib/coinop';
-import { useWalletConnect } from './OrdnanceArsenal';
+import type { WalletInterface } from '@bsv/sdk';
+import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
+import { WalletChooser } from './WalletChooser';
+
+/**
+ * The wallet a coin is paid from, shared by every game on the site for this visit. Paying a coin needs no
+ * identity key, so there is no connect step: we use the in-app or remembered wallet directly and the
+ * player sees ONE approval, the 10p (owner, 7 Oct 2026: one "pay 10p to play?" and that's it).
+ */
+let coinWallet: WalletInterface | null = null;
+async function findCoinWallet(): Promise<WalletInterface | 'choose'> {
+  if (coinWallet) return coinWallet;
+  const all = await discoverWallets().catch(() => [] as WalletEntry[]);
+  const id = rememberedWallet();
+  const entry = all.find((w) => w.kind === 'in-app') ?? (id ? all.find((w) => w.id === id) : undefined);
+  if (!entry) return 'choose';
+  coinWallet = entry.wallet;
+  return coinWallet;
+}
 
 // Credits live for the session (this tab), per game: each entry is the txid of a paid coin.
 const credits = new Map<string, string[]>();
@@ -21,13 +39,12 @@ const subscribe = (f: () => void) => {
 let coinN = 0;
 
 export function useCoinOp(game: string, tag: string) {
-  const w = useWalletConnect();
   const count = useSyncExternalStore(subscribe, () => credits.get(tag)?.length ?? 0, () => 0);
   const [rate, setRate] = useState<number | null>(null);
   const [rateErr, setRateErr] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string; txid?: string } | null>(null);
-  const [wantPay, setWantPay] = useState(false);
   // The game to start as soon as the coin lands (PLAY · 10p): paying IS pressing start.
   const startNext = useRef<((paid: boolean) => void) | null>(null);
 
@@ -52,54 +69,71 @@ export function useCoinOp(game: string, tag: string) {
 
   const sats = coinSats(rate);
 
-  const pay = useCallback(async () => {
-    if (!w.wallet || !sats) return;
-    setPaying(true);
-    setMsg(null);
-    try {
-      const txid = await insertCoin(w.wallet.client, { game, tag, sats, n: ++coinN });
-      credits.set(tag, [...(credits.get(tag) ?? []), txid]);
-      emit();
-      setMsg({ ok: true, text: `Coin accepted (${sats.toLocaleString('en-GB')} sats).`, txid });
-      const go = startNext.current;
-      startNext.current = null;
-      go?.(true);
-    } catch (e) {
-      startNext.current = null;
-      setMsg({ ok: false, text: isCancel(e) ? 'Cancelled in the wallet. No coin taken.' : `Coin not taken: ${e instanceof Error ? e.message : String(e)}` });
-    } finally {
-      setPaying(false);
-    }
-  }, [w.wallet, sats, game, tag]);
+  const payWith = useCallback(
+    async (client: WalletInterface) => {
+      if (!sats) return;
+      setPaying(true);
+      setMsg(null);
+      try {
+        const txid = await insertCoin(client, { game, tag, sats, n: ++coinN });
+        credits.set(tag, [...(credits.get(tag) ?? []), txid]);
+        emit();
+        setMsg({ ok: true, text: `Coin accepted (${sats.toLocaleString('en-GB')} sats).`, txid });
+        const go = startNext.current;
+        startNext.current = null;
+        go?.(true);
+      } catch (e) {
+        startNext.current = null;
+        if (!isCancel(e)) coinWallet = null; // a dead or locked wallet: look again next time
+        setMsg({ ok: false, text: isCancel(e) ? 'Cancelled in the wallet. No coin taken.' : `Coin not taken: ${e instanceof Error ? e.message : String(e)}` });
+      } finally {
+        setPaying(false);
+      }
+    },
+    [sats, game, tag],
+  );
 
-  // Connect first if needed, then pay once the wallet is in.
-  useEffect(() => {
-    if (wantPay && w.wallet) {
-      void Promise.resolve().then(() => {
-        setWantPay(false);
-        void pay();
-      });
-    }
-  }, [wantPay, w.wallet, pay]);
-
-  const insert = useCallback(() => {
+  const insert = useCallback(async () => {
     if (!COINOP_HOUSE || !sats || paying) return;
-    if (w.wallet) return void pay();
-    setWantPay(true);
-    void w.connectWallet();
-  }, [sats, paying, w, pay]);
+    setPaying(true);
+    const w = await findCoinWallet();
+    setPaying(false);
+    if (w === 'choose') return setChoosing(true); // first visit only: pick a wallet once
+    void payWith(w);
+  }, [sats, paying, payWith]);
+
+  const pick = useCallback(
+    (entry: WalletEntry) => {
+      setChoosing(false);
+      rememberWallet(entry.id);
+      coinWallet = entry.wallet;
+      void payWith(entry.wallet);
+    },
+    [payWith],
+  );
 
   /** PLAY · 10p: use a credit if there is one, otherwise take a coin and start the moment it lands. */
   const playPaid = useCallback(
     (start: (paid: boolean) => void) => {
       if ((credits.get(tag)?.length ?? 0) > 0) return start(true);
       startNext.current = start;
-      insert();
+      void insert();
     },
     [tag, insert],
   );
 
-  /** Spend one credit; returns its coin's txid, or null when there are no credits. */
+  const chooserEl = choosing && (
+    <WalletChooser
+      note="Pick the wallet to pay from. You'll only be asked once."
+      onPick={pick}
+      onClose={() => {
+        startNext.current = null;
+        setChoosing(false);
+      }}
+    />
+  );
+
+/** Spend one credit; returns its coin's txid, or null when there are no credits. */
   const consume = useCallback((): string | null => {
     const list = credits.get(tag) ?? [];
     if (!list.length) return null;
@@ -109,7 +143,7 @@ export function useCoinOp(game: string, tag: string) {
     return txid;
   }, [tag]);
 
-  return { credits: count, sats, rateErr, paying: paying || w.busy, msg, walletErr: w.error, insert, playPaid, consume, chooserEl: w.chooserEl, enabled: Boolean(COINOP_HOUSE) };
+  return { credits: count, sats, rateErr, paying, msg, walletErr: null as string | null, insert, playPaid, consume, chooserEl, enabled: Boolean(COINOP_HOUSE) };
 }
 
 export type CoinOp = ReturnType<typeof useCoinOp>;
