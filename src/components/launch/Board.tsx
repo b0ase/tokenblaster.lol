@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { ROUTES } from '@/lib/launch/shape';
 import { LaunchNav } from './LaunchNav';
 import { Ticker } from './Ticker';
+import { burnStats, fmtBurn } from '@/lib/launch/burn';
 import { ago, bsv, change24, graduated, imageOf, mcapSats, pct, short, usd, useBsvUsd, usePoll, useWatchlist, type BoardCoin, type Trade } from './data';
 import { useLaunchWallet } from './useLaunchWallet';
 
@@ -122,6 +123,7 @@ export function Board() {
                   </div>
                 </div>
                 <Segments v={pct(king.sold)} />
+                {king.route.kind === 'buyback' && <BurnLine burned={king.burned} />}
                 <div className="flex justify-between text-xs text-muted">
                   <span>{(pct(king.sold) * 100).toFixed(1)}% of the curve sold</span>
                   <span>graduates at 100%</span>
@@ -250,6 +252,17 @@ function GameTile({ href, img, kicker, title, text }: { href: string; img: strin
 }
 
 /** Segmented curve bar: one cell per 2.5% sold, the leading edge glowing. */
+/** Burn-route coins: what their vault has bought back and burned so far. */
+export function BurnLine({ burned }: { burned: number }) {
+  const b = burnStats(Number(burned) || 0);
+  return (
+    <p className="flex justify-between text-xs" title="Bought back on the curve by the coin's fee vault and sent to the burn address">
+      <span className={b.burned ? 'font-bold text-hot' : 'text-muted'}>🔥 {b.burned ? `${fmtBurn(b.burned)} burned` : 'nothing burned yet'}</span>
+      <span className="text-muted">{b.burned ? `${b.pct.toFixed(b.pct < 0.1 ? 3 : 2)}% of supply` : 'buys back at 0.001 BSV'}</span>
+    </p>
+  );
+}
+
 export function Segments({ v }: { v: number }) {
   const n = 40;
   const lit = Math.min(n, Math.round(Math.min(1, v) * n));
@@ -333,6 +346,7 @@ function CoinCard({ c, rate, watched, onWatch }: { c: BoardCoin; rate: number; w
         </span>
       </div>
       <Segments v={p} />
+      {c.route.kind === 'buyback' && <BurnLine burned={c.burned} />}
       <p className="flex justify-between text-xs text-muted">
         <span>{grad ? 'graduated · keeps trading on the curve' : `${(p * 100).toFixed(1)}% of the curve`}</span>
         <span className="text-accent">⌖ game ammo</span>
