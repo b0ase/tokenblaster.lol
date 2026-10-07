@@ -1,15 +1,17 @@
 'use client';
 
 /**
- * BSVGun: TeraGun-style mass blasting. Pick a size, load the gun in one approval, and it fires
- * tens of thousands of real tagged transactions in parallel lanes (src/lib/gun.ts storm()).
+ * BSVGun: a 3D night shooting range (RANGE: live-chain targets, choose your weapon, one real tagged
+ * transaction per shot in LIVE) and the original TeraGun-style mass blaster (BLAST ZONE: pick a size,
+ * load once, fire tens of thousands of real tagged transactions in parallel lanes, src/lib/gun.ts storm()).
+ * The range scene also shows the storm as a barrage while it fires.
  */
 import { useEffect, useRef, useState } from 'react';
 import { STORM_FEE } from '@/lib/gun';
 import { iconUrl } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
 import { GAME_COINS, houseFirst, houseHeld } from '@/lib/gameCoins';
-import { GunView } from './GunView';
+import { BSVGunRange } from './BSVGunRange';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { WalletChooser } from './WalletChooser';
 import { GameAudio } from './SoundToggle';
@@ -28,6 +30,7 @@ export function BSVGun() {
   const [err, setErr] = useState<string | null>(null);
   const [tps, setTps] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
+  const [tab, setTab] = useState<'range' | 'blast'>('range');
   const stop = useRef(false);
   const t0 = useRef(0);
 
@@ -85,8 +88,17 @@ export function BSVGun() {
   return (
     <div className="flex flex-col gap-3">
       <GameAudio track="gun" />
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => setTab('range')} className={`btn px-4 py-2 text-lg ${tab === 'range' ? 'btn-on' : ''}`}>
+          RANGE
+        </button>
+        <button onClick={() => setTab('blast')} className={`btn px-4 py-2 text-lg ${tab === 'blast' ? 'btn-on' : ''}`}>
+          BLAST ZONE
+        </button>
+        <span className="self-center text-sm text-dim">{tab === 'range' ? 'Shoot the live chain: practice is free, LIVE is one real transaction per shot.' : 'Mass blaster: tens of thousands of real transactions in parallel lanes.'}</span>
+      </div>
       <section className="panel overflow-hidden p-0">
-        <GunView firing={firing} onFire={() => void fire()} />
+        <BSVGunRange b={b} mode={tab} blast={{ active: tab === 'blast' && firing, tps, sent, target }} />
       </section>
       <section className="panel">
         <div className="panel-header">
@@ -120,6 +132,8 @@ export function BSVGun() {
         )}
       </section>
 
+      {tab === 'blast' && (
+      <>
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">2 · How many</span>
@@ -189,6 +203,8 @@ export function BSVGun() {
           Every blast is a real mainnet transaction carrying the TokenBlaster tag{b.token ? ` for $${b.token.sym}` : ''}, so it counts on the leaderboard. Keep this tab open while it fires.
         </p>
       </section>
+      </>
+      )}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </div>
   );

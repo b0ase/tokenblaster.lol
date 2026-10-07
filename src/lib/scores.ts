@@ -28,6 +28,7 @@ export const SCORE_GAMES = {
   'bracer-canyon-hc': { title: 'bRacer HARDCORE · Genesis Canyon', tag: 'bracer-hc', sort: 'score' },
   'bracer-spiral-hc': { title: 'bRacer HARDCORE · Orphan Spiral', tag: 'bracer-hc', sort: 'score' },
   'bracer-void-hc': { title: 'bRacer HARDCORE · Coinbase Void', tag: 'bracer-hc', sort: 'score' },
+  'bsvgun-range': { title: 'BSVGun Range', tag: 'bsvgun', sort: 'score' },
 } as const;
 export type ScoreGame = keyof typeof SCORE_GAMES;
 export const isScoreGame = (g: string | null): g is ScoreGame => !!g && Object.prototype.hasOwnProperty.call(SCORE_GAMES, g);
