@@ -13,7 +13,8 @@ import { Barcode, ChevronBar, Display, HazardBar, Kana, Pictogram, PosterFrame, 
 import { drDisplay, drFontClass, drJp, drMono } from './dr/fonts';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { DR } from '@/lib/dr/tokens';
-import { GAME_B, GAME_KANA, GAME_NAME, GAME_REST, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
+import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
+import { LOGO_FAMILY, Logo } from './bracer-logo';
 import { fmt, HyperEngine, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
 import { TRACK_LIST, type Track, type TrackId } from '@/lib/hyper/track';
@@ -119,7 +120,7 @@ export function BRacer() {
   const miniBase = useRef<{ img: HTMLCanvasElement; fit: (x: number, z: number) => [number, number] } | null>(null);
 
   useEffect(() => {
-    setFonts({ display: drDisplay.style.fontFamily, mono: drMono.style.fontFamily, jp: drJp.style.fontFamily });
+    setFonts({ display: drDisplay.style.fontFamily, mono: drMono.style.fontFamily, jp: drJp.style.fontFamily, logo: `${LOGO_FAMILY}, Impact, sans-serif` });
     void Promise.resolve().then(() => {
       setBest(readBest());
       setTouch(Boolean(window.matchMedia?.('(pointer: coarse)').matches));
@@ -602,12 +603,7 @@ export function BRacer() {
         {/* ── Loading poster ── */}
         {phase === 'loading' && !error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black" style={gridBg()}>
-            <div className="flex items-end gap-1">
-              <Display keepCase size="clamp(90px,18vw,200px)" colour={DR.colour.signal}>
-                {GAME_B}
-              </Display>
-              <Display size="clamp(80px,16vw,180px)">{GAME_REST}</Display>
-            </div>
+            <Logo size="clamp(56px,11vw,120px)" />
             <Kana size={16} colour={DR.colour.amber}>
               {GAME_KANA}
             </Kana>
@@ -635,11 +631,8 @@ export function BRacer() {
           <div className="absolute inset-0 overflow-y-auto p-2 sm:p-4" style={{ background: 'linear-gradient(90deg, rgba(5,5,8,0.94) 0%, rgba(5,5,8,0.78) 46%, rgba(5,5,8,0) 78%)' }}>
             <div className="flex max-w-[34rem] flex-col gap-3">
               <div className="relative">
-                <div className="flex items-end leading-none">
-                  <Display keepCase size="clamp(88px,15vw,170px)" colour={DR.colour.signal} style={{ marginRight: 2 }}>
-                    {GAME_B}
-                  </Display>
-                  <Display size="clamp(78px,13vw,150px)">{GAME_REST}</Display>
+                <div className="leading-none">
+                  <Logo size="clamp(44px,7.2vw,80px)" />
                 </div>
                 <div className="absolute right-0 top-1 hidden flex-col items-end gap-1 sm:flex">
                   <Kana size={13} colour={DR.colour.amber}>

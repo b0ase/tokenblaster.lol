@@ -6,7 +6,7 @@
 import { GAME_B, GAME_KANA, GAME_REST } from './brand';
 import { TEAMS } from './teams';
 
-export const FONTS = { display: 'Impact, "Arial Black", sans-serif', mono: 'ui-monospace, Menlo, monospace', jp: '"Hiragino Sans", "Noto Sans JP", sans-serif' };
+export const FONTS = { display: 'Impact, "Arial Black", sans-serif', mono: 'ui-monospace, Menlo, monospace', jp: '"Hiragino Sans", "Noto Sans JP", sans-serif', logo: 'Audiowide, "Arial Black", Impact, sans-serif' };
 export const setFonts = (f: Partial<typeof FONTS>) => Object.assign(FONTS, f);
 
 type G = CanvasRenderingContext2D;
@@ -103,6 +103,27 @@ function grid(g: G, col: string, step: number, alpha = 0.25) {
   g.restore();
 }
 
+/** The bRacer logotype (Audiowide): a red lowercase b plus RACER. Returns the drawn width. */
+export function drawLogo(g: CanvasRenderingContext2D, x: number, y: number, size: number, bCol: string, restCol: string, shadow?: string) {
+  g.save();
+  g.font = `400 ${size}px ${FONTS.logo}`;
+  g.textAlign = 'left';
+  g.textBaseline = 'alphabetic';
+  const bw = g.measureText(GAME_B).width;
+  const rw = g.measureText(GAME_REST).width;
+  if (shadow) {
+    g.fillStyle = shadow;
+    g.fillText(GAME_B, x + size * 0.03, y + size * 0.03);
+    g.fillText(GAME_REST, x + bw + size * 0.03, y + size * 0.03);
+  }
+  g.fillStyle = bCol;
+  g.fillText(GAME_B, x, y);
+  g.fillStyle = restCol;
+  g.fillText(GAME_REST, x + bw, y);
+  g.restore();
+  return bw + rw;
+}
+
 export const SIGN_COUNT = 8;
 
 /** Draw design `i` onto a 1024x512 canvas. */
@@ -119,8 +140,7 @@ export function drawSign(c: HTMLCanvasElement, i: number, a1: string, a2: string
       grid(g, a1, 64, 0.18);
       chevrons(g, 0, 0, W, 70, 18, a2);
       chevrons(g, 0, H - 70, W, 70, 18, a1, -1);
-      text(g, GAME_B, 40, 380, 400, a2);
-      text(g, GAME_REST, 230, 380, 330, '#ffffff');
+      drawLogo(g, 36, 360, 168, a2, '#ffffff', '#000');
       text(g, GAME_KANA, 560, 440, 54, a1, FONTS.jp);
       sticker(g, 'BUY NOW / BLAST MORE', 760, 150, 52, '#ffe600', '#111', -0.06);
       barcode(g, 40, 410, 220, 36, '#ffffff', 11);
