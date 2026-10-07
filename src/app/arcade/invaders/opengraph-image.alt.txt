@@ -1,1 +1,1 @@
-Mempool Invaders V1 on TokenBlaster.lol: Space Invaders where every invader is a live BSV transaction
+Mempool Invaders on TokenBlaster.lol: a glowing white player ship on a neon data grid facing a swarm of wire-edged geometric ships in cyan, blue, magenta, red and gold, each one a live BSV transaction, with the title in big italic condensed type

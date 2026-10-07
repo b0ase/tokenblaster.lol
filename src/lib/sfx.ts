@@ -173,6 +173,20 @@ export function sharedAudio(): { ctx: AudioContext; out: AudioNode } | null {
   return c ? { ctx: c, out: sfxBus } : null;
 }
 
+let tapNode: AnalyserNode | null = null;
+/** For visuals that move with the music: an analyser on the music buses (null until the audio context exists). */
+export function musicAnalyser(): AnalyserNode | null {
+  const c = ensureCtx();
+  if (!c) return null;
+  if (!tapNode) {
+    tapNode = c.createAnalyser();
+    tapNode.fftSize = 512;
+    tapNode.smoothingTimeConstant = 0.3;
+    duckGain.connect(tapNode);
+  }
+  return tapNode;
+}
+
 // ── Voice limiting ──
 const MAX_VOICES = 28;
 const voiceEnds = new Float64Array(MAX_VOICES);

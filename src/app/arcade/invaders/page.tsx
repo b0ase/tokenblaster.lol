@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { HighScoresPanel } from '@/components/HighScores';
 import { MempoolInvaders } from '@/components/MempoolInvaders';
 
-const description = 'Space Invaders on the live BSV chain: every invader is a real transaction hitting the network, token transfers wear their token and drop it when shot.';
+const description = 'A 3D shooter on the live BSV chain: every ship is a real transaction, token ships wear their token and drop it when shot. Combos, power-ups, boss blocks, beat-synced; or go LIVE and fire real transactions.';
 export const metadata = {
   title: 'Mempool Invaders · TokenBlaster.lol',
   description,
@@ -22,7 +22,7 @@ export default function InvadersPage() {
             &lt; Arcade
           </Link>
         </div>
-        <p className="mt-1 text-dim">Hold the line against mainnet. Every invader is a transaction that just hit the network; shoot the gold ones for their tokens.</p>
+        <p className="mt-1 text-dim">Hold the line against mainnet. Every ship is a transaction that just hit the network; shoot the gold ones for their tokens, or go LIVE and make every shot a tiny real tx.</p>
       </header>
       <MempoolInvaders />
       <HighScoresPanel games={['invaders']} />
