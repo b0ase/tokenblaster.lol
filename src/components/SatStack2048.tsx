@@ -6,11 +6,14 @@
  * (src/lib/sats2048.ts holds the rules). Arrows / WASD or swipe the board.
  *
  * Coin-op: PLAY · 10p buys one credit = one game (src/lib/coinop.ts). PRACTICE is free.
+ * LIVE blasting (optional, paid runs only): every move is one tiny real transaction (src/lib/useActionPay.ts).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { HighScores, useRunClock } from './HighScores';
 import { CoinOpButtons, useCoinOp } from './InsertCoin';
 import { GameAudio } from './SoundToggle';
+import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
+import { useActionPay } from '@/lib/useActionPay';
 import { sfx } from '@/lib/sfx';
 import { best as bestTile, canMove, GOAL, move, newGame, SIZE, TIERS, type Dir, type Tile } from '@/lib/sats2048';
 
@@ -38,6 +41,9 @@ const KEYS: Record<string, Dir> = { ArrowLeft: 'left', a: 'left', A: 'left', Arr
 
 export function SatStack2048() {
   const co = useCoinOp('Sat Stack 2048', 'sats2048');
+  const ap = useActionPay('sats2048', 'Sat Stack 2048');
+  const pay = ap.pay;
+  const setLiveRun = ap.setRun;
   const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const [phase, setPhase] = useState<'ready' | 'play' | 'over'>('ready');
   const [tiles, setTiles] = useState<Tile[]>([]);
@@ -56,6 +62,7 @@ export function SatStack2048() {
     if (s.phase !== 'play') return;
     const r = move(s.tiles, dir);
     if (!r.moved) return;
+    if (!pay.current(['move', dir])) return; // LIVE: 1 tx per move
     const total = s.score + r.gained;
     live.current = { ...s, tiles: r.tiles, score: total };
     setTiles(r.tiles);
@@ -70,9 +77,10 @@ export function SatStack2048() {
       sfx('gameover');
       live.current.phase = 'over';
       setPhase('over');
+      setLiveRun(false);
       setHi((h) => Math.max(h, total));
     }
-  }, []);
+  }, [pay, setLiveRun]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -111,6 +119,7 @@ export function SatStack2048() {
     const txid = paid ? co.consume() : null;
     if (paid && !txid) return;
     setRun({ paid, txid });
+    ap.setRun(paid);
     const t = newGame();
     live.current = { phase: 'play', tiles: t, score: 0 };
     setTiles(t);
@@ -173,6 +182,7 @@ export function SatStack2048() {
             </div>
           );
         })}
+        <ActionHud ap={ap} className="absolute right-1 top-1 z-10" />
         {phase === 'play' && reached && top >= GOAL && (
           <div className="pointer-events-none absolute inset-x-0 top-1 flex justify-center">
             <span className="border border-[var(--border)] bg-black/70 px-3 py-0.5 text-xs font-bold tracking-widest text-hot">1 BSV TILE · KEEP STACKING</span>
@@ -204,12 +214,16 @@ export function SatStack2048() {
             onClick={() => {
               live.current.phase = 'over';
               setPhase('over');
+              ap.setRun(false);
               setHi((h) => Math.max(h, score));
             }}
           >
             END RUN
           </button>
         )}
+      </div>
+      <div className="mx-auto mt-2 flex w-full max-w-[480px] flex-col items-center gap-1">
+        {phase !== 'play' ? <ActionAmmo ap={ap} actions="move" /> : <AmmoAlerts ap={ap} />}
       </div>
       {co.chooserEl}
     </section>

@@ -41,6 +41,9 @@ import {
 import { buildWorld } from '@/lib/city/world';
 import { createVehicleKit, PAINTS, type Built, type ModelKey } from '@/lib/city/vehicles';
 import { GameAudio } from './SoundToggle';
+import { CoinOpButtons, useCoinOp } from './InsertCoin';
+import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
+import { useActionPay } from '@/lib/useActionPay';
 import { buildCityDetail } from '@/lib/visuals/cityDetail';
 import { QUALITY_PRESETS, autoCityQuality, saveCityQuality, type CityQuality } from '@/lib/visuals/cityQuality';
 import { sharedAudio } from '@/lib/sfx';
@@ -50,6 +53,10 @@ import { sharedAudio } from '@/lib/sfx';
  * driving the grid is a real transaction (payments are cars, data vans and taxis, inscriptions box
  * trucks and buses, token transfers box trucks wearing the token's logo, TokenBlaster blasts
  * supercars). Walk, steal any car, drive, deliver the next block before the timer runs out.
+ *
+ * Entry: PLAY · 10p (coin-op, src/lib/coinop.ts) or PRACTICE (free). LIVE blasting (optional, paid entry only):
+ * each car stolen / carjacked, each block delivered and each mempool-rush checkpoint is one tiny real tx
+ * (src/lib/useActionPay.ts). Out of ammo: you can't take a car until you load more.
  */
 const DAY_S = 240;
 const AI_CAP = 26;
@@ -91,6 +98,9 @@ export function SatoshiCity() {
   const [toast, setToast] = useState<null | { text: string; sub: string; n: number; col: string }>(null);
   const [wasted, setWasted] = useState<null | { by: string; id: string; sim: boolean }>(null);
   const [started, setStarted] = useState(false);
+  const co = useCoinOp('Satoshi City', 'city');
+  const ap = useActionPay('city', 'Satoshi City');
+  const pay = ap.pay;
   const [quality, setQualityState] = useState<CityQuality>('high');
   const control = useRef<Control | null>(null);
 
@@ -672,6 +682,11 @@ export function SatoshiCity() {
           pickB = null;
         }
       }
+      if (!pickA && !pickB) return;
+      if (!pay.current([pickA ? 'carjack' : 'steal'])) {
+        say('OUT OF AMMO', 'load more to take a car', '#ff3b5c');
+        return;
+      }
       if (pickA) {
         const a = pickA;
         ai.splice(ai.indexOf(a), 1);
@@ -718,6 +733,18 @@ export function SatoshiCity() {
       needsResize = true;
       setQualityState(q);
     };
+    // Dev only: a headless check walks the player up to the nearest parked car.
+    if (process.env.NODE_ENV !== 'production')
+      (window as unknown as { __tbCity?: unknown }).__tbCity = {
+        toCar: () => {
+          const b = bodies.find((x) => x !== car);
+          if (!b) return false;
+          ped.x = b.x + b.b.w / 2 + 1.2;
+          ped.z = b.z;
+          return true;
+        },
+        action: () => action(),
+      };
     control.current = {
       setQuality: (q) => {
         saveCityQuality(q);
@@ -1367,6 +1394,7 @@ export function SatoshiCity() {
             const left = Math.max(0, (mission.deadline - now) / 1000);
             const pts = 100 + Math.round(left) * 10;
             addScore(pts);
+            pay.current(['deliver']); // LIVE: 1 tx per block delivered (never blocks the score)
             say(mission.height ? `BLOCK #${mission.height.toLocaleString()} MINED` : 'BLOCK DELIVERED', `+${pts} pts · ${left.toFixed(1)}s to spare`, '#ffd23f');
             beep([523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5], 'square', 0.11, 0.1);
             mission = null;
@@ -1377,6 +1405,7 @@ export function SatoshiCity() {
           if (Math.hypot(px - tx, pz - tz) < 8) {
             mission.idx++;
             addScore(50);
+            pay.current(['checkpoint']); // LIVE: 1 tx per rush checkpoint
             if (mission.idx >= mission.cps.length) {
               const left = Math.max(0, (mission.deadline - now) / 1000);
               const pts = 250 + Math.round(left) * 10;
@@ -1612,7 +1641,7 @@ export function SatoshiCity() {
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
-  }, []);
+  }, [pay]);
 
   const padDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault();
@@ -1649,6 +1678,7 @@ export function SatoshiCity() {
       </div>
       <div className="relative select-none">
         <div ref={mount} className="inset h-[74vh] min-h-96 w-full touch-none overflow-hidden" />
+        <ActionHud ap={ap} className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 max-sm:bottom-44" />
 
         {/* Score + mission */}
         <div className="pointer-events-none absolute left-3 top-3 flex max-w-[55%] flex-col gap-1 font-bold drop-shadow">
@@ -1749,7 +1779,7 @@ export function SatoshiCity() {
         )}
 
         {!started && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/55 p-4 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 overflow-y-auto bg-black/55 p-4 text-center">
             <p className="text-4xl font-black text-hot sm:text-6xl" style={{ fontFamily: '"Impact", "Arial Black", sans-serif', WebkitTextStroke: '2px #000', letterSpacing: '0.04em' }}>
               SATOSHI CITY
             </p>
@@ -1772,15 +1802,19 @@ export function SatoshiCity() {
               <span className="text-fg">H · N</span>
               <span>horn · skip to day/night</span>
             </div>
-            <button
-              className="btn-fire"
-              onClick={() => {
+            <CoinOpButtons
+              co={co}
+              playLabel="ENTER THE CITY"
+              practiceLabel="▶ ENTER · PRACTICE"
+              perCredit="1 coin = 1 visit to the city."
+              start={(paid) => {
+                if (paid && !co.consume()) return;
+                ap.setRun(paid);
                 setStarted(true);
                 control.current?.start();
               }}
-            >
-              ENTER THE CITY
-            </button>
+            />
+            <ActionAmmo ap={ap} actions="car stolen, block delivered and rush checkpoint" />
           </div>
         )}
 
@@ -1822,6 +1856,10 @@ export function SatoshiCity() {
           ☀/☾ skip
         </button>
       </div>
+      <div className="mt-2 flex flex-col items-center">
+        <AmmoAlerts ap={ap} />
+      </div>
+      {co.chooserEl}
       <p className="mt-2 text-xs text-muted">
         Traffic is a live sample of mainnet: each car is one real transaction, kind and size deciding the vehicle (payments are cars, data vans and taxis, inscriptions trucks and
         buses, token transfers box trucks wearing the token&apos;s logo). Look at a car to see its transaction; press T to open it on WhatsOnChain. Parked cars in the car park

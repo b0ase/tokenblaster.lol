@@ -20,6 +20,8 @@ import { HighScores, useRunClock } from './HighScores';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
+import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
+import { useActionPay } from '@/lib/useActionPay';
 import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
 
@@ -405,6 +407,10 @@ export function KwegExpedition() {
   const feed = useChainFeed();
   // Coin-op: 10p buys a credit (src/lib/coinop.ts); practice is free and puts nothing on chain.
   const co = useCoinOp("Kweg's Expedition", 'kweg');
+  // LIVE blasting (optional, paid runs): each sonar ping and each dash is one tiny real tx (src/lib/useActionPay.ts).
+  const ap = useActionPay('kweg', "Kweg's Expedition");
+  const pay = ap.pay;
+  const setLiveRun = ap.setRun;
   const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const feedRef = useRef(feed);
   useEffect(() => {
@@ -510,6 +516,7 @@ export function KwegExpedition() {
     const finish = (won: boolean, text: string) => {
       sfx(won ? 'level' : 'gameover');
       state = won ? 'won' : 'over';
+      setLiveRun(false);
       const haul = { ...lootRef.current.run };
       setLastRun(haul);
       lootRef.current.end();
@@ -530,6 +537,7 @@ export function KwegExpedition() {
 
     const sonar = () => {
       if (state !== 'play' || k.pingCd > 0) return;
+      if (!pay.current(['sonar'])) return;
       k.pingCd = PING_CD;
       pings.push({ x: k.x + 60, y: k.y - 25, r: 0 });
       sfx('sonar');
@@ -537,6 +545,7 @@ export function KwegExpedition() {
     };
     const dashGo = () => {
       if (state !== 'play' || k.dashCd > 0) return;
+      if (!pay.current(['dash'])) return;
       k.dash = 0.5;
       k.dashCd = DASH_CD;
       sfx('stamp');
@@ -1272,7 +1281,7 @@ export function KwegExpedition() {
       canvas.removeEventListener('pointerup', pu);
       canvas.removeEventListener('pointercancel', pu);
     };
-  }, []);
+  }, [pay, setLiveRun]);
 
   const overlay = 'absolute inset-0 overflow-y-auto flex flex-col items-center justify-center gap-2 bg-[#fff6e0]/90 px-4 text-center text-[#1d1d2b]';
   const bigBtn = 'rounded-full border-[3px] border-[#1d1d2b] bg-[#ffd34d] px-6 py-2 font-sans text-lg font-black text-[#1d1d2b] shadow-[0_4px_0_#1d1d2b] active:translate-y-1 active:shadow-none';
@@ -1283,6 +1292,7 @@ export function KwegExpedition() {
     const txid = paid ? co.consume() : null;
     if (paid && !txid) return;
     setRun({ paid, txid });
+    ap.setRun(paid);
     control.current?.restart();
   };
 
@@ -1297,6 +1307,7 @@ export function KwegExpedition() {
           <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute bottom-[12%] right-2 rounded bg-white/80 px-2 py-0.5 font-sans text-[11px] text-[#1d1d2b]">chain: {feed.status}</div>
+        <ActionHud ap={ap} className="absolute right-2 top-2 z-10" />
         {phase === 'play' && (
           <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
             <span className="border border-[var(--border-canvas)] bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</span>
@@ -1381,6 +1392,7 @@ export function KwegExpedition() {
           <span className="text-hot">{Math.max(best, hud.score).toLocaleString()}</span>
         </div>
       </div>
+      <div className="mt-2 flex flex-col items-center gap-1">{phase === 'play' || phase === 'card' ? <AmmoAlerts ap={ap} /> : <ActionAmmo ap={ap} actions="sonar ping and dash" />}</div>
       <LootPanel run={phase === 'over' || phase === 'won' ? lastRun : loot.run} allTime={loot.allTime} />
       {co.chooserEl}
     </section>

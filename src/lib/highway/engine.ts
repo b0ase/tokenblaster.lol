@@ -88,6 +88,8 @@ export class Highway {
   /** Seconds the run has been driven. */
   clock = 0;
   mode: 'demo' | 'play' | 'over' = 'demo';
+  /** Seconds of nitro left (a short burst past top speed). */
+  nitro = 0;
   private skyO = 0;
   private hillO = 0;
   private treeO = 0;
@@ -232,12 +234,21 @@ export class Highway {
     this.checkpoints = 0;
     this.clock = 0;
     this.crashCool = 0;
+    this.nitro = 0;
     this.buildCars();
     this.mode = 'play';
   }
 
   get lap() {
     return Math.floor(this.dist / this.trackLength) + 1;
+  }
+  /** A nitro burst can fire (playing, none running). */
+  get canNitro() {
+    return this.mode === 'play' && this.nitro <= 0;
+  }
+  /** Fire a nitro burst: 1.5 s of extra push, up to 25% past top speed. */
+  boost() {
+    if (this.canNitro) this.nitro = 1.5;
   }
   get kmh() {
     return Math.round((this.speed / MAX_SPEED) * 300);
@@ -267,6 +278,10 @@ export class Highway {
       this.playerX += (Math.sin(this.demoT * 0.7) * 0.35 - this.playerX) * dt * 2;
     } else this.playerX -= dx * pct * playerSeg.curve * CENTRIFUGAL;
     this.speed += (input.gas ? ACCEL : input.brake ? BRAKE : DECEL) * dt;
+    if (this.nitro > 0) {
+      this.nitro = Math.max(0, this.nitro - dt);
+      this.speed += ACCEL * 2 * dt;
+    }
 
     if (this.playerX < -1 || this.playerX > 1) {
       if (this.speed > OFF_LIMIT) this.speed += OFF_DECEL * dt;
@@ -290,7 +305,7 @@ export class Highway {
       }
     }
     this.playerX = limit(this.playerX, -3, 3);
-    this.speed = limit(this.speed, 0, MAX_SPEED);
+    this.speed = limit(this.speed, 0, this.nitro > 0 ? MAX_SPEED * 1.25 : Math.max(MAX_SPEED, this.speed - 2 * ACCEL * dt));
     const moved = (this.position - start + this.trackLength) % this.trackLength;
     this.skyO = wrap(this.skyO + 0.001 * playerSeg.curve * (moved / SEGMENT), 1);
     this.hillO = wrap(this.hillO + 0.002 * playerSeg.curve * (moved / SEGMENT), 1);

@@ -62,6 +62,8 @@ export type Hooks = {
   sfx?: (s: Sfx) => void;
   /** Called before every jump / wall jump; return false to refuse it (e.g. out of paid sats). */
   canJump?: () => boolean;
+  /** Called before every shuriken; return false to refuse it. */
+  canThrow?: () => boolean;
   onPhase?: (p: Phase, s: Stats) => void;
   onHud?: (s: Stats) => void;
   /** Polled about once a second while playing. */
@@ -480,7 +482,7 @@ export class NpgGame {
     }
 
     // Shuriken.
-    if (pressed('attack') && p.atkCd === 0 && this.shots.filter((s) => !s.foe).length < 3) {
+    if (pressed('attack') && p.atkCd === 0 && this.shots.filter((s) => !s.foe).length < 3 && (this.hooks.canThrow?.() ?? true)) {
       p.atkCd = 14;
       this.shots.push({ x: p.x + p.w / 2 + p.face * 8, y: p.y + 12, vx: p.face * 8.5 + p.vx * 0.3, vy: 0, life: 50, foe: false, spin: 0 });
       this.sfx('throw');
