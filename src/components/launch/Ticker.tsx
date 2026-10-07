@@ -1,22 +1,23 @@
 'use client';
 
 import Link from 'next/link';
+import { fmtBurn } from '@/lib/launch/burn';
 import { bsv, imageOf, short, type Trade } from './data';
 
-/** The live tape: the latest trades scrolling across the top of the board and coin pages. */
+/** The live tape: the latest trades (and 🔥 vault burns) scrolling across the top of the board and coin pages. */
 export function Ticker({ feed }: { feed: Trade[] }) {
-  const items = feed.filter((t) => t.side !== 'burn').slice(0, 24);
+  const items = feed.slice(0, 24);
   if (!items.length) return null;
   const row = (key: string) =>
     items.map((t) => (
-      <Link key={`${key}${t.txid}`} href={`/launch/${t.token_id}`} className="flex shrink-0 items-center gap-2 px-3 hover:text-hot" tabIndex={key ? -1 : 0}>
+      <Link key={`${key}${t.txid}`} href={t.side === 'burn' ? `/launch/${t.token_id}/burn/${t.txid}` : `/launch/${t.token_id}`} className="flex shrink-0 items-center gap-2 px-3 hover:text-hot" tabIndex={key ? -1 : 0}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={imageOf(t.token_id)} alt="" className="h-5 w-5 rounded object-cover" />
         <span className="font-bold">${t.sym}</span>
-        <span className={t.side === 'buy' ? 'text-green-400' : t.side === 'sell' ? 'text-red-400' : 'text-accent'}>
-          {t.side === 'launch' ? 'launched' : t.side === 'buy' ? `bought ${bsv(t.curve_sats)}` : `sold ${bsv(t.curve_sats)}`}
+        <span className={t.side === 'buy' ? 'text-green-400' : t.side === 'sell' ? 'text-red-400' : t.side === 'burn' ? 'font-bold text-hot' : 'text-accent'}>
+          {t.side === 'launch' ? 'launched' : t.side === 'buy' ? `bought ${bsv(t.curve_sats)}` : t.side === 'burn' ? `🔥 ${fmtBurn(t.tokens)} BURNED` : `sold ${bsv(t.curve_sats)}`}
         </span>
-        <span className="text-muted">{short(t.trader)}</span>
+        <span className="text-muted">{t.side === 'burn' ? 'vault buyback' : short(t.trader)}</span>
       </Link>
     ));
   return (

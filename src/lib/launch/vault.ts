@@ -10,7 +10,8 @@
 import 'server-only';
 import { Beef, P2PKH, SatoshisPerKilobyte, Script, Transaction, type PrivateKey } from '@bsv/sdk';
 import { BURN_ADDRESS } from '../gun';
-import { INDEX_FEE, INDEX_THRESHOLD, SUPPLY, quoteBuy } from './curve';
+import { BUYBACK_MIN, bookBroadcastBurn, burnStats, buybackSpend } from './burn';
+import { INDEX_FEE, INDEX_THRESHOLD, quoteBuy } from './curve';
 import { p2pkh, tokenOut } from './shape';
 import { HOUSE, broadcast, compactBeef, fundAddressOf, poolKey, rpc, type CoinRow } from './server';
 
@@ -18,7 +19,8 @@ const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const FEE_RATE = 100;
 export const HOLDER_MIN = 100_000;
 const SPLIT_MIN = 600;
-const BUYBACK_MIN = 100_000;
+// Long enough for the WhatsOnChain/GorillaPool calls between lease and commit (the trade route uses 90 s).
+const BUYBACK_LEASE_SECS = 180;
 
 type Utxo = { txid: string; vout: number; sats: number; tx: Transaction };
 
@@ -132,17 +134,25 @@ export async function runVaults() {
 /** The vault buys its own coin on the curve and burns it, as one transaction, at most a 2% move. */
 async function buyback(c: VaultCoin, utxos: Utxo[], vaultKey: PrivateKey, free: number) {
   const lease = crypto.randomUUID();
-  const [row] = await rpc<CoinRow[]>('tokenblaster_launch_lease', { p_token: c.token_id, p_lease: lease, p_secs: 60 });
+  const [row] = await rpc<CoinRow[]>('tokenblaster_launch_lease', { p_token: c.token_id, p_lease: lease, p_secs: BUYBACK_LEASE_SECS });
   if (!row) return null; // someone is trading: next run
+  let broadcasted = false;
   try {
-    if (!row.token_utxo || !row.beef) return null;
+    if (!row.token_utxo || !row.beef) {
+      await rpc('tokenblaster_launch_release', { p_lease: lease }).catch(() => undefined);
+      return null;
+    }
     const sold = BigInt(row.sold);
-    const v = Number(BigInt(100_000_000) + BigInt(row.reserve_sats));
-    const maxNet = Math.floor(v * 0.00995); // price ∝ V², so +0.995% of V ≈ +2% price
-    const spendSats = Math.min(free - 2_000, Math.floor(maxNet / 0.99));
-    if (spendSats < 10_000) return null;
+    const spendSats = buybackSpend(Number(row.reserve_sats), free); // ≤ ~2% price move
+    if (!spendSats) {
+      await rpc('tokenblaster_launch_release', { p_lease: lease }).catch(() => undefined);
+      return null;
+    }
     const q = quoteBuy(sold, BigInt(spendSats));
-    if (q.tokens <= BigInt(0)) return null;
+    if (q.tokens <= BigInt(0)) {
+      await rpc('tokenblaster_launch_release', { p_lease: lease }).catch(() => undefined);
+      return null;
+    }
     const beef = Beef.fromString(row.beef, 'hex');
     const src = (op: string) => beef.findTxid(op.split('_')[0])!.tx!;
     const fundAddress = row.fund_address ?? (await fundAddressOf(c.token_id));
@@ -175,9 +185,12 @@ async function buyback(c: VaultCoin, utxos: Utxo[], vaultKey: PrivateKey, free: 
     await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
     await tx.sign();
     await broadcast(tx);
+    broadcasted = true;
     const txid = tx.id('hex');
     beef.mergeTransaction(tx);
-    await rpc('tokenblaster_launch_commit', {
+    const compact = await compactBeef(beef.toHex(), [txid]);
+    // From here the pool's old coins are spent: book it (with retries) and never release the lease on failure.
+    await bookBroadcastBurn(txid, () => rpc('tokenblaster_launch_commit', {
       p_lease: lease,
       p_t: {
         txid,
@@ -193,17 +206,19 @@ async function buyback(c: VaultCoin, utxos: Utxo[], vaultKey: PrivateKey, free: 
         token_utxo: poolTokenIdx === null ? null : `${txid}_${poolTokenIdx}`,
         token_amt: tokenAfter.toString(),
         reserve_utxo: `${txid}_${reserveIdx}`,
-        beef: await compactBeef(beef.toHex(), [txid]),
+        beef: compact,
         fund_address: fundAddress,
         fund_owed: fundOwed,
         route_accrued: '0',
         mm: true,
       },
-    });
-    await rpc('tokenblaster_launch_payout', { p_txid: txid, p_slot: c.slot, p_kind: 'buyback', p_sats: Number(q.curveSats + q.houseFee), p_tokens: Number(q.tokens), p_detail: { supplyLeft: Number(SUPPLY) } });
+    }));
+    const supplyLeft = burnStats(Number(row.burned ?? 0) + Number(q.tokens)).supplyNow;
+    await bookBroadcastBurn(txid, () => rpc('tokenblaster_launch_payout', { p_txid: txid, p_slot: c.slot, p_kind: 'buyback', p_sats: Number(q.curveSats + q.houseFee), p_tokens: Number(q.tokens), p_detail: { supplyLeft } }));
     return { tokens: Number(q.tokens), sats: Number(q.curveSats) };
   } catch (e) {
-    await rpc('tokenblaster_launch_release', { p_lease: lease }).catch(() => undefined);
+    // Before the broadcast nothing moved: free the pool. After it, keep the lease so no trade builds on spent coins.
+    if (!broadcasted) await rpc('tokenblaster_launch_release', { p_lease: lease }).catch(() => undefined);
     throw e;
   }
 }

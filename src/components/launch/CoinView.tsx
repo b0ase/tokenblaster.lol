@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { GRAD_SOLD, MAX_BUY, MIN_BUY, SUPPLY, fmtTokens, quoteBuy, quoteSell } from '@/lib/launch/curve';
+import { burnStats, fmtBurn } from '@/lib/launch/burn';
 import { trade } from '@/lib/launch/client';
 import { ROUTES } from '@/lib/launch/shape';
 import { tokenCoins } from '@/lib/tokens';
@@ -227,6 +228,7 @@ export function CoinView({ id }: { id: string }) {
             {grad ? 'Graduated. The curve stays as permanent liquidity: keep trading.' : 'Graduates at 100%. The curve then stays as permanent liquidity.'}
           </p>
         </section>
+        {(c.route.kind === 'buyback' || c.burned > 0) && <Burns c={c} trades={trades} />}
         <section className="panel text-sm">
           <p className="panel-title mb-2">Play ${c.sym}</p>
           <p className="mb-2 text-xs text-dim">Pick ${c.sym} as your ammo: every shot is a real ${c.sym} transaction on chain.</p>
@@ -365,6 +367,55 @@ function Split({ label, total, a, b, share }: { label: string; total: string; a:
   );
 }
 
+/** Burned so far (tokens + % of supply) and the latest vault burns, each with its share card. */
+function Burns({ c, trades }: { c: Coin; trades: Trade[] }) {
+  const b = burnStats(Number(c.burned) || 0);
+  const burns = trades.filter((t) => t.side === 'burn');
+  return (
+    <section className="panel text-sm">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="panel-title">🔥 Burned so far</p>
+        <p className="text-2xl font-bold text-hot">{b.pct.toFixed(b.pct && b.pct < 0.1 ? 3 : 2)}%</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="inset p-2">
+          <p className="text-xs text-muted">Burned</p>
+          <p className="font-bold text-hot">{fmtTokens(b.burned)}</p>
+          <p className="text-xs text-dim">${c.sym}, gone for good</p>
+        </div>
+        <div className="inset p-2">
+          <p className="text-xs text-muted">Supply now</p>
+          <p>{fmtTokens(b.supplyNow)}</p>
+          <p className="text-xs text-dim">of {fmtTokens(Number(SUPPLY))}</p>
+        </div>
+      </div>
+      {burns.length ? (
+        <ol className="mt-2 text-xs">
+          {burns.slice(0, 8).map((t) => (
+            <li key={t.txid} className="flex items-center justify-between gap-2 border-t border-line-dim py-1">
+              <span>
+                <span className="text-hot">🔥 {fmtBurn(t.tokens)}</span> <span className="text-muted">· {bsv(t.curve_sats)} · {ago(t.created_at)} ago</span>
+              </span>
+              <span className="flex gap-2">
+                <Link className="underline hover:text-hot" href={`/launch/${c.token_id}/burn/${t.txid}`}>
+                  card
+                </Link>
+                <a className="underline" href={`${WOC}/tx/${t.txid}`} target="_blank" rel="noreferrer">
+                  {short(t.txid)} ↗
+                </a>
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="mt-2 text-xs text-dim">
+          {c.route.kind === 'buyback' ? 'No burns yet. The vault buys back once it holds 0.001 BSV of fees, then sends the tokens to the burn address.' : ''}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function TradesAndHolders({ c, trades, holders, rate }: { c: Coin; trades: Trade[]; holders: [string, number][]; rate: number }) {
   const [tab, setTab] = useState<'trades' | 'holders'>('trades');
   const [side, setSide] = useState<'all' | 'buy' | 'sell'>('all');
@@ -407,13 +458,13 @@ function TradesAndHolders({ c, trades, holders, rate }: { c: Coin; trades: Trade
               {rows.map((t) => (
                 <tr key={t.txid} className="border-t border-line-dim">
                   <td className="py-1">{ago(t.created_at)}</td>
-                  <td className={t.side === 'buy' ? 'text-green-400' : 'text-red-400'}>
-                    {t.side === 'buy' ? 'Buy' : t.side === 'sell' ? 'Sell' : t.side}
+                  <td className={t.side === 'buy' ? 'text-green-400' : t.side === 'burn' ? 'font-bold text-hot' : 'text-red-400'}>
+                    {t.side === 'buy' ? 'Buy' : t.side === 'sell' ? 'Sell' : t.side === 'burn' ? '🔥 Burn' : t.side}
                     {t.mm && ' · MM'}
                   </td>
                   <td>{(t.curve_sats / 1e8).toPrecision(3)}</td>
                   <td>{rate ? usd(t.curve_sats, rate) : '—'}</td>
-                  <td className={t.side === 'buy' ? 'text-green-400' : 'text-red-400'}>{fmtTokens(t.tokens)}</td>
+                  <td className={t.side === 'buy' ? 'text-green-400' : t.side === 'burn' ? 'text-hot' : 'text-red-400'}>{fmtTokens(t.tokens)}</td>
                   <td>{t.tokens ? (t.curve_sats / t.tokens).toPrecision(4) : '—'}</td>
                   <td>
                     <a className="underline" href={`${WOC}/address/${t.trader}`} target="_blank" rel="noreferrer">

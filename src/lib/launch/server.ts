@@ -46,6 +46,7 @@ export type CoinRow = {
   vault_address: string;
   fund_address: string | null;
   fund_owed: number;
+  burned?: number;
   status: string;
   sold: number;
   reserve_sats: number;
