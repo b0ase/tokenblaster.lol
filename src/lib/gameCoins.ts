@@ -5,9 +5,9 @@
 import { iconUrl } from './tokens';
 
 export type GameKey = 'arena' | 'doubleo' | 'frogger' | 'bsvgun';
-export type GameCoin = { game: GameKey; id: string; sym: string; name: string; url: string; icon: string | null };
+export type GameCoin = { game: GameKey | 'bracer'; id: string; sym: string; name: string; url: string; icon: string | null };
 
-const coin = (game: GameKey, sym: string, name: string, id: string): GameCoin => ({
+const coin = (game: GameKey | 'bracer', sym: string, name: string, id: string): GameCoin => ({
   game,
   id,
   sym,
@@ -22,6 +22,9 @@ export const GAME_COINS: Record<GameKey, GameCoin> = {
   frogger: coin('frogger', 'FROGGER', 'Chain Frogger', 'af9c528abf0300cd08f1c41c1c3941e71e737bb9f76e5264399d7d2f93cb0c0a_1'),
   bsvgun: coin('bsvgun', 'BSVGUN', 'BSVGun', '4c01e6de8441295316c5c11e18631871cf4de99b90673bfe0e582f4e2115bc34_1'),
 };
+
+/** bRacer's own coin, once it exists: set NEXT_PUBLIC_TB_BRACER_COIN to its BSV-21 id. Undefined until then. */
+export const BRACER_COIN: GameCoin | undefined = process.env.NEXT_PUBLIC_TB_BRACER_COIN ? coin('bracer', 'BRACER', 'bRacer', process.env.NEXT_PUBLIC_TB_BRACER_COIN) : undefined;
 
 /** Home-turf perk for firing a game's own coin LIVE. */
 export const HOUSE_GOLD = '#f5b800';

@@ -57,8 +57,9 @@ export class Room {
         this.presence = Object.fromEntries(Object.entries(d.payload).map(([k, v]) => [k, (v as { metas: unknown[] }).metas]));
         this.h.onPresence?.(this.presence);
       } else if (d.event === 'presence_diff') {
-        for (const [k, v] of Object.entries(d.payload.joins ?? {})) this.presence[k] = v.metas;
+        // Leaves first: re-tracking with new meta sends a leave (old) and a join (new) for the same key in one diff.
         for (const k of Object.keys(d.payload.leaves ?? {})) delete this.presence[k];
+        for (const [k, v] of Object.entries(d.payload.joins ?? {})) this.presence[k] = v.metas;
         this.h.onPresence?.({ ...this.presence });
       }
     };
