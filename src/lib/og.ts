@@ -32,3 +32,8 @@ export const HALL_CARD = card(
   'hall-of-fame-dr-v1.jpg',
   'TokenBlaster hall of fame poster: a red and amber hazard-striped trophy board ranking the best players of every arcade game on the live BSV chain.',
 );
+
+export const MULTIPLAYER_CARD = card(
+  'multiplayer-dr-v1.jpg',
+  'BLAST YOUR GROUP CHAT poster: tilted TokenBlaster screenshots of Arena, bRacer, Double-O Satoshi and Token Snake with X avatars and verified ticks floating over the players.',
+);
