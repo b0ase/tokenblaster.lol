@@ -72,6 +72,7 @@ type Hud = {
   intel: number;
   intelTotal: number;
   boost: number; // seconds of adrenaline left
+  dirs: number[]; // radians (0 = ahead) to whoever just shot me, for the red damage arcs
 };
 type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[]; sats: number; satsTotal: number; intel: number; intelTotal: number };
 type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void };
@@ -89,7 +90,7 @@ const loadName = () => {
   }
 };
 
-const HUD0: Hud = { health: 100, armor: 0, obj: '', objIdx: 0, objTotal: 0, progress: null, bosses: [], shots: 0, hits: 0, kills: 0, onChain: 0, heat: 0, last: null, dist: 0, arrow: 0, sats: 0, satsTotal: 0, intel: 0, intelTotal: 0, boost: 0 };
+const HUD0: Hud = { health: 100, armor: 0, obj: '', objIdx: 0, objTotal: 0, progress: null, bosses: [], shots: 0, hits: 0, kills: 0, onChain: 0, heat: 0, last: null, dist: 0, arrow: 0, sats: 0, satsTotal: 0, intel: 0, intelTotal: 0, boost: 0, dirs: [] };
 
 const loadDone = (): string[] => {
   try {
@@ -109,6 +110,7 @@ const saveDone = (ids: string[]) => {
 export function DoubleO() {
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
+  const marker = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
   /** Q Branch: the 1Sat Ordnance gun Kweg carries (null = the standard gadget gun). Owned ordinals only. */
   const { owned: ownedOrdnance } = useOrdnance(b.wallet);
@@ -248,7 +250,7 @@ export function DoubleO() {
     let quality = phone ? 1 : 0;
     renderer.setPixelRatio(qualities[quality].ratio);
     renderer.shadowMap.enabled = qualities[quality].shadows;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft was removed from three; PCF + shadow.radius is soft enough
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
@@ -399,6 +401,19 @@ export function DoubleO() {
       pops.push({ s, born: performance.now(), life: big ? 1600 : 1300, rise: 0.9 });
     };
 
+    // ── Impact sparks: a quick white-gold flash where a coin lands ──
+    type Spark = { s: THREE.Sprite; born: number; life: number; size: number };
+    const sparks: Spark[] = [];
+    const sparkMat = new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.4, 1.2), toneMapped: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const spark = (at: THREE.Vector3, size: number) => {
+      if (sparks.length > 24) return;
+      const s = new THREE.Sprite(sparkMat.clone());
+      s.position.copy(at);
+      s.scale.setScalar(size * 0.4);
+      scene.add(s);
+      sparks.push({ s, born: performance.now(), life: 160, size });
+    };
+
     // ── Enemy projectiles ──
     const shotMats = new Map<string, THREE.SpriteMaterial>();
     const fireTex = fireballTexture();
@@ -410,7 +425,7 @@ export function DoubleO() {
       }
       return m;
     };
-    type Bolt = { s: THREE.Sprite; v: THREE.Vector3; dmg: number; born: number; from: Actor | null };
+    type Bolt = { s: THREE.Sprite; v: THREE.Vector3; dmg: number; born: number; from: Actor | null; origin: THREE.Vector3 };
     const bolts: Bolt[] = [];
 
     // ── State ──
@@ -435,6 +450,9 @@ export function DoubleO() {
     let walkPhase = 0;
     let shake = 0; // seconds of camera shake left (set pieces)
     let recoil = 0;
+    let kick = 0; // camera pitch kick from firing, decays fast
+    let markerT = 0; // seconds the crosshair hit marker has left
+    let markerKill = false;
     let lastShot = 0;
     const walls: THREE.Object3D[] = []; // shot blockers
     type DoorMesh = { key: string; mesh: THREE.Mesh };
@@ -523,8 +541,9 @@ export function DoubleO() {
         scene.remove(lvlGroup);
         disposeGroup(lvlGroup);
       }
-      for (const a of [...flyers.map((f) => f.m), ...loose.map((l) => l.m), ...pops.map((p) => p.s), ...bolts.map((x) => x.s)]) scene.remove(a);
-      flyers.length = loose.length = pops.length = bolts.length = 0;
+      for (const a of [...flyers.map((f) => f.m), ...loose.map((l) => l.m), ...pops.map((p) => p.s), ...bolts.map((x) => x.s), ...sparks.map((x) => x.s)]) scene.remove(a);
+      flyers.length = loose.length = pops.length = bolts.length = sparks.length = 0;
+      markerT = kick = 0;
       actors.length = walls.length = doorMeshes.length = pickups.length = 0;
       lvlIdx = i;
       L = LEVELS[i];
@@ -873,6 +892,7 @@ export function DoubleO() {
         heat,
         dist,
         arrow,
+        dirs: hitDirs.filter((d) => d.until > elapsed).map((d) => Math.atan2(Math.sin(d.ang - yaw), Math.cos(d.ang - yaw))),
         sats: stats.sats,
         satsTotal: satsTotal(),
         intel: stats.intel,
@@ -881,8 +901,15 @@ export function DoubleO() {
       }));
     };
 
-    const damagePlayer = (n: number) => {
+    const hitDirs: { ang: number; until: number }[] = [];
+    let beatAt = 0; // next low-health heartbeat
+    const damagePlayer = (n: number, from?: THREE.Vector3) => {
       if (!running) return;
+      shake = Math.max(shake, 0.2);
+      if (from) {
+        hitDirs.push({ ang: Math.atan2(-(from.x - camera.position.x), -(from.z - camera.position.z)), until: elapsed + 1.6 });
+        if (hitDirs.length > 6) hitDirs.shift();
+      }
       const soak = Math.min(armor, n * 0.6);
       armor -= soak;
       health = Math.max(0, health - (n - soak));
@@ -1004,7 +1031,12 @@ export function DoubleO() {
     const killActor = (a: Actor, now: number, point: THREE.Vector3, mine: boolean) => {
       a.state = 'dying';
       a.dyingAt = now;
-      if (mine) stats.kills++;
+      if (mine) {
+        stats.kills++;
+        markerT = 0.4;
+        markerKill = true;
+        playSfx('rekt', 0.35);
+      }
       sfx?.die();
       if (a.cast.boss) {
         playSfx('explosion');
@@ -1020,6 +1052,11 @@ export function DoubleO() {
       a.wobble = now;
       sfx?.hit();
       burstCoins(point, a.cast.boss ? 3 : 2);
+      spark(point, a.cast.boss ? 0.7 : 0.5);
+      if (mine && !(markerKill && markerT > 0.2)) {
+        markerT = 0.18;
+        markerKill = false;
+      }
       if (!isHost()) {
         if (mine) {
           a.hitByMe = now;
@@ -1031,6 +1068,19 @@ export function DoubleO() {
       if (a.state === 'patrol') {
         a.state = 'alert';
         a.lastSeen = now;
+      }
+      // Flinch: grunts are shoved back and lose their aim (shooting them first is the right call);
+      // bosses only stagger a hair so they stay a threat.
+      if (a.hp > 0 && grid) {
+        const away = a.root.position.clone().sub(camera.position).setY(0);
+        if (away.lengthSq() > 0.01) {
+          away.normalize().multiplyScalar(a.cast.boss ? 0.03 : 0.14);
+          moveActor(a, away.x, away.z);
+        }
+        if (!a.cast.boss) {
+          a.aimAt = 0;
+          a.nextShot = Math.max(a.nextShot, now + 500);
+        }
       }
       if (a.rig?.button && a.rig.button.parent) {
         // The WITHDRAW button pops right off.
@@ -1160,6 +1210,7 @@ export function DoubleO() {
       flash.material.rotation = Math.random() * Math.PI;
       muzzleLight.intensity = 14;
       recoil = 0.6;
+      kick = Math.min(0.05, kick + 0.014);
       setHud((h) => ({ ...h, shots: stats.shots, hits: stats.hits, heat }));
     };
 
@@ -1310,7 +1361,7 @@ export function DoubleO() {
       s.scale.setScalar(size);
       s.position.copy(from);
       scene.add(s);
-      bolts.push({ s, v: dir.clone().multiplyScalar(speed), dmg, born: now, from: a });
+      bolts.push({ s, v: dir.clone().multiplyScalar(speed), dmg, born: now, from: a, origin: from.clone() });
     };
     const fireVolley = (a: Actor, now: number, tp: THREE.Vector3) => {
       const from = a.rig ? a.rig.muzzle.getWorldPosition(new THREE.Vector3()) : a.root.position.clone().setY(1.3);
@@ -1785,6 +1836,13 @@ export function DoubleO() {
         minigun(whine);
       }
 
+      // Low health: a double heartbeat thump.
+      if (health < 30 && health > 0 && now > beatAt) {
+        beatAt = now + 900 - (30 - health) * 15;
+        playSfx('stomp', 0.35);
+        setTimeout(() => running && playSfx('stomp', 0.22), 170);
+      }
+
       // Pickups.
       for (const p of pickups) {
         if (p.taken) continue;
@@ -1861,7 +1919,7 @@ export function DoubleO() {
         const p = bo.s.position;
         const hitMe = Math.hypot(p.x - camera.position.x, p.z - camera.position.z) < 0.5 && p.y > 0.2 && p.y < 2.1;
         if (hitMe) {
-          damagePlayer(bo.dmg);
+          damagePlayer(bo.dmg, bo.origin);
           const src = bo.from;
           if (src && src.cast.grab && src.state !== 'dying' && now > src.quipAt) {
             src.quipAt = now + 2500;
@@ -1879,7 +1937,8 @@ export function DoubleO() {
       // Gun bob/recoil.
       shake = Math.max(0, shake - dt);
       const sk = shake * 0.06;
-      camera.rotation.set(pitch + (Math.random() - 0.5) * sk, yaw + (Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk, 'YXZ');
+      kick = Math.max(0, kick - dt * 0.35);
+      camera.rotation.set(pitch + kick + (Math.random() - 0.5) * sk, yaw + (Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk, 'YXZ');
       torch.position.copy(camera.position).add(new THREE.Vector3(-Math.sin(yaw) * 2, 1.3, -Math.cos(yaw) * 2));
       muzzleLight.position.copy(torch.position);
       key.position.set(camera.position.x - Math.sin(yaw) * 1.5, WALL_H - 0.15, camera.position.z - Math.cos(yaw) * 1.5);
@@ -1917,6 +1976,26 @@ export function DoubleO() {
           scene.remove(l.m);
           loose.splice(i, 1);
         }
+      }
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const sp = sparks[i];
+        const t = (now - sp.born) / sp.life;
+        if (t >= 1) {
+          scene.remove(sp.s);
+          sp.s.material.dispose();
+          sparks.splice(i, 1);
+          continue;
+        }
+        sp.s.scale.setScalar(sp.size * (0.4 + t));
+        sp.s.material.opacity = 1 - t;
+      }
+      // Crosshair hit marker (an X that flashes white on a hit, red on a kill).
+      markerT = Math.max(0, markerT - dt);
+      const mk = marker.current;
+      if (mk) {
+        mk.style.opacity = String(Math.min(1, markerT * 6));
+        mk.style.transform = `translate(-50%, -50%) scale(${1 + (markerKill ? 0.5 : 0.25) * (1 - Math.min(1, markerT * 5))}) rotate(45deg)`;
+        mk.style.setProperty('--mk', markerKill ? '#ff4040' : '#ffffff');
       }
       for (let i = pops.length - 1; i >= 0; i--) {
         const p = pops[i];
@@ -2205,7 +2284,17 @@ export function DoubleO() {
             <div className="pointer-events-none absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-hot/70">
               <div className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-hot" />
             </div>
+            <div ref={marker} className="pointer-events-none absolute left-1/2 top-1/2 h-9 w-9 opacity-0" style={{ transform: 'translate(-50%, -50%) rotate(45deg)' }}>
+              <div className="absolute left-1/2 top-0 h-full w-[3px] -translate-x-1/2" style={{ background: 'linear-gradient(var(--mk, #fff) 35%, transparent 35% 65%, var(--mk, #fff) 65%)' }} />
+              <div className="absolute left-0 top-1/2 h-[3px] w-full -translate-y-1/2" style={{ background: 'linear-gradient(90deg, var(--mk, #fff) 35%, transparent 35% 65%, var(--mk, #fff) 65%)' }} />
+            </div>
             {hurt && <div className="pointer-events-none absolute inset-0 bg-red-600/30" />}
+            {hud.health < 35 && hud.health > 0 && <div className="pointer-events-none absolute inset-0 animate-pulse" style={{ background: 'radial-gradient(ellipse at center, transparent 45%, rgba(200,0,0,0.55) 100%)' }} />}
+            {hud.dirs.map((d, i) => (
+              <div key={i} className="pointer-events-none absolute left-1/2 top-1/2 h-0 w-0" style={{ transform: `rotate(${d}rad)` }}>
+                <div className="absolute -left-10 -top-[170px] h-3 w-20 rounded-full bg-red-600/80 blur-[2px]" />
+              </div>
+            ))}
             {/* Squad (multiplayer) */}
             {net.agents.length > 1 && (
               <div className="pointer-events-none absolute bottom-16 left-2 flex flex-col gap-0.5 text-xs">
