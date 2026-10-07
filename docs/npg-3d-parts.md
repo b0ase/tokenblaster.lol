@@ -69,7 +69,7 @@ Card art note: **Medical** = heart patch, **Payne Patch** = red-cross patch. The
 
 1. Put one Tripo-flat card (Payne or Polkadot) through the Anything.world web app and compare it side by side in Inspect.
 2. If Anything.world wins, ask support to enable the API, then batch the rest. Ask the owner before any spend.
-3. For simple masks: put the card art as a texture onto the base (Ayumi) mask mesh. It's free and always the right shape.
+3. ~~For simple masks: put the card art as a texture onto the base (Ayumi) mask mesh.~~ Done: all 14 mask cards as "(wrapped)" in the Stack Builder, `public/arena/models/npg/stack/masks/`. Pipeline in `scripts/npg-masks/` (prep.py crops the card, wrap.py projects it front-on in Blender, render.py makes a contact sheet). Mouth masks ride the base mask mesh; eye-level cards (glasses, goggles, patches) ride the front of the head mesh, 3 mm out. Registration constants in `register.py` / `wrap.py`.
 4. Weapons: test 2–3 before buying credits for the set.
 5. Map the remaining categories to bones (hands, feet, chest).
 

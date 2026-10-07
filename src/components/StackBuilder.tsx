@@ -26,7 +26,9 @@ const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: 
 // so new batches show up without code changes.
 const ZERO = { scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
 const PARTS = '/arena/models/npg/stack/parts.json';
-type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string; fit?: Fit };
+// wrapped: card art painted onto the base mask mesh (scripts/npg-masks). Its vertices are already in
+// the chibi's model space, so it sits exactly where the base mask is and ignores the fit sliders.
+type Part = { id: string; name: string; slot: 'mask' | 'horns'; url: string; fit?: Fit; wrapped?: boolean };
 
 export function StackBuilder() {
   const mount = useRef<HTMLDivElement>(null);
@@ -94,6 +96,12 @@ export function StackBuilder() {
       const r = rigid[kind];
       const into = kind === 'mask' ? maskSlot : slot;
       if (!r.obj || !into) return;
+      if (r.obj.userData.wrapped && head && base) {
+        // Model space -> head bone space, at the bind pose (no animation plays here).
+        const m = (head as THREE.Object3D).matrixWorld.clone().invert().multiply(base.matrixWorld);
+        m.decompose(r.obj.position, r.obj.quaternion, r.obj.scale);
+        return;
+      }
       bendPart(r.obj, r.fit.bend ?? 0);
       const raw = r.obj.userData.raw as THREE.Box3;
       const rs = raw.getSize(new THREE.Vector3());
@@ -138,6 +146,7 @@ export function StackBuilder() {
         obj.userData.raw = new THREE.Box3().setFromObject(obj, true);
         obj.userData.flat = obj.userData.raw.clone();
         obj.userData.id = p.id;
+        obj.userData.wrapped = !!p.wrapped;
         cache.set(p.id, obj);
       }
       if (r.want !== p.id) return; // picked something else while loading
@@ -327,7 +336,7 @@ export function StackBuilder() {
         );
       })}
       <FitSliders label="HAIR" card={hair} fit={fit} onChange={setFit} />
-      {mask && <FitSliders label="MASK" card={mask} fit={maskFit} onChange={setMaskFit} />}
+      {mask && !parts.find((p) => p.id === mask)?.wrapped && <FitSliders label="MASK" card={mask} fit={maskFit} onChange={setMaskFit} />}
       {horns && <FitSliders label="HORNS" card={horns} fit={hornsFit} onChange={setHornsFit} />}
       <p className="mt-1 text-xs text-dim">Fit tweaks get saved per card once the set is final.</p>
     </section>

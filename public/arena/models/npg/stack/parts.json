@@ -111,5 +111,103 @@
    "roll": 0,
    "bend": 0
   }
+ },
+ {
+  "id": "wrap_11_001_Mask_Yama-Mask",
+  "name": "Yama Mask (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_001_Mask_Yama-Mask.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_002_Mask_Payne-Patch",
+  "name": "Payne Patch (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_002_Mask_Payne-Patch.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_003_Mask_Ayumi-Mask",
+  "name": "Ayumi Mask (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_003_Mask_Ayumi-Mask.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_004_Mask_Kimi-Mask",
+  "name": "Kimi Mask (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_004_Mask_Kimi-Mask.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_005_Mask_Medical",
+  "name": "Medical (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_005_Mask_Medical.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_006_Mask_Spiked",
+  "name": "Spiked (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_006_Mask_Spiked.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_007_Mask_Studded",
+  "name": "Studded (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_007_Mask_Studded.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_009_Mask_Miami-Sunglasses",
+  "name": "Miami Sunglasses (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_009_Mask_Miami-Sunglasses.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_010_Mask_Bluetooth-Mic",
+  "name": "Bluetooth Mic (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_010_Mask_Bluetooth-Mic.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_011_Mask_Mecha-Style",
+  "name": "Mecha Style (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_011_Mask_Mecha-Style.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_014_Mask_Plain",
+  "name": "Plain (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_014_Mask_Plain.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_015_Mask_Racing-Goggles",
+  "name": "Racing Goggles (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_015_Mask_Racing-Goggles.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_016_Mask_Polkadot",
+  "name": "Polkadot (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_016_Mask_Polkadot.glb",
+  "wrapped": true
+ },
+ {
+  "id": "wrap_11_020_Mask_Glasses",
+  "name": "Glasses (wrapped)",
+  "slot": "mask",
+  "url": "/arena/models/npg/stack/masks/11_020_Mask_Glasses.glb",
+  "wrapped": true
  }
 ]
