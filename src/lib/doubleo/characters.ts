@@ -118,7 +118,7 @@ const fabricTex = (key: string, base: string, stripe: string | null) =>
 /** Cloth and skin as proper PBR: bump from the weave, sheen on fabric, soft subsurface-ish skin, glossy shoes. */
 const cloth = (key: string, color: string, stripe: string | null = null, extra: Partial<THREE.MeshPhysicalMaterialParameters> = {}) => {
   const t = fabricTex(key, '#ffffff', stripe);
-  return new THREE.MeshPhysicalMaterial({ color, map: t, bumpMap: t, bumpScale: 1.2, roughness: 0.78, metalness: 0, sheen: 0.6, sheenRoughness: 0.5, sheenColor: new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.4), ...extra });
+  return new THREE.MeshPhysicalMaterial({ color, map: t, bumpMap: t, bumpScale: 1.2, roughness: 0.78, metalness: 0, sheen: 0.25, sheenRoughness: 0.8, sheenColor: new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.15), ...extra });
 };
 const skinMat = (color: string) => {
   const t = canvasTex(`skin-${color}`, 128, 128, (c) => {
@@ -372,18 +372,18 @@ export function buildRig(kind: Kind, agent?: string): Rig {
     bot: { suit: '#3a4250', legs: '#262b33', skin: '#59636f', shirt: '#59636f' },
     goon: { suit: '#f2efe6', legs: '#1b1b1b', skin: '#e2b48e', shirt: '#f2efe6' },
     kingpin: { suit: '#9c7a1a', legs: '#7a5f12', skin: '#e7b08a', shirt: '#111111' },
-    custodian: { suit: '#5c6168', legs: '#3c4046', skin: '#d8a888', shirt: '#f4f4f4' },
+    custodian: { suit: '#5c6168', legs: '#3c4046', skin: '#d8a888', shirt: '#dcdcdc' },
     hoarder: { suit: '#e8741c', legs: '#2a2a2e', skin: '#e0b090', shirt: '#e8741c' },
     partyboy: { suit: '#5a6a3a', legs: '#2a3a5a', skin: '#e8b898', shirt: '#7a8a5a' },
   };
-  const p = agent ? { suit: '#0d0d10', legs: '#0d0d10', skin: '#e2b48e', shirt: '#f4f4f4' } : palette[kind];
+  const p = agent ? { suit: '#0d0d10', legs: '#0d0d10', skin: '#e2b48e', shirt: '#dcdcdc' } : palette[kind];
   const stripe = kind === 'kingpin' ? '#d8b44a' : kind === 'custodian' ? '#9aa0a8' : agent ? '#2a2a34' : null;
   const suit =
     kind === 'goon' && !agent
       ? new THREE.MeshStandardMaterial({ map: paperTex(), roughness: 0.9 })
       : kind === 'bot'
         ? std(p.suit, { metalness: 0.7, roughness: 0.35 })
-        : cloth(`suit-${kind}-${agent ? 'a' : ''}`, p.suit, stripe, kind === 'kingpin' ? { roughness: 0.55, sheen: 0.9 } : {});
+        : cloth(`suit-${kind}-${agent ? 'a' : ''}`, p.suit, stripe, kind === 'kingpin' ? { roughness: 0.55, sheen: 0.4 } : {});
   const legMat = kind === 'bot' ? std(p.legs, { metalness: 0.7, roughness: 0.4 }) : cloth(`legs-${kind}`, p.legs, kind === 'custodian' || agent ? '#555b66' : null);
   const skin = kind === 'bot' ? std(p.skin, { metalness: 0.7, roughness: 0.35 }) : skinMat(p.skin);
 

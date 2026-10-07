@@ -285,7 +285,7 @@ export function DoubleO() {
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, radiusExponent: 1, rings: 2, samples: 8 });
     gtao.enabled = qualities[quality].ao;
     composer.addPass(gtao);
-    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), qualities[quality].bloom, 0.4, 1.6); // high threshold: only lamps, flashes and screens glow, not lit walls
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), qualities[quality].bloom, 0.4, 2.0); // high threshold: only lamps, flashes and screens glow, not lit walls
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
     const grade = makeGradePass();
@@ -321,7 +321,7 @@ export function DoubleO() {
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTex;
     scene.environmentIntensity = 0.35;
-    const torch = new THREE.PointLight('#fff0dc', 8, 16, 1.5);
+    const torch = new THREE.PointLight('#fff0dc', 5, 16, 1.5);
     scene.add(torch);
     // Soft shadows from a ceiling spotlight that follows the agent.
     const key = new THREE.SpotLight('#fff4e0', 32, 26, 0.9, 0.6, 1.4);
