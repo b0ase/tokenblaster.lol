@@ -20,6 +20,11 @@ export function PlayerTag({ row, size = 20 }: { row: Pick<ScoreRow, 'name' | 'me
         </span>
       )}
       <span className="min-w-0 truncate text-fg">{p.name}</span>
+      {p.verified && (
+        <span title="X handle verified with bWalletX (a wallet signature)" aria-label="X handle verified" className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-[#1d9bf0] text-[9px] leading-none text-white">
+          ✓
+        </span>
+      )}
     </span>
   );
 }

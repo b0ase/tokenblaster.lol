@@ -44,6 +44,7 @@ import { GameAudio } from './SoundToggle';
 import { CoinOpButtons, useCoinOp } from './InsertCoin';
 import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
 import { useActionPay } from '@/lib/useActionPay';
+import { HighScores } from './HighScores';
 import { buildCityDetail } from '@/lib/visuals/cityDetail';
 import { QUALITY_PRESETS, autoCityQuality, saveCityQuality, type CityQuality } from '@/lib/visuals/cityQuality';
 import { sharedAudio } from '@/lib/sfx';
@@ -98,6 +99,9 @@ export function SatoshiCity() {
   const [toast, setToast] = useState<null | { text: string; sub: string; n: number; col: string }>(null);
   const [wasted, setWasted] = useState<null | { by: string; id: string; sim: boolean }>(null);
   const [started, setStarted] = useState(false);
+  // Hall of fame: post this visit's score (snapshot taken when the player asks, not on every frame).
+  const runStart = useRef(0);
+  const [post, setPost] = useState<{ score: number; secs: number; live: boolean } | null>(null);
   const co = useCoinOp('Satoshi City', 'city');
   const ap = useActionPay('city', 'Satoshi City');
   const pay = ap.pay;
@@ -1810,6 +1814,8 @@ export function SatoshiCity() {
               start={(paid) => {
                 if (paid && !co.consume()) return;
                 ap.setRun(paid);
+                runStart.current = Date.now();
+                setPost(null);
                 setStarted(true);
                 control.current?.start();
               }}
@@ -1859,6 +1865,17 @@ export function SatoshiCity() {
       <div className="mt-2 flex flex-col items-center">
         <AmmoAlerts ap={ap} />
       </div>
+      {started && hud.score > 0 && (
+        <div className="mt-2 flex flex-col items-center gap-2">
+          {post ? (
+            <HighScores game="city" score={post.score} secs={post.secs} live={post.live} txid={ap.lastTx} label="SCORE" />
+          ) : (
+            <button className="btn text-xs" onClick={() => setPost({ score: hud.score, secs: Math.round((Date.now() - runStart.current) / 100) / 10, live: ap.live })}>
+              POST {hud.score.toLocaleString()} PTS TO THE HALL OF FAME
+            </button>
+          )}
+        </div>
+      )}
       {co.chooserEl}
       <p className="mt-2 text-xs text-muted">
         Traffic is a live sample of mainnet: each car is one real transaction, kind and size deciding the vehicle (payments are cars, data vans and taxis, inscriptions trucks and

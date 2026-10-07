@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBlaster } from './useBlaster';
 import { HOUSE } from './usePaidPlay';
 import { actionsLoaded, createActionQueue, PER_ACTION, type ActionQueue, type Fire } from './actionPay';
+import { reportTxs } from './txlog';
 import { GAME_COINS, type GameCoin, type GameKey } from './gameCoins';
 
 /** Dev-only seam for headless checks: localStorage tb:stubpay=1 fakes a loaded gun and never broadcasts. */
@@ -87,6 +88,21 @@ export function useActionPay(game: string, title: string, houseKey?: GameKey) {
 
   /** Stable: gate each action with `if (!ap.pay.current(['jump'])) return;`. Practice (no queue yet / not live) = always true. */
   const pay = useRef((action: string[]) => qRef.current?.ask(action) ?? true);
+
+  // Hall of fame: when a run ends, report the txs it sent (this hook counts across runs, so subtract the count at the start).
+  const sentNow = useRef(0);
+  const lastNow = useRef<string | null>(null);
+  const base = useRef(0);
+  const was = useRef(false);
+  useEffect(() => {
+    sentNow.current = sent;
+    lastNow.current = lastTx;
+  }, [sent, lastTx]);
+  useEffect(() => {
+    if (running && !was.current) base.current = sentNow.current;
+    if (!running && was.current && sentNow.current > base.current) reportTxs({ game, txs: sentNow.current - base.current, txid: lastNow.current });
+    was.current = running;
+  }, [running, game]);
 
   const setRun = useCallback((on: boolean) => setRunning(on), []);
   const chooseSats = useCallback(() => {

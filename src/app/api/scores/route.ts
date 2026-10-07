@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { checkProof } from '@/lib/xproof';
+import { cleanHandle } from '@/lib/identity';
 import { cleanName, isScoreGame, isScorePeriod, SCORE_GAMES, submitScore, topScores, verifyRunTx } from '@/lib/scores';
 
 /** GET /api/scores?game=hopper&period=24h|7d|all&limit=10&sort=score|time → { game, period, scores } */
@@ -58,6 +60,15 @@ export async function POST(request: Request) {
         .slice(0, 8)
         .filter(([k, v]) => /^[a-z0-9_]{1,16}$/i.test(k) && ((typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.length <= 32))),
     );
+  }
+  // X identity: meta.x is the claimed handle; meta.xv=1 is set here, only when the run is signed by the key bWalletX holds for that handle
+  // (src/lib/xproof.ts). Anything a client puts in meta under those names is dropped.
+  delete m.x;
+  delete m.xv;
+  const handle = cleanHandle(body.x);
+  if (handle) {
+    m.x = handle;
+    if (body.xp && (await checkProof(handle, body.xp, 'score', game, `${score}-${secs}`))) m.xv = 1;
   }
   let tx: string | null = null;
   if (txid !== undefined && txid !== null && txid !== '') {

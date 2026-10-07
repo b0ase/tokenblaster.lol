@@ -15,6 +15,7 @@ import { AmmoPicker } from './AmmoPicker';
 import { iconUrl } from '@/lib/tokens';
 import { TOKEN_FEE } from '@/lib/gun';
 import { useBlaster } from '@/lib/useBlaster';
+import { HighScores } from './HighScores';
 import { AmmoStrip } from './AmmoStrip';
 import { WalletChooser } from './WalletChooser';
 import { Room, realtimeConfigured } from '@/lib/realtime';
@@ -144,6 +145,8 @@ export function Arena() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dead, setDead] = useState(false);
   const [deathKills, setDeathKills] = useState(0);
+  // Hall of fame: the best life this visit (kills, seconds alive), offered under the arena once you have one.
+  const [bestLife, setBestLife] = useState<{ kills: number; secs: number; live: boolean } | null>(null);
   // Practice = you walked in with nothing loaded: every shot is local, nothing goes to the chain.
   const [practice, setPractice] = useState(false);
   // Overlays the game loop drives straight through the DOM (no React render per frame / per hit).
@@ -660,6 +663,7 @@ export function Arena() {
     let deathRoll = 0;
     let invulnUntil = 0;
     let lifeKills = 0;
+    let lifeStart = 0;
     let practiceRun = false;
     let hitStreak = 0;
     let lastHitAt = 0;
@@ -755,6 +759,8 @@ export function Arena() {
         sfx?.dead();
         trigger = false;
         setDeathKills(lifeKills);
+        const life = { kills: lifeKills, secs: Math.round((performance.now() - lifeStart) / 100) / 10, live: !practiceRun };
+        if (life.kills > 0) setBestLife((b) => (b && b.kills >= life.kills ? b : life));
         setDead(true);
       }
       setHud((h) => ({ ...h, health }));
@@ -1069,6 +1075,7 @@ export function Arena() {
       // The PRACTICE button always means practice (even with a loaded gun); a plain click goes live only when armed.
       practiceRun = (e as CustomEvent<{ practice?: boolean } | undefined> | undefined)?.detail?.practice === true || !live.current.armed;
       playStart = performance.now();
+      lifeStart = playStart;
       setPractice(practiceRun);
       setPlaying(true);
       if (!sfx) sfx = makeSfx();
@@ -1480,6 +1487,7 @@ export function Arena() {
         pitch = 0;
         deathRoll = 0;
         lifeKills = 0;
+        lifeStart = performance.now();
         invulnUntil = now + 2500; // a moment to look around before anything can hurt you
         for (const fb of fireballs.splice(0)) {
           scene.remove(fb.s);
@@ -2313,6 +2321,12 @@ export function Arena() {
         </button>
       </div>
 
+      {bestLife && !playing && (
+        <div className="mt-2">
+          <p className="mb-1 text-xs tracking-widest text-dim">YOUR BEST LIFE · {bestLife.kills} KILLS IN {Math.floor(bestLife.secs)}s · POST IT TO THE HALL OF FAME</p>
+          <HighScores key={`${bestLife.kills}-${bestLife.secs}`} game="arena" score={bestLife.kills} secs={bestLife.secs} live={bestLife.live} txid={hud.last} label="KILLS" />
+        </div>
+      )}
       {!playing && hud.last && (
         <p className="mt-2 truncate text-xs text-dim">
           last shot on chain:{' '}

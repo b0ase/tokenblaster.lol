@@ -25,6 +25,7 @@ import { CARS, fmt, RallyEngine, STAGES, type Hud, type MapData, type Phase, typ
 import { STAGE_LIST, type StageId } from '@/lib/rally/stages';
 import type { Track } from '@/lib/rally/track';
 import type { ScoreGame } from '@/lib/scores';
+import { reportTxs } from '@/lib/txlog';
 
 type QualityPref = 'auto' | 'low' | 'high' | 'ultra';
 type RivalInfo = { name: string; detail: string; color: string; live: boolean; tx: string | null; skill: number; kind: string };
@@ -171,6 +172,13 @@ export function TokenRally() {
   const [loading, setLoading] = useState({ msg: 'Starting', pct: 0 });
   const [count, setCount] = useState<number | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  // Hall of fame: when a LIVE stage ends, report how many txs this run put on chain (never blocks, never touches payments).
+  const txReported = useRef<Result | null>(null);
+  useEffect(() => {
+    if (!result || txReported.current === result) return;
+    txReported.current = result;
+    if (run.live && spent.sent > 0) reportTxs({ game: 'rally', txs: spent.sent, txid: spent.last ?? spent.first, secs: result.total });
+  }, [result, run.live, spent]);
   const [rivals, setRivals] = useState<RivalInfo[]>([]);
   const [toasts, setToasts] = useState<(Toast & { id: number })[]>([]);
   const [error, setError] = useState<string | null>(null);

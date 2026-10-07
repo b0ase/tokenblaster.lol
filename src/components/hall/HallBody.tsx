@@ -23,7 +23,7 @@ export type HallProps = {
 const METHOD =
   'Each game is its own championship. Placings 1 to 10 on a game’s board score 25, 18, 15, 12, 10, 8, 6, 4, 2 and 1 points. ' +
   'A game with several boards (levels, tracks) counts a player’s best placing once. Points add up across games; ties go to the most #1s, then the most games. ' +
-  'Players are identified by the name on the score, or by their X handle when the game sends one, so names are self-chosen: the tick marks scores verified on chain.';
+  'Players are identified by the name on the score, or by their X handle when the game sends one, so names are self-chosen: a green tick marks a run verified on chain and a blue tick an X handle proven with bWalletX.';
 
 function Tip({ text }: { text: string }) {
   return (
@@ -49,7 +49,7 @@ function Overall({ boards, period }: { boards: HallData; period: ScorePeriod }) 
         <li key={r.player.key} className={`flex items-center gap-3 border-b border-[var(--border-dim)] py-1.5 ${i === 0 ? 'bg-[var(--input)] px-2' : ''}`}>
           <span className={`dr-display w-8 shrink-0 text-right ${i === 0 ? 'text-3xl text-[var(--accent)]' : 'text-xl text-dim'}`}>{i + 1}</span>
           <span className={`min-w-0 flex-1 ${i === 0 ? 'text-lg' : 'text-sm'}`}>
-            <PlayerTag row={{ name: r.player.handle ? '' : r.player.name, meta: r.player.handle ? { x: r.player.handle } : {} }} size={i === 0 ? 32 : 24} />
+            <PlayerTag row={{ name: r.player.handle ? '' : r.player.name, meta: r.player.handle ? { x: r.player.handle, xv: r.player.verified ? 1 : 0 } : {} }} size={i === 0 ? 32 : 24} />
             <span className="mt-0.5 hidden truncate text-[10px] text-dim sm:block">
               {r.best.slice(0, 4).map((b) => `${title(b.game)} #${b.rank}`).join(' · ')}
               {r.best.length > 4 ? ` · +${r.best.length - 4}` : ''}
@@ -202,8 +202,8 @@ function TxPlayers({ list }: { list: TxPlayer[] | null }) {
   if (list === null)
     return (
       <div className="inset p-3 text-xs text-dim">
-        <p className="text-sm text-hot">Not tracked yet.</p>
-        <p className="mt-1">Every bullet is a real transaction, but the chain index only knows which token was blasted, not who fired it, so there is no per-player count to rank. Recording starts as soon as the games report their LIVE transactions.</p>
+        <p className="text-sm text-hot">Waiting for the database.</p>
+        <p className="mt-1">The games now report each LIVE run’s transaction count (checked against its last transaction on chain), but the tx log table is not live on the server yet. This board fills in as soon as it is.</p>
       </div>
     );
   if (!list.length) return <Empty href="/arcade" label="No LIVE transactions recorded in this period. Go LIVE and be first." />;
@@ -212,7 +212,7 @@ function TxPlayers({ list }: { list: TxPlayer[] | null }) {
       {list.map((p, i) => (
         <li key={p.name} className="flex items-center gap-2">
           <span className="dr-display w-6 text-right text-dim">{i + 1}</span>
-          <PlayerTag row={{ name: p.name.startsWith('@') ? '' : p.name, meta: p.name.startsWith('@') ? { x: p.name.slice(1) } : {} }} />
+          <PlayerTag row={{ name: p.name.startsWith('@') ? '' : p.name, meta: p.name.startsWith('@') ? { x: p.name.slice(1), xv: p.idv ? 1 : 0 } : {} }} />
           <span className="ml-auto text-[11px] text-dim">{p.games} games</span>
           {p.last_txid && (
             <a href={`https://whatsonchain.com/tx/${p.last_txid}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-dim hover:underline" title="Latest transaction">

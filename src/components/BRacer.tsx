@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { HighScores } from './HighScores';
+import { reportTxs } from '@/lib/txlog';
 import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { GameAudio } from './SoundToggle';
 import { Barcode, ChevronBar, Display, HazardBar, Kana, Pictogram, PosterFrame, ProductCode, Sticker, gridBg, halftone, type PictogramName } from './dr';
@@ -192,6 +193,13 @@ export function BRacer() {
   const [loading, setLoading] = useState({ msg: 'Starting', pct: 0 });
   const [count, setCount] = useState<number | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  // Hall of fame: when a run with LIVE per-action blasts ends, report how many txs it put on chain.
+  const txReported = useRef<Result | null>(null);
+  useEffect(() => {
+    if (!result || txReported.current === result) return;
+    txReported.current = result;
+    if (run.paid && onChain > 0) reportTxs({ game: 'bracer', txs: onChain, txid: lastTx, secs: result.total });
+  }, [result, run.paid, onChain, lastTx]);
   const [rivals, setRivals] = useState<RivalInfo[]>([]);
   const [board, setBoard] = useState<LiveRow[]>([]);
   const [toasts, setToasts] = useState<(Toast & { id: number })[]>([]);
