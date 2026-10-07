@@ -20,6 +20,9 @@ import { RallyAudio } from './audio';
 import { CarFactory, WHEEL_VIS_R, WHEEL_X, WHEEL_Z, type CarRig, type Livery } from './carBuild';
 import { newCar, stepCar, WHEELS, type CarInput, type CarState, type CarWorld } from './car';
 import { Input, type Touch } from './input';
+import { SnapshotBuffer } from '@/lib/racemp/buffer';
+import type { RaceLink } from '@/lib/racemp/session';
+import { driverColour, FL_DONE, FL_DRY, FL_NITRO, RALLY_CHANNELS, RALLY_VCAP, type RallyCfg } from './mp';
 import { clamp, lerp, rng, smooth } from './noise';
 import { detailOf, pickRivals, RIVAL_PAINT, SPONSORS, type RivalSpec } from './rivals';
 import { CARS, STAGES, type CarSpec, type StageId } from './stages';
@@ -104,6 +107,32 @@ export type Options = {
   cb: Callbacks;
   /** Default render scale ceiling. */
   maxDpr?: number;
+  /** Room link (src/lib/racemp), set by the shell while the pilot is in a room. */
+  mp?: RaceLink<RallyCfg>;
+};
+
+/** Another human's car: played back ~130 ms in the past from a snapshot buffer (src/lib/racemp/buffer.ts). */
+type RemoteRun = {
+  id: string;
+  name: string;
+  colour: string;
+  rig: CarRig;
+  label: THREE.Sprite;
+  labelTex: THREE.CanvasTexture;
+  buf: SnapshotBuffer;
+  spot: number;
+  s: number;
+  v: number;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  spin: number;
+  fl: number;
+  gone: boolean;
+  placed: boolean;
 };
 
 type RivalRun = {
@@ -141,6 +170,9 @@ const COUNT = 7; // rivals
 const START_S = 46;
 /** Grid slots relative to the player (metres along the road): the fastest rivals start ahead, the rest behind. */
 const GRID = [34, 22, 11, -9, -18, -27, -36];
+
+/** Human grid spots in a room: two lanes, rows 8 m apart behind the line. AI cars start ahead of them. */
+const spotPos = (i: number) => ({ off: -Math.floor(i / 2) * 8, lat: i % 2 === 0 ? -2.4 : 2.4 });
 
 const angDiff = (a: number, b: number) => {
   let d = b - a;
@@ -337,6 +369,13 @@ export class RallyEngine {
   private hdrSky: THREE.Texture | null = null;
   private horizon = new THREE.Color('#aab8c6');
   private driftShown = 0;
+  private remotes: RemoteRun[] = [];
+  /** My grid spot while racing in a room (spots 0..7: two lanes, rows behind the line). */
+  private mySpot = -1;
+  private mpMaxS = 0;
+  private lastSend = 0;
+  private greenAtMs = 0;
+  private mpSetup = false;
   /** LIVE race economy, driven by the shell: `live` turns spend events on, `dry` cuts the throttle and nitro (coasting). */
   econ = { live: false, dry: false };
   private fuelM = 0;
@@ -593,8 +632,8 @@ export class RallyEngine {
     return { base, accent, trim, number: String(((spec.slot * 13 + 5) % 97) + 2), sponsors: [sp[h], sp[(h + 3) % sp.length], sp[(h + 6) % sp.length]], ticker: text.slice(0, 9), logo: meta?.icon ?? null, seed: spec.slot * 31 + 7 };
   }
 
-  private async makeRivals() {
-    const { rivals, live } = pickRivals(this.opts.take, COUNT, this.stage.seed * 31 + (Date.now() % 1000));
+  private async makeRivals(count = COUNT, gridOff: (slot: number) => number = (slot) => GRID[slot] ?? -40) {
+    const { rivals, live } = pickRivals(this.opts.take, count, this.stage.seed * 31 + (Date.now() % 1000));
     this.liveRivals = live;
     const track = this.track;
     this.rivals = [];
@@ -606,7 +645,7 @@ export class RallyEngine {
       const label = this.makeLabel();
       c.root.add(label.sprite);
       this.scene.add(c.root);
-      const s0 = Math.max(3, START_S + (GRID[spec.slot] ?? -40));
+      const s0 = Math.max(3, START_S + gridOff(spec.slot));
       const i0 = Math.round(s0 / STEP);
       const tt = new Float32Array(track.n);
       let t = 0;
@@ -858,7 +897,8 @@ export class RallyEngine {
     const track = this.track;
     const c = this.car;
     const p = { x: 0, y: 0, z: 0, yaw: 0 };
-    pointAt(track, START_S, 0, p);
+    const sp = this.mySpot >= 0 ? spotPos(this.mySpot) : { off: 0, lat: 0 };
+    pointAt(track, START_S + sp.off, sp.lat, p);
     Object.assign(c, newCar(), { x: p.x, z: p.z, y: groundY(track, p.x, p.z, true), yaw: p.yaw, nitro: 0.35 });
     this.camYaw = p.yaw;
     this.camY = c.y;
@@ -891,9 +931,177 @@ export class RallyEngine {
       c.active = false;
       c.group.visible = false;
     }
+    for (const r of this.remotes) this.resetRemote(r);
+    this.mpMaxS = START_S;
     this.skids.clear();
     this.syncCarMesh();
     this.nearUpdate();
+  }
+
+  // ───────────── Multiplayer ─────────────
+
+  /** Call with opts.mp set (race info present) while at the menu, then begin(). Other pilots become real cars; AI fills the rest. */
+  async startMp(me: { name: string; colour: string }) {
+    const mp = this.opts.mp;
+    const race = mp?.race;
+    if (!mp || !race || (this.phase !== 'menu' && this.phase !== 'finished')) return false;
+    this.clearMp();
+    mp.on = (ev, p) => this.onNet(ev, p);
+    const ids = race.ids;
+    this.mySpot = Math.max(0, ids.indexOf(mp.id));
+    // Fresh live-chain rivals for the empty slots, lined up ahead of the human grid.
+    for (const r of this.rivals) this.removeRival(r);
+    this.rivals = [];
+    await this.makeRivals(Math.max(0, 8 - ids.length), (slot) => 14 + slot * 9);
+    if (this.disposed) return false;
+    const pl = driverColour(me.colour);
+    this.player.setLivery({ base: pl.base, accent: pl.accent, trim: pl.trim, number: this.carSpec.number, sponsors: ['SATOSHI RACING', 'HASH·OIL', 'MEMPOOL ENERGY'], ticker: me.name.slice(0, 9), logo: null, seed: 3 });
+    ids.forEach((id, i) => {
+      const info = race.players[id];
+      if (id !== mp.id && info) this.addRemote(id, info, i);
+    });
+    this.mpSetup = true;
+    this.csmSetup();
+    return true;
+  }
+
+  private removeRival(r: RivalRun) {
+    this.scene.remove(r.root);
+    r.rig.dispose();
+    r.labelTex.dispose();
+    (r.label.material as THREE.Material).dispose();
+  }
+
+  private clearMp() {
+    for (const r of this.remotes) {
+      this.scene.remove(r.rig.root);
+      r.rig.dispose();
+      r.labelTex.dispose();
+      (r.label.material as THREE.Material).dispose();
+    }
+    this.remotes = [];
+    this.mySpot = -1;
+    if (this.opts.mp) this.opts.mp.on = null;
+    if (this.mpSetup) {
+      this.mpSetup = false;
+      this.player.setLivery({ base: this.carSpec.base, accent: this.carSpec.accent, trim: this.carSpec.trim, number: this.carSpec.number, sponsors: ['SATOSHI RACING', 'HASH·OIL', 'MEMPOOL ENERGY'], ticker: 'TOKEN RALLY', logo: null, seed: 3 });
+    }
+  }
+
+  private addRemote(id: string, info: { name: string; vehicle: string; team: string }, spot: number) {
+    const spec = CARS.find((c) => c.id === info.vehicle) ?? CARS[0];
+    const col = driverColour(info.team);
+    const name = String(info.name || 'PILOT').slice(0, 14);
+    const rig = this.factory.build(spec.body, { base: col.base, accent: col.accent, trim: col.trim, number: String(((spot * 13 + 5) % 97) + 2), sponsors: ['SATOSHI RACING', 'HASH·OIL', 'MEMPOOL ENERGY'], ticker: name.slice(0, 9), logo: null, seed: spot * 17 + 3 }, this.quality !== 'low');
+    this.scene.add(rig.root);
+    const label = this.makeLabel();
+    rig.root.add(label.sprite);
+    const g = label.canvas.getContext('2d')!;
+    const c = label.canvas;
+    g.clearRect(0, 0, c.width, c.height);
+    g.fillStyle = 'rgba(8,10,14,0.85)';
+    g.strokeStyle = col.base;
+    g.lineWidth = 8;
+    g.beginPath();
+    g.roundRect(4, 4, c.width - 8, c.height - 8, 18);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fff';
+    g.font = '900 54px Impact, "Arial Black", sans-serif';
+    g.textBaseline = 'middle';
+    g.fillText(name.toUpperCase(), 24, c.height / 2 + 2, c.width - 48);
+    label.tex.needsUpdate = true;
+    const r: RemoteRun = {
+      id, name, colour: col.base, rig, label: label.sprite, labelTex: label.tex,
+      buf: new SnapshotBuffer({ maxSpeed: RALLY_VCAP, clamp: RALLY_CHANNELS, frozenBit: FL_DONE }),
+      spot, s: START_S, v: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, spin: 0, fl: 0, gone: false, placed: false,
+    };
+    this.resetRemote(r);
+    this.remotes.push(r);
+  }
+
+  private resetRemote(r: RemoteRun) {
+    const sp = spotPos(r.spot);
+    const p = { x: 0, y: 0, z: 0, yaw: 0 };
+    pointAt(this.track, START_S + sp.off, sp.lat, p);
+    r.s = START_S + sp.off;
+    r.x = p.x;
+    r.z = p.z;
+    r.y = roadY(this.track, r.s);
+    r.yaw = p.yaw;
+    r.pitch = r.roll = r.v = 0;
+    r.fl = 0;
+    r.gone = false;
+    r.placed = false;
+    r.buf.reset();
+    r.rig.root.visible = true;
+    r.rig.root.position.set(r.x, r.y, r.z);
+    r.rig.root.rotation.set(0, r.yaw, 0);
+  }
+
+  /** Gameplay messages from the room (the session already filtered by race). */
+  private onNet(ev: string, raw: unknown) {
+    const d = raw as Record<string, unknown> | null;
+    if (ev !== 's' || !d || typeof d.i !== 'string') return;
+    const r = this.remotes.find((x) => x.id === d.i);
+    if (r) r.buf.push(d, performance.now());
+  }
+
+  /** My car, ~12-15 Hz. World position + yaw as cos/sin so interpolation never wraps. */
+  private sendState(now: number, force = false) {
+    const mp = this.opts.mp;
+    if (!mp?.race) return;
+    const n = mp.humans();
+    if (!force && now - this.lastSend < (n <= 2 ? 66 : n <= 4 ? 80 : 110)) return;
+    this.lastSend = now;
+    const c = this.car;
+    const q = (x: number) => Math.round(x * 100) / 100;
+    this.mpMaxS = Math.max(this.mpMaxS, this.near.s);
+    const fl = (c.nitroOn ? FL_NITRO : 0) | (this.econ.dry && this.econ.live ? FL_DRY : 0) | (this.phase === 'finished' ? FL_DONE : 0);
+    mp.send('s', { i: mp.id, ts: Math.round(now), p: q(this.mpMaxS), v: q(Math.abs(c.fwd)), l: 0, f: fl, a: [q(c.x), q(c.y + c.bodyY), q(c.z), Math.round(Math.cos(c.yaw) * 1000) / 1000, Math.round(Math.sin(c.yaw) * 1000) / 1000, q(c.pitch), q(c.roll)] });
+  }
+
+  private updateRemotes(dt: number, now: number) {
+    for (const r of this.remotes) {
+      if (!r.gone && this.greenAtMs > 0 && this.phase !== 'menu') {
+        const silent = r.buf.lastRecv > 0 ? now - r.buf.lastRecv > 4500 : now - this.greenAtMs > 9000;
+        if (silent) {
+          r.gone = true;
+          this.opts.cb.onToast({ text: `${r.name} DISCONNECTED`, tone: 'bad' });
+        }
+      }
+      r.rig.root.visible = !r.gone;
+      const st = r.buf.sample(now);
+      if (!st || r.gone) continue;
+      const [x, y, z, cy, sy, pitch, roll] = st.a;
+      // Soften corrections instead of popping; resets and teleports snap.
+      const k = Math.min(1, 16 * dt);
+      const far = (x - r.x) ** 2 + (z - r.z) ** 2 > 30 * 30;
+      if (!r.placed || far || dt === 0) {
+        r.x = x;
+        r.y = y;
+        r.z = z;
+        r.placed = true;
+      } else {
+        r.x += (x - r.x) * k;
+        r.y += (y - r.y) * k;
+        r.z += (z - r.z) * k;
+      }
+      const yaw = Math.atan2(sy, cy);
+      r.yaw += angDiff(r.yaw, yaw) * Math.min(1, 14 * dt);
+      r.pitch = pitch;
+      r.roll = roll;
+      r.v = st.v;
+      r.s = st.prog;
+      r.fl = st.fl;
+      r.spin += (r.v / WHEELS.radius) * dt;
+      r.rig.root.position.set(r.x, r.y, r.z);
+      r.rig.root.rotation.set(r.pitch, r.yaw, r.roll);
+      r.rig.wheels.forEach((w) => {
+        w.spin.rotation.x = r.spin * (WHEELS.radius / WHEEL_VIS_R);
+      });
+      r.rig.setLights(0, 0.4);
+    }
   }
 
   /** From the menu: go. */
@@ -910,6 +1118,7 @@ export class RallyEngine {
   /** Back to the menu orbit (new rivals from the feed). */
   async toMenu() {
     if (this.phase === 'loading') return;
+    this.clearMp();
     for (const r of this.rivals) {
       this.scene.remove(r.root);
       r.rig.dispose();
@@ -923,6 +1132,7 @@ export class RallyEngine {
   }
 
   pause(on: boolean) {
+    if (this.opts.mp?.race) return; // the race goes on for the others
     if (on && this.phase === 'racing') this.setPhase('paused');
     else if (!on && this.phase === 'paused') this.setPhase('racing');
   }
@@ -941,7 +1151,7 @@ export class RallyEngine {
     this.autopilot = on;
   }
   debug() {
-    return { car: this.car, near: this.near, roadYaw: Math.atan2(this.track.tx[this.near.i], this.track.tz[this.near.i]), hits: this.hits, riv: this.rivals.map((r) => [+r.x.toFixed(1), +r.z.toFixed(1), +r.s.toFixed(0), +r.lat.toFixed(1)]), raceT: this.raceT, phase: this.phase, fx: this.fxLevel, ms: this.frameMs, rivals: this.rivals.length, live: this.liveRivals, finish: this.result };
+    return { car: this.car, near: this.near, roadYaw: Math.atan2(this.track.tx[this.near.i], this.track.tz[this.near.i]), hits: this.hits, riv: this.rivals.map((r) => [+r.x.toFixed(1), +r.z.toFixed(1), +r.s.toFixed(0), +r.lat.toFixed(1)]), raceT: this.raceT, phase: this.phase, fx: this.fxLevel, ms: this.frameMs, rivals: this.rivals.length, live: this.liveRivals, finish: this.result, rem: this.remotes.map((r) => [r.name, +r.x.toFixed(1), +r.z.toFixed(1), +r.s.toFixed(0), r.gone]) };
   }
   /** Dev: end the run now (results screen). */
   debugFinish() {
@@ -1027,6 +1237,8 @@ export class RallyEngine {
         sfx('start');
         this.setPhase('racing');
         this.raceT = 0;
+        this.greenAtMs = performance.now();
+        this.opts.mp?.green(this.par * 0.5);
         setTimeout(() => this.opts.cb.onCount(null), 900);
       }
     }
@@ -1052,7 +1264,9 @@ export class RallyEngine {
       if (n >= 8) this.acc = 0;
       if (racing) this.raceT += dt;
       this.updateRivals(dt);
+      if (this.remotes.length) this.updateRemotes(dt, performance.now());
       this.updateRacing(dt);
+      if (racing && this.opts.mp?.race) this.sendState(performance.now());
     }
     this.syncCarMesh();
     this.effects(dt);
@@ -1397,8 +1611,10 @@ export class RallyEngine {
     const score = timePts + beatPts + driftPts;
     const splits = this.cps.map((c) => c.time ?? 0);
     this.result = { stage: this.stage.id, car: this.carSpec.id, raw, penalty: this.penalty, total, splits, pos, total_cars: rows.length, board: rows, drift: Math.round(this.car.driftPts), score, parts: { time: timePts, beat: beatPts, drift: driftPts }, par: this.par, hits: this.hits, resets: this.resets, live: this.liveRivals };
+    this.opts.mp?.finish(total);
     sfx('level');
     this.setPhase('finished');
+    this.sendState(performance.now(), true);
     this.opts.cb.onFinish(this.result);
   }
 
@@ -1672,6 +1888,7 @@ export class RallyEngine {
     const t = this.raceT + this.penalty;
     let ahead = 0;
     for (const r of this.rivals) if (r.s > this.near.s + 1) ahead++;
+    for (const r of this.remotes) if (!r.gone && r.s > this.near.s + 1) ahead++;
     let delta: number | null = null;
     let deltaName = '';
     if (this.phase === 'racing') {
@@ -1691,7 +1908,7 @@ export class RallyEngine {
       nitroOn: c.nitroOn,
       time: t,
       pos: 1 + ahead,
-      total: this.rivals.length + 1,
+      total: this.rivals.length + this.remotes.filter((r) => !r.gone).length + 1,
       progress: clamp((this.near.s - START_S) / (this.finishS - START_S), 0, 1),
       drift: c.driftPts,
       penalty: this.penalty,
@@ -1742,6 +1959,7 @@ export class RallyEngine {
       this.dirtTex?.dispose();
       this.player?.dispose();
       for (const r of this.rivals) r.rig.dispose();
+      for (const r of this.remotes) r.rig.dispose();
       this.factory?.dispose();
       this.hdrSky?.dispose();
       this.pmrem?.dispose();
