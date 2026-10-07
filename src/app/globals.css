@@ -517,3 +517,167 @@ main > header.panel:first-child h1 .blink {
     transition: none;
   }
 }
+
+/* ---------- hero motion ---------- */
+/* marching chevrons */
+.dr-chev-march {
+  -webkit-mask-size: 10px 100%;
+  mask-size: 10px 100%;
+  animation: dr-march 0.9s linear infinite;
+}
+@keyframes dr-march {
+  to {
+    -webkit-mask-position: 10px 0;
+    mask-position: 10px 0;
+  }
+}
+/* scrolling hazard tape */
+.dr-tape {
+  height: 10px;
+  background: repeating-linear-gradient(-45deg, var(--accent-2) 0 12px, var(--stripe-ink) 12px 24px);
+  background-size: 34px 34px;
+  animation: dr-tape 0.9s linear infinite;
+}
+@keyframes dr-tape {
+  to {
+    background-position: 34px 0;
+  }
+}
+/* headline: staggered line reveal, skew on hover */
+.dr-line {
+  display: block;
+  animation: dr-line-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--d, 0s);
+}
+@keyframes dr-line-in {
+  from {
+    opacity: 0;
+    transform: translateX(-28px) skewX(-8deg);
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 -5% 0 0);
+  }
+}
+.dr-skew {
+  transition: transform 0.25s;
+  transform-origin: left bottom;
+}
+.dr-skew:hover {
+  transform: skewX(-5deg);
+}
+
+/* showcase */
+.dr-slide {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+}
+.dr-slide[data-prev="true"] {
+  visibility: visible;
+  z-index: 1;
+}
+.dr-slide[data-active="true"] {
+  visibility: visible;
+  z-index: 2;
+  animation: dr-wipe 0.75s cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+.dr-slide[data-active="true"][data-first="true"] {
+  animation: none;
+}
+.dr-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.dr-slide[data-active="true"] img {
+  animation: dr-kb 7s ease-out both;
+}
+@keyframes dr-wipe {
+  from {
+    clip-path: polygon(0 0, 0% 0, 12% 50%, 0% 100%, 0 100%);
+  }
+  to {
+    clip-path: polygon(0 0, 100% 0, 112% 50%, 100% 100%, 0 100%);
+  }
+}
+@keyframes dr-kb {
+  from {
+    transform: scale(1.02) translate(0, 0);
+  }
+  to {
+    transform: scale(1.12) translate(var(--kx, -1.5%), var(--ky, -1%));
+  }
+}
+/* scanline + RGB-split flash on every change */
+.dr-glitch {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, rgb(0 0 0 / 0.28) 0 1px, transparent 1px 3px),
+    linear-gradient(90deg, rgb(255 0 70 / 0.35) 0 33%, transparent 33% 66%, rgb(0 230 255 / 0.3) 66% 100%);
+  mix-blend-mode: screen;
+  animation: dr-glitch 0.55s steps(1) both;
+}
+@keyframes dr-glitch {
+  0% {
+    opacity: 1;
+    transform: translateX(-6px);
+  }
+  20% {
+    opacity: 0.7;
+    transform: translateX(8px) skewX(-4deg);
+  }
+  40% {
+    opacity: 1;
+    transform: translateX(-3px);
+  }
+  60% {
+    opacity: 0.4;
+    transform: translateX(5px);
+  }
+  80% {
+    opacity: 0.2;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* progress ticks */
+.dr-fill {
+  transform-origin: left;
+  animation: dr-fill 4.6s linear both;
+}
+@keyframes dr-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-chev-march,
+  .dr-tape,
+  .dr-line,
+  .dr-slide[data-active="true"],
+  .dr-slide[data-active="true"] img,
+  .dr-glitch,
+  .dr-fill {
+    animation: none;
+  }
+  .dr-glitch {
+    display: none;
+  }
+  .dr-fill {
+    transform: scaleX(1);
+  }
+  .dr-skew {
+    transition: none;
+  }
+}

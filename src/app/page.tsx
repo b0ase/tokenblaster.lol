@@ -3,6 +3,8 @@ import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
 import { Barcode, Pictogram } from '@/components/dr';
 import { SectionHead } from '@/components/dr/site';
+import { HeroShowcase } from '@/components/HeroShowcase';
+import { HeroLive } from '@/components/HeroLive';
 
 const GAMES = [
   { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', title: 'Double-O Satoshi', tag: 'V1 · spy shooter', blurb: 'GoldenEye-style 3D missions: Special Agent Kweg Wong fires PNEE at parody crypto villains. LIVE mode: one token per bullet, one transaction per token.' },
@@ -35,45 +37,60 @@ const pad = (n: number) => String(n).padStart(2, '0');
 export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 p-2.5">
-      {/* Hero poster */}
+      {/* Hero poster: headline left, cycling flagship showcase right, live chain strip under */}
       <header className="dr-poster dr-rise">
         <div className="dr-hazard" aria-hidden />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/arcade/arena.jpg" alt="" className="pointer-events-none absolute inset-y-0 right-0 hidden h-full w-[38%] object-cover opacity-90 [clip-path:polygon(14%_0,100%_0,100%_100%,0_100%)] lg:block" />
-        <div className="pointer-events-none absolute inset-y-0 right-0 hidden w-[38%] bg-[var(--accent-fill)] opacity-25 mix-blend-multiply [clip-path:polygon(14%_0,100%_0,100%_100%,0_100%)] lg:block" aria-hidden />
-        <div className="dr-halftone pointer-events-none absolute -left-4 bottom-0 h-1/2 w-1/2 [mask-image:linear-gradient(to_right,#000,transparent_80%)]" aria-hidden />
-        <div className="relative px-3 pb-5 pt-4 sm:px-7 sm:pb-8">
-          <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="dr-code !text-[var(--accent)]">TB-001 / LIVE ON MAINNET</span>
-            <span className="dr-code">TokenBlaster.lol</span>
-            <span className="dr-kana text-[11px] text-[var(--muted)]" aria-hidden>
-              トークン発射
-            </span>
-          </div>
-          <h1 className="dr-display dr-mega max-w-[16ch] text-hot lg:max-w-[58%]">
-            Load your tokens<span className="text-[var(--accent)]">.</span> Blast the chain<span className="text-[var(--accent)]">.</span>
-          </h1>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <span className="dr-sticker text-base sm:text-xl">Every bullet = 1 real BSV tx</span>
-            <span className="dr-sticker dr-sticker-red text-xs sm:text-sm">No fake coins</span>
-          </div>
-          <div className="mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
-            <Link href="/blast" className="btn-fire inline-flex items-center justify-center !text-xl sm:!text-2xl">
-              Blast now &raquo;
-            </Link>
-            <Link href="/arcade/bsvgun" className="btn-fire inline-flex items-center justify-center !bg-[var(--panel)] !bg-none !text-xl !text-[var(--hot)] sm:!text-2xl">
-              BSVGun
-            </Link>
-            <Link href="/arena" className="btn-fire inline-flex items-center justify-center !bg-[var(--panel)] !bg-none !text-xl !text-[var(--hot)] sm:!text-2xl">
-              Arena
-            </Link>
-            <Link href="/launch" className="btn-fire inline-flex items-center justify-center !bg-[var(--panel)] !bg-none !text-xl !text-[var(--hot)] sm:!text-2xl">
-              BlastPad
-            </Link>
-            <GitHubLink />
+        <HeroShowcase />
+        {/* directional scrims: dark on the text side, clear on the art side; no flat wash */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-[330px] bg-[linear-gradient(to_bottom,transparent_35%,var(--panel)_96%)] lg:hidden" aria-hidden />
+        <div className="pointer-events-none absolute inset-0 z-[5] hidden bg-[linear-gradient(90deg,var(--panel)_0%,color-mix(in_srgb,var(--panel)_92%,transparent)_30%,color-mix(in_srgb,var(--panel)_45%,transparent)_52%,transparent_72%)] lg:block" aria-hidden />
+        <div className="relative z-10 px-3 pb-6 pt-[210px] sm:px-7 sm:pb-9 lg:min-h-[600px] lg:pt-7">
+          <div className="min-w-0 lg:max-w-[56%]">
+            <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="dr-code !text-[var(--accent)]">TB-001 / LIVE ON MAINNET</span>
+              <span className="dr-code">TokenBlaster.lol</span>
+              <span className="dr-kana text-[11px] text-[var(--muted)]" aria-hidden>
+                トークン発射
+              </span>
+            </div>
+            <h1 className="dr-display dr-mega dr-skew text-hot [text-shadow:0_2px_0_var(--panel),0_0_18px_var(--panel)]">
+              <span className="dr-line" style={{ ['--d' as string]: '0.05s' }}>
+                Load your
+              </span>
+              <span className="dr-line" style={{ ['--d' as string]: '0.2s' }}>
+                tokens<span className="text-[var(--accent)]">.</span>
+              </span>
+              <span className="dr-line" style={{ ['--d' as string]: '0.35s' }}>
+                Blast the
+              </span>
+              <span className="dr-line" style={{ ['--d' as string]: '0.5s' }}>
+                chain<span className="text-[var(--accent)]">.</span>
+              </span>
+            </h1>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <span className="dr-sticker text-base sm:text-xl">Every bullet = 1 real BSV tx</span>
+              <span className="dr-sticker dr-sticker-red text-xs sm:text-sm">No fake coins</span>
+            </div>
+            <div className="mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
+              <Link href="/blast" className="btn-fire inline-flex items-center justify-center !text-xl sm:!text-2xl">
+                Blast now &raquo;
+              </Link>
+              <Link href="/arcade/bsvgun" className="btn-fire inline-flex items-center justify-center !bg-[var(--panel)] !bg-none !text-xl !text-[var(--hot)] sm:!text-2xl">
+                BSVGun
+              </Link>
+              <Link href="/arena" className="btn-fire inline-flex items-center justify-center !bg-[var(--panel)] !bg-none !text-xl !text-[var(--hot)] sm:!text-2xl">
+                Arena
+              </Link>
+              <Link href="/launch" className="btn-fire inline-flex items-center justify-center !bg-[var(--panel)] !bg-none !text-xl !text-[var(--hot)] sm:!text-2xl">
+                BlastPad
+              </Link>
+              <GitHubLink />
+            </div>
           </div>
         </div>
-        <div className="dr-chev opacity-90" aria-hidden />
+        <div className="relative z-10">
+          <HeroLive />
+        </div>
       </header>
 
       {/* The arcade, unmissable (owner, 7 Oct 2026: "if there is a link, I can't see it"). */}
@@ -93,7 +110,7 @@ export default function Home() {
           <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
             {GAMES.slice(0, 8).map((g) => (
               // eslint-disable-next-line @next/next/no-img-element
-              <img key={g.href} src={g.img} alt={g.title} className="aspect-video w-full border-2 border-[var(--border)] object-cover grayscale transition group-hover:grayscale-0" />
+              <img key={g.href} src={g.img} alt={g.title} className="aspect-video w-full border-2 border-[var(--border)] object-cover transition group-hover:brightness-110" />
             ))}
           </div>
         </div>

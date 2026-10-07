@@ -14,6 +14,22 @@ const FRAMES = [
   ['1d', 86400],
 ] as const;
 
+/** Chart colours from the site palette tokens (globals.css), so the light palettes get a light chart. */
+function palette() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
+  const accent = v('--accent', '#ff3b30');
+  return {
+    bg: v('--canvas', '#060608'),
+    text: v('--dim', '#b6b4ac'),
+    grid: v('--border-canvas', '#24252c'),
+    edge: v('--border-dim', '#34353d'),
+    accent,
+    up: v('--ok', '#4ade80'),
+    down: v('--bad', '#f87171'),
+  };
+}
+
 /** Candles (or a line) of price or market cap, built from the coin's trades. */
 export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) {
   const box = useRef<HTMLDivElement>(null);
@@ -22,6 +38,14 @@ export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) 
   const [kind, setKind] = useState<'candles' | 'line'>('candles');
   const [metric, setMetric] = useState<'mcap' | 'price'>('mcap');
   const [unit, setUnit] = useState<'usd' | 'bsv'>('usd');
+  const [pal, setPal] = useState(0);
+
+  // Re-colour when the palette switches.
+  useEffect(() => {
+    const mo = new MutationObserver(() => setPal((n) => n + 1));
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-palette'] });
+    return () => mo.disconnect();
+  }, []);
 
   const points = useMemo(() => {
     const t = trades.filter((x) => x.side !== 'burn').slice().sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -35,12 +59,13 @@ export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) 
 
   useEffect(() => {
     if (!box.current) return;
+    const k = palette();
     const c = createChart(box.current, {
       height: 320,
-      layout: { background: { type: ColorType.Solid, color: '#060608' }, textColor: '#b6b4ac', fontFamily: 'Space Mono, Courier New, monospace' },
-      grid: { vertLines: { color: '#24252c' }, horzLines: { color: '#24252c' } },
-      rightPriceScale: { borderColor: '#34353d' },
-      timeScale: { borderColor: '#34353d', timeVisible: true },
+      layout: { background: { type: ColorType.Solid, color: k.bg }, textColor: k.text, fontFamily: 'Space Mono, Courier New, monospace' },
+      grid: { vertLines: { color: k.grid }, horzLines: { color: k.grid } },
+      rightPriceScale: { borderColor: k.edge },
+      timeScale: { borderColor: k.edge, timeVisible: true },
       autoSize: true,
     });
     chart.current = c;
@@ -51,13 +76,24 @@ export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) 
   }, []);
 
   useEffect(() => {
+    const k = palette();
+    chart.current?.applyOptions({
+      layout: { background: { type: ColorType.Solid, color: k.bg }, textColor: k.text },
+      grid: { vertLines: { color: k.grid }, horzLines: { color: k.grid } },
+      rightPriceScale: { borderColor: k.edge },
+      timeScale: { borderColor: k.edge },
+    });
+  }, [pal]);
+
+  useEffect(() => {
     const c = chart.current;
     if (!c) return;
+    const k = palette();
     const fmt = (p: number) => (unit === 'usd' ? `$${p >= 1 ? p.toFixed(2) : p.toPrecision(3)}` : p >= 1 ? p.toFixed(3) : p.toPrecision(3));
     const series =
       kind === 'candles'
-        ? c.addSeries(CandlestickSeries, { upColor: '#4ade80', downColor: '#f87171', borderVisible: false, wickUpColor: '#4ade80', wickDownColor: '#f87171', priceFormat: { type: 'custom', formatter: fmt } })
-        : c.addSeries(AreaSeries, { lineColor: '#ff3b30', topColor: 'rgba(255,59,48,0.35)', bottomColor: 'rgba(255,59,48,0)', priceFormat: { type: 'custom', formatter: fmt } });
+        ? c.addSeries(CandlestickSeries, { upColor: k.up, downColor: k.down, borderVisible: false, wickUpColor: k.up, wickDownColor: k.down, priceFormat: { type: 'custom', formatter: fmt } })
+        : c.addSeries(AreaSeries, { lineColor: k.accent, topColor: `color-mix(in srgb, ${k.accent} 35%, transparent)`, bottomColor: `color-mix(in srgb, ${k.accent} 0%, transparent)`, priceFormat: { type: 'custom', formatter: fmt } });
     if (kind === 'candles') {
       const bars = new Map<number, { time: UTCTimestamp; open: number; high: number; low: number; close: number }>();
       let prev: number | null = null;
@@ -79,7 +115,7 @@ export function PriceChart({ trades, rate }: { trades: Trade[]; rate: number }) 
       // On unmount the chart effect may have removed the chart already (and its series with it).
       if (chart.current === c) c.removeSeries(series);
     };
-  }, [points, frame, kind, unit]);
+  }, [points, frame, kind, unit, pal]);
 
   return (
     <div className="panel">
