@@ -53,7 +53,7 @@ Tripo / TripoSR image-to-3D is **rejected** for rigid parts. Hand-built Blender 
 
 | Part | Card h/w → model | Notes |
 |---|---|---|
-| Phi-Phi Horn (09_001) | 1.485 → 1.485 | upper bands + tip stretched (owner: "a bit short"). Card is a full helmet, so default fit lifts it 0.13 onto the crown |
+| Phi-Phi Horn (09_001) | 1.485 → 1.485 | upper bands + tip stretched (owner: "a bit short"). Worn as a helmet: sized to her head (fit scale 1.06, y 0.07, z −0.02) so the rim sits at the brow round the whole head, face visible; `"hidesHair": true` hides the hair under it |
 | Scarlet Horns (09_002) | 0.389 → 0.390 | alice band + faceted horns + side spikes |
 | Small Horns (09_003) | 0.288 → 0.275 | ram horns + inner claws; front reads a bit domed |
 | Spikes (09_004) | 0.621 → 0.615 | heart forehead plate, default fit y 0.06 z 0.07 |

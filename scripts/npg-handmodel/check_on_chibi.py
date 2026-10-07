@@ -55,6 +55,7 @@ ctr = Vector((0, 0, 0.5))
 for i, combo in enumerate(combos):
     added = []
     for pid in combo.split(","): added += place(pid)
+    bpy.data.objects["hair"].hide_render = any(parts[p].get("hidesHair") for p in combo.split(","))
     for name, d in (("front", (0, -1, 0.1)), ("34", (0.8, -0.7, 0.2))):
         d = Vector(d).normalized(); co.location = ctr + d * 3
         co.rotation_euler = (-d).to_track_quat("-Z", "Y").to_euler()

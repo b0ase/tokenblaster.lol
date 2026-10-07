@@ -34,7 +34,7 @@ const PARTS = '/arena/models/npg/stack/parts.json';
 // re-expressed in the bone they ride: the head, or the item.L / item.R weapon socket.
 // socket: right-weapon cards draw the weapon in the character's LEFT hand (viewer's right), so 'L'.
 type Slot = 'mask' | 'horns' | 'weapon';
-type Part = { id: string; name: string; slot: Slot; url: string; fit?: Fit; wrapped?: boolean; handBuilt?: boolean; socket?: 'L' | 'R' };
+type Part = { id: string; name: string; slot: Slot; url: string; fit?: Fit; wrapped?: boolean; handBuilt?: boolean; socket?: 'L' | 'R'; hidesHair?: boolean };
 const SLOTS: { kind: Slot; label: string }[] = [
   { kind: 'mask', label: 'MASK' },
   { kind: 'horns', label: 'HORNS' },
@@ -96,6 +96,12 @@ export function StackBuilder() {
     let clothes: THREE.Object3D | null = null;
     let slot: THREE.Box3 | null = null; // where hair goes, in the head bone's space
     let current: THREE.Object3D | null = null;
+    let hairIsCard = true; // a hair card replaces the base hair
+    let hairHidden = false; // a helmet is on
+    const showHair = () => {
+      if (baseHair) baseHair.visible = !hairIsCard && !hairHidden;
+      if (current) current.visible = !hairHidden;
+    };
     let fitNow = { scale: 1, y: 0, z: 0, turn: 0, pitch: 0, roll: 0, bend: 0 };
     const cache = new Map<string, THREE.Object3D>();
 
@@ -161,6 +167,11 @@ export function StackBuilder() {
       if (!head) return;
       r.want = p?.id ?? '';
       if (kind === 'mask' && baseMask) baseMask.visible = !p;
+      if (kind === 'horns') {
+        // Helmets (Phi-Phi) are worn over the head: hide the hair under them, like the base mask hides.
+        hairHidden = !!p?.hidesHair;
+        showHair();
+      }
       if (r.obj && r.obj.userData.id !== r.want) {
         r.parent?.remove(r.obj);
         r.obj = null;
@@ -210,7 +221,8 @@ export function StackBuilder() {
       if (!head || !def) return;
       if (current) head.remove(current);
       current = null;
-      if (baseHair) baseHair.visible = !def.url;
+      hairIsCard = !!def.url;
+      showHair();
       if (!def.url) return;
       let part = cache.get(id);
       if (!part) {
@@ -224,6 +236,7 @@ export function StackBuilder() {
       }
       current = part;
       head.add(part);
+      showHair();
       place();
     };
 
