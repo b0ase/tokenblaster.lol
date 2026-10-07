@@ -49,6 +49,7 @@ import { GAME_COINS, HOUSE_DMG, HOUSE_GOLD } from '@/lib/gameCoins';
 import { detectQuality, LOOKS, loadLook, makeGradePass, saveQuality, type Look, type Quality } from '@/lib/visuals/look';
 import { dressLevel, type Dressing } from '@/lib/visuals/dressing';
 import { makeImpacts } from '@/lib/visuals/impacts';
+import { createPvpQueue } from '@/lib/pvpPay';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -1164,56 +1165,34 @@ export function DoubleO() {
     };
 
     // ── Chain: queue of token shots, sent in batches (jam-free retry, like the Arena) ──
-    type Shot = { extra: string[]; to?: string; target?: string };
-    const queue: Shot[] = [];
+    // The Arena's PvP rule, shared (src/lib/pvpPay.ts): a hit on an agent sends the token to their gun. Token-only here.
     let heat = 0;
-    let draining = false;
     let jammedUntil = 0;
-    let fails = 0;
-    let n = 0;
-    const drain = async () => {
-      if (draining) return;
-      draining = true;
-      while (queue.length) {
-        // One destination per batch: a run of shots at the same agent (or plain shots, burned).
-        let run = 1;
-        while (run < queue.length && run < BATCH && queue[run].to === queue[0].to) run++;
-        const batch = queue.slice(0, run);
-        const to = batch[0].to;
-        const target = batch[0].target;
-        try {
-          const txids = await live_.current.fireTokens(n + 1, batch.map((q) => q.extra), to);
-          // Tell the agent we hit: their gun just received our tokens.
-          if (target && txids.length && room) room.broadcast('phit', { to: target, id: myId, from: me.current.name, n: txids.length, tokens: true, sym: live_.current.sym, icon: live_.current.icon });
-          n += txids.length;
-          queue.splice(0, txids.length);
-          stats.onChain += txids.length;
-          setHud((h) => ({ ...h, onChain: stats.onChain, last: txids[txids.length - 1] ?? h.last }));
-          setRecent((r) => [...[...txids].reverse(), ...r].slice(0, 5));
-          setChainError(null);
-          fails = 0;
-          if (!txids.length) throw new Error('Out of ammo.');
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          const out = /out of|empty|no tokens|no sats|load/i.test(msg);
-          if (!out && ++fails <= 3) {
-            await new Promise((ok) => setTimeout(ok, 1000 * fails));
-            continue;
-          }
-          fails = 0;
-          setChainError(msg);
-          queue.length = 0;
-          jammedUntil = performance.now() + 4000;
-          setJam(msg);
-          break;
-        }
+    const pvp = createPvpQueue({
+      maxRun: BATCH,
+      retries: 3,
+      emptyMsg: 'Out of ammo.',
+      send: (startN, batch, to) => live_.current.fireTokens(startN, batch.map((q) => q.extra), to),
+      onPaid: (txids, _batch, _to, target) => {
+        // Tell the agent we hit: their gun just received our tokens.
+        if (target && txids.length && room) room.broadcast('phit', { to: target, id: myId, from: me.current.name, n: txids.length, tokens: true, sym: live_.current.sym, icon: live_.current.icon });
+        stats.onChain += txids.length;
+        setHud((h) => ({ ...h, onChain: stats.onChain, last: txids[txids.length - 1] ?? h.last }));
+        setRecent((r) => [...[...txids].reverse(), ...r].slice(0, 5));
+        setChainError(null);
+      },
+      onFail: (msg) => {
+        setChainError(msg);
+        jammedUntil = performance.now() + 4000;
+        setJam(msg);
+      },
+      onIdle: () => {
         heat = queue.length;
         setHud((h) => ({ ...h, heat }));
-      }
-      heat = queue.length;
-      setHud((h) => ({ ...h, heat }));
-      draining = false;
-    };
+      },
+    });
+    const queue = pvp.queue;
+    const drain = pvp.drain;
 
     // ── Shooting ──
     const raycaster = new THREE.Raycaster();

@@ -22,7 +22,11 @@ import {
   ARENA_GROW,
   ARENA_POINTS,
   BOOST_COST,
+  BOOST_DROP,
+  BOOST_ORB_V,
+  boostOrbId,
   Body,
+  readBoostOrb,
   colourIndex,
   corpseSpots,
   cssOf,
@@ -64,7 +68,10 @@ export type ArenaCbs = {
   onDeath(d: { by: ArenaWho | null; cause: string; mass: number; kills: number; score: number }): void;
   onRespawn(): void;
   onPickup(l: Loot): void;
+  /** LIVE ran dry: my snake is held (shielded, still) until resumeAmmo(). */
   onNeedAmmo(): void;
+  /** I was cut off by another player's snake (not a bot). Called once per death; `did` is the death id. */
+  onKilled?(did: string, by: string): void;
   onPerf?(i: { fps: number }): void;
 };
 export type ArenaOpts = {
@@ -73,7 +80,7 @@ export type ArenaOpts = {
   /** Everyone with the same key derives the same food (the room topic); solo uses a random one. */
   seedKey: string;
   me: { id: string; name: string; x?: string; xk?: string; xs?: number[] };
-  send(ev: 'p' | 'd' | 'f' | 'g', p: Record<string, unknown>): void;
+  send(ev: 'p' | 'd' | 'f' | 'g' | 'o', p: Record<string, unknown>): void;
   /** Practice vs bots when there is no room. */
   solo: boolean;
   /** A real chain transaction of this kind to show / loot when the seeded food is eaten (or null). */
@@ -205,6 +212,10 @@ export class ArenaEngine {
   private keys = { l: false, r: false };
   private stick: { id: number; ax: number; ay: number } | null = null;
   private live: boolean;
+  /** LIVE out of ammo: held still and shielded until the player loads more (or picks practice). */
+  private ammoHold = false;
+  private shed = 0; // boost mass not yet dropped as an orb
+  private orbSeq = 0;
   private lastBy: ArenaWho | null = null;
   private soloBots: boolean;
   private roster: ArenaPlayer[] = [];
@@ -438,6 +449,15 @@ export class ArenaEngine {
   setLive(live: boolean) {
     this.live = live;
   }
+  get holdingForAmmo() {
+    return this.ammoHold;
+  }
+  /** Out-of-ammo hold over: carry on LIVE (ammo loaded) or, by the player's choice, as practice. */
+  resumeAmmo(practice: boolean) {
+    if (practice) this.live = false;
+    this.ammoHold = false;
+    this.shield = Math.max(this.shield, 1);
+  }
   setSpritesVisible(v: boolean) {
     this.tags.visible = v;
   }
@@ -549,6 +569,11 @@ export class ArenaEngine {
     } else if (ev === 'g') {
       const g = p.g;
       if (Array.isArray(g)) this.field.merge(g as number[]);
+    } else if (ev === 'o' && from) {
+      // A boost orb someone dropped behind them: same pool (and same claim message) as corpse orbs.
+      const r = this.remotes.get(from);
+      const c = r ? readBoostOrb(from, p, r.col, now) : null;
+      if (c && !this.field.corpses.has(c.id) && this.field.corpses.size < CORPSE_MAX) this.field.corpses.set(c.id, c);
     }
   }
 
@@ -781,6 +806,16 @@ export class ArenaEngine {
 
   private updateMe(dt: number, now: number) {
     if (!this.alive) return;
+    // LIVE out of ammo: hold still, shielded (nobody can hit me, I eat nothing) until ammo is loaded or I pick practice.
+    if (this.live && !this.ammoHold && this.o.canPay && !this.o.canPay()) {
+      this.ammoHold = true;
+      this.o.cb.onNeedAmmo();
+    }
+    if (this.ammoHold) {
+      this.shield = Math.max(this.shield, 0.5);
+      this.boosting = false;
+      return;
+    }
     if (this.shield > 0) this.shield = Math.max(0, this.shield - dt);
     // Steering: keys turn, otherwise head for the pointer / touch aim.
     const key = (this.keys.r ? 1 : 0) - (this.keys.l ? 1 : 0);
@@ -791,7 +826,14 @@ export class ArenaEngine {
     }
     this.boosting = this.wantBoost && this.mass > MIN_BOOST_MASS;
     if (this.boosting) {
+      const before = this.mass;
       this.mass = Math.max(MIN_BOOST_MASS - 1, this.mass - BOOST_COST * dt);
+      // The length you burn falls behind you as small orbs, shared like corpse orbs.
+      this.shed += before - this.mass;
+      if (this.shed >= BOOST_DROP) {
+        this.shed -= BOOST_DROP;
+        this.dropBoostOrb();
+      }
       if (Math.random() < dt * 30) {
         tmpC.setHex(SNAKE_COLOURS[this.colI]);
         this.sparks.emit(this.x - Math.cos(this.a) * 0.6, 0.4, this.z - Math.sin(this.a) * 0.6, (Math.random() - 0.5) * 1.5, 0.8, (Math.random() - 0.5) * 1.5, tmpC, 0.5, 0.22, 2);
@@ -802,12 +844,6 @@ export class ArenaEngine {
     this.x += Math.cos(this.a) * sp * dt;
     this.z += Math.sin(this.a) * sp * dt;
     this.body.moveTo(this.x, this.z, this.mass);
-
-    // LIVE out of ammo: keep playing for free instead (a multiplayer arena cannot pause).
-    if (this.live && this.o.canPay && !this.o.canPay()) {
-      this.live = false;
-      this.o.cb.onNeedAmmo();
-    }
 
     // Eat orbs.
     const pr = r + 0.75;
@@ -885,6 +921,8 @@ export class ArenaEngine {
     if (by) {
       const k = this.remotes.get(by);
       if (k?.bot) k.kills++;
+      // A real player cut me off: the shell pays them by the Arena rule (LIVE only, once per `did`).
+      else if (k) this.o.cb.onKilled?.(did, by);
     }
     sfx('rekt');
     this.o.cb.onDeath({ by: this.lastBy, cause, mass: this.mass, kills: this.kills, score: this.score });
@@ -924,6 +962,15 @@ export class ArenaEngine {
       r.hz = p.z;
       r.body.moveTo(p.x, p.z, p.m);
     }
+  }
+
+  private dropBoostOrb() {
+    const tail = this.body.pts[0] ?? { x: this.x, z: this.z };
+    const id = boostOrbId(this.myId, ++this.orbSeq);
+    const x = Math.round(tail.x * 10) / 10;
+    const z = Math.round(tail.z * 10) / 10;
+    if (this.field.corpses.size < CORPSE_MAX) this.field.corpses.set(id, { id, x, z, v: BOOST_ORB_V, col: SNAKE_COLOURS[this.colI], born: nowS() });
+    this.o.send('o', { i: this.myId, c: id, x, z, v: BOOST_ORB_V });
   }
 
   private sendPose() {

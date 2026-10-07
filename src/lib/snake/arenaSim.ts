@@ -146,6 +146,21 @@ export function readCorpses(did: string, pts: unknown, mass: unknown, col: numbe
   return out;
 }
 
+/** Boosting sheds mass: every BOOST_DROP of it falls behind you as one small orb anyone can eat (slither-style). */
+export const BOOST_DROP = 1.4;
+export const BOOST_ORB_V = Math.round(BOOST_DROP * 0.8 * 10) / 10;
+export const boostOrbId = (owner: string, seq: number) => `${owner}.b${seq}`;
+
+/** Validate an untrusted boost-orb message {c, x, z, v}: the id must be the sender's, inside the arena, small value. */
+export function readBoostOrb(from: string, p: Record<string, unknown>, col: number, now: number): Corpse | null {
+  const id = typeof p.c === 'string' ? p.c.slice(0, 40) : '';
+  if (!id.startsWith(`${from}.b`)) return null;
+  const { x, z, v } = p;
+  if (typeof x !== 'number' || typeof z !== 'number' || !Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > HALF + 1 || Math.abs(z) > HALF + 1) return null;
+  const val = typeof v === 'number' && Number.isFinite(v) ? Math.max(0.1, Math.min(BOOST_DROP, v)) : BOOST_ORB_V;
+  return { id, x, z, v: val, col, born: now };
+}
+
 // ───────────── Snake body ─────────────
 
 export type Pt = { x: number; z: number };
