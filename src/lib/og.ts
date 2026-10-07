@@ -12,8 +12,8 @@ export const HOME_CARD = card(
   'TOKENBLASTER.LOL poster: load your tokens, blast the chain. Every bullet = 1 real BSV tx. Collage of bRacer, Arena, Double-O Satoshi and Token Rally.',
 );
 export const ARCADE_CARD = card(
-  'arcade-dr-v2.jpg',
-  'Play the TokenBlaster arcade: 17 games on the live BSV chain, shown as a grid of game cards. Every bullet = 1 real BSV tx.',
+  'arcade-dr-v3.jpg',
+  'Play the TokenBlaster arcade: 17 games on the live BSV chain, shown as an A-Z grid of tilted game screenshots including Token Snake, Block Hopper, Mempool Invaders and BSVGun. Every bullet = 1 real BSV tx.',
 );
 export const LAUNCH_CARD = card(
   'launch-dr-v1.jpg',
