@@ -596,6 +596,10 @@ main > header.panel:first-child h1 .blink {
 .dr-slide[data-active="true"] img {
   animation: dr-kb 7s ease-out both;
 }
+/* video slides: the loop moves by itself, so no Ken Burns on the poster beneath it */
+.dr-slide[data-video="true"][data-active="true"] img {
+  animation: none;
+}
 @keyframes dr-wipe {
   from {
     clip-path: polygon(0 0, 0% 0, 12% 50%, 0% 100%, 0 100%);
