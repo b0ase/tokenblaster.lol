@@ -103,7 +103,7 @@ export function SiteNav() {
                   </Link>
                 ))}
                 <div className="col-span-2 my-1 border-t border-[var(--border-dim)] sm:hidden" aria-hidden />
-                {ARCADE_GAMES.map(([href, label]) => (
+                {[...ARCADE_GAMES].sort((a, b) => a[1].localeCompare(b[1], 'en', { sensitivity: 'base', numeric: true })).map(([href, label]) => (
                   <Link
                     key={href}
                     role="menuitem"

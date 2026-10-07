@@ -3,14 +3,14 @@
 import { useSyncExternalStore } from 'react';
 
 /**
- * Preview switch for the site palettes (tokens in src/app/globals.css). ?palette=signal|paper|wipeout|volt also works
+ * Preview switch for the site palettes (tokens in src/app/globals.css). ?palette=signal|paper|negative|volt also works
  * (the inline script in layout.tsx applies it before paint and remembers it). Remove this component, or set
  * NEXT_PUBLIC_TB_PALETTE_TOGGLE=0, once a palette is chosen.
  */
 export const PALETTES = [
   ['signal', 'Signal', 'red on ink'],
   ['paper', 'Paper', 'red, black, white'],
-  ['wipeout', 'Wipe', 'white, orange, cyan'],
+  ['negative', 'Negative', 'Signal as a photographic negative'],
   ['volt', 'Volt', 'black and acid'],
 ] as const;
 
@@ -52,4 +52,4 @@ export function PaletteToggle({ className = '' }: { className?: string }) {
 }
 
 /** Runs before paint: ?palette= wins, then the remembered choice. */
-export const PALETTE_SCRIPT = `(function(){try{var ok={paper:1,wipeout:1,volt:1,signal:1};var q=new URLSearchParams(location.search).get('palette');var p=q&&ok[q]?q:localStorage.getItem('${KEY}');if(q&&ok[q])localStorage.setItem('${KEY}',q);if(p&&ok[p]&&p!=='signal')document.documentElement.dataset.palette=p;}catch(e){}})();`;
+export const PALETTE_SCRIPT = `(function(){try{var ok={paper:1,negative:1,volt:1,signal:1};var al={wipeout:'negative',wipe:'negative',invert:'negative'};var q=new URLSearchParams(location.search).get('palette');q=al[q]||q;var p=q&&ok[q]?q:localStorage.getItem('${KEY}');if(al[p])p=al[p];if(q&&ok[q])localStorage.setItem('${KEY}',q);if(p&&ok[p]&&p!=='signal')document.documentElement.dataset.palette=p;}catch(e){}})();`;

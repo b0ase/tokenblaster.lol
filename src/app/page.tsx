@@ -5,6 +5,7 @@ import { Barcode, Pictogram } from '@/components/dr';
 import { SectionHead } from '@/components/dr/site';
 import { HeroShowcase } from '@/components/HeroShowcase';
 import { HeroLive } from '@/components/HeroLive';
+import { byTitle } from '@/lib/alpha';
 
 const GAMES = [
   { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', title: 'Double-O Satoshi', tag: 'V1 · spy shooter', blurb: 'GoldenEye-style 3D missions: Special Agent Kweg Wong fires PNEE at parody crypto villains. LIVE mode: one token per bullet, one transaction per token.' },
@@ -147,7 +148,7 @@ export default function Home() {
           Arcade
         </SectionHead>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {GAMES.map((g, i) => (
+          {byTitle(GAMES).map((g, i) => (
             <Link key={g.title} href={g.href} className="group relative flex flex-col border-2 border-[var(--border)] bg-panel transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:border-[var(--hot)] hover:shadow-[5px_5px_0_var(--accent-fill)]">
               <div className="relative aspect-[1200/630] overflow-hidden border-b-2 border-[var(--border)]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

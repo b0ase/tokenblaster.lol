@@ -6,7 +6,7 @@
  * (Same family as bRacer and the 1Sat Ordnance cards: src/lib/dr, src/components/dr.)
  *
  * EVERYTHING colour-wise lives in the tokens below. The default is SIGNAL (red on ink). The alternates are a
- * one-line switch: `html[data-palette="paper|wipeout|volt"]`, set by ?palette= (sticks in localStorage) or the
+ * one-line switch: `html[data-palette="paper|negative|volt"]`, set by ?palette= (sticks in localStorage) or the
  * PALETTE toggle (src/components/PaletteToggle.tsx). To change the house palette, edit :root.
  */
 
@@ -66,31 +66,33 @@ html[data-palette="paper"] {
   color-scheme: light;
 }
 
-/* ---- WIPEOUT: cold white, hot orange, cyan trim. ---- */
-html[data-palette="wipeout"] {
-  --bg: #eef2f6;
-  --panel: #ffffff;
-  --canvas: #dde5ed;
-  --input: #f4f7fa;
-  --text: #0b1220;
-  --hot: #050a14;
-  --dim: #39465a;
-  --muted: #566378;
-  --accent: #c93500;
-  --accent-fill: #ff4d00;
-  --on-accent: #050a14;
-  --accent-2: #00b4d8;
-  --on-accent-2: #050a14;
-  --stripe-ink: #ffffff;
-  --border: #0b1220;
-  --border-dim: #b6c2d0;
-  --border-canvas: #cdd7e2;
-  --active-bg: #ff4d00;
-  --hard: #00b4d8;
-  --focus: #0b1220;
-  --grid-rule: rgb(11 18 32 / 0.07);
-  --ok: #0a7f4f;
-  --bad: #b3261e;
+/* ---- NEGATIVE: Signal as a photographic negative, token by token (255 - channel), so only the UI inverts, never the art.
+   Two deliberate nudges for contrast: --accent (the text red) is the inverse cyan darkened to #00727a, and --muted is a
+   touch darker than its exact inverse. ---- */
+html[data-palette="negative"] {
+  --bg: #f5f5f3;
+  --panel: #edece8;
+  --canvas: #f9f9f7;
+  --input: #e4e3dd;
+  --text: #0d1019;
+  --hot: #000000;
+  --dim: #494b53;
+  --muted: #666660;
+  --accent: #00727a;
+  --accent-fill: #17d9e2;
+  --on-accent: #000000;
+  --accent-2: #0047ff;
+  --on-accent-2: #f5f5f3;
+  --stripe-ink: #f5f5f3;
+  --border: #939287;
+  --border-dim: #cbcac2;
+  --border-canvas: #dbdad3;
+  --active-bg: #17d9e2;
+  --hard: #0d1019;
+  --focus: #0047ff;
+  --grid-rule: rgb(0 0 0 / 0.055);
+  --ok: #b5217f;
+  --bad: #007a7a;
   color-scheme: light;
 }
 
