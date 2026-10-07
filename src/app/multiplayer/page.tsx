@@ -114,7 +114,7 @@ const GAMES: MpGame[] = [
     max: 'Up to 10 snakes',
     line: 'Cut other snakes off and they burst into food. Avatars over every head, kill feed, shared seeded food.',
     pvp: 'soon',
-    pvpText: 'PvP kills are cosmetic today. Token-on-kill payments are coming.',
+    pvpText: 'LIVE (token mode): cut someone off and one of their loaded tokens lands in your gun.',
     room: {},
   },
 ];
@@ -285,8 +285,8 @@ export default function MultiplayerPage() {
             network fee included, so every bullet and boost is on chain.
           </p>
           <p className="text-dim">
-            In the PvP games marked LIVE above (Arena, bRacer and Double-O Satoshi deathmatch) a hit sends the token you loaded to the gun of the player you hit. BSVGun, Mempool Invaders and Token Rally have no
-            player-to-player payments. Token Snake&rsquo;s PvP payment is coming; today its kills are cosmetic.
+            In the PvP games marked LIVE above (Arena, bRacer, Double-O Satoshi deathmatch and Token Snake) a hit sends the token you loaded to the gun of the player you hit; in Snake, the snake that dies pays one token to the snake that cut it off. BSVGun, Mempool Invaders and Token Rally have no
+            player-to-player payments.
           </p>
           <p className="text-dim">
             <strong className="text-hot">No prize pools.</strong> Nothing here holds or pays out a pot.
