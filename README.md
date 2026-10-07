@@ -26,7 +26,7 @@ leaderboard. Wallet connection and phone pairing follow `docs/wallet-connect.md`
 
 ## Open source
 
-MIT licensed (`LICENSE`). Contributions welcome. No keys live in this repo: the gun's key is made
+Code is MIT licensed (`LICENSE`); brand and creative assets (NPG characters, music, 1Sat Ordnance art, logos, game and share art) are All Rights Reserved: see `NOTICE.md`. Contributions welcome. No keys live in this repo: the gun's key is made
 in the player's browser, and the CLI blaster reads `BLASTER_WIF` from the environment only.
 
 ## Prior art
