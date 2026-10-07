@@ -56,18 +56,18 @@ else:
         before = set(bpy.data.objects)
         bpy.ops.import_scene.gltf(filepath=f)
         new = [o for o in bpy.data.objects if o not in before]
-        tiles.append((cid, [shoot(cid + '_f.png', 0), shoot(cid + '_q.png', math.radians(35))]))
+        tiles.append((cid, [shoot(cid + '_f.png', 0), shoot(cid + '_q.png', math.radians(35)), shoot(cid + '_s.png', math.radians(90))]))
         for o in new:
             bpy.data.objects.remove(o)
 
-# Contact sheet: each card = front + 3/4 side by side, 4 cards per row.
-cols = 4
+# Contact sheet: each card = front, 3/4 and side, 3 cards per row.
+cols = 3
 rows = (len(tiles) + cols - 1) // cols
-SW, SH = cols * SZ * 2, rows * SZ
+SW, SH = cols * SZ * 3, rows * SZ
 sheet = bpy.data.images.new('sheet', SW, SH, alpha=False)
 pix = [0.0] * (SW * SH * 4)
 for i, (cid, shots) in enumerate(tiles):
-    cx, cy = (i % cols) * SZ * 2, (rows - 1 - i // cols) * SZ
+    cx, cy = (i % cols) * SZ * 3, (rows - 1 - i // cols) * SZ
     for k, p in enumerate(shots):
         im = bpy.data.images.load(p)
         src = im.pixels[:]

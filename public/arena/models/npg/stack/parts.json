@@ -162,20 +162,6 @@
   "wrapped": true
  },
  {
-  "id": "wrap_11_009_Mask_Miami-Sunglasses",
-  "name": "Miami Sunglasses (wrapped)",
-  "slot": "mask",
-  "url": "/arena/models/npg/stack/masks/11_009_Mask_Miami-Sunglasses.glb",
-  "wrapped": true
- },
- {
-  "id": "wrap_11_010_Mask_Bluetooth-Mic",
-  "name": "Bluetooth Mic (wrapped)",
-  "slot": "mask",
-  "url": "/arena/models/npg/stack/masks/11_010_Mask_Bluetooth-Mic.glb",
-  "wrapped": true
- },
- {
   "id": "wrap_11_011_Mask_Mecha-Style",
   "name": "Mecha Style (wrapped)",
   "slot": "mask",
@@ -201,13 +187,6 @@
   "name": "Polkadot (wrapped)",
   "slot": "mask",
   "url": "/arena/models/npg/stack/masks/11_016_Mask_Polkadot.glb",
-  "wrapped": true
- },
- {
-  "id": "wrap_11_020_Mask_Glasses",
-  "name": "Glasses (wrapped)",
-  "slot": "mask",
-  "url": "/arena/models/npg/stack/masks/11_020_Mask_Glasses.glb",
   "wrapped": true
  }
 ]

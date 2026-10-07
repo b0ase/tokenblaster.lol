@@ -7,8 +7,9 @@ chibi glb, so the viewer can parent it to the head bone exactly where the base m
 front-on planar UVs from register.py, drop faces the card art doesn't cover (alpha), one material
 with the crop as base colour + alpha (alpha-clip set in the glb JSON afterwards), export a glb.
 """
-import bpy, bmesh, glob, json, os, struct, sys
+import bpy, bmesh, glob, json, math, os, struct, sys
 
+from mathutils.bvhtree import BVHTree  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from register import CX, SX, Z0, CY, SZ, CROP  # noqa: E402
 
@@ -22,6 +23,9 @@ L, T, R, B = CROP
 EYE_CARDS = {'11_002_Mask_Payne-Patch', '11_005_Mask_Medical', '11_009_Mask_Miami-Sunglasses',
              '11_015_Mask_Racing-Goggles', '11_020_Mask_Glasses'}
 mode = 'mask'
+CYL_Y, CYL_R = 0.03, 0.13  # vertical axis behind the face, radius ~ the face's curve
+# Cards whose art goes above the base mask's top edge: extend upward with the face surface.
+TALL_CARDS = {'11_001_Mask_Yama-Mask', '11_006_Mask_Spiked'}
 
 
 def uv_of(co):
@@ -29,7 +33,10 @@ def uv_of(co):
         px = 482 + (co.x + 0.025) * 1033
         py = 655 + (0.575 - co.z) * 920
     else:
-        px = CX + co.x * SX
+        # Cylindrical, not planar: arc length round the head, so the card's outer art wraps onto
+        # the cheeks instead of smearing. Same px/m as vertical (843) also matches the card width.
+        theta = math.atan2(co.x, CYL_Y - co.y)
+        px = CX + CYL_R * theta * SZ
         py = CY + (Z0 - co.z) * SZ
     return ((px - L) / (R - L), 1 - (py - T) / (B - T))
 
@@ -68,6 +75,29 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
             v.co += v.normal * 0.003
         bm0.to_mesh(me)
         bm0.free()
+    elif cid in TALL_CARDS:
+        # Front of the head from the mask up to under the eyes (and up the nose), 3 mm out,
+        # merged into the mask mesh; faces the art doesn't reach are trimmed below as usual.
+        h = bpy.data.objects['head']
+        strip = h.data.copy()
+        strip.transform(h.matrix_world)
+        bm0 = bmesh.new()
+        bm0.from_mesh(strip)
+        bm0.normal_update()
+
+        def keep(f):
+            c = f.calc_center_median()
+            top = 0.60 if abs(c.x) < 0.035 else 0.553
+            return f.normal.y < -0.3 and 0.5 < c.z < top
+        bmesh.ops.delete(bm0, geom=[f for f in bm0.faces if not keep(f)], context='FACES')
+        for v in bm0.verts:
+            v.co += v.normal * 0.003
+        bm0.from_mesh(me)  # append the mask itself
+        bm0.to_mesh(me)
+        bm0.free()
+    hd = bpy.data.objects['head'].data.copy()
+    hd.transform(bpy.data.objects['head'].matrix_world)
+    face_bvh = BVHTree.FromPolygons([v.co.copy() for v in hd.vertices], [list(p.vertices) for p in hd.polygons])
     for o in list(bpy.data.objects):
         bpy.data.objects.remove(o)
     obj = bpy.data.objects.new(cid, me)
@@ -100,6 +130,26 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
         if not hit:
             dead.append(f)
     bmesh.ops.delete(bm, geom=dead, context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+
+    # Flush: pull the outline (boundary loop) onto the face, 1.5 mm out, and the next ring half
+    # way, so edges and straps don't stand proud. Interior keeps its shape (respirators etc.).
+    # UVs are already set, so the art doesn't slide.
+    def gap(co):
+        hit = face_bvh.find_nearest(co)
+        return (hit[0], hit[1], hit[3]) if hit[0] is not None else (None, None, 0.0)
+    edge = {v for v in bm.verts if any(e.is_boundary for e in v.link_edges)}
+    ring = {n for v in edge for e in v.link_edges for n in (e.other_vert(v),)} - edge
+    for vs, k in ((edge, 1.0), (ring, 0.5)):
+        for v in vs:
+            loc, nrm, d = gap(v.co)
+            if loc is None or d < 0.0015:
+                continue
+            target = loc + nrm.normalized() * 0.0015
+            v.co = v.co.lerp(target, k)
+    edge_gap = max((gap(v.co)[2] for v in edge), default=0)
+    all_gap = max((gap(v.co)[2] for v in bm.verts), default=0)
+    print('GAP', cid, 'edge_mm=%.1f' % (edge_gap * 1000), 'max_mm=%.1f' % (all_gap * 1000))
     bm.to_mesh(me)
     bm.free()
     # keep only the one UV layer, no weights
