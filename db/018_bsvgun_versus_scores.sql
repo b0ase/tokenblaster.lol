@@ -1,7 +1,4 @@
--- BSVGun VERSUS board ('bsvgun-versus'): shared-sky rounds for 2-8 shooters, 75 s, same limits as the RANGE board.
--- Built from the CURRENT live function (db/016) with one row added; every other row kept. NOT APPLIED: apply on the
--- Hetzner database before shipping (scores for 'bsvgun-versus' are rejected until then). Re-copy the latest function
--- first if another db/0NN file landed after 016.
+-- BSVGun VERSUS board ('bsvgun-versus'), added on top of the live function.
 create or replace function public.tokenblaster_score_limit(g text)
  RETURNS TABLE(per_sec numeric, base numeric, min_secs numeric)
  LANGUAGE sql
@@ -37,9 +34,11 @@ AS $function$
 -- verification uses SCORE_GAMES['bsvgun-range'].tag. Apply on the Hetzner database before shipping the game
 -- (scores for 'bsvgun-range' are rejected until then).
     ('bsvgun-range',     800, 8000, 60),
-    ('bsvgun-versus',   800, 8000, 60),
     ('bracer-mempool-loop',    60, 5000, 45),
-    ('bracer-mempool-loop-hc', 60, 5000, 45)
+    ('bracer-mempool-loop-hc', 60, 5000, 45),
+    -- BSVGun VERSUS board ('bsvgun-versus'): shared-sky rounds for 2-8 shooters, 75 s, same limits as the RANGE board.
+-- Hetzner database before shipping (scores for 'bsvgun-versus' are rejected until then). Re-copy the latest function
+    ('bsvgun-versus',   800, 8000, 60)
   ) as t(game, per_sec, base, min_secs) where t.game = g;
 $function$
 
