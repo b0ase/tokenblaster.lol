@@ -275,5 +275,79 @@
    "turn": 0,
    "roll": -1.047
   }
+ },
+ {
+  "id": "hand_23_002_hikaru",
+  "name": "Hikaru Horns (hand-built)",
+  "slot": "horns",
+  "url": "/arena/models/npg/stack/hand/23_002_hikaru_horns.glb",
+  "handBuilt": true
+ },
+ {
+  "id": "hand_23_004_bigred",
+  "name": "Big Red Horns (hand-built)",
+  "slot": "horns",
+  "url": "/arena/models/npg/stack/hand/23_004_big_red_horns.glb",
+  "handBuilt": true
+ },
+ {
+  "id": "hand_07_004_blackaxe",
+  "name": "Black Axe (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_004_black_axe.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": -2.705
+  }
+ },
+ {
+  "id": "hand_07_020_machete",
+  "name": "Machete (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_020_machete.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": -1.047
+  }
+ },
+ {
+  "id": "hand_07_011_can",
+  "name": "Graffiti Can (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_011_graffiti_can.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": 0
+  }
+ },
+ {
+  "id": "hand_07_037_guitar",
+  "name": "Guitar (hand-built)",
+  "slot": "weapon",
+  "url": "/arena/models/npg/stack/hand/07_037_guitar.glb",
+  "handBuilt": true,
+  "socket": "L",
+  "fit": {
+   "scale": 1,
+   "y": 0,
+   "z": 0,
+   "turn": 0,
+   "roll": -0.803
+  }
  }
 ]

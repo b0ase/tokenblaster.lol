@@ -598,3 +598,19 @@ def card_rgb(path):
     img.pixels.foreach_get(px)
     bpy.data.images.remove(img)
     return px.reshape(h, w, 4)[::-1] * 255
+
+
+def P(x, y, d=0.0):
+    """Card px (x, y) -> metres about the card face centre (Blender Z-up, front -Y); d = depth."""
+    return Vector(((x - FACE_PX[0]) * K, d, (FACE_PX[1] - y) * K))
+
+
+def bez(ps, n):
+    """n+1 points on the Bezier curve with control points ps (de Casteljau)."""
+    out = []
+    for i in range(n + 1):
+        t = i / n; q = list(ps)
+        while len(q) > 1:
+            q = [a * (1 - t) + b * t for a, b in zip(q, q[1:])]
+        out.append(q[0])
+    return out
