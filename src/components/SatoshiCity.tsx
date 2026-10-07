@@ -48,6 +48,7 @@ import { HighScores } from './HighScores';
 import { buildCityDetail } from '@/lib/visuals/cityDetail';
 import { QUALITY_PRESETS, autoCityQuality, saveCityQuality, type CityQuality } from '@/lib/visuals/cityQuality';
 import { sharedAudio } from '@/lib/sfx';
+import { useGameFullscreen } from '@/lib/useGameFullscreen';
 
 /**
  * Satoshi City: an open-world island city where the traffic is the BSV mainnet, live. Every car
@@ -107,6 +108,28 @@ export function SatoshiCity() {
   const pay = ap.pay;
   const [quality, setQualityState] = useState<CityQuality>('high');
   const control = useRef<Control | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  // Open world: no run end, so fullscreen is purely the player's toggle (button, G anywhere, F on the title screen).
+  const gfs = useGameFullscreen(stage, { playing: false });
+  const toggleFs = gfs.toggle;
+  const startedRef = useRef(started);
+  useEffect(() => {
+    startedRef.current = started;
+  });
+  useEffect(() => {
+    const onK = (e: KeyboardEvent) => {
+      if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      // F is carjack / get in once you're in the city, so in-game the fullscreen key is G.
+      if (e.code === 'KeyG' || (e.code === 'KeyF' && !startedRef.current)) {
+        e.preventDefault();
+        toggleFs();
+      }
+    };
+    window.addEventListener('keydown', onK);
+    return () => window.removeEventListener('keydown', onK);
+  }, [toggleFs]);
 
   useEffect(() => {
     const el = mount.current;
@@ -117,7 +140,9 @@ export function SatoshiCity() {
     const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
     let quality: CityQuality = autoCityQuality();
     setQualityState(quality);
-    const pixelRatioFor = (q: CityQuality) => Math.min(devicePixelRatio, QUALITY_PRESETS[q].pixelRatio);
+    // Adaptive resolution: dprScale walks down on slow frames (before the watchdog drops the whole tier) and back up.
+    let dprScale = 1;
+    const pixelRatioFor = (q: CityQuality) => Math.max(0.6, Math.min(devicePixelRatio, QUALITY_PRESETS[q].pixelRatio) * dprScale);
     renderer.setPixelRatio(pixelRatioFor(quality));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -166,6 +191,21 @@ export function SatoshiCity() {
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 });
     gtao.blendIntensity = 0.8;
     gtao.enabled = QUALITY_PRESETS[quality].ao;
+    // GTAOPass draws with an override material and only hides Points/Lines: sprites (the moon, glows) would become
+    // opaque AO-darkened quads. Hide them for its passes (same fix as DoubleO / rally).
+    {
+      const sprites: THREE.Object3D[] = [];
+      const aoRender = gtao.render.bind(gtao) as (...a: unknown[]) => void;
+      gtao.render = ((...a: unknown[]) => {
+        sprites.length = 0;
+        scene.traverseVisible((o) => {
+          if ((o as THREE.Sprite).isSprite) sprites.push(o);
+        });
+        for (const o of sprites) o.visible = false;
+        aoRender(...a);
+        for (const o of sprites) o.visible = true;
+      }) as typeof gtao.render;
+    }
     composer.addPass(gtao);
     const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.25, 0.5, 0.95);
     composer.addPass(bloom);
@@ -873,7 +913,93 @@ export function SatoshiCity() {
     const sky = new THREE.Color();
     const DAY = new THREE.Color('#8fb8e8');
     const DUSK = new THREE.Color('#e8845a');
-    const NIGHT = new THREE.Color('#05070f');
+    const NIGHT = new THREE.Color('#0a0820');
+
+    // ── Sky dome (DR dusk/night: deep indigo zenith, hot magenta/orange horizon band) ──
+    const skyDome = new THREE.Mesh(
+      new THREE.SphereGeometry(900, 32, 16),
+      new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+        uniforms: { night: { value: 0 }, dusk: { value: 0 }, top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() } },
+        vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position.z = gl_Position.w; }',
+        fragmentShader: `
+          uniform vec3 top; uniform vec3 horizon; uniform float night; uniform float dusk; varying vec3 vDir;
+          void main(){
+            float h = clamp(vDir.y, -0.2, 1.0);
+            vec3 c = mix(horizon, top, smoothstep(0.0, 0.55, h));
+            float band = exp(-abs(h - 0.02) * 18.0);
+            c += vec3(1.0, 0.16, 0.5) * band * (0.18 * night + 0.35 * dusk);
+            c += vec3(1.0, 0.55, 0.1) * exp(-abs(h) * 40.0) * 0.25 * dusk;
+            c = mix(c, horizon * 0.6, smoothstep(0.0, -0.2, h));
+            gl_FragColor = vec4(c, 1.0);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
+          }`,
+      }),
+    );
+    skyDome.frustumCulled = false;
+    skyDome.renderOrder = -1;
+    scene.add(skyDome);
+    const skyMat = skyDome.material as THREE.ShaderMaterial;
+    const TOP_DAY = new THREE.Color('#3f78c8');
+    const TOP_NIGHT = new THREE.Color('#05041a');
+    const HOR_NIGHT = new THREE.Color('#2a1240');
+    const HEMI_NIGHT_SKY = new THREE.Color('#6a5cff');
+    const HEMI_NIGHT_GND = new THREE.Color('#ff2d7a');
+
+    // ── Sparks (crashes) + exhaust puffs: one pooled additive Points cloud ──
+    const SPK = 240;
+    const spkPos = new Float32Array(SPK * 3);
+    const spkCol = new Float32Array(SPK * 3);
+    const spkVel = new Float32Array(SPK * 3);
+    const spkLife = new Float32Array(SPK);
+    const spkGeo = new THREE.BufferGeometry();
+    spkGeo.setAttribute('position', new THREE.BufferAttribute(spkPos, 3));
+    spkGeo.setAttribute('color', new THREE.BufferAttribute(spkCol, 3));
+    const spkMat = new THREE.PointsMaterial({ size: 0.22, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    const sparks = new THREE.Points(spkGeo, spkMat);
+    sparks.frustumCulled = false;
+    scene.add(sparks);
+    let spkNext = 0;
+    const emit = (x: number, y: number, z: number, n: number, speed: number, r: number, g: number, b: number, up = 3) => {
+      for (let i = 0; i < n; i++) {
+        const k = spkNext++ % SPK;
+        const o = k * 3;
+        spkPos[o] = x;
+        spkPos[o + 1] = y;
+        spkPos[o + 2] = z;
+        const a = Math.random() * Math.PI * 2;
+        const v = speed * (0.4 + Math.random() * 0.8);
+        spkVel[o] = Math.cos(a) * v;
+        spkVel[o + 1] = up * (0.5 + Math.random());
+        spkVel[o + 2] = Math.sin(a) * v;
+        spkCol[o] = r;
+        spkCol[o + 1] = g;
+        spkCol[o + 2] = b;
+        spkLife[k] = 0.35 + Math.random() * 0.5;
+      }
+    };
+    const stepSparks = (dt: number) => {
+      for (let k = 0; k < SPK; k++) {
+        if (spkLife[k] <= 0) continue;
+        const o = k * 3;
+        spkLife[k] -= dt;
+        const f = spkLife[k] <= 0 ? 0 : Math.min(1, spkLife[k] * 2.5);
+        spkVel[o + 1] -= 14 * dt;
+        spkPos[o] += spkVel[o] * dt;
+        spkPos[o + 1] = Math.max(0.05, spkPos[o + 1] + spkVel[o + 1] * dt);
+        spkPos[o + 2] += spkVel[o + 2] * dt;
+        spkCol[o] *= f < 1 ? 0.9 : 1;
+        spkCol[o + 1] *= f < 1 ? 0.88 : 1;
+        spkCol[o + 2] *= f < 1 ? 0.88 : 1;
+        if (f === 0) spkPos[o + 1] = -50;
+      }
+      spkGeo.attributes.position.needsUpdate = true;
+      spkGeo.attributes.color.needsUpdate = true;
+    };
+    let exhaustAt = 0;
 
     // ── The loop ──
     const camPos = new THREE.Vector3(SPAWN.x, 6, SPAWN.z + 8);
@@ -999,10 +1125,34 @@ export function SatoshiCity() {
 
     // Frame-time watchdog: 3 s of > 30 ms frames on 'high' drops to 'low' (not saved, so a faster device can retry).
     let slowFor = 0;
+    let dprSlow = 0;
+    let dprFast = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
       const realDt = Math.min(0.05, (now - last) / 1000);
-      if (quality === 'high' && started0(now)) {
+      if (started0(now) && !document.hidden) {
+        if (realDt > 0.022) {
+          dprSlow += realDt;
+          dprFast = 0;
+        } else if (realDt < 0.0145) {
+          dprFast += realDt;
+          dprSlow = Math.max(0, dprSlow - realDt);
+        }
+        if (dprSlow > 1.5 && dprScale > 0.6) {
+          dprSlow = 0;
+          dprScale = Math.max(0.6, dprScale - 0.15);
+          renderer.setPixelRatio(pixelRatioFor(quality));
+          composer.setPixelRatio(pixelRatioFor(quality));
+          needsResize = true;
+        } else if (dprFast > 5 && dprScale < 1) {
+          dprFast = 0;
+          dprScale = Math.min(1, dprScale + 0.1);
+          renderer.setPixelRatio(pixelRatioFor(quality));
+          composer.setPixelRatio(pixelRatioFor(quality));
+          needsResize = true;
+        }
+      }
+      if (quality === 'high' && started0(now) && dprScale <= 0.75) {
         slowFor = realDt > 0.03 ? slowFor + realDt : Math.max(0, slowFor - realDt * 2);
         if (slowFor > 3) {
           slowFor = 0;
@@ -1036,10 +1186,19 @@ export function SatoshiCity() {
       const night = THREE.MathUtils.clamp(-elev * 3 + 0.2, 0, 1);
       const dusk = THREE.MathUtils.clamp(1 - Math.abs(elev) * 4, 0, 1);
       sky.copy(DAY).lerp(DUSK, dusk * 0.8).lerp(NIGHT, night);
-      if (hdrSky && night < 0.55) {
+      skyMat.uniforms.night.value = night;
+      skyMat.uniforms.dusk.value = dusk;
+      (skyMat.uniforms.top.value as THREE.Color).copy(TOP_DAY).lerp(TOP_NIGHT, Math.min(1, night + dusk * 0.4));
+      (skyMat.uniforms.horizon.value as THREE.Color).copy(sky).lerp(HOR_NIGHT, night * 0.85);
+      skyDome.position.copy(camera.position);
+      if (hdrSky && night < 0.35 && dusk < 0.5) {
+        skyDome.visible = false;
         scene.background = hdrSky;
         scene.backgroundIntensity = Math.max(0.08, 1 - night * 1.6) * (1 - dusk * 0.35);
-      } else scene.background = sky;
+      } else {
+        skyDome.visible = true;
+        scene.background = sky;
+      }
       (scene.fog as THREE.Fog).color.copy(sky);
       scene.environmentIntensity = 0.12 + 0.88 * (1 - night);
       grade.uniforms.night.value = night;
@@ -1049,7 +1208,10 @@ export function SatoshiCity() {
       detail.update(camera.position);
       sun.intensity = 3.2 * (1 - night);
       sun.color.set(dusk > 0.4 ? '#ffb27a' : '#fff1dc');
-      hemi.intensity = 0.14 + 0.6 * (1 - night);
+      hemi.intensity = 0.22 + 0.52 * (1 - night);
+      // Night fill in the DR palette: cold violet sky light, hot magenta neon bounce off the street.
+      hemi.color.set('#cfe4ff').lerp(HEMI_NIGHT_SKY, night);
+      hemi.groundColor.set('#3a2a22').lerp(HEMI_NIGHT_GND, night);
       renderer.toneMappingExposure = 0.8 - night * 0.12;
       bloom.strength = (0.06 + night * 0.42) * QUALITY_PRESETS[quality].bloomScale;
       headLamp.intensity = night * 60;
@@ -1212,6 +1374,10 @@ export function SatoshiCity() {
         }
         if (impact > 3) {
           shake = Math.min(1, impact / 18);
+          {
+            const [fx, fz] = fwdOf(c.th);
+            emit(c.x + fx * c.b.len * 0.5, 0.6, c.z + fz * c.b.len * 0.5, Math.min(40, 6 + impact * 2), 3 + impact * 0.35, 1.6, 0.9, 0.35);
+          }
           if (impact > 5) c.health = Math.max(0, c.health - (impact - 5) * 2.2);
           beep([90 + Math.random() * 40], 'sawtooth', 0, Math.min(0.15, impact / 80), 0.18);
         }
@@ -1490,6 +1656,21 @@ export function SatoshiCity() {
         tmpV.set(cx - Math.sin(yaw) * ahead, ty, cz - Math.cos(yaw) * ahead);
         camLook.lerp(tmpV, Math.min(1, realDt * rate * 1.5));
       }
+      {
+        const sp = car ? Math.hypot(car.vx, car.vz) : 0;
+        const fovT = 60 + Math.min(16, Math.max(0, sp - 8) * 0.42) + (inp.sprint && !car ? 3 : 0);
+        if (Math.abs(camera.fov - fovT) > 0.05) {
+          camera.fov += (fovT - camera.fov) * Math.min(1, realDt * 3);
+          camera.updateProjectionMatrix();
+        }
+        if (car && now > exhaustAt && (inp.up || sp > 3)) {
+          exhaustAt = now + 45;
+          const [fx, fz] = fwdOf(car.th);
+          const g = 0.08 + night * 0.04;
+          emit(car.x - fx * car.b.len * 0.5, 0.35, car.z - fz * car.b.len * 0.5, 1, 0.4, g, g, g * 1.2, 0.6);
+        }
+        stepSparks(realDt);
+      }
       camera.position.copy(camPos);
       if (shake > 0) {
         camera.position.x += (Math.random() - 0.5) * shake * 0.5;
@@ -1680,8 +1861,15 @@ export function SatoshiCity() {
           )}
         </span>
       </div>
-      <div className="relative select-none">
-        <div ref={mount} className="inset h-[74vh] min-h-96 w-full touch-none overflow-hidden" />
+      <div ref={stage} className={`relative select-none ${gfs.fs ? 'h-screen w-screen bg-black text-[1.15em]' : ''}`}>
+        <div ref={mount} className={`w-full touch-none overflow-hidden ${gfs.fs ? 'h-full' : 'inset h-[calc(100vh-220px)] min-h-[420px]'}`} />
+        <button
+          onClick={gfs.toggle}
+          className="btn btn-on absolute right-[190px] top-3 z-20 px-3 py-1.5 text-xs font-black tracking-widest max-sm:right-[140px]"
+          title="Fullscreen (G, or F on the title screen) · Esc leaves"
+        >
+          {gfs.fs ? '✕ EXIT FULLSCREEN' : '⛶ FULLSCREEN'}
+        </button>
         <ActionHud ap={ap} className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 max-sm:bottom-44" />
 
         {/* Score + mission */}
@@ -1805,6 +1993,8 @@ export function SatoshiCity() {
               <span>open the tx you&apos;re looking at</span>
               <span className="text-fg">H · N</span>
               <span>horn · skip to day/night</span>
+              <span className="text-fg">G</span>
+              <span>fullscreen (Esc leaves)</span>
             </div>
             <CoinOpButtons
               co={co}

@@ -11,7 +11,7 @@ export const metadata = {
 
 export default function CityPage() {
   return (
-    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-2.5">
+    <main className="mx-auto flex w-full max-w-[2200px] flex-col gap-2 px-2 py-2 sm:px-4">
       <header className="panel">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h1 className="text-2xl font-bold text-hot">
