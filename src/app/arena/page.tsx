@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ARENA_CARD, shareImages } from '@/lib/og';
 import { Arena } from '@/components/Arena';
 import { GitHubLink } from '@/components/GitHubLink';
 
@@ -6,8 +7,8 @@ const description = 'A DOOM-style arena where your ammo is the tokens in your wa
 export const metadata = {
   title: 'Arena · TokenBlaster.lol',
   description,
-  openGraph: { title: 'TokenBlaster Arena', description, url: '/arena' },
-  twitter: { card: 'summary_large_image', title: 'TokenBlaster Arena', description },
+  openGraph: { title: 'TokenBlaster Arena', description, url: '/arena', images: shareImages(ARENA_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'TokenBlaster Arena', description, images: shareImages(ARENA_CARD).twitter },
 };
 
 export default function ArenaPage() {
