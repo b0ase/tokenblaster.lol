@@ -476,7 +476,7 @@ export function makeFloor() {
       vec3 PAL(float h){ return h < 0.25 ? vec3(0.15,0.9,1.0) : h < 0.5 ? vec3(0.29,0.48,1.0) : h < 0.75 ? vec3(1.0,0.18,0.57) : vec3(1.0,0.72,0.0); }
       void main(){
         float dz = -vW.z;                       // distance away from the player line
-        vec2 p = vec2(vW.x, vW.z + uScroll);
+        vec2 p = vec2(vW.x, vW.z - uScroll); // scroll toward the player: the ship flies forward
         vec2 g = p / 1.5; vec2 fw = fwidth(g);
         vec2 gr = abs(fract(g - 0.5) - 0.5) / max(fw, vec2(0.0001));
         float line = 1.0 - min(min(gr.x, gr.y), 1.0);
@@ -492,7 +492,7 @@ export function makeFloor() {
         float lane = floor(vW.x / 1.5);
         float hl = h21(vec2(lane, 3.0));
         float sp = 2.0 + hl * 7.0 + uPress * 8.0;
-        float zz = (vW.z * 0.22 + uTime * sp * 0.22) * (0.6 + hl);
+        float zz = (vW.z * 0.22 - uTime * sp * 0.22) * (0.6 + hl);
         float dash = smoothstep(0.86, 0.97, fract(zz + hl * 9.0)) * step(0.72, h21(vec2(lane, 9.0)));
         float inLane = smoothstep(0.42, 0.3, abs(fract(vW.x / 1.5) - 0.5));
         col += PAL(h21(vec2(lane, 5.0))) * dash * inLane * 0.8 * fade;
@@ -632,7 +632,7 @@ export function makeRails() {
     fragmentShader: /* glsl */ `
       uniform float uScroll, uBeat; varying vec3 vW; varying vec3 vL;
       void main(){
-        float s = step(0.5, fract((vW.z + vW.x * 0.0 + uScroll) * 0.22));
+        float s = step(0.5, fract((vW.z - uScroll) * 0.22));
         float top = smoothstep(0.3, 0.5, vL.y);
         vec3 amber = vec3(1.0, 0.62, 0.0);
         vec3 col = mix(vec3(0.03), amber * (0.3 + uBeat * 0.8), s) * (0.4 + top);
