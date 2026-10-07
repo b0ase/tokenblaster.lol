@@ -11,6 +11,8 @@
  * ?room=CODE in the URL joins a private room automatically (once `enabled`).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { WalletInterface } from '@bsv/sdk';
+import { proveHandle, verifyWire } from '@/lib/identity';
 import { cleanRoomCode, newRoomCode, raceMpAvailable, RaceSession, type RaceInfo, type RacePlayer, type RaceProfile, type RaceStanding, type RoomStatus } from './session';
 
 export type RoomUi = { players: RacePlayer[]; leader: string | null; status: RoomStatus; count: number | null; full: boolean; standings: RaceStanding[]; final: boolean };
@@ -31,6 +33,8 @@ export type RaceRoomOpts<C> = {
   events: string[];
   onRemoteCfg(c: C): void;
   onGo(race: RaceInfo<C>): void;
+  /** Connected wallet: used only to prove profile.x (verified tick). Never pays anything here. */
+  wallet?: WalletInterface | null;
 };
 
 export function useRaceRoom<C>(o: RaceRoomOpts<C>) {
@@ -106,6 +110,34 @@ export function useRaceRoom<C>(o: RaceRoomOpts<C>) {
       if (s.quickKey !== want) join(info.code, true);
     } else if (ui.leader === s.id && !o.sameCfg(s.cfg, o.cfg)) s.setCfg(o.cfg);
   });
+  // Verified X handles: prove mine once per session+handle, check everyone else's.
+  const proved = useRef('');
+  const wallet = o.wallet ?? null;
+  const myX = o.profile.x;
+  useEffect(() => {
+    const s = sref.current;
+    if (!s || !info || !wallet || !myX) return;
+    const k = `${info.id}|${myX}`;
+    if (proved.current === k) return;
+    proved.current = k;
+    void proveHandle(wallet, myX, info.id).then((w) => {
+      if (w && sref.current === s) s.setProfile({ x: w.x, xk: w.xk, xs: w.xs });
+    });
+  }, [info, wallet, myX]);
+  const [verified, setVerified] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    let live = true;
+    for (const p of ui.players) {
+      if (!p.xs || !p.x) continue;
+      void verifyWire(p, p.id).then((ok) => {
+        if (live && ok) setVerified((v) => (v[p.id] ? v : { ...v, [p.id]: true }));
+      });
+    }
+    return () => {
+      live = false;
+    };
+  }, [ui.players]);
+
   useEffect(
     () => () => {
       sref.current?.leave();
@@ -117,6 +149,8 @@ export function useRaceRoom<C>(o: RaceRoomOpts<C>) {
   return {
     info,
     ui,
+    /** Player ids whose X handle is proven (bWalletX X paymail + session signature). */
+    verified,
     available: raceMpAvailable(),
     joinQuick: () => join('quick', true),
     joinPrivate: (code?: string) => join(code ? cleanRoomCode(code) : newRoomCode(), false),

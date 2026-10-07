@@ -18,6 +18,9 @@ import { useBlaster } from '@/lib/useBlaster';
 import { AmmoStrip } from './AmmoStrip';
 import { WalletChooser } from './WalletChooser';
 import { Room, realtimeConfigured } from '@/lib/realtime';
+import { proveHandle, readWire, verifyWire, type IdWire } from '@/lib/identity';
+import { disposeAvatarTag, fitAvatarTag, makeAvatarTag, tagKey } from '@/lib/avatarTag';
+import { IdentityPicker, InviteButton, PlayerBadge, useMyHandle } from './PlayerBadge';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GameAudio } from '@/components/SoundToggle';
 import Link from 'next/link';
@@ -211,15 +214,30 @@ export function Arena() {
     const match = b.tokens.find((t) => ammoAccepts(ammoRule, t));
     if (match) b.setToken(match);
   }, [ammoRule, ammoOk, b]);
-  const net = useRef({ name: 'player', gun: '', token: null as null | { id: string; sym: string; icon: string | null } });
+  const xHandle = useMyHandle();
+  const net = useRef({ name: 'player', gun: '', token: null as null | { id: string; sym: string; icon: string | null }, x: null as string | null, wallet: null as null | NonNullable<typeof b.wallet>['client'] });
   useEffect(() => {
     net.current = {
       name: b.wallet ? `${b.wallet.name.split(' ')[0]}·${b.wallet.address.slice(-4)}` : 'guest',
       gun: b.gunAddress,
       token: b.token ? { id: b.token.id, sym: b.token.sym, icon: b.token.icon } : null,
+      x: xHandle,
+      wallet: b.wallet?.client ?? null,
     };
-  }, [b.wallet, b.gunAddress, b.token]);
+  }, [b.wallet, b.gunAddress, b.token, xHandle]);
   const [players, setPlayers] = useState(0);
+  // Who's in the room (presence) with their X identity, and the "@alice blasted @bob" feed.
+  const [roster, setRoster] = useState<{ id: string; x?: string; name: string; v: boolean; me: boolean }[]>([]);
+  const [killFeed, setKillFeed] = useState<{ k: number; from: IdWire & { name: string }; to: IdWire & { name: string } }[]>([]);
+  const feedRef = useRef<(from: IdWire & { name: string }, to: IdWire & { name: string }) => void>(() => undefined);
+  useEffect(() => {
+    let k = 0;
+    feedRef.current = (from, to) => {
+      const item = { k: ++k, from, to };
+      setKillFeed((f) => [item, ...f].slice(0, 5));
+      setTimeout(() => setKillFeed((f) => f.filter((x) => x !== item)), 6000);
+    };
+  }, []);
   const [toasts, setToasts] = useState<{ id: number; text: string; icon: string | null }[]>([]);
   const toast = useRef<(text: string, icon: string | null) => void>(() => undefined);
   useEffect(() => {
@@ -405,7 +423,7 @@ export function Arena() {
     const myId = Math.random().toString(36).slice(2, 10);
     let chibi: GLTF | null = null;
     const chibiDef = MONSTERS.find((d) => d.id === 'chibi');
-    type Remote = { m: Monster; to: THREE.Vector3; yaw: number; seen: number; name: string; gun: string; label: THREE.Sprite };
+    type Remote = { m: Monster; to: THREE.Vector3; yaw: number; seen: number; name: string; gun: string; label: THREE.Sprite; wire: IdWire; verified: boolean; tagK: string };
     const remotes = new Map<string, Remote>();
     const nameTag = (text: string) => {
       const c = document.createElement('canvas');
@@ -422,6 +440,62 @@ export function Arena() {
       sp.scale.set(1.2, 0.225, 1);
       return sp;
     };
+    // The billboard over a remote player: X avatar + @handle when they set one, else the plain name tag.
+    const setTag = (r: Remote) => {
+      const o = { handle: r.wire.x ?? null, name: r.name, ring: HOUSE_GOLD, verified: r.verified };
+      const k = tagKey(o);
+      if (k === r.tagK) return;
+      r.tagK = k;
+      if (r.label.userData.avatarTag) disposeAvatarTag(r.label);
+      else {
+        r.label.removeFromParent();
+        r.label.material.map?.dispose();
+        r.label.material.dispose();
+      }
+      r.label = o.handle ? makeAvatarTag(o, 0.55) : nameTag(r.name);
+      r.label.position.y = (chibiDef?.height ?? 1.6) + (o.handle ? 0.2 : 0.35);
+      r.m.root.add(r.label);
+    };
+    const identify = (id: string, raw: unknown) => {
+      const r = remotes.get(id);
+      if (!r) return;
+      const w = readWire(raw);
+      if (w.x !== r.wire.x || w.xs?.join() !== r.wire.xs?.join()) {
+        r.wire = w;
+        r.verified = false;
+        if (w.xs)
+          void verifyWire(w, id).then((ok) => {
+            if (ok && remotes.get(id) === r && r.wire === w) {
+              r.verified = true;
+              setTag(r);
+            }
+          });
+      }
+      setTag(r);
+    };
+    const nameOf = (id: string): IdWire & { name: string } => {
+      if (id === myId) return { x: net.current.x ?? undefined, name: net.current.name };
+      const r = remotes.get(id);
+      return r ? { ...r.wire, name: r.name } : { name: 'player' };
+    };
+    // My proof (bWalletX X paymail + signature over myId), refreshed when the handle changes.
+    let myWire: IdWire = {};
+    let provedFor = '';
+    const syncMe = () => {
+      const x = net.current.x;
+      if ((x ?? '') !== (myWire.x ?? '')) myWire = x ? { x } : {};
+      room?.track({ id: myId, ...myWire, name: net.current.name });
+      const w = net.current.wallet;
+      if (x && w && provedFor !== x + (w ? '|w' : '')) {
+        provedFor = x + '|w';
+        void proveHandle(w, x, myId).then((p) => {
+          if (p && net.current.x === x) {
+            myWire = p;
+            room?.track({ id: myId, ...myWire, name: net.current.name });
+          }
+        });
+      }
+    };
     const remoteFor = (id: string, name: string) => {
       let r = remotes.get(id);
       if (!r && chibi && chibiDef) {
@@ -431,7 +505,7 @@ export function Arena() {
         label.position.y = chibiDef.height + 0.35;
         m.root.add(label);
         scene.add(m.root);
-        r = { m, to: new THREE.Vector3(), yaw: 0, seen: performance.now(), name, gun: '', label };
+        r = { m, to: new THREE.Vector3(), yaw: 0, seen: performance.now(), name, gun: '', label, wire: {}, verified: false, tagK: '' };
         remotes.set(id, r);
       }
       return r;
@@ -440,9 +514,10 @@ export function Arena() {
       ? new Room('tokenblaster-arena', myId, {
           onBroadcast: (event, p) => {
             if (event === 'pose') {
-              const d = p as { id: string; x: number; z: number; yaw: number; name: string; gun: string };
+              const d = p as { id: string; x: number; z: number; yaw: number; name: string; gun: string; id_?: unknown };
               const r = remoteFor(d.id, d.name);
               if (!r) return;
+              identify(d.id, d.id_);
               r.to.set(d.x, 0, d.z);
               if (r.seen === 0 || r.m.root.position.lengthSq() === 0) r.m.root.position.copy(r.to);
               r.yaw = d.yaw;
@@ -454,6 +529,10 @@ export function Arena() {
               if (d.id === myId || !Array.isArray(d.f) || !Array.isArray(d.t)) return;
               const from = new THREE.Vector3(d.f[0], d.f[1], d.f[2]);
               for (let i = 0; i + 2 < d.t.length && i < 60; i += 3) ammoFx.fire(d.k, from, new THREE.Vector3(d.t[i], d.t[i + 1], d.t[i + 2]), d.c);
+            } else if (event === 'tag') {
+              // Someone landed a shot on someone (cosmetic, for the kill feed; payments are separate).
+              const d = p as { from: string; to: string };
+              if (typeof d.from === 'string' && typeof d.to === 'string') feedRef.current(nameOf(d.from), nameOf(d.to));
             } else if (event === 'hit') {
               const d = p as { to: string; from: string; n: number; tokens: boolean; sym?: string; icon?: string | null };
               if (d.to !== myId) return;
@@ -461,10 +540,25 @@ export function Arena() {
               toast.current(d.tokens ? `+${d.n} $${d.sym} from ${d.from} (in your gun)` : `${d.from} hit you ×${d.n}`, d.tokens ? iconUrl(d.icon ?? null) : null);
             }
           },
-          onPresence: (state) => setPlayers(Object.keys(state).length),
+          onPresence: (state) => {
+            setPlayers(Object.keys(state).length);
+            const list: { id: string; x?: string; name: string; v: boolean; me: boolean }[] = [];
+            for (const [id, metas] of Object.entries(state)) {
+              const m = metas[metas.length - 1] as Record<string, unknown> | undefined;
+              const w = readWire(m);
+              const me = id === myId;
+              const r = remotes.get(id);
+              list.push({ id, x: w.x, name: String(m?.name ?? 'player').slice(0, 16), v: me ? Boolean(myWire.xs) : Boolean(r?.verified && r.wire.x === w.x), me });
+              if (!me && r) identify(id, m);
+            }
+            setRoster(list.sort((a, b) => Number(b.me) - Number(a.me)));
+          },
         })
       : null;
-    room?.track({ id: myId });
+    syncMe();
+    let lastTrackX = net.current.x;
+    let lastTrackW = net.current.wallet;
+    const tagSent = new Map<string, number>();
     let lastPose = 0;
 
     const fireballs: { s: THREE.Sprite; v: THREE.Vector3 }[] = [];
@@ -1198,6 +1292,12 @@ export function Arena() {
           sfx?.hit();
           markHit(false);
           if (!free) queue.push({ extra: ['arena', 'player', foe[0]], to: foe[1].gun || undefined, target: foe[0] });
+          // Kill feed (cosmetic): at most one per target per second.
+          if (room && now - (tagSent.get(foe[0]) ?? -1e9) > 1000) {
+            tagSent.set(foe[0], now);
+            room.broadcast('tag', { from: myId, to: foe[0] });
+            feedRef.current(nameOf(myId), nameOf(foe[0]));
+          }
         } else if (!free) queue.push({ extra: ['arena', mob ? (killed ? 'kill' : 'hit') : 'miss'] });
       }
       heat = queue.length;
@@ -1546,7 +1646,13 @@ export function Arena() {
         // Other players: glide to their last pose, walk while moving, drop if silent for 5 s.
         if (room && now - lastPose > 100) {
           lastPose = now;
-          room.broadcast('pose', { id: myId, x: camera.position.x, z: camera.position.z, yaw, name: net.current.name, gun: net.current.gun });
+          room.broadcast('pose', { id: myId, x: camera.position.x, z: camera.position.z, yaw, name: net.current.name, gun: net.current.gun, id_: myWire });
+          if (net.current.x !== lastTrackX || net.current.wallet !== lastTrackW) {
+            if (net.current.wallet !== lastTrackW) provedFor = '';
+            lastTrackX = net.current.x;
+            lastTrackW = net.current.wallet;
+            syncMe();
+          }
         }
         for (const [id, r] of remotes) {
           if (now - r.seen > 5000) {
@@ -1554,6 +1660,7 @@ export function Arena() {
             remotes.delete(id);
             continue;
           }
+          if (r.label.userData.avatarTag) fitAvatarTag(r.label, camera, 0.035, 1.8);
           const p = r.m.root.position;
           const gap = p.distanceTo(r.to);
           p.lerp(r.to, Math.min(1, dt * 8));
@@ -1878,6 +1985,24 @@ export function Arena() {
             <div ref={knobRef} className="absolute left-1/2 top-1/2 -ml-[22px] -mt-[22px] h-11 w-11 rounded-full bg-hot/60" />
           </div>
         )}
+        {playing && killFeed.length > 0 && (
+          <div className="pointer-events-none absolute bottom-28 right-2 flex flex-col items-end gap-1 text-xs" data-kill-feed>
+            {killFeed.map((f) => (
+              <div key={f.k} className="flex items-center gap-1 bg-black/75 px-2 py-0.5 text-fg">
+                <PlayerBadge handle={f.from.x} name={f.from.name} size={16} />
+                <span className="text-hot">blasted</span>
+                <PlayerBadge handle={f.to.x} name={f.to.name} size={16} />
+              </div>
+            ))}
+          </div>
+        )}
+        {playing && roster.length > 1 && (
+          <div className="pointer-events-none absolute left-2 top-[260px] flex max-w-[40%] flex-col gap-0.5 text-[11px] max-sm:hidden" data-arena-roster>
+            {roster.slice(0, 10).map((r) => (
+              <PlayerBadge key={r.id} handle={r.x} name={r.name} verified={r.v} ring={r.me ? '#f4efe2' : HOUSE_GOLD} size={16} className={`bg-black/60 px-1 ${r.me ? 'text-hot' : 'text-fg'}`} />
+            ))}
+          </div>
+        )}
         {toasts.length > 0 && (
           <div className="pointer-events-none absolute left-1/2 top-16 flex -translate-x-1/2 flex-col items-center gap-1">
             {toasts.map((t) => (
@@ -1972,6 +2097,17 @@ export function Arena() {
           >
             <p className="text-3xl font-bold text-hot">ARENA</p>
             {players > 1 && <p className="text-sm text-hot">{players} players in the arena now · hitting a player sends them your token</p>}
+            <div className="flex flex-wrap items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <IdentityPicker verified={roster.some((r) => r.me && r.v)} />
+              {realtimeConfigured() && <InviteButton link={typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : 'https://www.tokenblaster.lol/arena'} game="the TokenBlaster Arena" />}
+            </div>
+            {roster.length > 1 && (
+              <div className="flex max-w-xl flex-wrap justify-center gap-2 text-xs" data-arena-lobby>
+                {roster.map((r) => (
+                  <PlayerBadge key={r.id} handle={r.x} name={r.name} verified={r.v} ring={r.me ? '#f4efe2' : HOUSE_GOLD} size={22} className={r.me ? 'text-hot' : 'text-fg'} />
+                ))}
+              </div>
+            )}
             {b.wallet && flow}
             <div className="grid w-full max-w-5xl grid-cols-1 gap-2 text-left sm:grid-cols-3">
               <div className="inset bg-black/60 px-3 py-2">

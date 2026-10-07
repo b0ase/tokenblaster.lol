@@ -25,14 +25,16 @@
  *  flag. Other event names (weapons...) are yours: list them in `events` and handle them in link.on.
  *  Nothing here moves money; each game keeps its own coin-op/payment code.
  */
+import { readWire } from '@/lib/identity';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 
 export const MAX_PLAYERS = 8;
 
-export type RaceProfile = { name: string; vehicle: string; team: string; gun?: string };
+/** x/xk/xs: X handle + optional proof (src/lib/identity.ts). Cosmetic only, never used for payments. */
+export type RaceProfile = { name: string; vehicle: string; team: string; gun?: string; x?: string; xk?: string; xs?: number[] };
 export type RacePlayer = RaceProfile & { id: string; ready: boolean; paid: boolean; st: 'lobby' | 'racing'; t: number };
 export type RaceInfo<C> = { rid: string; ids: string[]; players: Record<string, RaceProfile>; cfg: C };
-export type RaceStanding = { id: string; name: string; team: string; t: number | null; dnf: boolean; me: boolean; racing: boolean };
+export type RaceStanding = { id: string; name: string; x?: string; team: string; t: number | null; dnf: boolean; me: boolean; racing: boolean };
 export type RoomStatus = 'connecting' | 'live' | 'off';
 
 export type RaceLink<C> = {
@@ -149,7 +151,12 @@ export class RaceSession<C> {
   }
   setProfile(p: Partial<RaceProfile>) {
     const m = this.me;
-    if ((p.name === undefined || p.name === m.name) && (p.vehicle === undefined || p.vehicle === m.vehicle) && (p.team === undefined || p.team === m.team) && p.gun === m.gun) return;
+    const sameId = ('x' in p ? p.x === m.x : true) && ('xs' in p ? String(p.xs) === String(m.xs) && p.xk === m.xk : true);
+    if ((p.name === undefined || p.name === m.name) && (p.vehicle === undefined || p.vehicle === m.vehicle) && (p.team === undefined || p.team === m.team) && p.gun === m.gun && sameId) return;
+    if ('x' in p && p.x !== m.x && !('xs' in p)) {
+      delete m.xk;
+      delete m.xs;
+    }
     Object.assign(m, p);
     this.pushMe();
   }
@@ -171,7 +178,7 @@ export class RaceSession<C> {
     for (const metas of Object.values(state)) {
       const m = metas[metas.length - 1] as Partial<RacePlayer> | undefined;
       if (!m || typeof m.id !== 'string' || m.id === this.id) continue;
-      list.push({ id: m.id, name: String(m.name ?? 'pilot').slice(0, 16), vehicle: String(m.vehicle ?? ''), team: String(m.team ?? ''), gun: typeof m.gun === 'string' && m.gun.length < 80 ? m.gun : undefined, ready: Boolean(m.ready), paid: Boolean(m.paid), st: m.st === 'racing' ? 'racing' : 'lobby', t: Number(m.t) || 0 });
+      list.push({ id: m.id, name: String(m.name ?? 'pilot').slice(0, 16), vehicle: String(m.vehicle ?? ''), team: String(m.team ?? ''), gun: typeof m.gun === 'string' && m.gun.length < 80 ? m.gun : undefined, ...readWire(m), ready: Boolean(m.ready), paid: Boolean(m.paid), st: m.st === 'racing' ? 'racing' : 'lobby', t: Number(m.t) || 0 });
     }
     // I always know myself (presence echoes can lag).
     list.push({ ...this.me });
@@ -239,7 +246,7 @@ export class RaceSession<C> {
     const race: RaceInfo<C> = {
       rid: `${rid4()}${rid4()}`,
       ids: ready.map((p) => p.id),
-      players: Object.fromEntries(ready.map((p) => [p.id, { name: p.name, vehicle: p.vehicle, team: p.team, gun: p.gun }])),
+      players: Object.fromEntries(ready.map((p) => [p.id, { name: p.name, vehicle: p.vehicle, team: p.team, gun: p.gun, ...readWire(p) }])),
       cfg: this.cfg,
     };
     this.room.broadcast('go', race);
@@ -371,7 +378,7 @@ export class RaceSession<C> {
     if (!race) return [] as RaceStanding[];
     const rows: RaceStanding[] = race.ids.map((id) => {
       const f = this.fin.get(id);
-      return { id, name: race.players[id]?.name ?? 'pilot', team: race.players[id]?.team ?? '', t: f?.t ?? null, dnf: f ? f.t === null : false, me: id === this.id, racing: !f && this.alive(id) };
+      return { id, name: race.players[id]?.name ?? 'pilot', x: readWire(race.players[id]).x, team: race.players[id]?.team ?? '', t: f?.t ?? null, dnf: f ? f.t === null : false, me: id === this.id, racing: !f && this.alive(id) };
     });
     rows.sort((a, b) => {
       const ka = a.t !== null ? 0 : a.racing ? 1 : 2;

@@ -8,6 +8,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { readWire, verifyWire } from '@/lib/identity';
+import { disposeAvatarTag, fitAvatarTag, makeAvatarTag } from '@/lib/avatarTag';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
@@ -119,6 +121,8 @@ type RemoteRun = {
   rig: CarRig;
   label: THREE.Sprite;
   labelTex: THREE.CanvasTexture;
+  /** X avatar billboard when the driver set a handle (hidden from GTAO with the other sprites). */
+  avatar: THREE.Sprite | null;
   buf: SnapshotBuffer;
   spot: number;
   s: number;
@@ -993,6 +997,7 @@ export class RallyEngine {
       r.rig.dispose();
       r.labelTex.dispose();
       (r.label.material as THREE.Material).dispose();
+      if (r.avatar) disposeAvatarTag(r.avatar);
     }
     this.remotes = [];
     this.mySpot = -1;
@@ -1006,7 +1011,8 @@ export class RallyEngine {
   private addRemote(id: string, info: { name: string; vehicle: string; team: string }, spot: number) {
     const spec = CARS.find((c) => c.id === info.vehicle) ?? CARS[0];
     const col = driverColour(info.team);
-    const name = String(info.name || 'PILOT').slice(0, 14);
+    const xid = readWire(info);
+    const name = xid.x ? `@${xid.x}` : String(info.name || 'PILOT').slice(0, 14);
     const rig = this.factory.build(spec.body, { base: col.base, accent: col.accent, trim: col.trim, number: String(((spot * 13 + 5) % 97) + 2), sponsors: ['SATOSHI RACING', 'HASH·OIL', 'MEMPOOL ENERGY'], ticker: name.slice(0, 9), logo: null, seed: spot * 17 + 3 }, this.quality !== 'low');
     this.scene.add(rig.root);
     const label = this.makeLabel();
@@ -1029,8 +1035,18 @@ export class RallyEngine {
     const r: RemoteRun = {
       id, name, colour: col.base, rig, label: label.sprite, labelTex: label.tex,
       buf: new SnapshotBuffer({ maxSpeed: RALLY_VCAP, clamp: RALLY_CHANNELS, frozenBit: FL_DONE }),
-      spot, s: START_S, v: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, spin: 0, fl: 0, gone: false, placed: false,
+      spot, s: START_S, v: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, spin: 0, fl: 0, gone: false, placed: false, avatar: null,
     };
+    if (xid.x) {
+      const put = (verified: boolean) => {
+        if (r.avatar) disposeAvatarTag(r.avatar);
+        r.avatar = makeAvatarTag({ handle: xid.x!, name, ring: col.base, verified }, 1.3);
+        r.avatar.position.set(0, 3.3, 0);
+        rig.root.add(r.avatar);
+      };
+      put(false);
+      void verifyWire(xid, id).then((ok) => ok && this.remotes.includes(r) && put(true));
+    }
     this.resetRemote(r);
     this.remotes.push(r);
   }
@@ -1116,6 +1132,10 @@ export class RallyEngine {
         w.spin.rotation.x = r.spin * (WHEELS.radius / WHEEL_VIS_R);
       });
       r.rig.setLights(0, 0.4);
+      if (r.avatar) {
+        fitAvatarTag(r.avatar, this.camera, 0.04, 6);
+        r.avatar.visible = r.rig.root.position.distanceTo(this.camera.position) < 300;
+      }
     }
   }
 
