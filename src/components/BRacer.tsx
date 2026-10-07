@@ -15,11 +15,18 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { DR } from '@/lib/dr/tokens';
 import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
 import { LOGO_FAMILY, Logo } from './bracer-logo';
-import { fmt, HyperEngine, type BRaceCfg, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
+import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
 import { TRACK_LIST, type Track, type TrackId } from '@/lib/hyper/track';
 import type { Weapon } from '@/lib/hyper/sim';
 import type { ScoreGame } from '@/lib/scores';
+import { useBlaster } from '@/lib/useBlaster';
+import { TOKEN_FEE } from '@/lib/gun';
+import { BRACER_COIN } from '@/lib/gameCoins';
+import { formatCount, packSats } from '@/lib/pricing';
+import { AmmoStrip } from './AmmoStrip';
+import { AmmoPicker } from './AmmoPicker';
+import { WalletChooser } from './WalletChooser';
 import { cleanRoomCode, type RaceInfo, type RaceLink } from '@/lib/racemp/session';
 import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
 import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
@@ -29,6 +36,10 @@ type RivalInfo = { name: string; detail: string; color: string; live: boolean; t
 const PREFS = `tokenblaster:${GAME_SLUG}-prefs`;
 const NAME_KEY = `tokenblaster:${GAME_SLUG}-name`;
 const BEST = `tokenblaster:${GAME_SLUG}-best`;
+/** LIVE blasting pays like Chain Frogger: 1 sat (or 1 token) to the house per action + the network fee, from the loaded gun. */
+const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
+const EST_FEE = 26; // sats per ~260-byte tx at the 100 sat/kB ARC minimum
+type PayItem = { action: string[]; to?: string; target?: string };
 const isMobileish = () => {
   if (typeof window === 'undefined') return false;
   const coarse = window.matchMedia?.('(pointer: coarse)').matches;
@@ -89,6 +100,82 @@ export function BRacer() {
   });
   const engine = useRef<HyperEngine | null>(null);
   const co = useCoinOp(GAME_NAME, GAME_SLUG);
+  // ── LIVE blasting: every shot / boost pad / boost is one tiny real tx from the shared gun (same path as Chain Frogger) ──
+  const b = useBlaster();
+  const [blastOn, setBlastOn] = useState(true);
+  const [shots, setShots] = useState(1000);
+  const [onChain, setOnChain] = useState(0);
+  const [lastTx, setLastTx] = useState<string | null>(null);
+  const [payErr, setPayErr] = useState<string | null>(null);
+  const tokenMode = b.mode === 'tokens';
+  const armed = tokenMode ? Boolean(b.token) && b.tokenAmmo >= 1 && b.ammo >= TOKEN_FEE : b.ammo > 30;
+  const payRef = useRef({ live: false, sats: 0, tokens: 0, tokenMode: false, sym: 'sat', res: 0 });
+  const payQueue = useRef<PayItem[]>([]);
+  const payCount = useRef(0);
+  const draining = useRef(false);
+  const fireBatchRef = useRef(b.fireBatch);
+  const fireTokensRef = useRef(b.fireTokens);
+  useEffect(() => {
+    fireBatchRef.current = b.fireBatch;
+    fireTokensRef.current = b.fireTokens;
+  }, [b.fireBatch, b.fireTokens]);
+  const sendLink = useRef<(ev: string, p: unknown) => void>(() => undefined);
+  /** Drain the queue in the background in batches, grouped by destination (the Arena's rule), so frames never wait on the chain. */
+  const drain = useRef(async () => {
+    if (draining.current) return;
+    draining.current = true;
+    let fails = 0;
+    while (payQueue.current.length) {
+      const pr = payRef.current;
+      const q = payQueue.current;
+      const to = q[0].to;
+      let run = 1;
+      while (run < q.length && run < (pr.tokenMode ? 25 : 40) && q[run].to === to) run++;
+      const batch = q.slice(0, run);
+      const extras = batch.map((x) => ['bracer', ...x.action]);
+      try {
+        const txids = pr.tokenMode
+          ? await fireTokensRef.current(payCount.current + 1, extras, to ?? HOUSE)
+          : to
+            ? await fireBatchRef.current(payCount.current + 1, extras)
+            : await fireBatchRef.current(payCount.current + 1, extras, { address: HOUSE, sats: 1 });
+        if (!txids.length) throw new Error('Out of ammo: load more to keep blasting.');
+        payCount.current += txids.length;
+        q.splice(0, txids.length);
+        setOnChain((n) => n + txids.length);
+        setLastTx(txids[txids.length - 1]);
+        setPayErr(null);
+        fails = 0;
+        const target = batch[0].target;
+        if (to && target) sendLink.current('tx', { to: target, sym: pr.tokenMode ? `$${pr.sym}` : 'SATS', n: txids.length });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!/out of|empty|no tokens|no sats|load/i.test(msg) && ++fails <= 2) {
+          await new Promise((ok) => setTimeout(ok, 1000 * fails));
+          continue;
+        }
+        setPayErr(msg);
+        q.length = 0;
+        break;
+      }
+    }
+    draining.current = false;
+  });
+  const payHook = useRef<PayHook>({
+    live: () => payRef.current.live,
+    reserve: () => {
+      const pr = payRef.current;
+      const n = payQueue.current.length + pr.res + 1;
+      if (pr.tokenMode ? pr.tokens < n || pr.sats < n * TOKEN_FEE : pr.sats - n * (1 + EST_FEE) < 0) return false;
+      pr.res++;
+      return true;
+    },
+    send: (action, to, target) => {
+      payRef.current.res = Math.max(0, payRef.current.res - 1);
+      payQueue.current.push({ action, to, target });
+      void drain.current();
+    },
+  });
   const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const [trackId, setTrackId] = useState<TrackId>('canyon');
   const [shipId, setShipId] = useState('wedge');
@@ -126,7 +213,7 @@ export function BRacer() {
   const room = useRaceRoom<BRaceCfg>({
     game: 'bracer',
     enabled: ready,
-    profile: { name: pilot || 'PILOT', vehicle: shipId, team: teamId },
+    profile: { name: pilot || 'PILOT', vehicle: shipId, team: teamId, gun: b.gunAddress || undefined },
     cfg: { track: trackId, diff: difficulty },
     quickKey: (c) => c.track,
     quickCfg: (c) => ({ ...c, diff: 'normal' }),
@@ -135,7 +222,7 @@ export function BRacer() {
       const d = c as Partial<BRaceCfg> | null;
       return d && d.track && TRACKS[d.track] && (d.diff === 'normal' || d.diff === 'hardcore') ? { track: d.track, diff: d.diff } : null;
     },
-    events: ['s', 'rk', 'mn', 'mb', 'hit', 'qk', 'pad'],
+    events: ['s', 'rk', 'mn', 'mb', 'hit', 'qk', 'pad', 'tx'],
     onRemoteCfg: (c) => {
       setTrackId(c.track);
       setDifficulty(c.diff);
@@ -150,6 +237,16 @@ export function BRacer() {
     getLink.current = room.getLink;
   });
   const mpOn = room.info !== null;
+  const liveBlast = run.paid && blastOn && armed && Boolean(HOUSE);
+  useEffect(() => {
+    const pr = payRef.current;
+    pr.live = liveBlast;
+    pr.sats = b.ammo;
+    pr.tokens = b.tokenAmmo;
+    pr.tokenMode = tokenMode;
+    pr.sym = b.token?.sym ?? 'sat';
+    sendLink.current = (ev, p) => getLink.current()?.send(ev, { i: getLink.current()?.id, ...(p as object) });
+  }, [liveBlast, b.ammo, b.tokenAmmo, tokenMode, b.token]);
   const effMode: Mode = mpOn ? 'race' : mode;
   const toastId = useRef(0);
   const weaponRef = useRef<Weapon | null>(null);
@@ -293,6 +390,7 @@ export function BRacer() {
       mode: effMode,
       difficulty,
       mp: getLink.current() ?? undefined,
+      pay: payHook.current,
       quality: q,
       touchDevice: isMobileish() && Boolean(window.matchMedia?.('(pointer: coarse)').matches),
       take: (p) => takeRef.current(p),
@@ -377,6 +475,9 @@ export function BRacer() {
     const txid = paid ? co.consume() : null;
     if (paid && !txid) return;
     setRun({ paid, txid });
+    setOnChain(0);
+    setLastTx(null);
+    setPayErr(null);
     eng.begin();
   };
   const toMenu = () => {
@@ -419,6 +520,9 @@ export function BRacer() {
     const txid = readyPaid.current ? coRef.current?.consume() ?? null : null;
     readyPaid.current = false;
     setRun({ paid: Boolean(txid), txid });
+    setOnChain(0);
+    setLastTx(null);
+    setPayErr(null);
     setResult(null);
     eng.begin();
   }, [goTick, phase, trackId, difficulty, effMode]);
@@ -682,6 +786,12 @@ export function BRacer() {
             {run.paid ? 'PAID · 1 CREDIT' : 'PRACTICE'}
           </div>
         )}
+        {racing && run.paid && (
+          <div data-bracer-tx={onChain} className="pointer-events-none absolute left-2 top-[4.4rem] border border-white/20 bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:top-10 sm:text-xs" style={{ color: liveBlast ? DR.colour.acid : DR.colour.grey }}>
+            {liveBlast ? `LIVE BLAST · ${onChain.toLocaleString()} TX ON CHAIN` : 'LIVE BLAST OFF · LOAD AMMO IN THE MENU'}
+            {payErr ? <span className="ml-2 text-[#ff8a7a]">⚠ {payErr.slice(0, 60)}</span> : null}
+          </div>
+        )}
         {racing && (
           <div className="absolute right-3 top-[9.5rem] flex gap-1 sm:top-[11.4rem]">
             {mpOn ? (
@@ -931,6 +1041,30 @@ export function BRacer() {
                 </button>
               </div>
 
+              <details className="inset bg-black/60 p-2" data-bracer-blast>
+                <summary className="cursor-pointer text-[11px] tracking-widest text-fg">
+                  LIVE BLASTING · every shot, boost pad and boost is a tiny real transaction {blastOn && armed ? <span style={{ color: DR.colour.acid }}>· ARMED</span> : null}
+                </summary>
+                <p className="my-1 text-[11px] text-dim">
+                  Fire a weapon or hit a pad in a CREDIT race and one transaction goes out from your loaded gun: 1 sat (or 1 token) to the house plus the network fee. Hit another pilot and your token lands in their gun. PRACTICE sends nothing.
+                </p>
+                <AmmoStrip
+                  b={b}
+                  armed={armed}
+                  title="LIVE AMMO"
+                  tokenPresets={[10, 100, 1_000, 10_000]}
+                  initialTokenLoad={100}
+                  remember
+                  house={BRACER_COIN}
+                  sats={{
+                    picker: <AmmoPicker value={shots} onChange={setShots} bsvUsd={null} />,
+                    label: `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SATS BLASTS`,
+                    onLoad: () => void b.load(packSats(shots), `bRacer: ${formatCount(shots)} blasts`),
+                  }}
+                  playLabel={blastOn ? '● LIVE BLASTING ON (credit races)' : '○ TURN LIVE BLASTING ON'}
+                  onPlay={() => setBlastOn((v) => !v)}
+                />
+              </details>
               <div className="flex flex-wrap items-center gap-2">
                 {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" practiceLabel="▶ RACE · PRACTICE" onPress={enterFs} />}
                 {bestTime ? <span className="text-sm" style={{ color: DR.colour.amber }}>BEST {fmt(bestTime)}</span> : null}
@@ -1005,6 +1139,19 @@ export function BRacer() {
                 <p className="text-xs text-dim">
                   laps {result.laps.map(fmt).join(' / ') || '-'} · best lap {result.laps.length ? fmt(result.bestLap) : '-'} · {result.hits} wall hits · {result.cells} cells · {result.rivalHits} rival hits
                 </p>
+                {run.paid && onChain > 0 && (
+                  <p className="text-xs text-dim">
+                    LIVE BLAST: <span style={{ color: DR.colour.acid }}>{onChain.toLocaleString()} tx on chain</span>
+                    {lastTx && (
+                      <>
+                        {' · '}
+                        <a href={`https://whatsonchain.com/tx/${lastTx}`} target="_blank" rel="noopener noreferrer" className="text-accent underline">
+                          last tx ↗
+                        </a>
+                      </>
+                    )}
+                  </p>
+                )}
                 <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
                   {([['TIME', result.parts.time], ['PLACE', result.parts.place], ['CELLS', result.parts.cells], ['CLEAN', result.parts.clean], ['COMBAT', result.parts.combat]] as const).map(([k, v]) => (
                     <div key={k} className="inset px-2 py-1">
@@ -1070,6 +1217,7 @@ export function BRacer() {
         no outside assets. The graphic style is an homage to 90s electronic-label design, all layouts original.
       </p>
       {co.chooserEl}
+      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
   );
 }

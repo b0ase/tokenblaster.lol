@@ -28,6 +28,15 @@ export type Mode = 'race' | 'trial';
 /** Room config shared by the whole room (host picks). */
 export type BRaceCfg = { track: TrackId; diff: Difficulty };
 export type MpLink = RaceLink<BRaceCfg>;
+/** LIVE blasting (src/components/BRacer.tsx pays through the shared gun, as Chain Frogger does): one tiny tx per action. */
+export type PayHook = {
+  /** LIVE blasting is on for this race (credit race + armed gun). */
+  live(): boolean;
+  /** Is one more action affordable? If so it is reserved: follow with send(). */
+  reserve(): boolean;
+  /** Queue the reserved action's transaction. `to` = a hit pilot's gun address (the Arena's rule), else the house. */
+  send(action: string[], to?: string, target?: string): void;
+};
 export type Difficulty = 'normal' | 'hardcore';
 export type Hud = {
   kmh: number;
@@ -97,6 +106,7 @@ export type Options = {
   touchDevice: boolean;
   /** Multiplayer link (src/lib/hyper/mp.ts), present when the player is in a room. */
   mp?: MpLink;
+  pay?: PayHook;
 };
 
 const BEST_KEY = 'tokenblaster:bracer-laps';
@@ -129,7 +139,7 @@ type RivalRun = {
   done: boolean;
   v: number;
 };
-type Shot = { owner: 'me' | 'net' | number; S: number; lat: number; v: number; life: number; mesh: THREE.Mesh; key: string; tg: string | null };
+type Shot = { owner: 'me' | 'net' | number; S: number; lat: number; v: number; life: number; mesh: THREE.Mesh; key: string; tg: string | null; act: string[] | null };
 type Mine = { owner: 'me' | 'net' | number; S: number; lat: number; t: number; mesh: THREE.Mesh; key: string };
 type RemoteRun = {
   id: string;
@@ -157,6 +167,7 @@ type RemoteRun = {
   finT: number | null;
   rkAt: number;
   qkAt: number;
+  gun?: string;
 };
 const HUMAN_SLOTS = [5, 6, 7, 4, 3, 2, 1, 0];
 const VCAP = 260;
@@ -645,7 +656,10 @@ export class HyperEngine {
     this.camH = 1;
     for (let i = 0; i < this.world.cells.count; i++) this.world.cells.setActive(i, true);
     for (let i = 0; i < this.tr.weapons.length; i++) this.world.weapons.setActive(i, true);
-    for (const s of this.shots) this.scene.remove(s.mesh);
+    for (const s of this.shots) {
+      this.settle(s);
+      this.scene.remove(s.mesh);
+    }
     for (const m of this.mines) this.scene.remove(m.mesh);
     this.shots = [];
     this.mines = [];
@@ -728,7 +742,7 @@ export class HyperEngine {
     });
   }
 
-  private addRemote(id: string, info: { name: string; vehicle: string; team: string }, slot: number) {
+  private addRemote(id: string, info: { name: string; vehicle: string; team: string; gun?: string }, slot: number) {
     const spec = SHIPS.find((s) => s.id === info.vehicle) ?? SHIPS[1];
     const team = TEAMS.find((t) => t.id === info.team) ?? TEAMS[0];
     const name = String(info.name || 'PILOT').slice(0, 14);
@@ -740,7 +754,7 @@ export class HyperEngine {
     const r: RemoteRun = {
       id, name, team, spec, slot, rig, label: label.sprite, labelCanvas: label.canvas, labelTex: label.tex,
       trail: this.opts.quality === 'low' ? null : new Trail(14, new THREE.Color(accent).multiplyScalar(2), 0.28),
-      buf: new SnapshotBuffer({ maxSpeed: VCAP, clamp: CHANNELS, frozenBit: 8 }), S: 0, lat: 0, h: 1.3, vs: 0, yaw: 0, pitch: 0, roll: 0, fl: 0, hp: 1, gone: false, wasDead: false, finT: null, rkAt: 0, qkAt: 0,
+      buf: new SnapshotBuffer({ maxSpeed: VCAP, clamp: CHANNELS, frozenBit: 8 }), S: 0, lat: 0, h: 1.3, vs: 0, yaw: 0, pitch: 0, roll: 0, fl: 0, hp: 1, gone: false, wasDead: false, finT: null, rkAt: 0, qkAt: 0, gun: info.gun,
     };
     if (r.trail) this.scene.add(r.trail.mesh);
     this.drawRemoteLabel(r);
@@ -892,6 +906,8 @@ export class HyperEngine {
           this.opts.cb.onFlash?.('quake');
         }
       }
+    } else if (ev === 'tx') {
+      if (d.to === mp.id && typeof d.sym === 'string') this.toast(`${r.name}: +${Math.min(99, Math.max(1, Number(d.n) || 1))} ${String(d.sym).slice(0, 10)} IN YOUR GUN`, 'good');
     } else if (ev === 'pad') {
       const k = num(d.k, 0, 999);
       if (k === null || !Number.isInteger(k) || k >= this.tr.weapons.length) return;
@@ -1054,7 +1070,7 @@ export class HyperEngine {
       inp.steer = Math.max(-1, Math.min(1, -me.lat * 0.2 - me.vl * 0.1));
     }
     const wasBoost = me.boostT > 0;
-    if (inp.boost && !finished && me.energy >= 0.2 && me.boostT < 0.5) {
+    if (inp.boost && !finished && me.energy >= 0.2 && me.boostT < 0.5 && this.payAction(['boost'])) {
       me.boostT = 1 + me.energy * 4;
       me.energy = 0;
       this.audio.fx('turbo');
@@ -1067,8 +1083,13 @@ export class HyperEngine {
       if (this.deathT > 2 && !this.finishedMe) this.finish(true);
       return;
     }
+    const bt0 = me.boostT;
     stepShip(me, inp, this.spec, tr, dt, this.frame, !this.hc);
     const ev = me.ev;
+    if (ev.pad && !finished && !this.payAction(['pad'])) {
+      me.boostT = bt0; // no ammo, no pad boost
+      ev.pad = false;
+    }
     this.dmgCool = Math.max(0, this.dmgCool - dt);
     const drain = this.hc ? 2.5 : 1;
     if (ev.wall > 0 && !finished) {
@@ -1211,13 +1232,22 @@ export class HyperEngine {
 
   private fireWeapon(w: Weapon) {
     const me = this.me;
+    const pay = this.opts.pay;
+    const live = pay?.live() ?? false;
+    // LIVE: every shot is a tiny real transaction from the loaded gun; an empty gun can't fire.
+    if (live && pay && !pay.reserve()) {
+      this.toast('OUT OF AMMO: LOAD MORE', 'bad');
+      return;
+    }
     me.weapon = null;
+    if (live && w !== 'rocket') pay?.send(['fire', w]);
     const mp = this.opts.mp?.race ? this.opts.mp : null;
     if (w === 'rocket') {
       const sid = String(++this.msid);
       const tg = this.pickTarget(me.S + 5)?.id ?? null;
       const v = Math.max(me.vs, 100) + 150;
       this.spawnShot('me', me.S + 5, me.lat, v, `${mp?.id ?? 'me'}:${sid}`, tg);
+      if (live) this.shots[this.shots.length - 1].act = ['fire', 'rocket']; // paid when it lands: a hit pilot's gun gets it
       mp?.send('rk', { i: mp.id, id: sid, S: me.S + 5, lat: me.lat, v, tg });
     } else if (w === 'mine') {
       const mid = String(++this.msid);
@@ -1248,7 +1278,7 @@ export class HyperEngine {
     const mesh = new THREE.Mesh(this.shotGeo, this.shotMat);
     mesh.frustumCulled = false;
     this.scene.add(mesh);
-    this.shots.push({ owner, S, lat, v, life: 4, mesh, key, tg });
+    this.shots.push({ owner, S, lat, v, life: 4, mesh, key, tg, act: null });
     if (!quiet) this.audio.fx('rocket');
   }
   private spawnMine(owner: 'me' | 'net' | number, S: number, lat: number, key = '', quiet = false) {
@@ -1349,6 +1379,8 @@ export class HyperEngine {
       }
       if (tgt) s.lat += Math.max(-24 * dt, Math.min(24 * dt, tgt.lat - s.lat));
       let hit = false;
+      let payTo: string | undefined;
+      let payTg: string | undefined;
       if (s.owner === 'me') {
         for (const r of this.rivals) {
           if (Math.abs(r.S - s.S) < 6 && Math.abs(r.lat - s.lat) < 4.5) {
@@ -1366,6 +1398,8 @@ export class HyperEngine {
             this.explodeAt(r.S, r.lat);
             this.rivalHits++;
             this.toast(`HIT ${r.name}`, 'good');
+            payTo = r.gun;
+            payTg = r.id;
             hit = true;
             break;
           }
@@ -1376,6 +1410,7 @@ export class HyperEngine {
         hit = true;
       }
       if (hit || s.life <= 0) {
+        this.settle(s, payTo, payTg);
         this.scene.remove(s.mesh);
         this.shots.splice(i, 1);
         continue;
@@ -1422,6 +1457,24 @@ export class HyperEngine {
       const pulse = 1 + Math.sin(this.time * 8) * 0.15;
       m.mesh.scale.setScalar(pulse);
     }
+  }
+
+  /** A LIVE rocket has landed: now its transaction goes out (to the pilot it hit, else the house). */
+  private settle(s: Shot, to?: string, target?: string) {
+    if (!s.act) return;
+    this.opts.pay?.send(s.act, to, target);
+    s.act = null;
+  }
+  /** Pay for an instant action (pad, boost) in LIVE mode; false = can't afford it. */
+  private payAction(a: string[]) {
+    const pay = this.opts.pay;
+    if (!pay || !pay.live()) return true;
+    if (!pay.reserve()) {
+      this.toast('OUT OF AMMO: LOAD MORE', 'bad');
+      return false;
+    }
+    pay.send(a);
+    return true;
   }
 
   /** Nearest ship ahead (AI or human) for a rocket to chase. */

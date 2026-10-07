@@ -29,7 +29,7 @@ import { Room, realtimeConfigured } from '@/lib/realtime';
 
 export const MAX_PLAYERS = 8;
 
-export type RaceProfile = { name: string; vehicle: string; team: string };
+export type RaceProfile = { name: string; vehicle: string; team: string; gun?: string };
 export type RacePlayer = RaceProfile & { id: string; ready: boolean; paid: boolean; st: 'lobby' | 'racing'; t: number };
 export type RaceInfo<C> = { rid: string; ids: string[]; players: Record<string, RaceProfile>; cfg: C };
 export type RaceStanding = { id: string; name: string; team: string; t: number | null; dnf: boolean; me: boolean; racing: boolean };
@@ -149,7 +149,7 @@ export class RaceSession<C> {
   }
   setProfile(p: Partial<RaceProfile>) {
     const m = this.me;
-    if ((p.name === undefined || p.name === m.name) && (p.vehicle === undefined || p.vehicle === m.vehicle) && (p.team === undefined || p.team === m.team)) return;
+    if ((p.name === undefined || p.name === m.name) && (p.vehicle === undefined || p.vehicle === m.vehicle) && (p.team === undefined || p.team === m.team) && p.gun === m.gun) return;
     Object.assign(m, p);
     this.pushMe();
   }
@@ -171,7 +171,7 @@ export class RaceSession<C> {
     for (const metas of Object.values(state)) {
       const m = metas[metas.length - 1] as Partial<RacePlayer> | undefined;
       if (!m || typeof m.id !== 'string' || m.id === this.id) continue;
-      list.push({ id: m.id, name: String(m.name ?? 'pilot').slice(0, 16), vehicle: String(m.vehicle ?? ''), team: String(m.team ?? ''), ready: Boolean(m.ready), paid: Boolean(m.paid), st: m.st === 'racing' ? 'racing' : 'lobby', t: Number(m.t) || 0 });
+      list.push({ id: m.id, name: String(m.name ?? 'pilot').slice(0, 16), vehicle: String(m.vehicle ?? ''), team: String(m.team ?? ''), gun: typeof m.gun === 'string' && m.gun.length < 80 ? m.gun : undefined, ready: Boolean(m.ready), paid: Boolean(m.paid), st: m.st === 'racing' ? 'racing' : 'lobby', t: Number(m.t) || 0 });
     }
     // I always know myself (presence echoes can lag).
     list.push({ ...this.me });
@@ -239,7 +239,7 @@ export class RaceSession<C> {
     const race: RaceInfo<C> = {
       rid: `${rid4()}${rid4()}`,
       ids: ready.map((p) => p.id),
-      players: Object.fromEntries(ready.map((p) => [p.id, { name: p.name, vehicle: p.vehicle, team: p.team }])),
+      players: Object.fromEntries(ready.map((p) => [p.id, { name: p.name, vehicle: p.vehicle, team: p.team, gun: p.gun }])),
       cfg: this.cfg,
     };
     this.room.broadcast('go', race);
