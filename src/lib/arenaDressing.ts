@@ -574,7 +574,12 @@ export function dressLevel(p: DressParams): Dressing {
   }
   // Grated cells in the hall: a floor of bars over a river of lava.
   const grateCells: [number, number][] = [];
-  for (const c of cells) if (c.z >= hallZ + 3 && (c.x * 2 + c.z) % 7 === 0 && !p.cover.some(([x, z]) => Math.abs(x - c.x) + Math.abs(z - c.z) < 1) && map[c.z][c.x] === '0') grateCells.push([c.x, c.z]);
+  for (const c of cells) {
+    const inHall = c.z >= hallZ + 3;
+    // Beyond the hall: open rooms and junctions only (not the vaulted tunnels, not the lava pools).
+    const inMaze = c.z < hallZ && !corridor(c.x, c.z) && (c.x * 3 + c.z * 2) % 8 === 0 && !p.lava.some(([x, z]) => x === c.x && z === c.z);
+    if ((inHall && (c.x * 2 + c.z) % 7 === 0) || inMaze) if (map[c.z][c.x] === '0') grateCells.push([c.x, c.z]);
+  }
   {
     // The floor, with a hole under every grate so the lava shows through.
     const shape = new THREE.Shape();
@@ -761,7 +766,7 @@ export function dressLevel(p: DressParams): Dressing {
   for (const [cx, cz] of p.cover) {
     const v = centre(cx, cz);
     const kind = (cx * 3 + cz) % 3;
-    const plinth = addSolid(new THREE.Mesh(rbox(3.4, 0.4, 3.4, 0.08), stoneDark));
+    const plinth = addSolid(new THREE.Mesh(rbox(3.5, 0.4, 3.5, 0.08), stoneDark));
     plinth.position.set(v.x, 0.2, v.z);
     if (kind === 0) {
       const ob = addSolid(new THREE.Mesh(track(new THREE.CylinderGeometry(0.5, 1.0, 4.4, 4)), stone));

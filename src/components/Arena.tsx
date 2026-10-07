@@ -103,8 +103,11 @@ const MEDKITS: [number, number][] = [
 ];
 
 const cellAt = (x: number, z: number) => MAP[Math.floor(z / SIZE)]?.[Math.floor(x / SIZE)];
+/** Half-width of the solid base under a cover cell ('P'): matches the stone plinth drawn there, so no invisible walls. */
+const COVER_HALF = 1.75;
 const isWall = (x: number, z: number) => {
   const c = cellAt(x, z);
+  if (c === 'P') return Math.abs(x - (Math.floor(x / SIZE) + 0.5) * SIZE) < COVER_HALF && Math.abs(z - (Math.floor(z / SIZE) + 0.5) * SIZE) < COVER_HALF;
   return c !== '0' && c !== 'S';
 };
 const centre = ([x, z]: [number, number], y: number) => new THREE.Vector3((x + 0.5) * SIZE, y, (z + 0.5) * SIZE);
@@ -751,11 +754,13 @@ export function Arena() {
             m.root.updateMatrixWorld(true);
             const hp = m.root.worldToLocal((head as THREE.Object3D).getWorldPosition(new THREE.Vector3()));
             const hh = def.height * (def.id === 'helldemon' ? 1.15 : 1.3);
+            // Where the eyes sit relative to the head bone, per model (fractions of height).
+            const E = ({ raptor: { dx: 0.035, dy: 0.05, dz: 0.2 }, eyebeast: { dx: 0.1, dy: 0.0, dz: 0.3 }, helldemon: { dx: 0.05, dy: 0.05, dz: 0.09 }, chibi: { dx: 0.07, dy: 0.0, dz: 0.12 } } as Record<string, { dx: number; dy: number; dz: number }>)[def.id] ?? { dx: 0.045, dy: 0.04, dz: 0.1 };
             for (const sx of [-1, 1]) {
               const eye = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex, color: new THREE.Color(3.2, 1.0, 0.15), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
               eye.scale.setScalar(Math.max(0.1, hh * 0.07));
               m.root.add(eye);
-              eye.position.set(hp.x + sx * hh * 0.045, hp.y + hh * 0.04, hp.z + hh * 0.1);
+              eye.position.set(hp.x + sx * hh * E.dx, hp.y + hh * E.dy, hp.z + hh * E.dz);
               (head as THREE.Object3D).attach(eye);
             }
           }
