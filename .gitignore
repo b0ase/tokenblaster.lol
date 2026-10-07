@@ -57,3 +57,4 @@ public/storm-worker.js
 
 # Private notes (handoffs, business plans): never commit
 .private/
+.claude/worktrees/
