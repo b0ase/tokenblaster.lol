@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cleanHandle } from '@/lib/identity';
-import { makeProof, type XProof } from '@/lib/xproof';
+import { cachedProof, type XProof } from '@/lib/xproof';
 import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
 import type { ScoreGame, ScorePeriod, ScoreRow, ScoreSort } from '@/lib/scores';
 
@@ -165,8 +165,8 @@ export function HighScores({
     try {
       const sc = Math.max(0, Math.floor(score));
       const sx = Math.round(secs * 10) / 10;
-      // With an X handle set: also sign the run with the connected wallet (earns the identity tick when it is the wallet bWalletX linked).
-      const xp: XProof | null = handle ? await makeProof(handle, 'score', game, `${sc}-${sx}`) : null;
+      // Never prompts: attach the cached ✓ VERIFY proof if the player made one (earns the identity tick).
+      const xp: XProof | null = cachedProof(handle);
       const r = await fetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

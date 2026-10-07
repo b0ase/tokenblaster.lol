@@ -7,7 +7,7 @@
  * also signed for the identity tick (src/lib/xproof.ts).
  */
 import { cleanHandle, loadMyHandle } from './identity';
-import { makeProof } from './xproof';
+import { cachedProof } from './xproof';
 
 const NAME_KEY = 'tb:scores:name'; // the name HighScores remembers
 
@@ -24,7 +24,7 @@ export function reportTxs(o: { game: string; txs: number; txid: string | null | 
   if (!handle && !name) return;
   void (async () => {
     try {
-      const xp = handle ? await makeProof(handle, 'tx', o.game, txid) : null;
+      const xp = cachedProof(handle);
       await fetch('/api/txlog', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

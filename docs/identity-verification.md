@@ -24,6 +24,15 @@ real X OAuth sign-in (`bwalletX-launchpad/site/lib/social.js`). Its public PKI
    `ProtoWallet(PrivateKey(1)).verifySignature({ counterparty: xk })`. The session id is the player's random room id,
    so a copied proof doesn't work for someone else.
 
+### Scores and tx reports: one explicit ✓ VERIFY, never a prompt on submit
+
+Score submits (`HighScores`) and tx reports (`src/lib/txlog.ts`) never ask the wallet to sign. Next to the handle,
+`IdentityPicker` shows a **✓ VERIFY** button (`VerifyButton` in `PlayerBadge.tsx`): one click signs
+`"<handle> tb:id:<minute>"`, and the proof `{ k, s, m, v: 1 }` is cached in `localStorage['tb.xproof']`
+(`src/lib/xproof.ts`). Later submits attach it as `xp`; the server (`checkProof`) accepts it for 30 days.
+No cached proof: the score still submits, just without the tick. Trade-off: the cached proof isn't bound to one
+score, so it proves the handle, not the run (the tick is cosmetic and never decides payouts).
+
 Override the PKI with `NEXT_PUBLIC_BWALLETX_PKI` (`{alias}` placeholder).
 
 ### Limits

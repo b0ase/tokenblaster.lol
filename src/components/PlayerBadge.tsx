@@ -6,6 +6,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { avatarUrl, cleanHandle, identiconUrl, inviteIntent, myHandle, onMyHandle, saveMyHandle } from '@/lib/identity';
+import { cachedProof, hasProofWallet, onCachedProof, verifyHandle } from '@/lib/xproof';
 
 export function useMyHandle(): string | null {
   return useSyncExternalStore(onMyHandle, myHandle, () => null);
@@ -34,9 +35,45 @@ export function PlayerBadge({ handle, name, verified, ring, size = 18, className
   );
 }
 
+/** Has this browser a cached ✓ VERIFY proof for `handle`? (Never prompts.) */
+export function useHandleVerified(handle: string | null | undefined): boolean {
+  return useSyncExternalStore(onCachedProof, () => cachedProof(handle) !== null, () => false);
+}
+
+/** ✓ VERIFY: the only place the wallet is asked to sign for the X handle. Signs once, cached; score submits reuse it. */
+export function VerifyButton({ handle }: { handle: string }) {
+  const done = useHandleVerified(handle);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (done) return null;
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        disabled={busy}
+        className="btn px-2 py-0.5 text-[11px] disabled:opacity-40"
+        title="Sign once with bWalletX to earn the ✓ on your scores"
+        data-verify-handle={handle}
+        onClick={async () => {
+          if (!hasProofWallet()) return setErr('CONNECT WALLET FIRST');
+          setBusy(true);
+          setErr(null);
+          const p = await verifyHandle(handle).catch(() => null);
+          setBusy(false);
+          if (!p) setErr('NOT LINKED TO THIS X HANDLE');
+        }}
+      >
+        {busy ? 'SIGNING…' : '✓ VERIFY'}
+      </button>
+      {err && <span className="text-[10px] text-hot">{err}</span>}
+    </span>
+  );
+}
+
 /** "Your X handle" field. Unverified: anyone can type any name; a bWalletX-linked wallet earns the tick in-game. */
 export function IdentityPicker({ compact = false, verified = false }: { compact?: boolean; verified?: boolean }) {
   const mine = useMyHandle();
+  const cached = useHandleVerified(mine);
   const [edit, setEdit] = useState(false);
   const [v, setV] = useState('');
   const ok = cleanHandle(v);
@@ -44,7 +81,8 @@ export function IdentityPicker({ compact = false, verified = false }: { compact?
     return (
       <span className="inline-flex items-center gap-2 text-xs" data-identity={mine}>
         <span className="text-dim">{compact ? 'YOU' : 'Playing as'}</span>
-        <PlayerBadge handle={mine} name={mine} verified={verified} size={22} className="text-fg" />
+        <PlayerBadge handle={mine} name={mine} verified={verified || cached} size={22} className="text-fg" />
+        {!verified && <VerifyButton handle={mine} />}
         <button
           className="text-[10px] text-dim underline hover:text-hot"
           onClick={() => {
