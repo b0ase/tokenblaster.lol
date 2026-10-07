@@ -33,6 +33,7 @@ export const ARCADE_GAMES = [
 const LINKS = [
   ['/blast', 'Blast'],
   ['/launch', 'BlastPad'],
+  ['/leaderboard', 'Leaderboard'],
   ['/1satordnance', '1Sat Ordnance'],
   ['/updates', 'Updates'],
 ] as const;

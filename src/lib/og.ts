@@ -27,3 +27,8 @@ export const ARENA_CARD = card(
   "arena-hell-v1.jpg",
   "TokenBlaster Arena: a minigun blasting skull demons in an underground hell-forge. Your tokens are the ammo, every bullet = 1 real BSV tx.",
 );
+
+export const HALL_CARD = card(
+  'hall-of-fame-dr-v1.jpg',
+  'TokenBlaster hall of fame poster: a red and amber hazard-striped trophy board ranking the best players of every arcade game on the live BSV chain.',
+);
