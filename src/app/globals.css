@@ -313,6 +313,34 @@ body {
   background-size: 32px 32px;
   overflow: hidden;
 }
+/* Full-viewport home hero: edge to edge, no border. */
+.dr-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  background: var(--panel);
+  min-height: max(560px, calc(100vh - var(--nav-h, 76px)));
+  min-height: max(560px, calc(100svh - var(--nav-h, 76px)));
+}
+.dr-scroll {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-shadow: 0 1px 6px var(--panel);
+}
+.dr-scroll-arrow {
+  animation: dr-bob 1.4s ease-in-out infinite;
+}
+@keyframes dr-bob {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(5px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dr-scroll-arrow { animation: none; }
+}
 /* Halftone dots, fading out. */
 .dr-halftone {
   background-image: radial-gradient(circle, var(--accent-fill) 22%, transparent 24%);

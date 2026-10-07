@@ -37,15 +37,14 @@ const STACK = [
 
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 p-2.5">
-      {/* Hero poster: headline left, cycling flagship showcase right, live chain strip under */}
-      <header className="dr-poster dr-rise">
-        <div className="dr-hazard" aria-hidden />
+    <main className="flex w-full flex-col">
+      {/* Hero: full viewport below the sticky nav, edge to edge, gameplay video behind, text + corner UI overlaid */}
+      <header className="dr-hero dr-rise">
         <HeroShowcase />
         {/* directional scrims: dark on the text side, clear on the art side; no flat wash */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-[5] h-[330px] bg-[linear-gradient(to_bottom,transparent_35%,var(--panel)_96%)] lg:hidden" aria-hidden />
-        <div className="pointer-events-none absolute inset-0 z-[5] hidden bg-[linear-gradient(90deg,var(--panel)_0%,color-mix(in_srgb,var(--panel)_92%,transparent)_30%,color-mix(in_srgb,var(--panel)_45%,transparent)_52%,transparent_72%)] lg:block" aria-hidden />
-        <div className="relative z-10 px-3 pb-6 pt-[210px] sm:px-7 sm:pb-9 lg:min-h-[600px] lg:pt-7">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-[90%] bg-[linear-gradient(to_top,var(--panel)_10%,color-mix(in_srgb,var(--panel)_82%,transparent)_50%,transparent)] lg:hidden" aria-hidden />
+        <div className="pointer-events-none absolute inset-0 z-[5] hidden bg-[linear-gradient(90deg,var(--panel)_0%,color-mix(in_srgb,var(--panel)_88%,transparent)_28%,color-mix(in_srgb,var(--panel)_40%,transparent)_52%,transparent_74%)] lg:block" aria-hidden />
+        <div className="relative z-10 flex flex-1 items-end px-4 pb-20 pt-[150px] sm:px-8 lg:items-center lg:px-12 lg:pb-20 lg:pt-8">
           <div className="min-w-0 lg:max-w-[56%]">
             <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="dr-code !text-[var(--accent)]">TB-001 / LIVE ON MAINNET</span>
@@ -90,10 +89,18 @@ export default function Home() {
             </div>
           </div>
         </div>
-        <div className="relative z-10">
+        <div className="pointer-events-none absolute inset-x-0 bottom-9 z-10 flex justify-center" aria-hidden>
+          <span className="dr-scroll dr-code !text-[var(--text)]">
+            scroll<span className="dr-scroll-arrow">▼</span>
+          </span>
+        </div>
+        <div className="absolute inset-x-0 bottom-0 z-10">
           <HeroLive />
         </div>
       </header>
+
+      <div className="dr-chev dr-chev-march !h-[16px]" aria-hidden />
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 p-2.5">
 
       {/* The arcade, unmissable (owner, 7 Oct 2026: "if there is a link, I can't see it"). */}
       <Link href="/arcade" className="dr-poster group dr-rise block transition-shadow hover:shadow-[8px_8px_0_var(--accent-fill)]">
@@ -193,6 +200,7 @@ export default function Home() {
           ))}
         </dl>
       </section>
+      </div>
     </main>
   );
 }

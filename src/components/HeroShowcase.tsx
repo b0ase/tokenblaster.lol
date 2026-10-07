@@ -68,6 +68,16 @@ export function HeroShowcase() {
   };
   const s = SLIDES[i];
   const pv = usePreview();
+  // Hero height = viewport minus the (sticky, possibly wrapping) nav.
+  useEffect(() => {
+    const nav = document.querySelector('nav[aria-label="Site"]');
+    if (!nav) return;
+    const set = () => document.documentElement.style.setProperty('--nav-h', `${Math.round(nav.getBoundingClientRect().height)}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  }, []);
   // Only the active slide's loop runs (the outgoing one finishes under the wipe); everything pauses off-screen.
   useEffect(() => {
     const el = stage.current;
@@ -102,20 +112,20 @@ export function HeroShowcase() {
   return (
     <>
       {/* Full-bleed art, behind the headline (the hero supplies the scrim). */}
-      <div ref={stage} className="pointer-events-none absolute inset-x-0 top-0 h-[330px] overflow-hidden bg-black lg:inset-0 lg:h-auto" aria-hidden>
+      <div ref={stage} className="pointer-events-none absolute inset-0 overflow-hidden bg-black" aria-hidden>
         {SLIDES.map((x, n) => {
           const live = motion && !failed.includes(n); // loop playing; else the poster (reduced motion / Save-Data) or the old card (video failed)
           return (
             <div key={x.href} className="dr-slide" data-active={n === i} data-prev={n === prev && n !== i} data-first={first && n === i} data-video={live} style={{ ['--kx' as string]: KB[n][0], ['--ky' as string]: KB[n][1] }}>
               {/* The poster (first frame of the loop) sits under the video, so there is never a blank frame; the card is the fallback. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={motion && failed.includes(n) ? x.img : `${x.vid}.jpg`} alt="" loading={n === 0 ? 'eager' : 'lazy'} fetchPriority={n === 0 ? 'high' : 'auto'} decoding="async" className="object-[70%_center]" />
+              <img src={motion && failed.includes(n) ? x.img : `${x.vid}.jpg`} alt="" loading={n === 0 ? 'eager' : 'lazy'} fetchPriority={n === 0 ? 'high' : 'auto'} decoding="async" className="object-[68%_center]" />
               {live && (
                 <video
                   ref={(el) => {
                     vids.current[n] = el;
                   }}
-                  className="absolute inset-0 h-full w-full object-cover object-[70%_center]"
+                  className="absolute inset-0 h-full w-full object-cover object-[68%_center]"
                   poster={`${x.vid}.jpg`}
                   muted
                   loop
@@ -139,7 +149,7 @@ export function HeroShowcase() {
 
       {/* Corner label: code, title, katakana, PLAY, clickable progress ticks. */}
       <div
-        className="absolute right-2 top-2 z-20 w-[min(300px,calc(100%-1rem))] border-2 border-[var(--hot)] bg-[var(--panel)] shadow-[5px_5px_0_var(--accent-fill)] lg:bottom-16 lg:right-5 lg:top-auto lg:w-[320px]"
+        className="absolute right-3 top-3 z-20 w-[min(300px,calc(100%-1.5rem))] border-2 border-[var(--hot)] bg-[var(--panel)] shadow-[5px_5px_0_var(--accent-fill)] lg:bottom-24 lg:right-6 lg:top-auto lg:w-[320px]"
         onMouseEnter={() => setHold(true)}
         onMouseLeave={() => {
           setHold(false);
