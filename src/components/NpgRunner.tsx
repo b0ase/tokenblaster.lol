@@ -9,18 +9,17 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { HEROES, H, loadAssets, NpgGame, W, type Assets, type Key, type Phase, type Sfx, type Stats } from '@/lib/npgRunner/engine';
-import { usePaidPlay } from '@/lib/usePaidPlay';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { lootFrom, useLoot, type Haul } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { getAudioPrefs, installAudio, sfx, subscribeAudio, type SfxName } from '@/lib/sfx';
 import { HighScores, useRunClock } from './HighScores';
-import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
+import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { SoundToggle } from './SoundToggle';
 
 const BASE = '/arcade/npg-runner';
-const GAME = 'Erobot Uprising';
+const GAME = 'NPG Erobot Uprising';
 
 const SFX: Record<Sfx, SfxName> = {
   start: 'start', jump: 'jump', walljump: 'spring', dash: 'laser', throw: 'shot', coin: 'coin', heart: 'pickup',
@@ -59,8 +58,9 @@ function Pad({ k, game, label, className }: { k: Key; game: React.RefObject<NpgG
 export function NpgRunner() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const game = useRef<NpgGame | null>(null);
-  const pp = usePaidPlay('Out of sats: load more to keep jumping.', 'npg');
-  const payFor = pp.payFor;
+  // Coin-op: 10p buys a credit (src/lib/coinop.ts); practice is free and puts nothing on chain.
+  const co = useCoinOp(GAME, 'npg');
+  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const feed = useChainFeed();
   const feedRef = useRef(feed);
   const loot = useLoot('npg');
@@ -112,7 +112,6 @@ export function NpgRunner() {
     if (!canvas || !assets) return;
     const g = new NpgGame(canvas, assets, {
       sfx: (s) => sfx(SFX[s]),
-      canJump: () => payFor.current(['npg', 'jump']),
       onHud: setStats,
       onPhase: (p, s) => {
         setPhase(p);
@@ -149,7 +148,7 @@ export function NpgRunner() {
       g.destroy();
       game.current = null;
     };
-  }, [assets, payFor]);
+  }, [assets]);
 
   useEffect(() => {
     const on = (down: boolean) => (e: KeyboardEvent) => {
@@ -173,9 +172,13 @@ export function NpgRunner() {
     };
   }, []);
 
-  const start = () => {
+  /** Start a game: a credit game spends one credit (its coin's txid goes with the run), practice is free. */
+  const start = (paid: boolean) => {
     const g = game.current;
     if (!g) return;
+    const txid = paid ? co.consume() : null;
+    if (paid && !txid) return;
+    setRun({ paid, txid });
     lootRef.current.end();
     setLastRun({});
     g.hero = hero;
@@ -199,7 +202,11 @@ export function NpgRunner() {
         <div className="pointer-events-none absolute bottom-1 left-2">
           <LootHud haul={loot.run} max={3} />
         </div>
-        <ModeBadge pp={pp} action="jump" actions="jumps" />
+        {(phase === 'play' || phase === 'clear') && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+            <span className="border border-[var(--border-canvas)] bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</span>
+          </div>
+        )}
         {!assets && <div className="absolute inset-0 flex items-center justify-center bg-black text-dim">loading…</div>}
         {assets && phase === 'ready' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 overflow-y-auto bg-black/60 p-2 text-center">
@@ -215,7 +222,7 @@ export function NpgRunner() {
               ))}
             </div>
             <p className="hidden px-3 text-xs text-dim sm:block">←/→ run · SPACE jump (hold = higher) · SHIFT/K dash · J/X shuriken · ↓+jump drop through</p>
-            <PlayButtons pp={pp} game={GAME} action="jump" actions="jumps" onStart={start} />
+            <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 game, until your hearts run out." />
           </div>
         )}
         {done && stats && (
@@ -225,8 +232,8 @@ export function NpgRunner() {
               Score {score.toLocaleString()} · stage {stats.level}/{stats.levels} · {stats.coins} coins · {stats.kills} Erobots
             </p>
             <LootLine haul={lastRun} />
-            <HighScores game="npg" score={score} secs={runSecs} live={pp.paid} txid={pp.lastTx} />
-            <PlayButtons pp={pp} game={GAME} action="jump" actions="jumps" onStart={start} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
+            <HighScores game="npg" score={score} secs={runSecs} live={run.paid} txid={run.txid} meta={run.paid ? { coinop: 1 } : undefined} />
+            <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 game, until your hearts run out." />
           </div>
         )}
       </div>
@@ -243,10 +250,10 @@ export function NpgRunner() {
         </div>
       </div>
       <p className="mt-2 text-xs text-muted">
-        Three stages, three Erobot bosses. Wall jump, air dash (cuts through Erobots), shuriken. Live token transfers on chain float into the level ahead of you as tokens to grab. In LIVE mode every jump is a real transaction.
+        Three stages, three Erobot bosses. Wall jump, air dash (cuts through Erobots), shuriken. Live token transfers on chain float into the level ahead of you as tokens to grab. A credit (10p) buys one game; practice is free.
       </p>
       <LootPanel run={done ? lastRun : loot.run} allTime={loot.allTime} />
-      <PaidPanel pp={pp} game={GAME} action="jump" actions="jumps" />
+      {co.chooserEl}
     </section>
   );
 }
