@@ -183,9 +183,9 @@
   "handBuilt": true,
   "hidesHair": true,
   "fit": {
-   "scale": 1,
-   "y": 0.03,
-   "z": 0,
+   "scale": 1.06,
+   "y": 0.04,
+   "z": -0.02,
    "turn": 0
   }
  },
