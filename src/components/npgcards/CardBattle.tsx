@@ -823,7 +823,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
     play('click');
     if (sel?.kind === 'hand' && sel.card === id) {
       if (!myTurn || !canPlay(game, id)) return;
-      if (payPlay && !payPlay()) return setNotice('This play needs a paid tx: load sats or switch to PRACTICE.');
+      if (payPlay && !payPlay()) return setNotice('Out of ammo: load more to keep playing LIVE, or play PRACTICE.');
       setNotice(null);
       run({ t: 'play', card: id });
       setSel(null);

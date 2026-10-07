@@ -5,6 +5,8 @@
  * element cards, vs AI or online (Room 'npgcards-<slug>'). Coin-op: INSERT COIN (10p) buys a credit,
  * one credit is one match vs the AI (src/lib/coinop.ts); PRACTICE is free and puts nothing on chain.
  * High score = win streak vs the AI, verified by the coin of the match that set it.
+ * LIVE blasting (optional, paid matches vs the AI only): every card played is one tiny real transaction
+ * from loaded ammo (src/lib/useActionPay.ts).
  */
 import dynamic from 'next/dynamic';
 import { useCallback, useMemo, useState } from 'react';
@@ -18,6 +20,8 @@ import { HighScores } from './HighScores';
 import { InsertCoin, coinOpModeLabel, useCoinOp, type CoinOp } from './InsertCoin';
 import { GameAudio } from './SoundToggle';
 import { streakAllPaid } from '@/lib/coinop';
+import { useActionPay } from '@/lib/useActionPay';
+import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
 
 const CardBattle = dynamic(() => import('./npgcards/CardBattle'), { ssr: false, loading: () => <div className="panel text-dim">Shuffling the deck…</div> });
 
@@ -28,6 +32,12 @@ type Run = { paid: boolean; txid: string | null };
 
 export function NpgCards() {
   const co = useCoinOp('NPG Card Battle', 'npgcards');
+  const ap = useActionPay('npgcards', 'NPG Card Battle');
+  const pay = ap.pay;
+  const setLiveRun = ap.setRun;
+  const payPlay = useCallback(() => pay.current(['card']), [pay]);
+  // Leaving a match (menu, deck, online lobby) ends the live run; online matches never blast.
+  const onScreen = useCallback((s: string) => s !== 'battle' && setLiveRun(false), [setLiveRun]);
   const [credit, setCredit] = useState(false); // the next match vs the AI: a credit game (true) or practice
   const [run, setRun] = useState<Run>({ paid: false, txid: null });
   // True only while every match in the current win streak was a credit match.
@@ -41,6 +51,7 @@ export function NpgCards() {
     if (!credit) {
       setAllPaid(false);
       setRun({ paid: false, txid: null });
+      setLiveRun(false);
       setMsg(null);
       return true;
     }
@@ -51,10 +62,16 @@ export function NpgCards() {
     }
     setAllPaid((p) => streakAllPaid(p, streak, true));
     setRun({ paid: true, txid });
+    setLiveRun(true);
     setMsg(null);
     return true;
-  }, [credit, co]);
-  const slot = <CoinSlot co={co} credit={credit} setCredit={setCredit} msg={msg} />;
+  }, [credit, co, setLiveRun]);
+  const slot = (
+    <div className="flex flex-col items-center gap-2">
+      <CoinSlot co={co} credit={credit} setCredit={setCredit} msg={msg} />
+      <ActionAmmo ap={ap} actions="card played" />
+    </div>
+  );
   const over = (r: GameResult) =>
     r.vsAI ? (
       <div className="flex flex-col items-center gap-2">
@@ -78,15 +95,21 @@ export function NpgCards() {
         net={roomNet}
         roomPrefix="npgcards-"
         beforeStartAI={beforeStartAI}
+        payPlay={payPlay}
+        onScreen={onScreen}
         sfx={play}
         renderGameOver={over}
         menuExtra={slot}
         badge={
           <div className="pointer-events-none absolute inset-x-0 bottom-1 z-10 flex justify-center">
             <span className="border border-zinc-700 bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-zinc-400">{coinOpModeLabel(run.paid, co.credits)}</span>
+            <ActionHud ap={ap} className="ml-2" />
           </div>
         }
       />
+      <div className="mt-2 flex flex-col items-center">
+        <AmmoAlerts ap={ap} />
+      </div>
       {co.chooserEl}
     </>
   );
