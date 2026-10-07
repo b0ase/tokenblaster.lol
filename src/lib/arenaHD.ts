@@ -165,7 +165,7 @@ export const GUNS: GunDef[] = [
 
 // ── Loading ─────────────────────────────────────────────────────────
 
-const TEX = ['castle_brick_07', 'metal_plate', 'rough_block_wall', 'rusty_metal_02', 'painted_metal_shutter', 'concrete_floor_worn_001', 'metal_grate_rusty', 'corrugated_iron_02'] as const;
+const TEX = ['castle_brick_07', 'metal_plate', 'rough_block_wall', 'rusty_metal_02', 'painted_metal_shutter', 'concrete_floor_worn_001', 'metal_grate_rusty', 'corrugated_iron_02', 'concrete_wall_003', 'weathered_planks', 'rusty_corrugated_iron', 'dirt', 'rock_ground'] as const;
 type TexId = (typeof TEX)[number];
 
 export type ArenaAssets = {

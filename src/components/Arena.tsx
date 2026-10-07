@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
@@ -25,6 +27,7 @@ import { AMMO_SFX, minigun, sfx as playSfx } from '@/lib/sfx';
 import { ammoAccepts, requiredAmmo } from '@/lib/ammo';
 import { GAME_COINS, HOUSE_DMG, HOUSE_GOLD } from '@/lib/gameCoins';
 import { GunArt } from './GunArt';
+import { dressLevel, getQuality, setQuality, subscribeQuality, type Dressing, type Quality } from '@/lib/arenaDressing';
 import type { GunDef } from '@/lib/arenaHD';
 import { useOrdnance } from '@/lib/useOrdnance';
 import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
@@ -37,7 +40,7 @@ const ALL_GUNS: (GunDef & { ordnance?: Ordnance })[] = [
 ];
 
 /** 1 = wall. The player starts at S. Rows from HALL_Z down are the horde hall. */
-const MAP = [
+const RAW_MAP = [
   '1111111111111111',
   '1S00000100000001',
   '1011110101111101',
@@ -68,10 +71,20 @@ const MAP = [
   '1000000000000001',
   '1111111111111111',
 ];
+/** Crates, barrels and sandbag cover in the horde hall: solid cells ('P'). */
+const COVER: [number, number][] = [
+  [6, 20],
+  [9, 20],
+  [2, 23],
+  [13, 23],
+  [5, 26],
+  [10, 26],
+];
+const MAP = RAW_MAP.map((row, z) => [...row].map((c, x) => (COVER.some(([cx, cz]) => cx === x && cz === z) ? 'P' : c)).join(''));
 const COLS = MAP[0].length;
 const HALL_Z = 16;
 const SIZE = 4; // world units per cell
-const WALL_H = SIZE * 0.9;
+const WALL_H = SIZE * 0.8;
 const MAX_HEAT = 300; // shots queued for the chain before the gun overheats
 const BATCH = 50; // blasts per ARC request
 const FEE_PER_SHOT = 23; // sats: a ~224-byte blast at 100 sat/kB (src/lib/gun.ts)
@@ -80,11 +93,6 @@ const SLIME: [number, number][] = [
   [9, 9],
   [3, 13],
   [12, 13],
-];
-const LAMPS: [number, number][] = [
-  [4, 1],
-  [12, 7],
-  [5, 14],
 ];
 const MEDKITS: [number, number][] = [
   [14, 1],
@@ -160,6 +168,7 @@ export function Arena() {
   useEffect(() => {
     if (dead) deadBarRef.current?.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 2600, easing: 'linear', fill: 'forwards' });
   }, [dead]);
+  const gfx = useSyncExternalStore(subscribeQuality, getQuality, (): Quality => 'high');
   const [shots, setShots] = useState(1_000);
   const [bsvUsd, setBsvUsd] = useState<number | null>(null);
   useEffect(() => {
@@ -231,29 +240,83 @@ export function Arena() {
 
     // ── Renderer: full resolution, filmic tone mapping, bloom ──
     const renderer = new THREE.WebGLRenderer({ antialias: !phone, powerPreference: 'high-performance' });
-    const basePR = Math.min(window.devicePixelRatio, phone ? 1 : 1.5);
-    renderer.setPixelRatio(basePR);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.0;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#060303');
-    scene.fog = new THREE.FogExp2('#060303', 0.035);
+    scene.background = new THREE.Color('#9a7a5a');
+    scene.fog = new THREE.FogExp2('#c8a27a', 0.016);
     const camera = new THREE.PerspectiveCamera(72, 1, 0.05, 120);
     scene.add(camera);
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), phone ? 0.5 : 0.8, 0.5, 0.82);
+    // Ambient occlusion (desktop, High only), then bloom, then a light colour grade + vignette.
+    let ao: GTAOPass | null = null;
+    if (!phone) {
+      ao = new GTAOPass(scene, camera, 256, 256);
+      ao.updateGtaoMaterial({ radius: 1.1, distanceExponent: 1.4, thickness: 1.5, scale: 1.1, samples: 12 });
+      const aoRender = ao.render.bind(ao);
+      const hid: THREE.Object3D[] = [];
+      // The AO pass redraws the scene with a normal material: hide sprites, grass and dust from it.
+      ao.render = (...args: Parameters<GTAOPass['render']>) => {
+        scene.traverse((o) => {
+          if ((o as THREE.Sprite).isSprite && o.visible) {
+            o.visible = false;
+            hid.push(o);
+          }
+        });
+        dressing?.setHidden(true);
+        aoRender(...args);
+        dressing?.setHidden(false);
+        for (const o of hid.splice(0)) o.visible = true;
+      };
+      composer.addPass(ao);
+    }
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), phone ? 0.12 : 0.18, 0.5, 1.0);
     composer.addPass(bloom);
+    const grade = new ShaderPass({
+      uniforms: { tDiffuse: { value: null }, uVig: { value: 0.38 } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float uVig; varying vec2 vUv;
+        void main(){
+          vec4 c = texture2D(tDiffuse, vUv);
+          float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+          c.rgb = mix(vec3(l), c.rgb, 1.14);
+          c.rgb *= mix(vec3(0.93, 1.0, 1.06), vec3(1.08, 1.0, 0.90), smoothstep(0.04, 0.9, l));
+          float d = distance(vUv, vec2(0.5));
+          c.rgb *= 1.0 - smoothstep(0.32, 0.95, d) * uVig;
+          gl_FragColor = c;
+        }`,
+    });
+    composer.addPass(grade);
     composer.addPass(new OutputPass());
+    let quality: Quality = phone ? 'low' : getQuality();
+    let dressing: Dressing | null = null;
+    let basePR = 1;
+    let resDirty = false;
+    const applyQuality = (q: Quality) => {
+      quality = phone ? 'low' : q;
+      const hi = quality === 'high';
+      basePR = Math.min(window.devicePixelRatio, phone || !hi ? 1 : 1.5);
+      if (ao) ao.enabled = hi;
+      bloom.strength = hi ? 0.18 : 0.12;
+      dressing?.setQuality(quality);
+      resDirty = true;
+    };
+    const onQuality = (e: Event) => applyQuality((e as CustomEvent<Quality>).detail);
+    window.addEventListener('arena:quality', onQuality);
+    applyQuality(quality);
 
     // Lights that don't need assets.
-    scene.add(new THREE.HemisphereLight('#ffd8c8', '#200808', 0.35));
+    scene.add(new THREE.HemisphereLight('#ffe6c8', '#3a2a20', 0.3));
     // The torch sits ahead of and above you, so the gun in your hands isn't blown out.
-    const torch = new THREE.PointLight('#ffd2bc', 30, 18, 1.5);
+    const torch = new THREE.PointLight('#ffd2bc', 6, 12, 1.5);
     scene.add(torch);
     const muzzleLight = new THREE.PointLight('#fff0c0', 0, 10, 2);
     scene.add(muzzleLight);
@@ -265,8 +328,33 @@ export function Arena() {
     const gunFill = new THREE.PointLight('#fff1dc', 0, 1.6, 2);
     gunFill.position.set(0.05, 0.05, -0.2);
     camera.add(gunFill);
-    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false }));
-    flash.scale.set(0.3, 0.3, 0.3);
+    const starTex = (() => {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 128;
+      const c = cv.getContext('2d')!;
+      const g = c.createRadialGradient(64, 64, 0, 64, 64, 64);
+      g.addColorStop(0, 'rgba(255,255,240,1)');
+      g.addColorStop(0.18, 'rgba(255,214,120,0.95)');
+      g.addColorStop(0.5, 'rgba(255,120,30,0.35)');
+      g.addColorStop(1, 'rgba(255,80,0,0)');
+      c.fillStyle = g;
+      c.fillRect(0, 0, 128, 128);
+      c.translate(64, 64);
+      c.fillStyle = 'rgba(255,230,170,0.85)';
+      for (let i = 0; i < 6; i++) {
+        c.rotate(Math.PI / 3 + 0.12);
+        c.beginPath();
+        c.moveTo(0, -4);
+        c.lineTo(62 - (i % 2) * 22, 0);
+        c.lineTo(0, 4);
+        c.fill();
+      }
+      const t = new THREE.CanvasTexture(cv);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    })();
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: starTex, color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false }));
+    flash.scale.set(0.42, 0.42, 0.42);
     flash.visible = false;
     flash.renderOrder = 11;
     gun.add(flash);
@@ -299,10 +387,11 @@ export function Arena() {
     // Ordnance guns fire their own ammo (tracers, pellets, beams, plasma, rockets, grenades).
     const ammoFx = makeAmmoFx(scene, 0);
     let lastShotCast = 0;
+    let lastWisp = 0;
     let whining = false;
 
     // ── Game state (filled in once assets load) ──
-    const walls: THREE.Mesh[] = [];
+    const walls: THREE.Object3D[] = [];
     let start = centre([1, 1], 1.6);
     type Mob = { m: Monster; hp: number; state: 'chase' | 'wander' | 'attack' | 'hit' | 'dying' | 'dead'; since: number; next: number; dir: THREE.Vector3; horde: boolean; strafe: number; strafeAt: number; pop: number; los: boolean; losAt: number };
     const mobs: Mob[] = [];
@@ -591,33 +680,59 @@ export function Arena() {
     loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p)))
       .then((a) => {
         if (disposed) return;
-        const zoneMats = [a.material('castle_brick_07', [1, 0.9]), a.material('metal_plate', [1, 0.9]), a.material('rough_block_wall', [1, 0.9]), a.material('rusty_metal_02', [1, 0.9])];
+        const zoneMats = [a.material('concrete_wall_003', [2, 1.5]), a.material('castle_brick_07', [1, 0.9]), a.material('rusty_corrugated_iron', [2, 1.5]), a.material('rough_block_wall', [1, 0.9])];
         const trim = a.material('painted_metal_shutter', [1, 0.9]);
         const hallMat = a.material('corrugated_iron_02', [1, 0.9]);
-        const wallGeo = new THREE.BoxGeometry(SIZE, WALL_H, SIZE);
+        // Walls: one InstancedMesh per material (a handful of draw calls instead of hundreds); inner walls
+        // are a little uneven in height so the skyline looks ruined rather than boxed.
+        const groups = new Map<THREE.Material, [number, number, number][]>();
         MAP.forEach((row, z) =>
           [...row].forEach((c, x) => {
             if (c === 'S') start = centre([x, z], 1.6);
             if (c !== '1') return;
             const mat = z >= HALL_Z ? hallMat : (x * 7 + z * 3) % 6 === 0 ? trim : zoneMats[(x < 8 ? 0 : 1) + (z < 8 ? 0 : 2)];
-            const m = new THREE.Mesh(wallGeo, mat);
-            m.position.copy(centre([x, z], WALL_H / 2));
-            scene.add(m);
-            walls.push(m);
+            const rim = x === 0 || z === 0 || x === COLS - 1 || z === MAP.length - 1 || z >= HALL_Z;
+            const hh = rim ? 1 : (x * 13 + z * 7) % 5 === 0 ? 0.78 : (x * 5 + z * 11) % 7 === 0 ? 0.9 : 1;
+            const list = groups.get(mat) ?? [];
+            list.push([x, z, WALL_H * hh]);
+            groups.set(mat, list);
           }),
         );
+        const wallGeo = new THREE.BoxGeometry(SIZE, 1, SIZE);
+        const mtx = new THREE.Object3D();
+        for (const [mat, list] of groups) {
+          const im = new THREE.InstancedMesh(wallGeo, mat, list.length);
+          list.forEach(([x, z, hgt], k) => {
+            mtx.position.set((x + 0.5) * SIZE, hgt / 2, (z + 0.5) * SIZE);
+            mtx.scale.set(1, hgt, 1);
+            mtx.updateMatrix();
+            im.setMatrixAt(k, mtx.matrix);
+          });
+          im.castShadow = true;
+          im.receiveShadow = true;
+          im.userData.wall = true;
+          im.computeBoundingSphere();
+          scene.add(im);
+          walls.push(im);
+        }
         const spanX = COLS * SIZE;
         const spanZ = MAP.length * SIZE;
         const floor = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), a.material('concrete_floor_worn_001', [COLS, MAP.length]));
         floor.rotation.x = -Math.PI / 2;
         floor.position.set(spanX / 2, 0, spanZ / 2);
+        floor.receiveShadow = true;
         scene.add(floor);
-        const ceil = new THREE.Mesh(new THREE.PlaneGeometry(spanX, spanZ), a.material('metal_grate_rusty', [COLS, MAP.length]));
+        // Only the horde hall is roofed; the maze is open to the sky.
+        const hallRows = MAP.length - HALL_Z;
+        const ceil = new THREE.Mesh(new THREE.PlaneGeometry(spanX, hallRows * SIZE), a.material('metal_grate_rusty', [COLS, hallRows]));
         ceil.rotation.x = Math.PI / 2;
-        ceil.position.set(spanX / 2, WALL_H, spanZ / 2);
+        ceil.position.set(spanX / 2, WALL_H, (HALL_Z * SIZE + spanZ) / 2);
+        ceil.castShadow = true;
         scene.add(ceil);
+        dressing = dressLevel({ scene, renderer, a, map: MAP, cover: COVER, size: SIZE, hallZ: HALL_Z, wallH: WALL_H, quality });
+        walls.push(...dressing.solids);
 
-        // Glowing slime (burns), lamps, red hall lights.
+        // Glowing slime (burns) and the red hall lights.
         const sc = document.createElement('canvas');
         sc.width = sc.height = 128;
         const sx = sc.getContext('2d')!;
@@ -640,15 +755,6 @@ export function Arena() {
           scene.add(m);
           const l = new THREE.PointLight('#5aff3a', 8, 6, 1.8);
           l.position.copy(centre(cell, 0.6));
-          scene.add(l);
-        }
-        const lampMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.4, 1.2), toneMapped: false });
-        for (const cell of LAMPS) {
-          const lamp = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.5), lampMat);
-          lamp.position.copy(centre(cell, WALL_H - 0.06));
-          scene.add(lamp);
-          const l = new THREE.PointLight('#ffd27a', 35, 16, 1.6);
-          l.position.copy(centre(cell, WALL_H - 0.5));
           scene.add(l);
         }
         for (const cell of [
@@ -689,6 +795,9 @@ export function Arena() {
           badge.scale.set(0.45, 0.45, 0.45);
           badge.position.y = def.height + (def.hover ?? 0) + 0.35;
           m.root.add(badge);
+          m.root.traverse((o) => {
+            if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+          });
           scene.add(m.root);
           const mob: Mob = { m, hp: 1, state: 'wander', since: now, next: 0, dir: new THREE.Vector3(), horde, strafe: 1, strafeAt: 0, pop: 0, los: false, losAt: 0 };
           if (horde) m.root.visible = false;
@@ -805,6 +914,10 @@ export function Arena() {
       if (e.type === 'keydown') keys.add(e.code);
       else keys.delete(e.code);
       if (e.code === 'Space') trigger = e.type === 'keydown';
+      if (e.code === 'KeyG' && e.type === 'keydown') {
+        setQuality(quality === 'high' ? 'low' : 'high');
+        toast.current(`Graphics: ${quality === 'high' ? 'LOW' : 'HIGH'}`, null);
+      }
       if (e.type === 'keydown' && /^Digit[1-9]$/.test(e.code)) selectGun(GUNS.findIndex((g) => g.key === e.code.slice(5)));
     };
     const onMouse = (e: MouseEvent) => {
@@ -1004,6 +1117,8 @@ export function Arena() {
       const now = performance.now();
       playSfx('explosion', 0.8);
       sparkAt(at, '#ffb070');
+      dressing?.puff(at, '#ffb070', 3.2, 0.5, 0.4);
+      dressing?.puff(at, '#3a3028', 4, 1.6, 1.2);
       muzzleLight.intensity = Math.max(muzzleLight.intensity, 30);
       let kills = 0;
       for (const mob of mobs) {
@@ -1085,6 +1200,8 @@ export function Arena() {
         let killed = false;
         // Explosive rounds do their damage when they go off (see blast); everything else hits now.
         if (first && !explosive) sparkAt(first.point, mob ? (gold ? HOUSE_GOLD : '#c8ffd0') : bolt);
+        // Walls and cover: dust, and a bullet hole on the flat faces.
+        if (first && !mob && first.face && (first.object.userData.wall || dressing?.solids.includes(first.object))) dressing?.impact(first.point, first.object.userData.wall ? first.face.normal : null);
         if (mob && !explosive) {
           killed = hurtMob(mob, now, dmg, gold);
           if (killed) kills++;
@@ -1122,6 +1239,10 @@ export function Arena() {
         room.broadcast('shot', { id: myId, k: kind, c: bolt, f: [+from.x.toFixed(2), +from.y.toFixed(2), +from.z.toFixed(2)], t: ends });
       }
       flash.visible = true;
+      if (now - lastWisp > 90) {
+        lastWisp = now;
+        dressing?.puff(from, '#b8b0a4', 0.32, 0.7, 0.7);
+      }
       flash.material.rotation = Math.random() * Math.PI;
       muzzleLight.intensity = 25 * g.kick;
       recoil = g.kick;
@@ -1150,8 +1271,8 @@ export function Arena() {
     const rightV = new THREE.Vector3();
     // Adaptive resolution: if the frame rate stays low, render fewer pixels (only ever steps down).
     let prScale = 1;
-    let resDirty = false;
     let frameMs = 16;
+    const noAuto = window.location.search.includes('noauto');
     let lastRes = 0;
     let rw = 0;
     let rh = 0;
@@ -1178,7 +1299,7 @@ export function Arena() {
       const cz = Math.floor(camera.position.z / SIZE);
       for (let z = Math.max(0, cz - 8); z <= Math.min(MAP.length - 1, cz + 8); z++)
         for (let x = Math.max(0, cx - 8); x <= Math.min(COLS - 1, cx + 8); x++) {
-          if (MAP[z][x] === '1') {
+          if (MAP[z][x] !== '0' && MAP[z][x] !== 'S') {
             g.fillStyle = 'rgba(190,80,60,0.55)';
             g.fillRect(x * MMC, z * MMC, MMC, MMC);
           }
@@ -1227,10 +1348,17 @@ export function Arena() {
       const w = el.clientWidth;
       const h = el.clientHeight;
       frameMs += (Math.min(200, rawDt * 1000) - frameMs) * 0.05;
-      if (ready && playingRef.current && now - playStart > 4000 && now - lastRes > 2500 && frameMs > 28 && prScale > 0.55) {
+      // Slow for a while? Shed cost in steps: AO, then High -> Low, then fewer pixels.
+      if (ready && playingRef.current && !noAuto && now - playStart > 4000 && now - lastRes > 2500 && frameMs > 28) {
         lastRes = now;
-        prScale -= 0.15;
-        resDirty = true;
+        if (ao?.enabled) ao.enabled = false;
+        else if (quality === 'high') {
+          setQuality('low');
+          toast.current('Running slowly: graphics set to Low (change it any time under the arena)', null);
+        } else if (prScale > 0.55) {
+          prScale -= 0.15;
+          resDirty = true;
+        }
       }
       if (w !== rw || h !== rh || resDirty) {
         rw = w;
@@ -1345,6 +1473,7 @@ export function Arena() {
         if (g2 && ready) drawMap(g2);
       }
 
+      dressing?.update(dt, now, camera.position);
       if (trigger) shoot(now);
       ammoFx.update(dt);
       // Minigun-type ordnance whines while the trigger is held.
@@ -1606,6 +1735,8 @@ export function Arena() {
       cancelAnimationFrame(raf);
       minigun(false);
       ammoFx.dispose();
+      window.removeEventListener('arena:quality', onQuality);
+      dressing?.dispose();
       for (const n of nums) n.s.material.dispose();
       for (const t of numTex.values()) t.dispose();
       window.removeEventListener('keydown', onKey);
@@ -1871,6 +2002,15 @@ export function Arena() {
                   LIVE: every bullet is a real BSV transaction you pay for (about {FEE_PER_SHOT} sats fee on sats blasts, 1 token + about {TOKEN_FEE} sats fee on token shots). PRACTICE: same game, nothing is sent.
                 </p>
               </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-dim">
+              GRAPHICS
+              {(['low', 'high'] as Quality[]).map((q) => (
+                <button key={q} onClick={() => setQuality(q)} className={`btn px-2 py-0.5 text-xs ${gfx === q ? 'btn-on' : 'opacity-60'}`}>
+                  {q.toUpperCase()}
+                </button>
+              ))}
+              <span>auto-picked for your device · G in game</span>
             </div>
             {isReady && !loadError && (
               <button onClick={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))} className="btn btn-on px-6 py-3 text-lg font-bold">
