@@ -1,0 +1,64 @@
+{
+  "format": 1,
+  "name": "Mempool Loop",
+  "author": "TokenBlaster examples",
+  "licence": "CC0",
+  "description": "Example community pack: a short figure of hand-placed control points with one vertical loop, a corkscrew and banked hairpins. Copy this folder to start your own.",
+  "kana": "メンプール",
+  "code": "EX-001",
+  "order": 100,
+  "seed": 404,
+  "layout": {
+    "type": "points",
+    "points": [
+      { "x": 990, "y": 185, "z": 0 },
+      { "x": 882, "y": 203, "z": 161 },
+      { "x": 619, "y": 201, "z": 323 },
+      { "x": 330, "y": 179, "z": 476 },
+      { "x": 98, "y": 149, "z": 599 },
+      { "x": -98, "y": 123, "z": 661 },
+      { "x": -330, "y": 115, "z": 632 },
+      { "x": -619, "y": 128, "z": 500, "bank": -14 },
+      { "x": -882, "y": 156, "z": 277, "bank": -14 },
+      { "x": -990, "y": 185, "z": 0 },
+      { "x": -882, "y": 203, "z": -277 },
+      { "x": -619, "y": 201, "z": -500 },
+      { "x": -330, "y": 179, "z": -632 },
+      { "x": -98, "y": 149, "z": -661, "bank": 12 },
+      { "x": 98, "y": 123, "z": -599, "bank": 12 },
+      { "x": 330, "y": 115, "z": -476 },
+      { "x": 619, "y": 128, "z": -323 },
+      { "x": 882, "y": 156, "z": -161 }
+    ]
+  },
+  "features": {
+    "loops": [{ "at": 3, "radius": 58, "shift": 28 }],
+    "corkscrews": [{ "from": 0.62, "to": 0.72, "turns": 1 }],
+    "tunnels": [[0.36, 0.44]],
+    "halfPipes": [[0.8, 0.88]],
+    "jumps": [0.12, 0.55],
+    "boostPads": [
+      { "at": 0.03, "lane": 0 },
+      { "at": 0.27, "lane": -5 },
+      { "at": 0.48, "lane": 5 },
+      { "at": 0.76, "lane": 0 }
+    ],
+    "pickups": [0.08, 0.32, 0.58, 0.9],
+    "pit": [0.92, 0.985]
+  },
+  "theme": {
+    "palette": {
+      "zenith": "#060312",
+      "horizon": "#ffd23f",
+      "glow": "#3fa9ff",
+      "fog": "#1a1430",
+      "a1": "#ffd23f",
+      "a2": "#3fa9ff",
+      "sun": "#fff2b8",
+      "fogDensity": 0.0012
+    },
+    "signs": ["MEMPOOL LOOP", "0 CONF / FULL SEND", "FEE: 1 SAT/KB"],
+    "music": "city"
+  },
+  "par": { "lapSeconds": 35 }
+}

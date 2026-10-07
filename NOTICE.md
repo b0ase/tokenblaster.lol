@@ -31,6 +31,6 @@ Where a file says CC0 or another open licence, that licence applies, not the res
 
 Contributions are welcome. By opening a pull request you agree that your **code** is contributed under MIT, and that any
 **assets** you add are your own work (or CC0 / compatibly licensed, credited in a `CREDITS.md`) and may be used in
-tokenblaster.lol. See `CONTRIBUTING.md` when it lands.
+tokenblaster.lol. See `CONTRIBUTING.md`.
 
 Questions about using the reserved assets: open an issue on the repository.

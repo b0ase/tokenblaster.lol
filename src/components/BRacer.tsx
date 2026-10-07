@@ -17,7 +17,8 @@ import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand
 import { LOGO_FAMILY, Logo } from './bracer-logo';
 import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
-import { TRACK_LIST, type Track, type TrackId } from '@/lib/hyper/track';
+import { type Track, type TrackId } from '@/lib/hyper/track';
+import { bracerScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRACK_LIST } from '@/lib/hyper/content';
 import type { Weapon } from '@/lib/hyper/sim';
 import type { ScoreGame } from '@/lib/scores';
 import { useBlaster } from '@/lib/useBlaster';
@@ -177,8 +178,8 @@ export function BRacer() {
     },
   });
   const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
-  const [trackId, setTrackId] = useState<TrackId>('canyon');
-  const [shipId, setShipId] = useState('wedge');
+  const [trackId, setTrackId] = useState<TrackId>(DEFAULT_TRACK);
+  const [shipId, setShipId] = useState(DEFAULT_SHIP);
   const [teamId, setTeamId] = useState('house');
   const [mode, setMode] = useState<Mode>('race');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
@@ -220,7 +221,7 @@ export function BRacer() {
     sameCfg: (a, b) => a.track === b.track && a.diff === b.diff,
     validateCfg: (c) => {
       const d = c as Partial<BRaceCfg> | null;
-      return d && d.track && TRACKS[d.track] && (d.diff === 'normal' || d.diff === 'hardcore') ? { track: d.track, diff: d.diff } : null;
+      return d && isTrackId(d.track) && (d.diff === 'normal' || d.diff === 'hardcore') ? { track: d.track, diff: d.diff } : null;
     },
     events: ['s', 'rk', 'mn', 'mb', 'hit', 'qk', 'pad', 'tx'],
     onRemoteCfg: (c) => {
@@ -267,8 +268,8 @@ export function BRacer() {
       }
       try {
         const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; diff?: Difficulty; q?: QualityPref };
-        if (p.track && TRACKS[p.track]) setTrackId(p.track);
-        if (p.ship && SHIPS.some((s) => s.id === p.ship)) setShipId(p.ship);
+        if (isTrackId(p.track)) setTrackId(p.track);
+        if (isShipId(p.ship)) setShipId(p.ship);
         if (p.team && TEAMS.some((t) => t.id === p.team)) setTeamId(p.team);
         if (p.mode) setMode(p.mode);
         if (p.diff) setDifficulty(p.diff);
@@ -276,6 +277,14 @@ export function BRacer() {
       } catch {
         /* storage blocked */
       }
+      // Pack testing: /arcade/bracer?track=<slug>&ship=<slug> (content/bracer/...) overrides the saved picks.
+      const q = new URLSearchParams(window.location.search);
+      const qt = q.get('track');
+      const qs = q.get('ship');
+      if (qt && isTrackId(qt)) setTrackId(qt);
+      else if (qt) console.warn(`[bracer] no track pack "${qt}" (content/bracer/tracks/${qt}/track.json); run pnpm content:check`);
+      if (qs && isShipId(qs)) setShipId(qs);
+      else if (qs) console.warn(`[bracer] no ship pack "${qs}" (content/bracer/ships/${qs}/ship.json); run pnpm content:check`);
       setReady(true);
     });
   }, []);
@@ -464,7 +473,7 @@ export function BRacer() {
     return () => clearInterval(id);
   }, [phase]);
 
-  const def = TRACKS[trackId];
+  const def = TRACKS[trackId] ?? TRACKS[DEFAULT_TRACK];
   const ship = SHIPS.find((s) => s.id === shipId) ?? SHIPS[1];
   const team = TEAMS.find((t) => t.id === teamId) ?? TEAMS[0];
   const bestTime = best[`${trackId}:${mode}`];
@@ -570,7 +579,7 @@ export function BRacer() {
   };
   const fullscreen = () => (document.fullscreenElement ? exitFs() : enterFs());
   const hardcore = difficulty === 'hardcore';
-  const scoreGame = `${GAME_SLUG}-${trackId}${hardcore ? '-hc' : ''}` as ScoreGame;
+  const scoreGame = bracerScoreGame(trackId, hardcore) as ScoreGame;
   const cover = phase === 'countdown' || phase === 'racing' || phase === 'paused';
   const phaseRef = useRef(phase);
   useEffect(() => {
@@ -595,7 +604,7 @@ export function BRacer() {
 
   return (
     <section className={`panel ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
-      <GameAudio track="bracer" />
+      <GameAudio track={def.music} />
       <div className="panel-header">
         <span className="panel-title">{GAME_NAME}</span>
         <span className="text-accent">
@@ -886,6 +895,17 @@ export function BRacer() {
                   ))}
                 </div>
                 <p className="mt-1 text-[11px] text-dim">{def.blurb}</p>
+                {!def.core || def.par?.lapSeconds ? (
+                  <p className="mt-0.5 text-[10px] text-dim">
+                    {def.core ? null : (
+                      <>
+                        Community pack by {def.author} · {def.licence}
+                        {def.credit ? ` · ${def.credit}` : ''}
+                      </>
+                    )}
+                    {def.par?.lapSeconds ? <span style={{ color: DR.colour.amber }}>{def.core ? '' : ' · '}PAR LAP {fmt(def.par.lapSeconds)}</span> : null}
+                  </p>
+                ) : null}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">

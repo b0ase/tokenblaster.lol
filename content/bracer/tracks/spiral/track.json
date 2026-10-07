@@ -1,0 +1,101 @@
+{
+  "format": 1,
+  "name": "Orphan Spiral",
+  "author": "TokenBlaster.lol",
+  "licence": "MIT",
+  "description": "A vertical loop, a full corkscrew and a half-pipe over the megastructure. Hold your nerve.",
+  "kana": "スパイラル",
+  "code": "HG-002",
+  "order": 2,
+  "seed": 23,
+  "layout": {
+    "type": "ring",
+    "radius": 980,
+    "oval": 0.78,
+    "harmonics": [
+      [2, 0.14, 2.2],
+      [3, 0.16, 0.6],
+      [4, 0.07, 1.4]
+    ],
+    "base": 160,
+    "heightWaves": [
+      [1, 20, 1.2],
+      [2, 14, 0.2],
+      [4, 8, 2.9]
+    ],
+    "drops": [
+      [4.4, 60, 0.12]
+    ]
+  },
+  "features": {
+    "loops": [
+      {
+        "at": 10,
+        "radius": 62,
+        "shift": 30
+      }
+    ],
+    "corkscrews": [
+      {
+        "from": 0.58,
+        "to": 0.7,
+        "turns": 1
+      }
+    ],
+    "tunnels": [
+      [0.28, 0.36]
+    ],
+    "halfPipes": [
+      [0.82, 0.92]
+    ],
+    "jumps": [0.2, 0.5],
+    "boostPads": [
+      {
+        "at": 0.03,
+        "lane": 0
+      },
+      {
+        "at": 0.16,
+        "lane": 5
+      },
+      {
+        "at": 0.32,
+        "lane": -5
+      },
+      {
+        "at": 0.45,
+        "lane": 0
+      },
+      {
+        "at": 0.55,
+        "lane": 6
+      },
+      {
+        "at": 0.76,
+        "lane": -4
+      },
+      {
+        "at": 0.95,
+        "lane": 0
+      }
+    ],
+    "pickups": [0.06, 0.24, 0.42, 0.62, 0.8],
+    "pit": [0.915, 0.985]
+  },
+  "theme": {
+    "palette": {
+      "zenith": "#0a0420",
+      "horizon": "#ff8a1c",
+      "glow": "#b04bff",
+      "fog": "#2a0f2c",
+      "a1": "#ffb020",
+      "a2": "#b04bff",
+      "sun": "#ffd27a",
+      "fogDensity": 0.00125
+    },
+    "music": "bracer"
+  },
+  "par": {
+    "lapSeconds": 47
+  }
+}

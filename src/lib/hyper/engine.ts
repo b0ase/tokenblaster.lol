@@ -20,7 +20,8 @@ import { FONTS } from './signs';
 import { SnapshotBuffer } from '@/lib/racemp/buffer';
 import type { RaceLink } from '@/lib/racemp/session';
 import { teamOfKind, TEAMS, type Team } from './teams';
-import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, TRACKS, type Frame, type Track, type TrackId } from './track';
+import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, type Frame, type Track, type TrackId } from './track';
+import { CORE_SHIPS, DEFAULT_TRACK, TRACKS } from './content';
 import { buildWorld, Particles, SpeedLines, type Quality, type World } from './world';
 
 export type Phase = 'loading' | 'menu' | 'countdown' | 'racing' | 'paused' | 'finished';
@@ -362,7 +363,7 @@ export class HyperEngine {
   async init() {
     const { cb } = this.opts;
     const q = this.opts.quality;
-    const def = TRACKS[this.opts.track];
+    const def = TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK];
     cb.onLoading('Setting up renderer', 0.03);
     const hi = q !== 'low';
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -464,8 +465,9 @@ export class HyperEngine {
   }
 
   private buildPlayer() {
-    const accent = this.team.accent === '#ffffff' || this.team.accent === '#f4efe2' || this.team.accent === '#f2f2ee' ? TRACKS[this.opts.track].palette.a1 : this.team.accent;
-    const rig = buildShip(this.spec, { base: this.team.base, accent: this.team.accent, trim: this.team.trim, ticker: 'YOU', number: '01', team: this.team.name, logo: null }, accent);
+    const accent = this.team.accent === '#ffffff' || this.team.accent === '#f4efe2' || this.team.accent === '#f2f2ee' ? (TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK]).palette.a1 : this.team.accent;
+    const lv = this.spec.livery;
+    const rig = buildShip(this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null }, lv?.accent ?? accent);
     this.playerRig = rig;
     this.scene.add(rig.root);
     const col = new THREE.Color(this.TRAIL_COL(accent)).multiplyScalar(0.45);
@@ -491,7 +493,7 @@ export class HyperEngine {
     this.rivals = [];
     if (this.opts.mode === 'trial' || count <= 0) return;
     const tr = this.tr;
-    const { rivals, live } = pickRivals(this.opts.take, count, TRACKS[this.opts.track].seed * 31 + (Date.now() % 1000));
+    const { rivals, live } = pickRivals(this.opts.take, count, (TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK]).seed * 31 + (Date.now() % 1000));
     this.liveRivals = live;
     rivals.sort((a, b) => b.skill - a.skill);
     let slot = 0;
@@ -500,7 +502,7 @@ export class HyperEngine {
       while (taken.includes(slot)) slot++;
       spec.slot = slot++;
       const team = teamOfKind(spec.kind);
-      const hull = SHIPS[(spec.slot + 1) % 3];
+      const hull = CORE_SHIPS[(spec.slot + 1) % CORE_SHIPS.length];
       const meta = spec.token ? tokenMeta(spec.token) : null;
       const rig = buildShip(hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null }, team.accent === '#ffffff' ? team.base : team.accent);
       this.scene.add(rig.root);

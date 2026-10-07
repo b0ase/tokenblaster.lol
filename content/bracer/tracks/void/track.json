@@ -1,0 +1,109 @@
+{
+  "format": 1,
+  "name": "Coinbase Void",
+  "author": "TokenBlaster.lol",
+  "licence": "MIT",
+  "description": "The long one: towers and chicanes at 700 km/h, tunnels, jumps and a double corkscrew.",
+  "kana": "ボイド",
+  "code": "HG-003",
+  "order": 3,
+  "seed": 37,
+  "layout": {
+    "type": "ring",
+    "radius": 1050,
+    "oval": 0.66,
+    "harmonics": [
+      [2, 0.24, 1],
+      [3, 0.1, 2],
+      [4, 0.1, 0.2],
+      [6, 0.03, 0.9]
+    ],
+    "base": 175,
+    "heightWaves": [
+      [1, 30, 2],
+      [2, 16, 0.5],
+      [3, 12, 1.3]
+    ],
+    "drops": [
+      [0.8, 80, 0.1],
+      [3.9, 60, 0.12]
+    ]
+  },
+  "features": {
+    "loops": [
+      {
+        "at": 22,
+        "radius": 70,
+        "shift": 34
+      }
+    ],
+    "corkscrews": [
+      {
+        "from": 0.3,
+        "to": 0.4,
+        "turns": 1
+      },
+      {
+        "from": 0.84,
+        "to": 0.94,
+        "turns": -1
+      }
+    ],
+    "tunnels": [
+      [0.1, 0.2],
+      [0.6, 0.68]
+    ],
+    "halfPipes": [
+      [0.46, 0.55]
+    ],
+    "jumps": [0.25, 0.75],
+    "boostPads": [
+      {
+        "at": 0.02,
+        "lane": 0
+      },
+      {
+        "at": 0.14,
+        "lane": -6
+      },
+      {
+        "at": 0.24,
+        "lane": 5
+      },
+      {
+        "at": 0.38,
+        "lane": 0
+      },
+      {
+        "at": 0.5,
+        "lane": 6
+      },
+      {
+        "at": 0.72,
+        "lane": -5
+      },
+      {
+        "at": 0.8,
+        "lane": 4
+      }
+    ],
+    "pickups": [0.05, 0.22, 0.4, 0.58, 0.78],
+    "pit": [0.9, 0.98]
+  },
+  "theme": {
+    "palette": {
+      "zenith": "#02130f",
+      "horizon": "#18ffa6",
+      "glow": "#ff3fd0",
+      "fog": "#04241f",
+      "a1": "#18ffa6",
+      "a2": "#ff3fd0",
+      "sun": "#b8fff0",
+      "fogDensity": 0.00105
+    },
+    "music": "bracer"
+  },
+  "par": {
+    "lapSeconds": 51
+  }
+}

@@ -13,13 +13,16 @@ export type ShipSpec = {
   span: number;
   length: number;
   sweep: number;
+  /** Pack metadata. */
+  author?: string;
+  licence?: string;
+  order: number;
+  /** Optional fixed livery for the player's ship (overrides the team colours it sets). */
+  livery?: { base?: string; accent?: string; trim?: string; ticker?: string; number?: number };
 };
 
-export const SHIPS: ShipSpec[] = [
-  { id: 'needle', name: 'Needle', blurb: 'Fastest top end, wide arcs', vmax: 182, accel: 40, turn: 62, grip: 2.3, span: 3.6, length: 6.6, sweep: 0.8 },
-  { id: 'wedge', name: 'Wedge', blurb: 'Balanced all-rounder', vmax: 174, accel: 46, turn: 74, grip: 2.7, span: 4.4, length: 5.8, sweep: 0.55 },
-  { id: 'manta', name: 'Manta', blurb: 'Snappy handling, quick to speed', vmax: 166, accel: 54, turn: 90, grip: 3.1, span: 5.4, length: 5.2, sweep: 0.3 },
-];
+/** Ships come from content packs (content/bracer/ships/<slug>/ship.json); see ./content.ts. */
+export { SHIPS } from './content';
 
 export type Weapon = 'rocket' | 'mine' | 'shield' | 'turbo' | 'quake';
 export const WEAPONS: Weapon[] = ['rocket', 'mine', 'shield', 'turbo', 'quake'];

@@ -2,7 +2,9 @@
  * Arcade high scores: public.tokenblaster_scores on the Hetzner Supabase, written and read only
  * through the tokenblaster_submit_score / tokenblaster_top_scores functions (db/002_scores.sql).
  */
-export const SCORE_GAMES = {
+import { TRACK_LIST } from '@/lib/hyper/content';
+
+const STATIC_GAMES = {
   hopper: { title: 'Block Hopper', tag: 'hopper', sort: 'score' },
   invaders: { title: 'Mempool Invaders', tag: 'invaders', sort: 'score' },
   snake: { title: 'Token Snake', tag: 'snake', sort: 'score' },
@@ -22,15 +24,21 @@ export const SCORE_GAMES = {
   highway21: { title: 'Highway 21M', tag: 'highway21', sort: 'score' },
   bubbo: { title: 'Coin Pop (Bubbo Bubbo)', tag: 'bubbo', sort: 'score' },
   potions: { title: 'Token Potions (Puzzling Potions)', tag: 'potions', sort: 'score' },
-  'bracer-canyon': { title: 'bRacer · Genesis Canyon', tag: 'bracer', sort: 'score' },
-  'bracer-spiral': { title: 'bRacer · Orphan Spiral', tag: 'bracer', sort: 'score' },
-  'bracer-void': { title: 'bRacer · Coinbase Void', tag: 'bracer', sort: 'score' },
-  'bracer-canyon-hc': { title: 'bRacer HARDCORE · Genesis Canyon', tag: 'bracer-hc', sort: 'score' },
-  'bracer-spiral-hc': { title: 'bRacer HARDCORE · Orphan Spiral', tag: 'bracer-hc', sort: 'score' },
-  'bracer-void-hc': { title: 'bRacer HARDCORE · Coinbase Void', tag: 'bracer-hc', sort: 'score' },
   'bsvgun-range': { title: 'BSVGun Range', tag: 'bsvgun', sort: 'score' },
 } as const;
-export type ScoreGame = keyof typeof SCORE_GAMES;
+
+type GameInfo = { title: string; tag: string; sort: 'score' };
+/** bRacer boards come from the track packs: bracer-<slug> (tag bracer) and bracer-<slug>-hc (tag bracer-hc). A new
+ * track also needs its score-limit rows in the database: `pnpm content:score-rows` prints them. */
+export type BracerScoreGame = `bracer-${string}`;
+const BRACER_GAMES: Record<BracerScoreGame, GameInfo> = Object.fromEntries(
+  TRACK_LIST.flatMap((t) => [
+    [`bracer-${t.id}`, { title: `bRacer · ${t.name}`, tag: 'bracer', sort: 'score' }],
+    [`bracer-${t.id}-hc`, { title: `bRacer HARDCORE · ${t.name}`, tag: 'bracer-hc', sort: 'score' }],
+  ]),
+);
+export type ScoreGame = keyof typeof STATIC_GAMES | BracerScoreGame;
+export const SCORE_GAMES: Record<ScoreGame, GameInfo> = { ...STATIC_GAMES, ...BRACER_GAMES } as Record<ScoreGame, GameInfo>;
 export const isScoreGame = (g: string | null): g is ScoreGame => !!g && Object.prototype.hasOwnProperty.call(SCORE_GAMES, g);
 
 export type ScorePeriod = '24h' | '7d' | 'all';

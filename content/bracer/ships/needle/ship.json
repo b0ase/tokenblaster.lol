@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "Needle",
+  "author": "TokenBlaster.lol",
+  "licence": "MIT",
+  "description": "Fastest top end, wide arcs",
+  "order": 1,
+  "stats": { "vmax": 182, "accel": 40, "turn": 62, "grip": 2.3 },
+  "hull": { "span": 3.6, "length": 6.6, "sweep": 0.8 }
+}
