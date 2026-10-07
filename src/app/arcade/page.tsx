@@ -25,6 +25,7 @@ const GAMES: Game[] = [
   { href: '/arcade/npg-runner', tag: 'npg', title: 'Ninja Punk Girls: Erobot Uprising', version: 'V1', img: '/arcade/npg-runner.jpg', blurb: 'NPG platformer: wall-jump, dash and shuriken through three stages and three Erobot bosses. Live token transfers float in as tokens to grab; LIVE mode: every jump is a transaction.', status: 'live' },
   { href: '/arcade/rally', tag: 'rally', title: 'Token Rally', version: 'V1', img: '/arcade/rally.jpg', blurb: 'Rally racing against the live chain: every rival car is a mainnet transaction, faster the bigger the move. Forest, desert and snow stages, handbrake drifts, nitro coins, splits.', status: 'live' },
   { href: '/arcade/2048', tag: 'sats2048', title: 'Sat Stack 2048', version: 'V1', img: '/arcade/2048.jpg', blurb: 'The merge puzzle with a coin purse: slide equal sat stacks together, dust to sat to vault, until you cut a 1 BSV tile. Arrows or swipe.', status: 'live' },
+  { href: '/arcade/highway21', tag: 'highway21', title: 'Highway 21M', version: 'V1', img: '/arcade/highway21.jpg', blurb: 'OutRun-style pseudo-3D racer against the clock. Traffic is coloured by live transaction kind and the roadside billboards scroll real BSV-21 token moves.', status: 'live' },
 ];
 
 /** Not ours: other people's BSV games, linked out to their own sites. Not hosted, run or endorsed here. */

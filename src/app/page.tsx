@@ -13,6 +13,7 @@ const GAMES = [
   { href: '/arcade/kweg', img: '/arcade/kweg.jpg', title: "Kweg's Expedition", tag: 'V1 · side-scroller', blurb: "Pilot Professor Kweg's pachyderm submarine through mainnet: sonar pings find hidden $KWEG, and three parody rivals race you to Satoshi's submarine coordinates." },
   { href: '/arcade/rally', img: '/arcade/rally.jpg', title: 'Token Rally', tag: 'V1 · 3D rally', blurb: 'Drift gravel stages against the live chain: every rival car is a mainnet transaction, faster the bigger the move. Handbrake, nitro, splits, high scores.' },
   { href: '/arcade/2048', img: '/arcade/2048.jpg', title: 'Sat Stack 2048', tag: 'V1 · puzzle', blurb: 'Merge equal sat stacks, doubling up from dust to a 1 BSV tile. Smooth sliding, arrows or swipe.' },
+  { href: '/arcade/highway21', img: '/arcade/highway21.jpg', title: 'Highway 21M', tag: 'V1 · arcade racer', blurb: 'Beat the clock down a sunset highway: traffic coloured by transaction kind, billboards scrolling live token moves.' },
 ];
 
 const STACK = [
