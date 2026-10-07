@@ -254,8 +254,8 @@ export function DoubleO() {
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     // Quality presets, best first. Low/High picks the starting step; the governor below steps further down if frames get slow.
     const qualities = [
-      { ratio: Math.min(window.devicePixelRatio, 2), shadows: true, ao: true, bloom: 0.5, samples: 4 },
-      { ratio: Math.min(window.devicePixelRatio, 1.5), shadows: true, ao: true, bloom: 0.45, samples: 4 },
+      { ratio: Math.min(window.devicePixelRatio, 1.5), shadows: true, ao: true, bloom: 0.5, samples: 2 },
+      { ratio: Math.min(window.devicePixelRatio, 1.25), shadows: true, ao: false, bloom: 0.45, samples: 2 },
       { ratio: 1, shadows: false, ao: false, bloom: 0.35, samples: 0 },
     ];
     const startQuality = detectQuality();
@@ -278,7 +278,7 @@ export function DoubleO() {
     composer.addPass(new RenderPass(scene, camera));
     // Ambient occlusion (High only): contact shadows in corners and under props.
     const gtao = new GTAOPass(scene, camera, 256, 256);
-    gtao.updateGtaoMaterial({ radius: 0.7, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 10, distanceFallOff: 1, screenSpaceRadius: false });
+    gtao.updateGtaoMaterial({ radius: 0.7, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 8, distanceFallOff: 1, screenSpaceRadius: false });
     gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, radiusExponent: 1, rings: 2, samples: 8 });
     gtao.enabled = qualities[quality].ao;
     composer.addPass(gtao);
@@ -293,6 +293,7 @@ export function DoubleO() {
       const qd = qualities[i];
       renderer.setPixelRatio(qd.ratio);
       composer.setPixelRatio(qd.ratio);
+      const shadowsChanged = renderer.shadowMap.enabled !== qd.shadows;
       renderer.shadowMap.enabled = qd.shadows;
       key.castShadow = qd.shadows;
       gtao.enabled = qd.ao;
@@ -303,10 +304,11 @@ export function DoubleO() {
           rt.dispose();
         }
       }
-      scene.traverse((o) => {
-        const m = (o as THREE.Mesh).material as THREE.Material | undefined;
-        if (m) m.needsUpdate = true;
-      });
+      if (shadowsChanged)
+        scene.traverse((o) => {
+          const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+          if (m) m.needsUpdate = true;
+        });
       renderer.setSize(0, 0, false); // forces the resize below
     };
     const hemi = new THREE.HemisphereLight('#ffffff', '#202020', 0.6);
@@ -350,6 +352,9 @@ export function DoubleO() {
         gunHolder.add(m);
       }
     }
+    /** The viewmodel never casts a shadow (it would show up on the wall in front of you). */
+    const noShadow = (o: THREE.Object3D) => o.traverse((m) => (m.castShadow = false));
+    noShadow(gunHolder);
     const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.6, 1.4), toneMapped: false, transparent: true, depthWrite: false, depthTest: false }));
     flash.scale.setScalar(0.25);
     flash.visible = false;
@@ -1416,6 +1421,7 @@ export function DoubleO() {
             void brandGun(held.group, o.id);
           }
           gunHolder.add(held.group);
+          noShadow(gunHolder);
           flash.position.copy(held.muzzle);
           flash2.position.copy(held.muzzle);
         };
@@ -2004,9 +2010,14 @@ export function DoubleO() {
       // Enemy bolts.
       for (let i = bolts.length - 1; i >= 0; i--) {
         const bo = bolts[i];
-        bo.s.position.addScaledVector(bo.v, dt);
         const p = bo.s.position;
-        const hitMe = Math.hypot(p.x - camera.position.x, p.z - camera.position.z) < 0.5 && p.y > 0.2 && p.y < 2.1;
+        // Sub-step fast bolts so a slow frame can't tunnel one through the player.
+        let hitMe = false;
+        const subs = Math.max(1, Math.ceil((bo.v.length() * dt) / 0.4));
+        for (let k = 0; k < subs && !hitMe; k++) {
+          p.addScaledVector(bo.v, dt / subs);
+          hitMe = Math.hypot(p.x - camera.position.x, p.z - camera.position.z) < 0.5 && p.y > 0.2 && p.y < 2.1;
+        }
         if (hitMe) {
           damagePlayer(bo.dmg, bo.origin);
           const src = bo.from;
@@ -2138,7 +2149,7 @@ export function DoubleO() {
     let prevFrame = performance.now();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const dt = Math.max(0, Math.min(0.05, (now - lastTick) / 1000)); // rAF timestamps can predate lastTick: never run time backwards
+      const dt = Math.max(0, Math.min(0.066, (now - lastTick) / 1000)); // rAF timestamps can predate lastTick: never run time backwards
       lastTick = now;
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -2150,11 +2161,11 @@ export function DoubleO() {
         camera.aspect = w / Math.max(1, h);
         camera.updateProjectionMatrix();
       }
-      // Quality governor: if frames average over 20 ms for 2 s, step down a level.
+      // Quality governor: if frames average over 24 ms for 1 s, step down a level (slow frames also slow the whole simulation).
       slowT = 0.97 * slowT + 0.03 * (now - prevFrame);
       prevFrame = now;
-      if (running && slowT > 20 && quality < qualities.length - 1) {
-        if ((slowFor += dt) > 2) {
+      if (running && slowT > 24 && quality < qualities.length - 1) {
+        if ((slowFor += dt) > 1) {
           slowFor = 0;
           slowT = 16;
           applyQuality(quality + 1);
@@ -2258,6 +2269,7 @@ export function DoubleO() {
         if (lk?.env) scene.environment = lk.env;
         held = buildGun(gunDef, a.guns[gunDef.id]);
         gunHolder.add(held.group);
+        noShadow(gunHolder);
         flash.position.copy(held.muzzle);
         flash2.position.copy(held.muzzle);
         if (gearRef.current) engine.current?.arm(gearRef.current);
