@@ -24,6 +24,9 @@ const SPECS: Partial<Record<Speaker, Spec>> = {
   sam: { kind: 'partyboy' },
 };
 
+// Dev-only: lets automated checks read the rendered portraits.
+if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') (window as unknown as { __portraits?: unknown }).__portraits = cache;
+
 export function portraitFor(who: Speaker): HTMLCanvasElement | null {
   return cache.get(who) ?? null;
 }
@@ -76,7 +79,9 @@ function renderOne(renderer: THREE.WebGLRenderer, env: THREE.Texture, who: Speak
     });
     for (const x of [-0.07, 0.07]) {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 0.3, 0.3), toneMapped: false }));
-      eye.position.set(x * (height / 2.6), height * 0.88, 0.2 * (height / 2.6));
+      const k = height / 1.9;
+      eye.scale.setScalar(k * 0.55);
+      eye.position.set(x * 1.2 * k, 1.86 * k, 0.215 * k);
       rig.root.add(eye);
     }
   }
@@ -99,11 +104,19 @@ function renderOne(renderer: THREE.WebGLRenderer, env: THREE.Texture, who: Speak
   rim.position.set(-1.8, 1.8, -2.2);
   scene.add(key, fill, rim);
   const cam = new THREE.PerspectiveCamera(24, 1, 0.1, 30);
-  const headY = height * (spec.agent ? 0.9 : 0.93);
-  const viewH = height * (spec.agent ? 0.5 : 0.56);
+  // Frame from the measured top of the figure (hats and hair included) so the whole head always fits.
+  rig.root.updateMatrixWorld(true);
+  const bb = new THREE.Box3();
+  rig.root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && (m.material as THREE.Material).visible !== false) bb.expandByObject(m);
+  });
+  const top = Math.min(bb.max.y, height * 1.35);
+  const viewH = spec.agent ? height * 0.5 : top * 0.66;
+  const lookY = spec.agent ? height * 0.8 : top - viewH * 0.46;
   const dist = viewH / 2 / Math.tan((24 / 2) * (Math.PI / 180));
-  cam.position.set(dist * 0.22, headY - 0.03 * height, dist);
-  cam.lookAt(0, headY - 0.1 * height, 0);
+  cam.position.set(dist * 0.22, lookY + 0.02 * height, dist);
+  cam.lookAt(0, lookY, 0);
   renderer.render(scene, cam);
 
   const out = document.createElement('canvas');
