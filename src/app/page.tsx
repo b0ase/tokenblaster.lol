@@ -59,6 +59,23 @@ export default function Home() {
         </div>
       </header>
 
+      {/* The arcade, unmissable (owner, 7 Oct 2026: "if there is a link, I can't see it"). */}
+      <Link href="/arcade" className="panel group flex flex-col gap-3 border-2 !border-hot hover:bg-[var(--panel-hi,transparent)]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-2xl font-bold text-hot group-hover:underline sm:text-3xl">▶ PLAY THE ARCADE</p>
+            <p className="text-dim">{GAMES.length} games built on the live chain: Arena, Double-O Satoshi, Chain Frogger and more.</p>
+          </div>
+          <span className="btn-fire !px-6 !py-3 !text-lg">ENTER THE ARCADE</span>
+        </div>
+        <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-8">
+          {GAMES.slice(0, 8).map((g) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={g.href} src={g.img} alt={g.title} className="aspect-video w-full border border-[var(--border-dim)] object-cover" />
+          ))}
+        </div>
+      </Link>
+
       <Link href="/1satordnance/store" className="panel group flex flex-wrap items-center gap-3 hover:border-fg">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/ordnance/cards/safu-blaster.webp" alt="" className="h-20 w-20 border border-[var(--border-dim)] object-cover" />
