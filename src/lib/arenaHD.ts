@@ -165,8 +165,10 @@ export const GUNS: GunDef[] = [
 
 // ── Loading ─────────────────────────────────────────────────────────
 
-const TEX = ['castle_brick_07', 'metal_plate', 'rough_block_wall', 'rusty_metal_02', 'painted_metal_shutter', 'concrete_floor_worn_001', 'metal_grate_rusty', 'corrugated_iron_02', 'concrete_wall_003', 'weathered_planks', 'rusty_corrugated_iron', 'dirt', 'rock_ground'] as const;
-type TexId = (typeof TEX)[number];
+const TEX = ['castle_brick_07', 'metal_plate', 'rough_block_wall', 'rusty_metal_02', 'painted_metal_shutter', 'concrete_floor_worn_001', 'metal_grate_rusty', 'corrugated_iron_02'] as const;
+/** The Arena's hell-forge set; `loadArenaAssets(..., true)` loads these instead of the stock set. */
+const TEX_HELL = ['dark_brick_wall', 'rough_block_wall', 'rusty_metal_04', 'rusty_metal_grid', 'cracked_concrete', 'rock_ground'] as const;
+type TexId = (typeof TEX)[number] | (typeof TEX_HELL)[number];
 
 export type ArenaAssets = {
   material: (id: TexId, repeat?: [number, number]) => THREE.MeshStandardMaterial;
@@ -175,7 +177,7 @@ export type ArenaAssets = {
 };
 
 /** Load everything; `onProgress` gets 0..1. */
-export async function loadArenaAssets(renderer: THREE.WebGLRenderer, onProgress: (p: number) => void): Promise<ArenaAssets> {
+export async function loadArenaAssets(renderer: THREE.WebGLRenderer, onProgress: (p: number) => void, hell = false): Promise<ArenaAssets> {
   const manager = new THREE.LoadingManager();
   manager.onProgress = (_url, done, total) => onProgress(total ? done / total : 0);
   const tl = new THREE.TextureLoader(manager);
@@ -199,7 +201,7 @@ export async function loadArenaAssets(renderer: THREE.WebGLRenderer, onProgress:
 
   const [maps, monsters, guns] = await Promise.all([
     Promise.all(
-      TEX.map(async (id) => {
+      (hell ? [...TEX_HELL] : [...TEX]).map(async (id) => {
         const base = `/arena/tex/${id}`;
         const [map, normalMap, roughnessMap] = await Promise.all([load(`${base}/diff.jpg`, true), load(`${base}/nor.jpg`, false), load(`${base}/rough.jpg`, false)]);
         return [id, { map, normalMap, roughnessMap }] as const;
