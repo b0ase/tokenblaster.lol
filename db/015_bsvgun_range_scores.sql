@@ -1,15 +1,13 @@
--- BSVGun Range ('bsvgun-range'): 75-second rounds on the 3D shooting range, scored by clay/duck/token kills with a
--- combo multiplier (x1..x8). A strong round is ~15-30k; allow 8,000 + 800 per second of run (75s -> 68,000), min 60s.
--- Same function as 012 (every existing row kept) plus one row. The game's LIVE runs carry the 'bsvgun' game tag, so
--- verification uses SCORE_GAMES['bsvgun-range'].tag. Apply on the Hetzner database before shipping the game
--- (scores for 'bsvgun-range' are rejected until then).
+-- BSVGun RANGE board ('bsvgun-range'), added on top of the live function (every other row kept).
 create or replace function public.tokenblaster_score_limit(g text)
-returns table (per_sec numeric, base numeric, min_secs numeric)
-language sql immutable as $$
+ RETURNS TABLE(per_sec numeric, base numeric, min_secs numeric)
+ LANGUAGE sql
+ IMMUTABLE
+AS $function$
   select t.per_sec, t.base, t.min_secs from (values
     ('hopper',           400::numeric, 2000::numeric, 1::numeric),
-    ('invaders',         300, 2000, 1),
-    ('snake',            150, 500, 1),
+    ('invaders',         800, 10000, 1),
+    ('snake',            400, 3000, 1),
     ('kweg',             400, 2000, 1),
     ('frogger',          0.5, 3, 2),
     ('doubleo-facility', 3, 10, 10),
@@ -32,6 +30,12 @@ language sql immutable as $$
     ('bracer-canyon-hc', 60, 5000, 45),
     ('bracer-spiral-hc', 60, 5000, 45),
     ('bracer-void-hc',   60, 5000, 45),
+-- BSVGun Range ('bsvgun-range'): 75-second rounds on the 3D shooting range, scored by clay/duck/token kills with a
+-- verification uses SCORE_GAMES['bsvgun-range'].tag. Apply on the Hetzner database before shipping the game
+-- (scores for 'bsvgun-range' are rejected until then).
     ('bsvgun-range',     800, 8000, 60)
   ) as t(game, per_sec, base, min_secs) where t.game = g;
-$$;
+$function$
+
+
+;

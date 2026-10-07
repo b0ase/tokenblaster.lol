@@ -11,7 +11,7 @@ import { byTitle } from '@/lib/alpha';
 
 const GAMES = [
   { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', title: 'Double-O Satoshi', tag: 'V1 · spy shooter', blurb: 'GoldenEye-style 3D missions: Special Agent Kweg Wong fires PNEE at parody crypto villains. LIVE mode: one token per bullet, one transaction per token.' },
-  { href: '/arcade/bsvgun', img: '/arcade/bsvgun.jpg', title: 'BSVGun', tag: 'V1 · mass blaster', blurb: 'TeraGun-style: load once and fire 50,000 real tagged transactions in parallel lanes. Every blast counts on the leaderboard.' },
+  { href: '/arcade/bsvgun', img: '/arcade/bsvgun.jpg', title: 'BSVGun', tag: 'V2 · 3D shooting range', blurb: 'Duck Hunt on the live chain: shoot clays, ducks, token coins and golden whales spawned from real transactions. Choose your gun; Blast Zone still storms the chain.' },
   { href: '/arena', img: '/arcade/arena.jpg', title: 'Arena', tag: 'V1 · multiplayer', blurb: 'DOOM-style maze. Load the tokens in your wallet and fire them: one token per bullet, one transaction per token. Hit another player and your token lands in their gun.' },
   { href: '/arcade/frogger', img: '/arcade/frogger.jpg', title: 'Chain Frogger', tag: 'V2 · 3D city', blurb: 'Cross a GTA-style avenue where every vehicle is a live mainnet transaction, one way from sender to receiver. Token transfers drive box trucks wearing their logo.' },
   { href: '/arcade/hopper', img: '/arcade/hopper.jpg', title: 'Block Hopper', tag: 'V2 · 3D platformer', blurb: 'Run and jump across mainnet as it happens: every platform is a live transaction, token transfers walk out as enemies, new blocks are checkpoints.' },
