@@ -11,7 +11,7 @@ OUT = out_path("07_003_red_axe")
 bpy.ops.wm.read_factory_settings(use_empty=True)
 RED = mat("red", "e3141c", 0.28)
 DEEP = mat("deep", "9c0b14", 0.35)
-EDGE = mat("edge", "ff6b78", 0.3)
+EDGE = mat("rim", "ff6b78", 0.3)
 
 parts = []
 pole = sweep("pole", [Vector((0, 0, -0.12)), Vector((0, 0, 0.92))], [0.02, 0.018], RED, nseg=8)

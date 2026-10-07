@@ -61,6 +61,19 @@ Tripo / TripoSR image-to-3D is **rejected** for rigid parts. Hand-built Blender 
 | Red Axe (07_003) | 0.789 → 0.786 (at 19°) | |
 | Katana (07_009) | 0.694 → 0.669 (at 28°) | |
 | Sai (07_008) | 0.585 → 0.585 (at 30°) | |
+| Hikaru Horns (23_002) | 0.400 → 0.391 | rear horns, pushed 7 cm behind the face; gold rivet collars |
+| Big Red Horns (23_004) | 0.353 → 0.362 | rear horns; top roll-over reads a bit boxy |
+| Black Axe (07_004) | 1.424 → 1.356 (at −65°, hangs head-down) | |
+| Machete (07_020) | 0.638 → 0.612 (at 30°) | saw spine, vent holes |
+| Graffiti Can (07_011) | 2.342 → 2.240 (upright) | label is a plain swirl blob, not the card logo |
+| Guitar (07_037) | 0.918 → 0.895 (at 44°) | origin mid-neck |
+
+**Texture pass (all hand-built parts):** after the build script, run
+`Blender -b -P card_bake.py -- part.glb [1024] [rag_mm]`. It bakes one illustrated albedo atlas per part,
+style chosen per material by name: `wood*` grain, metal names (`steel`, `edge`, `blade`, `iron`, `brass`…)
+sheen bands + bright edge highlight, `tape`/`wrap`/`grip` matte, everything else "paint" (darker same-hue
+rim, broken highlight streaks, chips). Ink on hard edges + AO crevices for all. `texture_bake.py` stays the
+exact Phi-Phi recipe. Name materials so the right style is picked (Red Axe's pink strip is `rim`, not `edge`).
 
 ## Generator verdicts (owner review in the 3D viewer)
 
