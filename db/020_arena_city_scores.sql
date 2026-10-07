@@ -1,10 +1,4 @@
--- Score boards for Arena ('arena': kills in one life) and Satoshi City ('city': score for a visit), so every cabinet in the
--- hall of fame has a champion. NOT APPLIED. This is db/018's function with two rows added: if the live function has moved on
--- since (another board added), re-copy THAT function and add only the two rows marked NEW. Scores for 'arena' / 'city' are
--- rejected until this is applied. The LIVE verification tags are SCORE_GAMES['arena'].tag = 'arena' and ['city'].tag = 'city'.
---
--- Arena: score = kills in a single life, secs = length of that life (3 kills a second + 10 is generous for a minigun).
--- City:  score = points from stolen cars, deliveries and rush checkpoints; secs = time since entering the city.
+-- Arena ('arena', kills in one life) and Satoshi City ('city') boards, added on top of the live function.
 create or replace function public.tokenblaster_score_limit(g text)
  RETURNS TABLE(per_sec numeric, base numeric, min_secs numeric)
  LANGUAGE sql
@@ -36,13 +30,19 @@ AS $function$
     ('bracer-canyon-hc', 60, 5000, 45),
     ('bracer-spiral-hc', 60, 5000, 45),
     ('bracer-void-hc',   60, 5000, 45),
+-- BSVGun Range ('bsvgun-range'): 75-second rounds on the 3D shooting range, scored by clay/duck/token kills with a
+-- verification uses SCORE_GAMES['bsvgun-range'].tag. Apply on the Hetzner database before shipping the game
+-- (scores for 'bsvgun-range' are rejected until then).
     ('bsvgun-range',     800, 8000, 60),
     ('bracer-mempool-loop',    60, 5000, 45),
     ('bracer-mempool-loop-hc', 60, 5000, 45),
+    -- BSVGun VERSUS board ('bsvgun-versus'): shared-sky rounds for 2-8 shooters, 75 s, same limits as the RANGE board.
+-- Hetzner database before shipping (scores for 'bsvgun-versus' are rejected until then). Re-copy the latest function
     ('bsvgun-versus',   800, 8000, 60),
-    -- NEW
     ('arena',            3, 10, 10),
-    -- NEW
     ('city',             120, 3000, 30)
   ) as t(game, per_sec, base, min_secs) where t.game = g;
-$function$;
+$function$
+
+
+;
