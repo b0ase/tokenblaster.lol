@@ -3,7 +3,8 @@
 /**
  * Ninja Punk Girls: Erobot Uprising on TokenBlaster. Same engine + levels as ninjapunkgirls.com
  * (src/lib/npgRunner, copied from that repo), plus the arcade layer:
- * - PAID mode: every jump / wall jump is a real transaction (1 sat to the house + fee).
+ * - LIVE blasting (optional, on paid runs): every jump / wall jump and every shuriken is one tiny real
+ *   transaction from loaded ammo, sats or a token (src/lib/useActionPay.ts).
  * - Token loot: live token transfers on chain float into the level ahead of you as tokens to grab.
  * - High scores, shared mute/volume prefs, NPG music (Pixel Dreams) as an mp3 loop.
  */
@@ -17,6 +18,8 @@ import { HighScores, useRunClock } from './HighScores';
 import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { SoundToggle } from './SoundToggle';
+import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
+import { useActionPay } from '@/lib/useActionPay';
 
 const BASE = '/arcade/npg-runner';
 const GAME = 'NPG Erobot Uprising';
@@ -60,6 +63,9 @@ export function NpgRunner() {
   const game = useRef<NpgGame | null>(null);
   // Coin-op: 10p buys a credit (src/lib/coinop.ts); practice is free and puts nothing on chain.
   const co = useCoinOp(GAME, 'npg');
+  const ap = useActionPay('npg', GAME);
+  const pay = ap.pay;
+  const setLiveRun = ap.setRun;
   const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const feed = useChainFeed();
   const feedRef = useRef(feed);
@@ -113,10 +119,13 @@ export function NpgRunner() {
     const g = new NpgGame(canvas, assets, {
       sfx: (s) => sfx(SFX[s]),
       onHud: setStats,
+      canJump: () => pay.current(['jump']),
+      canThrow: () => pay.current(['shuriken']),
       onPhase: (p, s) => {
         setPhase(p);
         setStats(s);
         if (p === 'over' || p === 'win') {
+          setLiveRun(false);
           setLastRun({ ...lootRef.current.run });
           lootRef.current.end();
           music.current?.pause();
@@ -148,7 +157,7 @@ export function NpgRunner() {
       g.destroy();
       game.current = null;
     };
-  }, [assets]);
+  }, [assets, pay, setLiveRun]);
 
   useEffect(() => {
     const on = (down: boolean) => (e: KeyboardEvent) => {
@@ -179,6 +188,7 @@ export function NpgRunner() {
     const txid = paid ? co.consume() : null;
     if (paid && !txid) return;
     setRun({ paid, txid });
+    ap.setRun(paid);
     lootRef.current.end();
     setLastRun({});
     g.hero = hero;
@@ -199,6 +209,7 @@ export function NpgRunner() {
       <SoundToggle className="fixed bottom-3 right-3 z-[60]" />
       <div className="relative mx-auto w-full max-w-[960px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}` }}>
         <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" />
+        <ActionHud ap={ap} className="absolute right-2 top-2 z-10" />
         <div className="pointer-events-none absolute bottom-1 left-2">
           <LootHud haul={loot.run} max={3} />
         </div>
@@ -252,6 +263,7 @@ export function NpgRunner() {
       <p className="mt-2 text-xs text-muted">
         Three stages, three Erobot bosses. Wall jump, air dash (cuts through Erobots), shuriken. Live token transfers on chain float into the level ahead of you as tokens to grab. A credit (10p) buys one game; practice is free.
       </p>
+      <div className="mt-2 flex flex-col items-center gap-1">{phase === 'play' || phase === 'clear' ? <AmmoAlerts ap={ap} /> : <ActionAmmo ap={ap} actions="jump and shuriken" />}</div>
       <LootPanel run={done ? lastRun : loot.run} allTime={loot.allTime} />
       {co.chooserEl}
     </section>
