@@ -96,7 +96,7 @@ def bevel(ob, w=0.0012, seg=1, ang=35):
     m.miter_outer = "MITER_ARC"
 
 # ---------- navy core (ribbed lathe) ----------
-NS, NR = 24, 8
+NS, NR = 21, 8
 bm = bmesh.new()
 rings = []
 for j in range(NR + 1):
@@ -126,7 +126,7 @@ def angdist(th):
     return abs(d)
 
 # ---------- bands: conical lamellae, lower edge flares out ----------
-def band(name, z0, z1, tilt=0.0, flare=0.006, nu=24, lowfn=None):
+def band(name, z0, z1, tilt=0.0, flare=0.006, nu=20, lowfn=None):
     def fn(u, v):
         th = 2 * math.pi * u
         lo = lowfn(th) if lowfn else z0
@@ -134,18 +134,18 @@ def band(name, z0, z1, tilt=0.0, flare=0.006, nu=24, lowfn=None):
         z = lo + (z1 - lo) * v + t
         return th, z, flare * (1 - v)
     ob = shell(name, fn, nu, 1, True, 0.002, 0.007, PINK)
-    bevel(ob, 0.0012, 2, 60); parts.append(ob); return ob
+    bevel(ob, 0.0012, 1, 60); parts.append(ob); return ob
 
-band("bandA", 0.143, 0.170, tilt=0.003, flare=0.004, nu=24)
-band("bandB", 0.084, 0.122, tilt=0.006, flare=0.006, nu=24)
+band("bandA", 0.143, 0.170, tilt=0.003, flare=0.004, nu=20)
+band("bandB", 0.084, 0.122, tilt=0.006, flare=0.006, nu=20)
 # band C: lower edge rises toward the sides (the "brows" over the eye slits)
-band("bandC", 0.034, 0.076, flare=0.008, nu=24,
+band("bandC", 0.034, 0.076, flare=0.008, nu=20,
      lowfn=lambda th: 0.030 + 0.024 * min(1.0, angdist(th) / 1.1) ** 0.8
      if angdist(th) < 1.9 else 0.054)
-rim = band("rim", -0.004, 0.014, flare=0.005, nu=24)
+rim = band("rim", -0.004, 0.014, flare=0.005, nu=20)
 
 # ---------- plates: bevelled, proud, hard-edged panels laid over the bands ----------
-def plate(name, th0, th1, zlo0, zlo1, h, off, material, nu=8, thick=0.006):
+def plate(name, th0, th1, zlo0, zlo1, h, off, material, nu=6, thick=0.006):
     """Panel from angle th0 to th1; lower edge slopes zlo0 -> zlo1, height h, sitting `off` proud."""
     def fn(u, v):
         th = th0 + (th1 - th0) * u
@@ -161,33 +161,33 @@ plate("flapB", FRONT + 1.05, FRONT + 1.75, 0.080, 0.090, 0.040, 0.011, PINK, nu=
 plate("flapA", FRONT - 1.65, FRONT - 0.95, 0.146, 0.138, 0.026, 0.010, PINK, nu=5)
 
 # hot-pink trim lip under each band (gives the two-tone banding of the card)
-def lip(name, zfn, nu=24, off=0.004):
+def lip(name, zfn, nu=20, off=0.004):
     def fn(u, v):
         th = 2 * math.pi * u
         return th, zfn(th) - 0.007 + 0.007 * v, off + 0.005 * (1 - v)
     ob = shell(name, fn, nu, 1, True, 0.004, 0.004, HOT)
     parts.append(ob)
-lip("lipB", lambda th: 0.084 + 0.006 * math.cos(th), nu=24)
-lip("lipA", lambda th: 0.143 + 0.003 * math.cos(th), nu=24)
+lip("lipB", lambda th: 0.084 + 0.006 * math.cos(th), nu=20)
+lip("lipA", lambda th: 0.143 + 0.003 * math.cos(th), nu=20)
 
 # ---------- front strap with pointed chin tab ----------
 def strap_fn(u, v):
-    z = 0.078 - v * (0.078 + 0.042)
+    z = 0.078 - v * (0.078 + 0.018)
     if z >= 0.0:
         half = 0.50 - 0.14 * (z / 0.078)
     else:
-        k = -z / 0.042
+        k = min(-z / 0.018, 1.0)
         half = 0.50 * (1 - k) ** 1.2 + 0.03
     th = FRONT + (u - 0.5) * 2 * half
     return th, z, 0.010
-strap = shell("strap", strap_fn, 8, 10, False, 0.004, 0.008, PINK)
+strap = shell("strap", strap_fn, 8, 7, False, 0.004, 0.008, PINK)
 bevel(strap, 0.0018, 1, 30)
 parts.append(strap)
 
 # ---------- tip: swept curved cone, leans to viewer's left ----------
 bm = bmesh.new()
 P0, P1, P2 = Vector((0.002, 0, 0.165)), Vector((0.020, 0.004, 0.212)), Vector((-0.022, 0.010, 0.245))
-NSEC, NSEG = 9, 12
+NSEC, NSEG = 7, 10
 secs = []
 for k in range(NSEC + 1):
     t = k / NSEC
@@ -213,7 +213,7 @@ bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
 tip = new_obj("tip", bm, PINK)
 parts.append(tip)
 # hot pink collar where tip meets band A
-lip("tipcollar", lambda th: 0.172, nu=24, off=0.002)
+lip("tipcollar", lambda th: 0.172, nu=20, off=0.002)
 
 # ---------- rivets ----------
 def rivet(pos, n, r=0.0055):
