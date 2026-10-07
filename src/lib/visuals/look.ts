@@ -51,10 +51,10 @@ export type LookSpec = {
 /** One look per mission: Far Cry 2 grit (concrete, rust, tile, wood) rather than uniform sci-fi metal. */
 export const LOOKS: Record<string, LookSpec> = {
   facility: { wall: 'concrete_wall_006', trim: 'metal_plate_02', floor: 'large_floor_tiles_02', ceiling: 'concrete_floor_02', wallTint: '#b8c0c8', trimTint: '#8a9096', floorTint: '#9aa6ad', ceilingTint: '#50555a', fogDensity: 0.018, exposure: 1.15, envIntensity: 0.55, grade: { shadow: [0.92, 1.0, 1.1], high: [1.04, 1.02, 0.98], sat: 0.92, contrast: 1.1, vignette: 0.55 } },
-  tower: { wall: 'plastered_wall_04', trim: 'dark_wood', floor: 'dark_wood', ceiling: 'plastered_wall_04', wallTint: '#d9b48a', trimTint: '#8a5a38', floorTint: '#b8744a', ceilingTint: '#5a3a28', fogDensity: 0.02, exposure: 1.2, envIntensity: 0.4, grade: { shadow: [1.08, 0.94, 0.9], high: [1.1, 1.0, 0.86], sat: 1.05, contrast: 1.12, vignette: 0.6 } },
+  tower: { wall: 'plastered_wall_04', trim: 'dark_wood', floor: 'dark_wood', ceiling: 'plastered_wall_04', wallTint: '#a8794e', trimTint: '#6a3f24', floorTint: '#a8643a', ceilingTint: '#3a2418', fogDensity: 0.022, exposure: 1.05, envIntensity: 0.3, grade: { shadow: [1.06, 0.92, 0.88], high: [1.08, 0.98, 0.86], sat: 1.12, contrast: 1.22, vignette: 0.65 } },
   vault: { wall: 'concrete_wall_006', trim: 'metal_plate_02', floor: 'concrete_floor_02', ceiling: 'concrete_wall_006', wallTint: '#8f9a90', trimTint: '#6a7a6e', floorTint: '#7d857d', ceilingTint: '#384038', fogDensity: 0.024, exposure: 1.1, envIntensity: 0.5, grade: { shadow: [0.88, 1.06, 0.94], high: [0.98, 1.06, 0.98], sat: 0.85, contrast: 1.16, vignette: 0.65 } },
   farm: { wall: 'brick_wall_02', trim: 'metal_plate_02', floor: 'concrete_floor_02', ceiling: 'metal_plate_02', wallTint: '#9a8478', trimTint: '#7a8a82', floorTint: '#8a8a82', ceilingTint: '#3a403c', fogDensity: 0.022, exposure: 1.12, envIntensity: 0.55, grade: { shadow: [0.9, 1.04, 1.02], high: [1.0, 1.08, 1.0], sat: 0.95, contrast: 1.14, vignette: 0.6 } },
-  yacht: { wall: 'plastered_wall_04', trim: 'dark_wood', floor: 'wood_floor_deck', ceiling: 'plastered_wall_04', wallTint: '#e4e8ea', trimTint: '#a8744a', floorTint: '#d6a878', ceilingTint: '#9aa2a8', fogDensity: 0.014, exposure: 1.25, envIntensity: 0.7, grade: { shadow: [0.92, 0.98, 1.1], high: [1.08, 1.04, 0.96], sat: 1.08, contrast: 1.08, vignette: 0.5 } },
+  yacht: { wall: 'plastered_wall_04', trim: 'dark_wood', floor: 'wood_floor_deck', ceiling: 'plastered_wall_04', wallTint: '#a9b4ba', trimTint: '#7a4a2a', floorTint: '#c08a58', ceilingTint: '#6a737a', fogDensity: 0.016, exposure: 1.0, envIntensity: 0.45, grade: { shadow: [0.9, 0.98, 1.12], high: [1.08, 1.03, 0.94], sat: 1.12, contrast: 1.22, vignette: 0.6 } },
 };
 
 export type Look = {
@@ -87,7 +87,7 @@ export async function loadLook(renderer: THREE.WebGLRenderer, quality: Quality, 
   await Promise.all(
     LOOK_TEX.map(async (id) => {
       const b = `/doubleo/tex/${id}`;
-      const [map, normalMap, roughnessMap] = await Promise.all([load(`${b}/diff.jpg`, true), load(`${b}/nor.jpg`, false), load(`${b}/rough.jpg`, false)]);
+      const [map, normalMap, roughnessMap] = await Promise.all([load(`${b}/diff.webp`, true), load(`${b}/nor.webp`, false), load(`${b}/rough.webp`, false)]);
       sets.set(id, { map, normalMap, roughnessMap });
     }),
   );
@@ -115,7 +115,7 @@ export async function loadLook(renderer: THREE.WebGLRenderer, quality: Quality, 
         made.push(k);
         return k;
       };
-      return new THREE.MeshStandardMaterial({ map: c(s?.map ?? null), normalMap: c(s?.normalMap ?? null), roughnessMap: c(s?.roughnessMap ?? null), color: tint, metalness: metal, normalScale: new THREE.Vector2(1.2, 1.2) });
+      return new THREE.MeshStandardMaterial({ map: c(s?.map ?? null), normalMap: c(s?.normalMap ?? null), roughnessMap: c(s?.roughnessMap ?? null), color: tint, metalness: metal, normalScale: new THREE.Vector2(1.6, 1.6) });
     },
     dispose: () => {
       made.forEach((t) => t.dispose());

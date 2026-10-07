@@ -87,6 +87,52 @@ const screenTex = (tint: string) =>
     for (let i = 0; i < 96; i += 3) c.fillRect(0, i, 128, 1);
   });
 
+
+/** The view through a window: painted sky, horizon and terrain per mission (null = underground, no windows). */
+const viewTex = (id: string) => {
+  if (id === 'vault' || id === 'facility') return null;
+  return canvasTex(256, 128, (c) => {
+    const sky = c.createLinearGradient(0, 0, 0, 90);
+    const [top, bot] = id === 'tower' ? ['#0a1030', '#ff8a50'] : id === 'yacht' ? ['#3a78c8', '#cfe6f5'] : ['#2a3a5a', '#f0a868'];
+    sky.addColorStop(0, top);
+    sky.addColorStop(1, bot);
+    c.fillStyle = sky;
+    c.fillRect(0, 0, 256, 128);
+    if (id === 'yacht') {
+      // Open sea with a sun glitter path.
+      const sea = c.createLinearGradient(0, 82, 0, 128);
+      sea.addColorStop(0, '#2a6a9a');
+      sea.addColorStop(1, '#0a2a4a');
+      c.fillStyle = sea;
+      c.fillRect(0, 82, 256, 46);
+      c.fillStyle = 'rgba(255,240,200,0.6)';
+      for (let i = 0; i < 40; i++) c.fillRect(110 + Math.random() * 40, 84 + Math.random() * 40, 6 + Math.random() * 12, 1.5);
+    } else if (id === 'tower') {
+      // City skyline with lit windows.
+      for (let x = 0; x < 256; x += 12) {
+        const h = 14 + Math.random() * 50;
+        c.fillStyle = '#10121e';
+        c.fillRect(x, 96 - h, 11, h + 32);
+        c.fillStyle = '#ffd890';
+        for (let k = 0; k < h / 6; k++) if (Math.random() > 0.5) c.fillRect(x + 2 + (k % 2) * 4, 96 - h + 3 + k * 6, 2, 2);
+      }
+    } else {
+      // Farm: dusk mountains and bare terrain.
+      c.fillStyle = '#2a2430';
+      c.beginPath();
+      c.moveTo(0, 96);
+      for (let x = 0; x <= 256; x += 16) c.lineTo(x, 50 + Math.random() * 36);
+      c.lineTo(256, 96);
+      c.fill();
+      const gr = c.createLinearGradient(0, 90, 0, 128);
+      gr.addColorStop(0, '#3a3228');
+      gr.addColorStop(1, '#14100c');
+      c.fillStyle = gr;
+      c.fillRect(0, 90, 256, 38);
+    }
+  });
+};
+
 const shaftTex = () =>
   canvasTex(8, 64, (c) => {
     const g = c.createLinearGradient(0, 0, 0, 64);
@@ -226,6 +272,34 @@ export function dressLevel(g: THREE.Group, grid: Grid, L: Level, spec: LookSpec,
   addInst(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: screenTex(spec.grade.high[1] > 1.04 ? '#60ff90' : '#60d0ff'), color: new THREE.Color(1.6, 1.6, 1.6), toneMapped: false }), screenM);
   addInst(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffd9a0').multiplyScalar(2.4), toneMapped: false }), sconceM);
   addInst(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), new THREE.MeshStandardMaterial({ color: '#3a3f44', metalness: 0.8, roughness: 0.45 }), conduitM);
+
+
+  // ── Windows on the outer walls: sky and terrain beyond (tower, yacht deck, farm) ──
+  const vt = viewTex(L.id);
+  if (vt) {
+    const glass: THREE.Matrix4[] = [];
+    const frame: THREE.Matrix4[] = [];
+    for (const [x, z] of floorCells) {
+      if (nearDoor(x, z) || hash(x, z, 40) > 0.5) continue;
+      DIRS.forEach(([dx, dz]) => {
+        const ex = x + dx;
+        const ez = z + dz;
+        if (!isWall(ex, ez) || ex > 0 && ex < grid.w - 1 && ez > 0 && ez < grid.h - 1) return;
+        const { cx, cz } = cellOf(x, z);
+        const ry = Math.atan2(-dx, -dz);
+        const wx = cx + dx * (SIZE / 2 - 0.03);
+        const wz = cz + dz * (SIZE / 2 - 0.03);
+        glass.push(place(wx, 2.05, wz, ry, 2.6, 1.5, 1));
+        for (const [ox, oy, sw, sh] of [[0, 0.78, 2.8, 0.14], [0, -0.78, 2.8, 0.14], [-1.36, 0, 0.14, 1.7], [1.36, 0, 0.14, 1.7], [0, 0, 0.07, 1.5]] as const) {
+          const tx = -dz;
+          const tz = dx;
+          frame.push(place(wx - dx * 0.0 + tx * ox + dx * -0.02, 2.05 + oy, wz + tz * ox + dz * -0.02, ry, sw, sh, 0.1));
+        }
+      });
+    }
+    addInst(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: vt, color: new THREE.Color(1.2, 1.2, 1.2), toneMapped: false }), glass);
+    addInst(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: '#1c1c20', metalness: 0.7, roughness: 0.4 }), frame);
+  }
 
   // ── Light shafts from the ceiling panels (cheap fake volumetrics) ──
   const shaft = new THREE.MeshBasicMaterial({ map: shaftTex(), color: new THREE.Color(L.theme.light), transparent: true, opacity: 0.04, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false });
