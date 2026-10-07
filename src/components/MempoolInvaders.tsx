@@ -11,6 +11,7 @@ import { HighScores } from './HighScores';
 import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { GameAudio } from './SoundToggle';
+import { useGameFullscreen } from '@/lib/useGameFullscreen';
 import { ChevronBar, Display, HazardBar, Kana, Pictogram, PosterFrame, ProductCode, Sticker, gridBg } from './dr';
 import { drDisplay, drFontClass, drJp, drMono } from './dr/fonts';
 import { DR } from '@/lib/dr/tokens';
@@ -129,7 +130,6 @@ export function MempoolInvaders() {
   const [flash, setFlash] = useState<string | null>(null);
   const [perf, setPerf] = useState<{ fps: number; level: number } | null>(null);
   const [touch, setTouch] = useState(false);
-  const [fs, setFs] = useState(false);
   const [hud] = useState(() => new HudDom());
   const bestRef = useRef(0);
   // ── LIVE mode: the same pay-per-action path as Chain Frogger (queue + drain, useBlaster ammo) ──
@@ -350,25 +350,14 @@ export function MempoolInvaders() {
   };
 
   const playing = phase === 'playing' || phase === 'paused';
-  const cover = playing && touch;
-  const enterFs = () => {
-    const el = wrap.current;
-    if (!el || document.fullscreenElement || !el.requestFullscreen) return;
-    try {
-      void el.requestFullscreen().catch(() => undefined);
-    } catch {
-      /* not allowed here */
-    }
-  };
-  const fullscreen = () => (document.fullscreenElement ? void document.exitFullscreen().catch(() => undefined) : enterFs());
-  useEffect(() => {
-    const on = () => {
-      setFs(Boolean(document.fullscreenElement));
-      if (!document.fullscreenElement) engine.current?.pause(true);
-    };
-    document.addEventListener('fullscreenchange', on);
-    return () => document.removeEventListener('fullscreenchange', on);
-  }, []);
+  const gfs = useGameFullscreen(wrap, {
+    playing,
+    ended: phase === 'over',
+    payFailed: Boolean(co.msg && !co.msg.ok),
+    onLeftWhilePlaying: () => engine.current?.pause(true),
+  });
+  const { fs, cover } = { fs: gfs.fs, cover: gfs.cover };
+  const fullscreen = gfs.toggle;
 
   const accent = DR.colour.signal;
   const hullPips = Array.from({ length: 3 }, (_, i) => i < slow.lives);
@@ -425,7 +414,7 @@ export function MempoolInvaders() {
       )}
       {needAmmo && actionsLeft < 1 && <p className="font-bold text-hot">Needs ammo: load some above, approve it, then START LIVE.</p>}
       {(payErr || b.error) && <p className="text-hot">⚠ {payErr ?? b.error}</p>}
-      <button onClick={() => start(true, true)} disabled={actionsLeft < 1 || !hasWallet} className="btn btn-on self-start px-4 py-2 disabled:opacity-40">
+      <button onClick={() => { if (actionsLeft >= 1 && hasWallet) gfs.enter(); start(true, true); }} disabled={actionsLeft < 1 || !hasWallet} className="btn btn-on self-start px-4 py-2 disabled:opacity-40">
         ⚡ START LIVE · {actionsLeft.toLocaleString()} ACTIONS
       </button>
     </div>
@@ -449,7 +438,7 @@ export function MempoolInvaders() {
         </span>
       </div>
       <div className="relative" style={{ height: 'min(80vh, 820px)', minHeight: 460 }}>
-        <div ref={wrap} className={`select-none overflow-hidden bg-black ${cover || fs ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={cover || fs ? { height: '100dvh' } : undefined}>
+        <div ref={wrap} className={`select-none overflow-hidden bg-black ${cover ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={cover ? { height: '100dvh' } : undefined}>
           <div ref={mount} data-invaders-canvas className="absolute inset-0 touch-none" />
           {flash && (
             <div
@@ -707,7 +696,7 @@ export function MempoolInvaders() {
                   <span>P PAUSE</span>
                   <span>PAD / TOUCH OK</span>
                 </div>
-                <CoinOpButtons co={co} start={(p) => start(p)} onPress={() => (touch ? enterFs() : undefined)} />
+                <CoinOpButtons co={co} start={(p) => start(p)} onPress={gfs.enter} />
                 <button onClick={() => setLiveOn((v) => !v)} aria-pressed={liveOn} className={`btn self-start px-3 py-1.5 text-sm ${liveOn ? 'btn-on' : ''}`}>
                   ⚡ LIVE · TOKEN-BLAST MODE · EVERY SHOT ON CHAIN
                 </button>
@@ -740,7 +729,7 @@ export function MempoolInvaders() {
                   ▶ RESUME
                 </button>
                 <button onClick={fullscreen} className="btn px-3 py-2">
-                  ⛶ FULLSCREEN
+                  {fs ? '⛶ EXIT FULL SCREEN' : '⛶ FULL SCREEN'}
                 </button>
               </div>
               <p className="text-xs tracking-widest text-dim">P / ESC TO RESUME</p>

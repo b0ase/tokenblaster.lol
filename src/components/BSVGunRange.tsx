@@ -16,6 +16,7 @@ import { slugOf } from '@/lib/ordnance';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { useOrdnance } from '@/lib/useOrdnance';
 import type { useBlaster } from '@/lib/useBlaster';
+import { useGameFullscreen } from '@/lib/useGameFullscreen';
 import { RangeEngine, type Hooks, type Hud, type Phase, type Quality, type Result } from '@/lib/bsvgun/engine';
 import { TARGET_INFO, type TargetKind } from '@/lib/bsvgun/targets';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
@@ -59,7 +60,6 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   const [paused, setPaused] = useState(false);
   const [best, setBest] = useState(0);
   const [runKey, setRunKey] = useState(0);
-  const [fs, setFs] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
 
@@ -211,15 +211,22 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
     engine.current?.setPaused(paused);
   }, [paused, ready]);
 
+  const gfs = useGameFullscreen(wrap, {
+    playing: active && phase === 'play',
+    ended: phase === 'over',
+    onLeftWhilePlaying: () => setPaused(true),
+  });
+  const { fs, enter: enterFs, toggle: toggleFs } = gfs;
   const start = useCallback(() => {
     if (!engine.current || !unlocked.has(weaponId)) return;
+    enterFs(); // from the click / Enter itself, so the browser allows it
     shots.reset();
     setResult(null);
     setPaused(false);
     setRunKey((k) => k + 1);
     engine.current.start(weaponId, live);
     mount.current?.querySelector('canvas')?.focus();
-  }, [weaponId, live, unlocked, shots]);
+  }, [weaponId, live, unlocked, shots, enterFs]);
   const startRef = useRef(start);
   useEffect(() => {
     startRef.current = start;
@@ -254,16 +261,6 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
     return () => window.removeEventListener('keydown', kd);
   }, [active, weapons, unlocked, weaponId]);
 
-  useEffect(() => {
-    const on = () => setFs(document.fullscreenElement === wrap.current);
-    document.addEventListener('fullscreenchange', on);
-    return () => document.removeEventListener('fullscreenchange', on);
-  }, []);
-  const toggleFs = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void wrap.current?.requestFullscreen?.().catch(() => undefined);
-  };
-
   // Mid-run weapon switch from the HUD strip.
   const pick = (w: RangeWeapon) => {
     if (!unlocked.has(w.id)) return;
@@ -277,7 +274,8 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   const liveReady = !live || (!!b.wallet && shots.shotsAffordable >= 20);
 
   return (
-    <div ref={wrap} className={`${fs ? '' : 'bg-stage'} relative w-full select-none overflow-hidden bg-black ${drFontClass}`} style={{ height: fs ? '100vh' : undefined, fontFamily: DR.font.mono, border: `2px solid ${DR.colour.signal}` }}>
+    <div className="bg-stage relative w-full">
+    <div ref={wrap} className={`select-none overflow-hidden bg-black ${gfs.cover ? 'fixed inset-0 z-[90]' : 'absolute inset-0'} ${drFontClass}`} style={{ height: gfs.cover ? '100dvh' : undefined, fontFamily: DR.font.mono, border: gfs.cover ? undefined : `2px solid ${DR.colour.signal}` }}>
       <style>{`
         .bg-pop{position:absolute;transform:translate(-50%,-50%);font-family:${DR.font.display};font-weight:900;font-style:italic;text-transform:uppercase;white-space:nowrap;text-shadow:0 0 8px currentColor,0 2px 0 #000;animation:bgpop .95s ease-out forwards;pointer-events:none}
         @keyframes bgpop{0%{opacity:0;transform:translate(-50%,-30%) scale(.6)}12%{opacity:1;transform:translate(-50%,-60%) scale(1.15)}100%{opacity:0;transform:translate(-50%,-190%) scale(1)}}
@@ -578,6 +576,9 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
             >
               QUIT
             </button>
+            <button onClick={toggleFs} className="px-4 py-2 text-sm font-bold" style={{ border: `1px solid ${DR.colour.grey}`, color: DR.colour.grey }}>
+              {fs ? 'EXIT FULL SCREEN' : 'FULL SCREEN'}
+            </button>
           </div>
         </div>
       )}
@@ -650,6 +651,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

@@ -25,6 +25,7 @@ import { HighScores, useRunClock } from './HighScores';
 import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
 import { GameAudio } from './SoundToggle';
+import { useGameFullscreen } from '@/lib/useGameFullscreen';
 import { ChevronBar, Display, HazardBar, Kana, PosterFrame, ProductCode, Sticker, gridBg } from './dr';
 import { drDisplay, drFontClass, drJp, drMono } from './dr/fonts';
 
@@ -104,6 +105,7 @@ const FOOD_KEY: { id: keyof typeof KIND_CSS; label: string; pts: string }[] = [
 
 export function TokenSnake() {
   const mount = useRef<HTMLDivElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
   const mini = useRef<HTMLCanvasElement>(null);
   const engine = useRef<SnakeEngine | null>(null);
   const feed = useChainFeed();
@@ -412,10 +414,16 @@ export function TokenSnake() {
   };
 
   const playing = phase === 'play' || phase === 'paused';
+  const gfs = useGameFullscreen(wrap, {
+    playing,
+    ended: phase === 'over',
+    payFailed: Boolean(co.msg && !co.msg.ok),
+    onLeftWhilePlaying: () => engine.current?.pause(true),
+  });
   const liveStart =
     HOUSE ? (
       <div className="flex flex-col items-center gap-1">
-        <button onClick={() => (liveOpen && ammoOk ? startLive() : setLiveOpen(true))} className={`btn px-4 py-2 text-base font-bold tracking-widest ${liveOpen && ammoOk ? 'btn-on' : ''}`} style={{ borderColor: DR.colour.acid, color: DR.colour.acid }}>
+        <button onClick={() => (liveOpen && ammoOk ? (gfs.enter(), startLive()) : setLiveOpen(true))} className={`btn px-4 py-2 text-base font-bold tracking-widest ${liveOpen && ammoOk ? 'btn-on' : ''}`} style={{ borderColor: DR.colour.acid, color: DR.colour.acid }}>
           {liveOpen && ammoOk ? '▶ START LIVE · EVERY BITE ON-CHAIN' : '⚡ LIVE MODE · A TINY TX PER BITE'}
         </button>
         <span className="text-[10px] text-dim">{liveOpen && !ammoOk ? 'Load ammo in the panel below the arena (sats or a token), then press START LIVE.' : 'Every bite and power-up is a real transaction paid from ammo you load. No coin needed.'}</span>
@@ -442,7 +450,8 @@ export function TokenSnake() {
           )}
         </span>
       </div>
-      <div className="relative mx-auto w-full select-none overflow-hidden bg-black" style={{ aspectRatio: touch ? '4 / 5' : '16 / 9', maxHeight: '84vh', touchAction: 'none' }}>
+      <div className="relative mx-auto w-full" style={{ aspectRatio: touch ? '4 / 5' : '16 / 9', maxHeight: '84vh' }}>
+      <div ref={wrap} className={`select-none overflow-hidden bg-black ${gfs.cover ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={{ touchAction: 'none', ...(gfs.cover ? { height: '100dvh' } : null) }}>
         <div ref={mount} className="absolute inset-0 touch-none" />
 
         {/* ── HUD ── */}
@@ -527,6 +536,9 @@ export function TokenSnake() {
             </button>
             <button onClick={() => engine.current?.cycleCam()} className="btn px-2 py-1 text-xs" aria-label="Camera">
               CAM · {camMode.toUpperCase()}
+            </button>
+            <button onClick={gfs.toggle} className="btn px-2 py-1 text-xs" aria-label={gfs.fs ? 'Exit full screen' : 'Full screen'}>
+              {gfs.fs ? '⛶ EXIT' : '⛶'}
             </button>
           </div>
         )}
@@ -625,7 +637,7 @@ export function TokenSnake() {
               <p className="text-[11px] text-dim">
                 {touch ? 'Swipe or drag anywhere to turn (a floating stick appears under your thumb).' : 'Arrows / WASD to turn · P pause · C camera · gamepad d-pad / stick.'} {camMode === 'chase' ? 'Chase camera: left / right turn relative to the snake.' : ''} Best {best.toLocaleString('en-GB')}.
               </p>
-              <CoinOpButtons co={co} start={start} perCredit={`1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} />
+              <CoinOpButtons co={co} start={start} perCredit={`1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} onPress={gfs.enter} />
               {liveStart}
             </div>
           </div>
@@ -638,6 +650,9 @@ export function TokenSnake() {
             <p className="text-xs text-dim">{needAmmo ? 'LIVE mode pays per bite. Load more ammo in the panel below the arena, then resume.' : 'The chain keeps moving; the snake waits.'}</p>
             <button onClick={resume} disabled={live && !ammoOk} className="btn btn-on px-4 py-2 disabled:opacity-40">
               ▶ RESUME
+            </button>
+            <button onClick={gfs.toggle} className="btn px-3 py-1 text-xs">
+              {gfs.fs ? '⛶ Exit full screen' : '⛶ Full screen'}
             </button>
           </div>
         )}
@@ -671,7 +686,7 @@ export function TokenSnake() {
                 <LootLine haul={lastRun} />
                 <HighScores game="snake" score={result.score} secs={runSecs} live={run.paid || live} txid={live ? lastTx : run.txid} meta={live ? { live: 1, txs: onChain } : run.paid ? { coinop: 1 } : undefined} />
                 <HazardBar colour={DR.colour.amber} h={8} className="w-full max-w-md" />
-                <CoinOpButtons co={co} start={start} perCredit={`1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} />
+                <CoinOpButtons co={co} start={start} perCredit={`1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} onPress={gfs.enter} />
                 {liveStart}
                 <button onClick={toTitle} className="text-xs text-dim hover:text-fg">
                   back to title
@@ -680,6 +695,7 @@ export function TokenSnake() {
             </PosterFrame>
           </div>
         )}
+      </div>
       </div>
       <p className="mt-2 text-xs text-muted">
         The food is mainnet, live: {eaten.toLocaleString('en-GB')} real transactions served this visit. Arena {N}×{N}. Bites chain into a ×8 multiplier; blasts and token coins pay the most; the monoliths are real blocks (new ones rise as they land).

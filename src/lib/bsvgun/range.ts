@@ -305,12 +305,7 @@ export async function buildRange({ high, font, renderer, scene }: Opts): Promise
     band.rotation.y = -side * Math.PI / 2;
     group.add(panel, trim, band);
   }
-  const roof = new THREE.Mesh(track(new THREE.BoxGeometry(6, 0.12, 5.4)), metal);
-  roof.position.set(0, 3.25, -2.4);
-  roof.castShadow = true;
-  const lampBar = new THREE.Mesh(track(new THREE.BoxGeometry(2.8, 0.06, 0.16)), track(neon('#ffd9a0', 3)));
-  lampBar.position.set(0, 3.17, -1.2);
-  group.add(roof, lampBar);
+  // No roof: the booth is open to the sky so ducks, flocks, whales and clay arcs fly clear of any structure.
   // Ammo crates on the counter.
   for (const [x, c] of [[-1.9, '#3a4a34'], [-1.55, '#4a3a2a']] as const) {
     const crate = new THREE.Mesh(track(new THREE.BoxGeometry(0.32, 0.2, 0.22)), track(new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, metalness: 0.3 })));

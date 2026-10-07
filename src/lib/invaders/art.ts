@@ -587,8 +587,13 @@ export function makeStars(q: Q) {
       vertexShader: /* glsl */ `
         attribute vec3 aCol; attribute float aSize; varying vec3 vC; uniform float uScroll, uSpeed, uBeat, uScale;
         void main(){
-          vC = aCol * (0.55 + uBeat * 0.7);
           vec3 p = position;
+          // Stars stream toward the camera (z increases) and wrap at the far end, fading in/out at both ends so nothing pops.
+          float zmin = -372.0; float span = 300.0;
+          float zt = mod(p.z - zmin + uScroll * uSpeed * 0.25, span);
+          p.z = zmin + zt;
+          float edge = smoothstep(0.0, 25.0, zt) * smoothstep(span, span - 50.0, zt);
+          vC = aCol * (0.55 + uBeat * 0.7) * edge;
           p.x += sin(uScroll * 0.02 + position.y) * 0.5 * uSpeed * 0.1;
           vec4 mv = modelViewMatrix * vec4(p, 1.0);
           gl_PointSize = max(1.0, aSize * uScale / 500.0 * clamp(120.0 / -mv.z, 0.6, 2.5));

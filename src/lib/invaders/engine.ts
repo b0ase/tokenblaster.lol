@@ -1758,6 +1758,10 @@ export class InvadersEngine {
     for (const b of this.blocks.items) {
       b.m.rotation.x += b.spin * real;
       b.m.rotation.y += b.spin * 0.7 * real;
+      // Drift toward the camera like everything else (the ship flies forward); wrap far away, fading at both ends.
+      b.m.position.z += real * (4 + this.press * 6);
+      if (b.m.position.z > -90) b.m.position.z -= 260;
+      (b.m.material as THREE.LineBasicMaterial).opacity = 0.55 * THREE.MathUtils.clamp((-b.m.position.z - 90) / 70, 0, 1) * THREE.MathUtils.clamp((-b.m.position.z < 330 ? 1 : (350 - -b.m.position.z) / 20), 0, 1);
     }
     for (const m of this.hullMats) {
       m.uniforms.uBeat.value = beat;

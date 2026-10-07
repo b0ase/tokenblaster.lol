@@ -539,16 +539,34 @@ export class RangeEngine {
     if (pattern === 'clay') {
       const trap = this.range.traps[t.side];
       g.position.set(trap.x + sgn * 1.1, 2.0, trap.z);
-      const T = 2.5 + this.rnd() * 1.2;
-      const dest = this.tA.set(sgn * (2 + this.rnd() * 13) * (kind === 'blast' ? 1.4 : 1), 6 + this.rnd() * 9, -(14 + this.rnd() * 26));
-      t.v.set((dest.x - g.position.x) / T, (dest.y - g.position.y + 0.5 * G_CLAY * T * T) / T, (dest.z - g.position.z) / T);
-      if (kind === 'blast') t.v.multiplyScalar(1.25);
+      // Arc planned so its apex stays inside the camera's view (never over the top edge): pick an apex height,
+      // lower it until the apex's elevation angle from the eye is <= ~28 degrees, then solve the flight time to the landing point.
+      const destX = sgn * (2 + this.rnd() * 13) * (kind === 'blast' ? 1.4 : 1);
+      const destZ = -(14 + this.rnd() * 26);
+      const y0 = g.position.y;
+      let ya = 6.5 + this.rnd() * 5.5;
+      let vy0 = 0;
+      let T = 3;
+      for (let i = 0; i < 6; i++) {
+        vy0 = Math.sqrt(2 * G_CLAY * (ya - y0));
+        const landY = THREE.MathUtils.clamp(3 + this.rnd() * 6, 3, ya - 0.8);
+        T = (vy0 + Math.sqrt(Math.max(0, vy0 * vy0 - 2 * G_CLAY * (landY - y0)))) / G_CLAY;
+        const zA = g.position.z + ((destZ - g.position.z) / T) * (vy0 / G_CLAY);
+        const d = Math.max(3, -zA);
+        const maxY = RANGE.eye + d * Math.tan(0.5);
+        if (ya <= maxY) break;
+        ya = Math.max(y0 + 2.5, maxY);
+      }
+      const h = kind === 'blast' ? 1.25 : 1;
+      t.v.set(((destX - g.position.x) / T) * h, vy0, ((destZ - g.position.z) / T) * h);
       this.range.flashTrap(t.side as 0 | 1);
       sfx('click', 0.25);
       t.life = 8;
     } else if (pattern === 'duck') {
       const z = -(16 + this.rnd() * 22);
-      g.position.set(-sgn * 36, 5 + this.rnd() * 8, z);
+      // Fly in a band 11 to 21 degrees above the eye line: clear sky above the skyline, under the top edge of the view.
+      const duckY = RANGE.eye + -z * Math.tan(0.19 + this.rnd() * 0.18);
+      g.position.set(-sgn * 36, duckY, z);
       t.v.set(sgn * (8 + this.rnd() * 6), 0, (this.rnd() - 0.5) * 2);
       t.life = 12;
       t.base.copy(g.position);
