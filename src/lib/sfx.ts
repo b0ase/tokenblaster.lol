@@ -818,7 +818,9 @@ export function playMusic(track: Track | null) {
   stopStream();
   fallback = false;
   if (track && ctx) startStream();
+  for (const l of listeners) l(); // the site music player ducks while a game soundtrack is wanted
 }
+export const getWantTrack = () => wantTrack;
 
 /** Mount in a game component: installs the audio system, plays its soundtrack while mounted. */
 export function useGameAudio(track: Track) {

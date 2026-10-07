@@ -26,7 +26,7 @@ export function PreviewButton({ href, title, className = '' }: { href: string; t
         e.preventDefault();
         e.stopPropagation();
         if (playing) return stopPreview(href);
-        if (!s.enabled || s.locked) setPreviewEnabled(true);
+        if (!s.enabled || s.locked || s.paused) setPreviewEnabled(true);
         // state flips synchronously inside this click gesture
         startPreview(href, trackFor(href));
       }}

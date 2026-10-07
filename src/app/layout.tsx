@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { SiteNav } from "@/components/SiteNav";
+import { SiteMusicPlayer } from "@/components/SiteMusicPlayer";
 import { SiteFooter } from "@/components/dr/site";
 import { drFontClass } from "@/components/dr/fonts";
 import { logoFont } from "@/components/dr/logo-font";
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <SiteNav />
         <div className="flex flex-1 flex-col">{children}</div>
         <SiteFooter />
+        <SiteMusicPlayer />
       </body>
     </html>
   );

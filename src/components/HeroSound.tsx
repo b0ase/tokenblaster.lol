@@ -7,11 +7,12 @@ import { initPreview, setPreviewEnabled, usePreview } from '@/lib/preview';
 export function HeroSound() {
   const s = usePreview();
   useEffect(() => initPreview(), []);
-  const on = s.enabled && !s.locked;
+  const on = s.enabled && !s.locked && !s.paused;
   return (
     <div className="mb-3 flex min-h-[30px] flex-wrap items-center gap-x-3 gap-y-1">
       <button
         type="button"
+        data-music-ui
         onClick={() => setPreviewEnabled(!on)}
         aria-pressed={on}
         className={`dr-code inline-flex items-center gap-1.5 border-2 px-2 py-1 transition-colors hover:border-[var(--hot)] ${
@@ -19,7 +20,7 @@ export function HeroSound() {
         } ${s.enabled && s.locked ? 'motion-safe:animate-pulse' : ''} ${!s.enabled ? 'motion-safe:animate-[pulse_2.4s_ease-in-out_3]' : ''}`}
       >
         <span aria-hidden>{on ? '🔊' : '🔇'}</span>
-        {on ? 'SOUND ON' : s.enabled ? 'SOUND: CLICK TO RESUME' : 'SOUND OFF'}
+        {on ? 'SOUND ON' : s.enabled ? 'SOUND: CLICK TO PLAY' : 'SOUND OFF'}
       </button>
       <span className="dr-code min-w-0 max-w-full truncate !text-[var(--muted)]" aria-live="polite">
         {on && s.song ? (
