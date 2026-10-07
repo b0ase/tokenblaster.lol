@@ -66,3 +66,9 @@ export async function insertCoin(client: WalletInterface, o: { game: string; tag
 
 /** A wallet's cancel/deny reads as a cancel, not a failure. */
 export const isCancel = (e: unknown) => /cancel|denied|reject|abort|user/i.test(e instanceof Error ? e.message : String(e));
+
+/**
+ * Win streaks (NPG Card Battle): a streak is paid only when every match in it was a credit match.
+ * `streakSoFar` is the win streak when the next match starts (0 = a new streak begins).
+ */
+export const streakAllPaid = (prevAllPaid: boolean, streakSoFar: number, paidMatch: boolean): boolean => (streakSoFar === 0 ? paidMatch : prevAllPaid && paidMatch);

@@ -17,6 +17,7 @@ import type { GameResult, SoundName } from './npgcards/CardBattle';
 import { HighScores } from './HighScores';
 import { InsertCoin, coinOpModeLabel, useCoinOp, type CoinOp } from './InsertCoin';
 import { GameAudio } from './SoundToggle';
+import { streakAllPaid } from '@/lib/coinop';
 
 const CardBattle = dynamic(() => import('./npgcards/CardBattle'), { ssr: false, loading: () => <div className="panel text-dim">Shuffling the deck…</div> });
 
@@ -29,13 +30,16 @@ export function NpgCards() {
   const co = useCoinOp('NPG Card Battle', 'npgcards');
   const [credit, setCredit] = useState(false); // the next match vs the AI: a credit game (true) or practice
   const [run, setRun] = useState<Run>({ paid: false, txid: null });
+  // True only while every match in the current win streak was a credit match.
+  const [allPaid, setAllPaid] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const pool = useMemo(() => RAW_CARDS.map((r) => deriveCard(r, CARD_IMG_BASE)), []);
   const heroes = useMemo(() => heroesFor(), []);
   const play = useCallback((n: SoundName) => sfx(SOUND[n]), []);
   /** Each match vs the AI: a credit game spends one credit (its coin's txid goes with the match). */
-  const beforeStartAI = useCallback(() => {
+  const beforeStartAI = useCallback((streak: number) => {
     if (!credit) {
+      setAllPaid(false);
       setRun({ paid: false, txid: null });
       setMsg(null);
       return true;
@@ -45,6 +49,7 @@ export function NpgCards() {
       setMsg('No credits left: insert a coin, or switch to PRACTICE.');
       return false;
     }
+    setAllPaid((p) => streakAllPaid(p, streak, true));
     setRun({ paid: true, txid });
     setMsg(null);
     return true;
@@ -54,8 +59,10 @@ export function NpgCards() {
     r.vsAI ? (
       <div className="flex flex-col items-center gap-2">
         {r.won ? (
-          <HighScores game="npgcards" score={r.streak} secs={r.streakSecs} live={run.paid} txid={run.txid} label="WINS" meta={run.paid ? { difficulty: r.difficulty ?? '', coinop: 1 } : { difficulty: r.difficulty ?? '' }} />
-        ) : (
+          <HighScores game="npgcards" score={r.streak} secs={r.streakSecs} live={run.paid && allPaid} txid={run.paid && allPaid ? run.txid : null} label="WINS" meta={run.paid && allPaid ? { difficulty: r.difficulty ?? '', coinop: 1 } : { difficulty: r.difficulty ?? '' }} />
+        ) : null}
+        {r.won && run.paid && !allPaid && <p className="text-xs text-zinc-400">This streak includes practice matches, so it posts as practice.</p>}
+        {r.won ? null : (
           <p className="text-xs text-zinc-400">Streak over. Win in a row against the AI to climb the board.</p>
         )}
         {slot}

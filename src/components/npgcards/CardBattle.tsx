@@ -52,8 +52,8 @@ type Props = {
   roomPrefix?: string;
   /** Called before each card you play; return false to refuse the play (e.g. LIVE mode out of sats). */
   payPlay?: () => boolean;
-  /** Called before each match vs the AI starts; return false to refuse it (e.g. a credit game with no credits). */
-  beforeStartAI?: () => boolean;
+  /** Called before each match vs the AI starts with the current win streak (0 = a new streak); return false to refuse it. */
+  beforeStartAI?: (streak: number) => boolean;
   sfx?: (n: SoundName) => void;
   renderGameOver?: (r: GameResult) => ReactNode;
   /** Overlay drawn on the battlefield (e.g. a PRACTICE / LIVE badge). */
@@ -614,7 +614,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
 
   const startAI = (level: Difficulty) => {
     if (!deckOk) return setScreen('deck');
-    if (beforeStartAI && !beforeStartAI()) return;
+    if (beforeStartAI && !beforeStartAI(streak.current.wins)) return;
     const v: Vs = { kind: 'ai', level };
     setVs(v);
     vsRef.current = v;
