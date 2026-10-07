@@ -22,6 +22,7 @@ export const ARCADE_GAMES = [
   ['/arcade/kweg', "Kweg's Expedition"],
   ['/arcade/npg-runner', 'NPG: Erobot Uprising'],
   ['/arcade/npg-cards', 'NPG: Card Battle'],
+  ['/arcade/bubbo-bubbo', 'Coin Pop'],
 ] as const;
 
 const LINKS = [

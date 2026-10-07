@@ -24,6 +24,7 @@ const GAMES: Game[] = [
   { href: '/arcade/npg-cards', tag: 'npgcards', title: 'Ninja Punk Girls: Card Battle', version: 'V1', img: '/arcade/npg-cards.jpg', blurb: 'Turn-based card battle: pick your NPG girl, build a deck of NPG element cards (stats from their six attributes), fight the AI or a friend online. LIVE mode: every card played is a transaction.', status: 'live' },
   { href: '/arcade/npg-runner', tag: 'npg', title: 'Ninja Punk Girls: Erobot Uprising', version: 'V1', img: '/arcade/npg-runner.jpg', blurb: 'NPG platformer: wall-jump, dash and shuriken through three stages and three Erobot bosses. Live token transfers float in as tokens to grab; LIVE mode: every jump is a transaction.', status: 'live' },
   { href: '/arcade/rally', tag: 'rally', title: 'Token Rally', version: 'V1', img: '/arcade/rally.jpg', blurb: 'Rally racing against the live chain: every rival car is a mainnet transaction, faster the bigger the move. Forest, desert and snow stages, handbrake drifts, nitro coins, splits.', status: 'live' },
+  { href: '/arcade/bubbo-bubbo', tag: 'bubbo', title: 'Coin Pop', version: 'V1', img: '/arcade/bubbo-bubbo.jpg', blurb: 'Bubble shooter with token coins (PixiJS open game Bubbo Bubbo, reskinned): aim, match three, drop bombs and super coins, beat the ceiling. 10p a game or practice free.', status: 'live' },
 ];
 
 /** Not ours: other people's BSV games, linked out to their own sites. Not hosted, run or endorsed here. */

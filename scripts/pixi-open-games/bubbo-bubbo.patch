@@ -1,0 +1,204 @@
+diff -ruN --ex open-games/bubbo-bubbo/src/game/Game.ts build/bubbo/src/game/Game.ts
+--- open-games/bubbo-bubbo/src/game/Game.ts	2026-10-07 06:59:22
++++ build/bubbo/src/game/Game.ts	2026-10-07 07:02:54
+@@ -1,3 +1,4 @@
++import { tbPost } from '../tb';
+ import gsap from 'gsap';
+ import { Point } from 'pixi.js';
+ import { Container, Rectangle } from 'pixi.js';
+@@ -100,8 +101,11 @@
+         this.gameContainer.visible = true;
+     }
+ 
++    private _startedAt = 0;
++
+     /** Starts the game logic. */
+     public async start() {
++        this._startedAt = performance.now();
+         // Call `start()` on the systems.
+         this.systems.start();
+     }
+@@ -128,6 +132,7 @@
+                 combo: this.stats.get('bestCombo'),
+                 highscore: this.stats.get('highscore'),
+             });
++            tbPost({ tb: 'gameover', score: this.stats.get('score'), secs: (performance.now() - this._startedAt) / 1000 });
+         });
+     }
+ 
+diff -ruN --ex open-games/bubbo-bubbo/src/game/systems/PauseSystem.ts build/bubbo/src/game/systems/PauseSystem.ts
+--- open-games/bubbo-bubbo/src/game/systems/PauseSystem.ts	2026-10-07 06:59:22
++++ build/bubbo/src/game/systems/PauseSystem.ts	2026-10-07 07:02:54
+@@ -1,3 +1,4 @@
++import { tbPost } from '../../tb';
+ import { navigation } from '../../navigation';
+ import { PauseOverlay } from '../../screens/overlays/PauseOverlay';
+ import { TitleScreen } from '../../screens/TitleScreen';
+@@ -136,6 +137,7 @@
+         else {
+             // Exit the game if that is the intent
+             navigation.goToScreen(TitleScreen);
++            tbPost({ tb: 'menu' });
+         }
+     }
+ }
+diff -ruN --ex open-games/bubbo-bubbo/src/main.ts build/bubbo/src/main.ts
+--- open-games/bubbo-bubbo/src/main.ts	2026-10-07 06:59:22
++++ build/bubbo/src/main.ts	2026-10-07 07:02:54
+@@ -8,6 +8,7 @@
+ import { LoadScreen } from './screens/LoadScreen';
+ import { TitleScreen } from './screens/TitleScreen';
+ import { storage } from './storage';
++import { tbOnStart, tbPost } from './tb';
+ import { getUrlParam } from './utils/utils';
+ 
+ /** The PixiJS app Application instance, shared across the project */
+@@ -90,6 +91,13 @@
+         }
+     });
+ 
++    // Arcade bridge: the page starts the game (coin or practice) and we report the score back
++    tbOnStart(() => {
++        if (!hasInteracted) bgm.play('audio/bubbo-bubbo-bg-music.wav');
++        hasInteracted = true;
++        navigation.goToScreen(GameScreen);
++    });
++
+     // Show first screen - go straight to game if '?play' param is present in url
+     // This is used for debugging
+     if (getUrlParam('play') !== null) {
+@@ -100,6 +108,7 @@
+     } else {
+         await navigation.goToScreen(TitleScreen);
+     }
++    tbPost({ tb: 'ready' });
+ }
+ 
+ // Init everything
+diff -ruN --ex open-games/bubbo-bubbo/src/screens/ResultScreen.ts build/bubbo/src/screens/ResultScreen.ts
+--- open-games/bubbo-bubbo/src/screens/ResultScreen.ts	2026-10-07 06:59:22
++++ build/bubbo/src/screens/ResultScreen.ts	2026-10-07 07:02:54
+@@ -1,3 +1,4 @@
++import { tbGate } from '../tb';
+ import gsap from 'gsap';
+ import { Container, Graphics, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+ 
+@@ -415,7 +416,8 @@
+         });
+ 
+         this._playBtn.onPress.connect(() => {
+-            // Go to game screen when user presses play button
++            // Go to game screen when user presses play button (in the arcade the page's coin slot starts it)
++            if (tbGate()) return;
+             navigation.goToScreen(GameScreen);
+         });
+ 
+diff -ruN --ex open-games/bubbo-bubbo/src/screens/TitleScreen.ts build/bubbo/src/screens/TitleScreen.ts
+--- open-games/bubbo-bubbo/src/screens/TitleScreen.ts	2026-10-07 06:59:22
++++ build/bubbo/src/screens/TitleScreen.ts	2026-10-07 07:02:54
+@@ -14,6 +14,7 @@
+ import { PixiLogo } from '../ui/PixiLogo';
+ import { Porthole } from '../ui/Porthole';
+ import { Title } from '../ui/Title';
++import { tbGate } from '../tb';
+ import { i18n } from '../utils/i18n';
+ import { throttle } from '../utils/throttle';
+ import { GameScreen } from './GameScreen';
+@@ -290,7 +291,8 @@
+         });
+ 
+         this._playBtn.onPress.connect(() => {
+-            // Go to game screen when user presses play button
++            // Go to game screen when user presses play button (in the arcade the page's coin slot starts it)
++            if (tbGate()) return;
+             navigation.goToScreen(GameScreen);
+         });
+ 
+diff -ruN --ex open-games/bubbo-bubbo/src/tb.ts build/bubbo/src/tb.ts
+--- open-games/bubbo-bubbo/src/tb.ts	1970-01-01 01:00:00
++++ build/bubbo/src/tb.ts	2026-10-07 07:02:54
+@@ -0,0 +1,26 @@
++/**
++ * TokenBlaster.lol bridge. When the game runs inside the arcade page (iframe, ?tb=1) the page owns the
++ * coin slot and the high-score board: it tells us when to start, and we tell it the score at game over.
++ * Same-origin only. Standalone (no ?tb) the game behaves exactly like upstream.
++ */
++export const embedded = new URLSearchParams(window.location.search).has('tb');
++
++export type TbOut = { tb: 'ready' } | { tb: 'gameover'; score: number; secs: number } | { tb: 'menu' };
++
++export function tbPost(msg: TbOut) {
++    if (embedded && window.parent !== window) window.parent.postMessage(msg, window.location.origin);
++}
++
++/** In the arcade the page decides when a game starts (coin or practice), so the in-game start buttons only ask for the menu. */
++export function tbGate(): boolean {
++    if (!embedded) return false;
++    tbPost({ tb: 'menu' });
++    return true;
++}
++
++export function tbOnStart(cb: () => void) {
++    window.addEventListener('message', (e: MessageEvent) => {
++        if (e.origin !== window.location.origin) return;
++        if ((e.data as { tb?: string } | null)?.tb === 'start') cb();
++    });
++}
+diff -ruN --ex open-games/bubbo-bubbo/src/ui/Title.ts build/bubbo/src/ui/Title.ts
+--- open-games/bubbo-bubbo/src/ui/Title.ts	2026-10-07 06:59:22
++++ build/bubbo/src/ui/Title.ts	2026-10-07 07:02:54
+@@ -41,7 +41,7 @@
+         const bottomWrapper = new Container();
+         // Add bottom part of the title
+         const titleBottom = new Text({
+-            text: bubboText,
++            text: i18n.t('gameTitleBottom'),
+             style: {
+                 fontSize: 90,
+                 fontWeight: '900',
+diff -ruN --ex open-games/bubbo-bubbo/src/utils/i18n-en.ts build/bubbo/src/utils/i18n-en.ts
+--- open-games/bubbo-bubbo/src/utils/i18n-en.ts	2026-10-07 06:59:22
++++ build/bubbo/src/utils/i18n-en.ts	2026-10-07 07:02:54
+@@ -3,10 +3,11 @@
+  */
+ export const i18nDict = {
+     pixiLogoHeader: 'Made with',
+-    gameTitle: 'BUBBO',
+-    gameSubtitle: 'SPACE MACHINE',
+-    titlePlay: 'SHOOT BUBBLES!',
+-    forkGithub: 'Fork me\non Github',
++    gameTitle: 'COIN',
++    gameTitleBottom: 'POP',
++    gameSubtitle: 'TOKEN BLASTER',
++    titlePlay: 'BLAST COINS!',
++    forkGithub: 'Open game\nby PixiJS',
+     helperMobile: 'Hold to aim\nRelease to shoot!',
+     helperDesktop: 'Move mouse to aim\nLeft click to shoot!',
+     paused: 'GAME PAUSED',
+@@ -14,10 +15,10 @@
+     sound: 'Sound',
+     resume: 'Resume',
+     quit: 'Quit',
+-    resultsPlay: 'BUB AGAIN',
++    resultsPlay: 'BLAST AGAIN',
+     resultsTitle: 'YOUR SCORE!',
+-    resultsBreakdownTitle: 'BUB BREAKDOWN',
+-    resultsBreakdownPopped: 'Bubbles popped',
++    resultsBreakdownTitle: 'BLAST BREAKDOWN',
++    resultsBreakdownPopped: 'Coins popped',
+     resultsBreakdownPowerups: 'Powerups used',
+     resultsBreakdownCombo: 'Best combo',
+     resultsScoreTitle: 'FINAL SCORE',
+--- open-games/bubbo-bubbo/index.html	2026-10-07 06:59:22
++++ build/bubbo/index.html	2026-10-07 07:07:17
+@@ -3,8 +3,8 @@
+   <head>
+     <meta charset="UTF-8" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <link rel="icon" type="image/x-icon" href="images/favicon.png">
+-    <title>Bubbo Bubbo</title>
++    <link rel="icon" type="image/x-icon" href="assets/images/favicon.png">
++    <title>Coin Pop</title>
+     <style>
+       html, body {
+         margin: 0;
