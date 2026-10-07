@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
@@ -106,6 +106,8 @@ const freeCells = (pred: (x: number, z: number) => boolean = () => true) => {
   MAP.forEach((row, z) => [...row].forEach((c, x) => c === '0' && pred(x, z) && out.push([x, z])));
   return out;
 };
+/** Touch screen as the main pointer: show the on-screen stick and fire button. */
+const COARSE = () => typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 const isPhone = () => typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
 
 type Hud = { kills: number; shots: number; onChain: number; heat: number; health: number; last: string | null };
@@ -127,13 +129,37 @@ export function Arena() {
   const [recent, setRecent] = useState<{ txid: string; token: boolean }[]>([]);
   const [loading, setLoading] = useState(0); // 0..1, 1 = ready
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [hurt, setHurt] = useState(false);
   const [dead, setDead] = useState(false);
+  const [deathKills, setDeathKills] = useState(0);
+  // Practice = you walked in with nothing loaded: every shot is local, nothing goes to the chain.
+  const [practice, setPractice] = useState(false);
+  // Overlays the game loop drives straight through the DOM (no React render per frame / per hit).
+  const flashRef = useRef<HTMLDivElement>(null);
+  const hitRef = useRef<SVGSVGElement>(null);
+  const dirRef = useRef<HTMLDivElement>(null);
+  const vigRef = useRef<HTMLDivElement>(null);
+  const hintRef = useRef<HTMLDivElement>(null);
+  const deadBarRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<HTMLCanvasElement>(null);
+  const stickRef = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const playingRef = useRef(false);
   useEffect(() => {
     playingRef.current = playing;
   }, [playing]);
+  // First seconds of a run: a controls reminder that fades by itself. Dying: a respawn bar.
+  const touchUi = useSyncExternalStore(
+    () => () => undefined,
+    COARSE,
+    () => false,
+  );
+  useEffect(() => {
+    if (playing) hintRef.current?.animate([{ opacity: 1 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }], { duration: 10000, fill: 'forwards' });
+  }, [playing]);
+  useEffect(() => {
+    if (dead) deadBarRef.current?.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 2600, easing: 'linear', fill: 'forwards' });
+  }, [dead]);
   const [shots, setShots] = useState(1_000);
   const [bsvUsd, setBsvUsd] = useState<number | null>(null);
   useEffect(() => {
@@ -205,7 +231,8 @@ export function Arena() {
 
     // ── Renderer: full resolution, filmic tone mapping, bloom ──
     const renderer = new THREE.WebGLRenderer({ antialias: !phone, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, phone ? 1 : 1.5));
+    const basePR = Math.min(window.devicePixelRatio, phone ? 1 : 1.5);
+    renderer.setPixelRatio(basePR);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -277,7 +304,7 @@ export function Arena() {
     // ── Game state (filled in once assets load) ──
     const walls: THREE.Mesh[] = [];
     let start = centre([1, 1], 1.6);
-    type Mob = { m: Monster; hp: number; state: 'chase' | 'wander' | 'attack' | 'hit' | 'dying' | 'dead'; since: number; next: number; dir: THREE.Vector3; horde: boolean };
+    type Mob = { m: Monster; hp: number; state: 'chase' | 'wander' | 'attack' | 'hit' | 'dying' | 'dead'; since: number; next: number; dir: THREE.Vector3; horde: boolean; strafe: number; strafeAt: number; pop: number; los: boolean; losAt: number };
     const mobs: Mob[] = [];
     // ── Multiplayer: everyone in /arena shares one room (Supabase Realtime broadcast + presence) ──
     const myId = Math.random().toString(36).slice(2, 10);
@@ -426,6 +453,8 @@ export function Arena() {
       mob.hp = mob.m.def.hp;
       mob.m.body.rotation.set(0, 0, 0);
       mob.m.body.position.set(0, 0, 0);
+      mob.m.body.scale.setScalar(1);
+      mob.pop = 0;
       mob.state = 'wander';
       mob.since = now;
       mob.next = now + 1500 + Math.random() * 1500;
@@ -433,27 +462,122 @@ export function Arena() {
       mob.m.play('walk');
     };
 
-    const damage = (n: number, now: number) => {
-      if (deadUntil) return;
+    // ── Feel: screen flashes, hit markers, damage numbers, camera kick ──
+    let trigger = false;
+    let yaw = -Math.PI / 2; // start looking along the first corridor (+x)
+    let pitch = 0;
+    let kick = 0; // camera pitch recoil (rad), decays fast
+    let fovKick = 0; // FOV punch (deg)
+    let shake = 0; // 0..1 screen shake after you are hurt
+    let deathRoll = 0;
+    let invulnUntil = 0;
+    let lifeKills = 0;
+    let practiceRun = false;
+    let hitStreak = 0;
+    let lastHitAt = 0;
+    let lastTick = 0;
+    const screenFlash = (color: string, alpha: number, ms: number) => {
+      flashRef.current?.animate([{ backgroundColor: color, opacity: alpha }, { backgroundColor: color, opacity: 0 }], { duration: ms, easing: 'ease-out' });
+    };
+    /** Red wedge at the screen edge pointing at whatever hurt you. */
+    const showDir = (src: THREE.Vector3) => {
+      const el = dirRef.current;
+      if (!el) return;
+      const dx = src.x - camera.position.x;
+      const dz = src.z - camera.position.z;
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      el.style.transform = `rotate(${Math.atan2(-dx * fz + dz * fx, dx * fx + dz * fz)}rad)`;
+      el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 900, easing: 'ease-out' });
+    };
+    const markHit = (kill: boolean, goldHit = false) => {
+      const now = performance.now();
+      hitStreak = now - lastHitAt < 700 ? hitStreak + 1 : 0;
+      lastHitAt = now;
+      if (kill) sfx?.kill();
+      else if (now - lastTick > 45) {
+        lastTick = now;
+        sfx?.tick(hitStreak);
+      }
+      const el = hitRef.current;
+      if (!el) return;
+      el.style.color = kill ? '#ff3b2e' : goldHit ? HOUSE_GOLD : '#ffffff';
+      el.animate(
+        [
+          { opacity: 1, transform: `translate(-50%,-50%) scale(${kill ? 1.5 : 1})` },
+          { opacity: 0, transform: `translate(-50%,-50%) scale(${kill ? 2.1 : 1.45})` },
+        ],
+        { duration: kill ? 460 : 170, easing: 'ease-out' },
+      );
+    };
+    // Damage numbers: a small pool of sprites reusing a few cached text textures.
+    const numTex = new Map<string, THREE.CanvasTexture>();
+    const numTexFor = (text: string, color: string) => {
+      const key = text + color;
+      let t = numTex.get(key);
+      if (!t) {
+        const c = document.createElement('canvas');
+        c.width = 128;
+        c.height = 64;
+        const x = c.getContext('2d')!;
+        x.font = 'bold 44px monospace';
+        x.textAlign = 'center';
+        x.textBaseline = 'middle';
+        x.lineWidth = 7;
+        x.strokeStyle = '#150404';
+        x.strokeText(text, 64, 34);
+        x.fillStyle = color;
+        x.fillText(text, 64, 34);
+        t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        numTex.set(key, t);
+      }
+      return t;
+    };
+    const nums: { s: THREE.Sprite; born: number; on: boolean; big: number }[] = [];
+    const popNumber = (text: string, color: string, at: THREE.Vector3, big = 1) => {
+      let n = nums.find((x) => !x.on);
+      if (!n && nums.length < 16) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+        sp.renderOrder = 12;
+        scene.add(sp);
+        n = { s: sp, born: 0, on: false, big: 1 };
+        nums.push(n);
+      }
+      if (!n) n = nums.reduce((a, b2) => (a.born < b2.born ? a : b2));
+      n.on = true;
+      n.born = performance.now();
+      n.big = big;
+      n.s.material.map = numTexFor(text, color);
+      n.s.material.opacity = 1;
+      n.s.material.needsUpdate = true;
+      n.s.position.set(at.x + (Math.random() - 0.5) * 0.5, at.y + 0.1, at.z + (Math.random() - 0.5) * 0.5);
+      n.s.visible = true;
+    };
+
+    const damage = (n: number, now: number, src?: THREE.Vector3) => {
+      if (deadUntil || now < invulnUntil) return;
       health = Math.max(0, health - n);
       sfx?.hurt();
-      setHurt(true);
-      setTimeout(() => setHurt(false), 120);
+      screenFlash('#dc2626', Math.min(0.6, 0.22 + n / 45), 300);
+      shake = Math.min(1, shake + 0.3 + n / 40);
+      if (src) showDir(src);
       if (health <= 0) {
-        deadUntil = now + 2000;
+        deadUntil = now + 2600;
         sfx?.dead();
+        trigger = false;
+        setDeathKills(lifeKills);
         setDead(true);
       }
       setHud((h) => ({ ...h, health }));
     };
 
-    const sparkAt = (p: THREE.Vector3, color: string) => {
-      const n = 14;
+    const sparkAt = (p: THREE.Vector3, color: string, n = 14) => {
       const pos = new Float32Array(n * 3);
       const vel: THREE.Vector3[] = [];
       for (let i = 0; i < n; i++) {
         pos.set([p.x, p.y, p.z], i * 3);
-        vel.push(new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(4));
+        vel.push(new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).multiplyScalar(n > 20 ? 6 : 4));
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -566,7 +690,7 @@ export function Arena() {
           badge.position.y = def.height + (def.hover ?? 0) + 0.35;
           m.root.add(badge);
           scene.add(m.root);
-          const mob: Mob = { m, hp: 1, state: 'wander', since: now, next: 0, dir: new THREE.Vector3(), horde };
+          const mob: Mob = { m, hp: 1, state: 'wander', since: now, next: 0, dir: new THREE.Vector3(), horde, strafe: 1, strafeAt: 0, pop: 0, los: false, losAt: 0 };
           if (horde) m.root.visible = false;
           else spawn(mob, now);
           mobs.push(mob);
@@ -676,9 +800,7 @@ export function Arena() {
 
     // ── Input ──
     const keys = new Set<string>();
-    let yaw = -Math.PI / 2; // start looking along the first corridor (+x)
-    let pitch = 0;
-    let trigger = false;
+    let playStart = 0;
     const onKey = (e: KeyboardEvent) => {
       if (e.type === 'keydown') keys.add(e.code);
       else keys.delete(e.code);
@@ -708,8 +830,16 @@ export function Arena() {
     const onTouchStart = (e: TouchEvent) => {
       const r = renderer.domElement.getBoundingClientRect();
       for (const t of Array.from(e.changedTouches)) {
-        if (t.clientX - r.left < r.width / 2) touch.move = { id: t.identifier, x: t.clientX, y: t.clientY, dx: 0, dy: 0 };
-        else touch.look = { id: t.identifier, x: t.clientX, y: t.clientY };
+        if (t.clientX - r.left < r.width / 2) {
+          touch.move = { id: t.identifier, x: t.clientX, y: t.clientY, dx: 0, dy: 0 };
+          const st = stickRef.current;
+          if (st) {
+            st.style.display = 'block';
+            st.style.left = `${t.clientX - r.left - 52}px`;
+            st.style.top = `${t.clientY - r.top - 52}px`;
+          }
+          if (knobRef.current) knobRef.current.style.transform = 'translate(0,0)';
+        } else touch.look = { id: t.identifier, x: t.clientX, y: t.clientY };
       }
     };
     const onTouchMove = (e: TouchEvent) => {
@@ -718,6 +848,7 @@ export function Arena() {
         if (touch.move?.id === t.identifier) {
           touch.move.dx = Math.max(-1, Math.min(1, (t.clientX - touch.move.x) / 50));
           touch.move.dy = Math.max(-1, Math.min(1, (t.clientY - touch.move.y) / 50));
+          if (knobRef.current) knobRef.current.style.transform = `translate(${touch.move.dx * 40}px,${touch.move.dy * 40}px)`;
         }
         if (touch.look?.id === t.identifier) {
           yaw -= (t.clientX - touch.look.x) * 0.006;
@@ -729,7 +860,10 @@ export function Arena() {
     };
     const onTouchEnd = (e: TouchEvent) => {
       for (const t of Array.from(e.changedTouches)) {
-        if (touch.move?.id === t.identifier) touch.move = null;
+        if (touch.move?.id === t.identifier) {
+          touch.move = null;
+          if (stickRef.current) stickRef.current.style.display = 'none';
+        }
         if (touch.look?.id === t.identifier) touch.look = null;
       }
     };
@@ -743,8 +877,12 @@ export function Arena() {
     window.addEventListener('arena:cycle', onCycle);
     window.addEventListener('arena:weapon', onPickWeapon);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: true });
-    const onEnter = () => {
+    const onEnter = (e?: Event) => {
       // Play even if the browser refuses pointer lock (arrows aim, click on the arena fires).
+      // The PRACTICE button always means practice (even with a loaded gun); a plain click goes live only when armed.
+      practiceRun = (e as CustomEvent<{ practice?: boolean } | undefined> | undefined)?.detail?.practice === true || !live.current.armed;
+      playStart = performance.now();
+      setPractice(practiceRun);
       setPlaying(true);
       if (!sfx) sfx = makeSfx();
       sfx?.resume();
@@ -765,6 +903,7 @@ export function Arena() {
     renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: true });
     renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
     renderer.domElement.addEventListener('touchend', onTouchEnd);
+    renderer.domElement.addEventListener('touchcancel', onTouchEnd);
 
     // ── Shooting: instant on screen, real blasts in batches in the background ──
     const raycaster = new THREE.Raycaster();
@@ -827,19 +966,36 @@ export function Arena() {
       draining = false;
     };
     /** One point of damage (or `dmg`) to a monster; true when it dies. */
-    const hurtMob = (mob: Mob, now: number, dmg = 1) => {
+    const hitAt = new THREE.Vector3();
+    const knock = new THREE.Vector3();
+    const hurtMob = (mob: Mob, now: number, dmg = 1, goldHit = false) => {
       mob.hp -= dmg;
       sfx?.hit();
       let killed = false;
+      const p = mob.m.root.position;
+      hitAt.set(p.x, p.y + mob.m.def.height * 0.7 + (mob.m.def.hover ?? 0), p.z);
+      mob.pop = now;
       if (mob.hp <= 0) {
         killed = true;
+        lifeKills++;
         mob.state = 'dying';
         if (mob.m.has('death')) mob.m.play('death', { once: true, fade: 0.08 });
         sfx?.die();
-      } else if (mob.m.has('hit')) {
-        mob.state = 'hit';
-        mob.m.play('hit', { once: true, fade: 0.05 });
+        sparkAt(hitAt, '#ff4a30', 28);
+        popNumber('KILL', '#ff5a48', hitAt, 1.5);
+      } else {
+        popNumber(String(dmg), goldHit ? HOUSE_GOLD : '#ffffff', hitAt);
+        // A little shove away from you: shotguns and rockets push, a minigun only slows them.
+        if (mob.m.def.hp < 10) {
+          knock.set(p.x - camera.position.x, 0, p.z - camera.position.z).normalize().multiplyScalar(0.06 * Math.min(dmg, 2));
+          if (!isWall(p.x + knock.x * 6, p.z + knock.z * 6)) p.add(knock);
+        }
+        if (mob.m.has('hit')) {
+          mob.state = 'hit';
+          mob.m.play('hit', { once: true, fade: 0.05 });
+        }
       }
+      markHit(killed, goldHit);
       mob.since = now;
       return killed;
     };
@@ -856,6 +1012,7 @@ export function Arena() {
         if (d > radius) continue;
         if (hurtMob(mob, now, d < radius / 2 ? 2 : 1)) kills++;
       }
+      shake = Math.max(shake, Math.min(0.5, 0.5 / (1 + at.distanceTo(camera.position) * 0.25)));
       if (kills) setHud((h) => ({ ...h, kills: h.kills + kills }));
     };
     /** Monsters with no attack animation lunge at you instead. */
@@ -877,7 +1034,9 @@ export function Arena() {
       const canPay = L.tokenMode ? Math.min(Math.floor(L.tokens), Math.floor(L.ammo / TOKEN_FEE)) - heat : Math.floor(L.ammo / FEE_PER_SHOT) - heat;
       // Dev builds only: ?devfire fires without ammo and sends nothing to the chain (to check visuals).
       const devFire = process.env.NODE_ENV !== 'production' && window.location.search.includes('devfire');
-      if (!devFire && (!live.current.armed || canPay < g.pellets)) {
+      // Practice (walked in with nothing loaded): the shots are local only, nothing is queued or sent.
+      const free = devFire || practiceRun;
+      if (!free && (!live.current.armed || canPay < g.pellets)) {
         if (now - lastShot > 300) {
           lastShot = now;
           sfx?.click();
@@ -891,7 +1050,7 @@ export function Arena() {
       const ord = ALL_GUNS[gunIdx]?.ordnance;
       const kind: Ammo | null = ord ? ammoOf(ord) : null;
       // House ammo: gold rounds and 1.5x damage.
-      const gold = !devFire && L.house;
+      const gold = !free && L.house;
       const bolt = gold ? HOUSE_GOLD : g.bolt;
       const dmg = gold ? HOUSE_DMG : 1;
       if (kind) playSfx(AMMO_SFX[kind], 0.7);
@@ -900,10 +1059,11 @@ export function Arena() {
       const from = held[gunIdx] ? held[gunIdx].group.localToWorld(held[gunIdx].muzzle.clone()) : camera.position.clone();
       const boxes = [...mobs.filter((m) => m.state !== 'dying' && m.state !== 'dead' && m.m.root.visible).map((m) => m.m.hitbox), ...[...remotes.values()].map((r) => r.m.hitbox)];
       let kills = 0;
+      const targets = [...walls, ...boxes];
       // Every pellet is its own raycast and its own on-chain blast.
       for (let k = 0; k < g.pellets; k++) {
         raycaster.setFromCamera(new THREE.Vector2((Math.random() - 0.5) * g.spread * 2, (Math.random() - 0.5) * g.spread * 2), camera);
-        const first = raycaster.intersectObjects([...walls, ...boxes], false)[0];
+        const first = raycaster.intersectObjects(targets, false)[0];
         const end = first ? first.point : camera.position.clone().addScaledVector(raycaster.ray.direction, 40);
         const explosive = kind === 'rocket' || kind === 'grenade';
         if (kind) {
@@ -926,15 +1086,16 @@ export function Arena() {
         // Explosive rounds do their damage when they go off (see blast); everything else hits now.
         if (first && !explosive) sparkAt(first.point, mob ? (gold ? HOUSE_GOLD : '#c8ffd0') : bolt);
         if (mob && !explosive) {
-          killed = hurtMob(mob, now, dmg);
+          killed = hurtMob(mob, now, dmg, gold);
           if (killed) kills++;
         } else if (mob) killed = mob.hp <= 2; // the blast will take it: count the shot as a kill on chain
         const foe = first && [...remotes.entries()].find(([, r]) => r.m.hitbox === first.object);
         if (foe) {
           sparkAt(first!.point, '#ffd04a');
           sfx?.hit();
-          if (!devFire) queue.push({ extra: ['arena', 'player', foe[0]], to: foe[1].gun || undefined, target: foe[0] });
-        } else if (!devFire) queue.push({ extra: ['arena', mob ? (killed ? 'kill' : 'hit') : 'miss'] });
+          markHit(false);
+          if (!free) queue.push({ extra: ['arena', 'player', foe[0]], to: foe[1].gun || undefined, target: foe[0] });
+        } else if (!free) queue.push({ extra: ['arena', mob ? (killed ? 'kill' : 'hit') : 'miss'] });
       }
       heat = queue.length;
       // Spent coin out of the ejection port (gun's right side), tumbling up and back.
@@ -955,7 +1116,7 @@ export function Arena() {
         });
         if (casings.length > MAX_CASINGS) scene.remove(casings.shift()!.m);
       }
-      setHud((h) => ({ ...h, shots: h.shots + g.pellets, kills: h.kills + kills, heat }));
+      setHud((h) => ({ ...h, shots: practiceRun ? h.shots : h.shots + g.pellets, kills: h.kills + kills, heat }));
       if (kind && room && now - lastShotCast > 60) {
         lastShotCast = now;
         room.broadcast('shot', { id: myId, k: kind, c: bolt, f: [+from.x.toFixed(2), +from.y.toFixed(2), +from.z.toFixed(2)], t: ends });
@@ -964,19 +1125,95 @@ export function Arena() {
       flash.material.rotation = Math.random() * Math.PI;
       muzzleLight.intensity = 25 * g.kick;
       recoil = g.kick;
+      kick = Math.min(0.03, kick + g.kick * 0.012);
+      fovKick = Math.min(3, fovKick + g.kick * 0.8);
       void drain();
     };
 
-    // ── Line of sight to the player (walls only) ──
-    const sight = new THREE.Raycaster();
-    const canSee = (from: THREE.Vector3, range: number) => {
-      const eye = from.clone().setY(1.5);
-      const to = camera.position.clone().sub(eye);
-      const dist = to.length();
-      if (dist > range) return false;
-      sight.set(eye, to.normalize());
-      sight.far = dist;
-      return sight.intersectObjects(walls, false).length === 0;
+    // ── Line of sight to the player: walk the grid between them (cheap), re-checked a few times a second ──
+    const gridLos = (ax: number, az: number, bx: number, bz: number) => {
+      const dx = bx - ax;
+      const dz = bz - az;
+      const steps = Math.ceil(Math.hypot(dx, dz) / (SIZE * 0.25));
+      for (let i = 1; i < steps; i++) if (isWall(ax + (dx * i) / steps, az + (dz * i) / steps)) return false;
+      return true;
+    };
+    const canSee = (mob: Mob, now: number, range: number) => {
+      if (now < mob.losAt) return mob.los;
+      mob.losAt = now + 140 + Math.random() * 60;
+      const p = mob.m.root.position;
+      mob.los = Math.hypot(camera.position.x - p.x, camera.position.z - p.z) <= range && gridLos(p.x, p.z, camera.position.x, camera.position.z);
+      return mob.los;
+    };
+    const tmpV = new THREE.Vector3();
+    const fwdV = new THREE.Vector3();
+    const rightV = new THREE.Vector3();
+    // Adaptive resolution: if the frame rate stays low, render fewer pixels (only ever steps down).
+    let prScale = 1;
+    let resDirty = false;
+    let frameMs = 16;
+    let lastRes = 0;
+    let rw = 0;
+    let rh = 0;
+    // Minimap: you in the centre, forward is up.
+    const MM = 132;
+    const MMC = 9; // px per maze cell
+    let lastMap = 0;
+    let nextBeat = 0;
+    let stepDist = 0;
+    let stepAlt = false;
+    const drawMap = (g: CanvasRenderingContext2D) => {
+      const k = MMC / SIZE;
+      g.clearRect(0, 0, MM, MM);
+      g.save();
+      g.beginPath();
+      g.arc(MM / 2, MM / 2, MM / 2 - 1, 0, Math.PI * 2);
+      g.fillStyle = 'rgba(8,3,3,0.72)';
+      g.fill();
+      g.clip();
+      g.translate(MM / 2, MM / 2);
+      g.rotate(yaw);
+      g.translate(-camera.position.x * k, -camera.position.z * k);
+      const cx = Math.floor(camera.position.x / SIZE);
+      const cz = Math.floor(camera.position.z / SIZE);
+      for (let z = Math.max(0, cz - 8); z <= Math.min(MAP.length - 1, cz + 8); z++)
+        for (let x = Math.max(0, cx - 8); x <= Math.min(COLS - 1, cx + 8); x++) {
+          if (MAP[z][x] === '1') {
+            g.fillStyle = 'rgba(190,80,60,0.55)';
+            g.fillRect(x * MMC, z * MMC, MMC, MMC);
+          }
+        }
+      g.fillStyle = 'rgba(90,255,58,0.5)';
+      for (const [x, z] of SLIME) g.fillRect(x * MMC, z * MMC, MMC, MMC);
+      g.fillStyle = '#7dff9a';
+      for (const m of medkits) if (m.mesh.visible) g.fillRect(m.mesh.position.x * k - 2, m.mesh.position.z * k - 2, 4, 4);
+      g.fillStyle = '#ff3b2e';
+      for (const mob of mobs) {
+        if (mob.state === 'dying' || mob.state === 'dead' || !mob.m.root.visible) continue;
+        const r = mob.m.def.hp >= 10 ? 4.5 : 3;
+        g.beginPath();
+        g.arc(mob.m.root.position.x * k, mob.m.root.position.z * k, r, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = HOUSE_GOLD;
+      for (const r of remotes.values()) {
+        g.beginPath();
+        g.arc(r.m.root.position.x * k, r.m.root.position.z * k, 3.5, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.moveTo(MM / 2, MM / 2 - 6);
+      g.lineTo(MM / 2 + 4.5, MM / 2 + 4);
+      g.lineTo(MM / 2 - 4.5, MM / 2 + 4);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = 'rgba(255,90,72,0.8)';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.arc(MM / 2, MM / 2, MM / 2 - 1, 0, Math.PI * 2);
+      g.stroke();
     };
 
     // ── Loop ──
@@ -984,13 +1221,24 @@ export function Arena() {
     let raf = 0;
     const tick = (t?: number) => {
       timer.update(t);
-      const dt = Math.min(0.05, timer.getDelta());
+      const rawDt = timer.getDelta();
+      const dt = Math.min(0.05, rawDt);
       const now = performance.now();
       const w = el.clientWidth;
       const h = el.clientHeight;
-      const size = renderer.getSize(new THREE.Vector2());
-      if (size.x !== w || size.y !== h) {
+      frameMs += (Math.min(200, rawDt * 1000) - frameMs) * 0.05;
+      if (ready && playingRef.current && now - playStart > 4000 && now - lastRes > 2500 && frameMs > 28 && prScale > 0.55) {
+        lastRes = now;
+        prScale -= 0.15;
+        resDirty = true;
+      }
+      if (w !== rw || h !== rh || resDirty) {
+        rw = w;
+        rh = h;
+        resDirty = false;
+        renderer.setPixelRatio(basePR * prScale);
         renderer.setSize(w, h, false);
+        composer.setPixelRatio(basePR * prScale);
         composer.setSize(w, h);
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
@@ -1015,20 +1263,46 @@ export function Arena() {
         health = 100;
         camera.position.copy(start);
         yaw = -Math.PI / 2;
+        pitch = 0;
+        deathRoll = 0;
+        lifeKills = 0;
+        invulnUntil = now + 2500; // a moment to look around before anything can hurt you
+        for (const fb of fireballs.splice(0)) {
+          scene.remove(fb.s);
+          fb.s.material.dispose();
+        }
+        // Nobody camps the spawn: anything close to it respawns somewhere else.
+        for (const mob of mobs) {
+          if (!mob.horde && mob.state !== 'dead' && Math.hypot(mob.m.root.position.x - start.x, mob.m.root.position.z - start.z) < SIZE * 3.5) spawn(mob, now);
+        }
+        sfx?.respawn();
+        screenFlash('#ffffff', 0.5, 600);
         setDead(false);
         setHud((s) => ({ ...s, health }));
       }
 
       // Move with wall sliding.
-      camera.rotation.set(pitch, yaw, 0, 'YXZ');
-      const f = deadUntil ? 0 : (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - (touch.move?.dy ?? 0);
-      const s = deadUntil ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + (touch.move?.dx ?? 0);
+      kick *= Math.exp(-dt * 12);
+      shake = Math.max(0, shake - dt * 2.2);
+      deathRoll = deadUntil ? deathRoll + (0.9 - deathRoll) * Math.min(1, dt * 3) : 0;
+      const sk = shake * shake;
+      camera.rotation.set(pitch + kick + Math.sin(now / 37) * 0.03 * sk, yaw + Math.sin(now / 29 + 1) * 0.03 * sk, Math.sin(now / 53) * 0.05 * sk + deathRoll, 'YXZ');
+      if (fovKick > 0.01 || camera.fov !== 72) {
+        fovKick *= Math.exp(-dt * 10);
+        camera.fov = 72 + (fovKick > 0.01 ? fovKick : 0);
+        if (fovKick <= 0.01) fovKick = 0;
+        camera.updateProjectionMatrix();
+      }
+      const stickX = Math.abs(touch.move?.dx ?? 0) < 0.15 ? 0 : (touch.move?.dx ?? 0);
+      const stickY = Math.abs(touch.move?.dy ?? 0) < 0.15 ? 0 : (touch.move?.dy ?? 0);
+      const f = deadUntil ? 0 : (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - stickY;
+      const s = deadUntil ? 0 : (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0) + stickX;
       if (keys.has('ArrowLeft')) yaw += 2.2 * dt;
       if (keys.has('ArrowRight')) yaw -= 2.2 * dt;
       const speed = (keys.has('ShiftLeft') ? 9 : 6.5) * dt;
-      const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-      const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
-      const step = fwd.multiplyScalar(f * speed).add(right.multiplyScalar(s * speed));
+      fwdV.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+      rightV.set(-fwdV.z, 0, fwdV.x);
+      const step = fwdV.multiplyScalar(f * speed).add(rightV.multiplyScalar(s * speed));
       const pad = 0.4;
       const nx = camera.position.x + step.x;
       const nz = camera.position.z + step.z;
@@ -1036,8 +1310,15 @@ export function Arena() {
       if (!isWall(camera.position.x, nz + Math.sign(step.z) * pad)) camera.position.z = nz;
       const moving = Boolean(f || s);
       walkPhase += moving ? dt * 10 : 0;
+      if (moving && playingRef.current) {
+        stepDist += speed;
+        if (stepDist > (keys.has('ShiftLeft') ? 3.4 : 2.6)) {
+          stepDist = 0;
+          sfx?.step((stepAlt = !stepAlt));
+        }
+      }
       camera.position.y = deadUntil ? 0.4 : 1.6 + (moving ? Math.sin(walkPhase) * 0.04 : 0);
-      torch.position.copy(camera.position).add(new THREE.Vector3(-Math.sin(yaw) * 2.4, 1.5, -Math.cos(yaw) * 2.4));
+      torch.position.copy(camera.position).add(tmpV.set(-Math.sin(yaw) * 2.4, 1.5, -Math.cos(yaw) * 2.4));
       muzzleLight.position.copy(torch.position);
       muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 300);
       if (muzzleLight.intensity < 5) flash.visible = false;
@@ -1048,6 +1329,21 @@ export function Arena() {
         gunRest.z + recoil * 0.06,
       );
       gun.rotation.x = recoil * 0.12;
+
+      // Low health: red vignette and a heartbeat.
+      if (playingRef.current) {
+        const low = deadUntil ? 0 : health < 40 ? 1 - health / 40 : 0;
+        if (vigRef.current) vigRef.current.style.opacity = low ? String(low * (0.65 + 0.2 * Math.sin(now / 160))) : '0';
+        if (low && now > nextBeat) {
+          nextBeat = now + 450 + health * 14;
+          sfx?.beat();
+        }
+      }
+      if (mapRef.current && now - lastMap > 90) {
+        lastMap = now;
+        const g2 = mapRef.current.getContext('2d');
+        if (g2 && ready) drawMap(g2);
+      }
 
       if (trigger) shoot(now);
       ammoFx.update(dt);
@@ -1125,6 +1421,7 @@ export function Arena() {
             m.mesh.visible = false;
             m.back = now + 20000;
             sfx?.pickup();
+            screenFlash('#3dff7a', 0.3, 380);
             setHud((x) => ({ ...x, health }));
           }
         }
@@ -1155,6 +1452,14 @@ export function Arena() {
           else m.mixer.update(dt);
           if (!playingRef.current) continue; // monsters wait (animating in place) until you start the game
           const p = m.root.position;
+          if (mob.pop) {
+            const k = 1 - (now - mob.pop) / 140;
+            if (k > 0) m.body.scale.setScalar(1 + 0.1 * k);
+            else {
+              mob.pop = 0;
+              m.body.scale.setScalar(1);
+            }
+          }
           const lungeAt = m.body.userData.lunge as number | undefined;
           if (lungeAt && mob.state !== 'dying') m.body.position.z = now - lungeAt < 400 ? Math.sin(((now - lungeAt) / 400) * Math.PI) * 0.7 : 0;
           const st = m.def;
@@ -1183,7 +1488,7 @@ export function Arena() {
           if (mob.state === 'hit' && age < 350) continue;
           if (mob.state === 'attack' && age < 900) continue;
           const dist = Math.hypot(camera.position.x - p.x, camera.position.z - p.z);
-          const sees = !deadUntil && (mob.horde ? inHall : canSee(p, 20));
+          const sees = !deadUntil && (mob.horde ? inHall : canSee(mob, now, 20));
           if (sees) {
             mob.dir.set(camera.position.x - p.x, 0, camera.position.z - p.z).normalize();
             m.root.rotation.y = Math.atan2(mob.dir.x, mob.dir.z);
@@ -1195,6 +1500,7 @@ export function Arena() {
               mob.next = now + (st.ranged ? 2600 : 1300) + Math.random() * 600;
               if (m.has('attack')) m.play('attack', { once: true, fade: 0.08, speed: 1.3 });
               else lunge(mob, now);
+              if (!st.ranged && dist < 9 && playingRef.current) sfx?.snarl(Math.max(0.06, 0.3 - dist * 0.025)); // the wind-up you can hear coming
               if (st.ranged) {
                 setTimeout(() => {
                   if (mob.state === 'dying' || mob.state === 'dead' || disposed) return;
@@ -1208,7 +1514,7 @@ export function Arena() {
               } else
                 setTimeout(() => {
                   if (mob.state !== 'attack' || disposed) return;
-                  if (Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < reach + 0.4) damage(st.damage, performance.now());
+                  if (Math.hypot(camera.position.x - p.x, camera.position.z - p.z) < reach + 0.4) damage(st.damage, performance.now(), p);
                 }, 420);
               continue;
             }
@@ -1217,15 +1523,28 @@ export function Arena() {
               m.play('run');
             }
             if (!st.ranged || dist > 8) {
-              const nxt = p.clone().addScaledVector(mob.dir, st.speed * dt);
+              const nxt = tmpV.copy(p).addScaledVector(mob.dir, st.speed * dt);
               if (dist > 1.4 && !isWall(nxt.x + mob.dir.x * 0.5, nxt.z + mob.dir.z * 0.5)) p.copy(nxt);
-            } else m.play('idle');
+            } else {
+              // Close enough to shoot: circle-strafe instead of standing still.
+              m.play('idle');
+              if (now > mob.strafeAt) {
+                mob.strafe = Math.random() < 0.5 ? -1 : 1;
+                mob.strafeAt = now + 1200 + Math.random() * 1800;
+              }
+              const sx = -mob.dir.z * mob.strafe * 1.6 * dt;
+              const sz = mob.dir.x * mob.strafe * 1.6 * dt;
+              if (!isWall(p.x - mob.dir.z * mob.strafe * 0.8, p.z + mob.dir.x * mob.strafe * 0.8)) {
+                p.x += sx;
+                p.z += sz;
+              } else mob.strafe = -mob.strafe;
+            }
           } else {
             if (mob.state !== 'wander') {
               mob.state = 'wander';
               m.play('walk');
             }
-            const nxt = p.clone().addScaledVector(mob.dir, 1.2 * dt);
+            const nxt = tmpV.copy(p).addScaledVector(mob.dir, 1.2 * dt);
             if (isWall(nxt.x + mob.dir.x * 0.8, nxt.z + mob.dir.z * 0.8)) mob.dir.set(Math.random() - 0.5, 0, Math.random() - 0.5).normalize();
             else p.copy(nxt);
             m.root.rotation.y = Math.atan2(mob.dir.x, mob.dir.z);
@@ -1237,7 +1556,7 @@ export function Arena() {
           fb.s.position.addScaledVector(fb.v, dt);
           fb.s.material.rotation += dt * 8;
           const hitPlayer = fb.s.position.distanceTo(camera.position) < 0.8;
-          if (hitPlayer) damage(12, now);
+          if (hitPlayer) damage(12, now, fb.s.position);
           if (hitPlayer || isWall(fb.s.position.x, fb.s.position.z) || fb.s.position.y < 0) {
             if (!hitPlayer) sparkAt(fb.s.position, '#ff8030');
             scene.remove(fb.s);
@@ -1245,6 +1564,19 @@ export function Arena() {
             fireballs.splice(i, 1);
           }
         }
+      }
+      for (const n of nums) {
+        if (!n.on) continue;
+        const age = (now - n.born) / 700;
+        if (age >= 1) {
+          n.on = false;
+          n.s.visible = false;
+          continue;
+        }
+        n.s.position.y += dt * (1.1 - age);
+        n.s.material.opacity = age < 0.6 ? 1 : 1 - (age - 0.6) / 0.4;
+        const sc = (0.5 + 0.25 * Math.max(0, 1 - age * 6)) * n.big;
+        n.s.scale.set(sc, sc / 2, 1);
       }
       for (let i = sparks.length - 1; i >= 0; i--) {
         const sp = sparks[i];
@@ -1274,6 +1606,8 @@ export function Arena() {
       cancelAnimationFrame(raf);
       minigun(false);
       ammoFx.dispose();
+      for (const n of nums) n.s.material.dispose();
+      for (const t of numTex.values()) t.dispose();
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keyup', onKey);
       window.removeEventListener('mouseup', onUp);
@@ -1373,16 +1707,56 @@ export function Arena() {
           <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-hot/80" />
           <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-hot/80" />
         </div>
-        {hurt && <div className="pointer-events-none absolute inset-0 bg-red-600/30" />}
+        {/* hit marker: white tick on a hit, red and bigger on a kill (driven from the game loop) */}
+        <svg ref={hitRef} viewBox="-12 -12 24 24" className="pointer-events-none absolute left-1/2 top-1/2 h-9 w-9 opacity-0" style={{ transform: 'translate(-50%,-50%)' }} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+          <path d="M-9 -9 L-4 -4 M9 -9 L4 -4 M-9 9 L-4 4 M9 9 L4 4" />
+        </svg>
+        <div ref={flashRef} className="pointer-events-none absolute inset-0 opacity-0" />
+        <div ref={vigRef} className="pointer-events-none absolute inset-0 opacity-0" style={{ background: 'radial-gradient(ellipse at center, transparent 45%, rgba(190,10,10,0.85) 100%)' }} />
+        <div ref={dirRef} className="pointer-events-none absolute inset-0 opacity-0">
+          <div className="absolute left-1/2 top-0 h-28 w-2/5 -translate-x-1/2" style={{ background: 'radial-gradient(ellipse at top, rgba(255,40,30,0.9), transparent 70%)' }} />
+        </div>
         {dead && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-red-900/50">
-            <span className="text-4xl font-bold text-hot">YOU DIED</span>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-900/55">
+            <span className="text-5xl font-bold text-hot">YOU DIED</span>
+            <span className="text-sm text-fg">
+              {deathKills} kill{deathKills === 1 ? '' : 's'} this life · back in a moment
+            </span>
+            <div className="h-1.5 w-56 overflow-hidden bg-black/60">
+              <div ref={deadBarRef} className="h-full origin-left bg-hot" style={{ transform: 'scaleX(0)' }} />
+            </div>
           </div>
         )}
         {playing && (
           <div className="pointer-events-none absolute left-2 top-2 flex max-w-[70%] flex-col items-start gap-1">
-            {flow}
+            {/* Which mode you are in, always: LIVE costs real sats, PRACTICE sends nothing. */}
+            {practice ? (
+              <span className="inset bg-black/75 px-2 py-1 text-sm">
+                <span className="font-bold text-hot">PRACTICE</span> <span className="text-dim">· nothing is sent to the chain. Esc, then load ammo to play LIVE.</span>
+              </span>
+            ) : (
+              <>
+                <span className="inset bg-black/75 px-2 py-1 text-sm">
+                  <span className="font-bold text-hot blink">● LIVE</span>{' '}
+                  <span className="text-dim">
+                    · each shot is a real transaction ({tokenMode ? `1 $${sym} + ~${TOKEN_FEE} sats fee` : `~${FEE_PER_SHOT} sats fee`})
+                  </span>
+                </span>
+                {flow}
+              </>
+            )}
             {players > 1 && <span className="inset bg-black/70 px-2 py-1 text-sm text-hot">{players} players in the arena · shoot them to send your tokens</span>}
+          </div>
+        )}
+        {playing && (
+          <div ref={hintRef} className="pointer-events-none absolute bottom-24 left-1/2 w-max max-w-[92%] -translate-x-1/2 bg-black/75 px-3 py-2 text-center text-sm text-hot">
+            {touchUi ? 'Left thumb moves · right thumb aims · hold FIRE' : 'WASD move · mouse aims · hold click to fire · Shift runs · 1-4 or wheel swaps guns · Esc pauses'}
+          </div>
+        )}
+        {playing && <canvas ref={mapRef} width={132} height={132} className="pointer-events-none absolute left-2 top-24 h-[132px] w-[132px] max-sm:top-28 max-sm:h-[96px] max-sm:w-[96px]" />}
+        {playing && (
+          <div ref={stickRef} className="pointer-events-none absolute hidden h-[104px] w-[104px] rounded-full border-2 border-hot/50 bg-black/25">
+            <div ref={knobRef} className="absolute left-1/2 top-1/2 -ml-[22px] -mt-[22px] h-11 w-11 rounded-full bg-hot/60" />
           </div>
         )}
         {toasts.length > 0 && (
@@ -1418,7 +1792,7 @@ export function Arena() {
             ))}
           </div>
         )}
-        {playing && empty && (
+        {playing && empty && !practice && (
           <div className="pointer-events-none absolute left-1/2 top-[38%] -translate-x-1/2 text-center">
             <div className="text-3xl font-bold text-hot blink">OUT OF AMMO</div>
             <div className="text-sm text-dim">Esc → LOAD more shots</div>
@@ -1449,8 +1823,9 @@ export function Arena() {
             onPointerDown={() => window.dispatchEvent(new CustomEvent('arena:fire', { detail: true }))}
             onPointerUp={() => window.dispatchEvent(new CustomEvent('arena:fire', { detail: false }))}
             onPointerLeave={() => window.dispatchEvent(new CustomEvent('arena:fire', { detail: false }))}
-            className="btn-fire absolute bottom-4 right-4 sm:hidden"
-            disabled={!armed}
+            onPointerCancel={() => window.dispatchEvent(new CustomEvent('arena:fire', { detail: false }))}
+            className="btn-fire absolute bottom-6 right-5 hidden h-24 w-24 !rounded-full !px-0 pointer-coarse:block"
+            disabled={!armed && !practice}
           >
             FIRE
           </button>
@@ -1479,7 +1854,29 @@ export function Arena() {
             <p className="text-3xl font-bold text-hot">ARENA</p>
             {players > 1 && <p className="text-sm text-hot">{players} players in the arena now · hitting a player sends them your token</p>}
             {b.wallet && flow}
-            <p className="max-w-2xl text-sm text-dim">WASD move · Shift run · mouse aim · hold click to fire · 1–4 guns · T token · Esc pause. Every bullet is a real transaction.</p>
+            <div className="grid w-full max-w-5xl grid-cols-1 gap-2 text-left sm:grid-cols-3">
+              <div className="inset bg-black/60 px-3 py-2">
+                <p className="font-bold text-hot">1 · MOVE AND AIM</p>
+                <p className="text-dim">
+                  {touchUi ? 'Left thumb drags to walk, right thumb looks around, hold FIRE to shoot.' : 'WASD walks, Shift runs, the mouse aims, hold the left button to fire. 1-4 or the wheel swaps guns, T swaps token, Esc pauses.'}
+                </p>
+              </div>
+              <div className="inset bg-black/60 px-3 py-2">
+                <p className="font-bold text-hot">2 · SURVIVE</p>
+                <p className="text-dim">Skeletons, raptors and fire mages hunt you. Red flashes show where a hit came from. White crosses heal, green slime burns. The map in the corner shows them as red dots.</p>
+              </div>
+              <div className="inset bg-black/60 px-3 py-2">
+                <p className="font-bold text-hot">3 · LIVE OR PRACTICE</p>
+                <p className="text-dim">
+                  LIVE: every bullet is a real BSV transaction you pay for (about {FEE_PER_SHOT} sats fee on sats blasts, 1 token + about {TOKEN_FEE} sats fee on token shots). PRACTICE: same game, nothing is sent.
+                </p>
+              </div>
+            </div>
+            {isReady && !loadError && (
+              <button onClick={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))} className="btn btn-on px-6 py-3 text-lg font-bold">
+                ▶ TRY IT NOW · PRACTICE
+              </button>
+            )}
             {loadError ? (
               <p className="text-sm text-hot">⚠ Could not load the arena: {loadError}</p>
             ) : !isReady ? (
@@ -1556,10 +1953,10 @@ export function Arena() {
                   onLoad: () => void b.load(packSats(shots), `TokenBlaster arena: ${formatCount(shots)} shots`),
                 }}
                 playLabel={tokenMode && b.token ? `▶ PLAY LIVE · $${b.token.sym}` : '▶ PLAY LIVE · SATS BLASTS'}
-                onPlay={() => window.dispatchEvent(new Event('arena:enter'))}
+                onPlay={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: false } }))}
                 playReady={isReady}
-                onPractice={() => window.dispatchEvent(new Event('arena:enter'))}
-                practiceLabel={armed ? '▶ PLAY PRACTICE (walk around, no shots)' : '▶ PLAY PRACTICE (no ammo, no shots)'}
+                onPractice={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))}
+                practiceLabel="▶ PLAY PRACTICE (fire away, nothing is sent)"
                 details={
                   <details className="text-xs text-dim">
                     <summary className="cursor-pointer">gun details</summary>
@@ -1626,7 +2023,13 @@ export function Arena() {
 
       {/* Status bar */}
       <div className={`grid grid-cols-3 gap-2 text-center text-sm sm:grid-cols-6 ${playing ? 'p-2' : 'mt-2'}`}>
-        <Cell label="HEALTH" value={`${hud.health}%`} />
+        <div className="inset px-2 py-1">
+          <div className="text-xs tracking-widest text-dim">HEALTH</div>
+          <div className="text-lg font-bold tabular-nums text-hot">{hud.health}%</div>
+          <div className="mt-0.5 h-1.5 bg-black/60">
+            <div className="h-full transition-[width] duration-200" style={{ width: `${hud.health}%`, background: hud.health > 50 ? '#4ade80' : hud.health > 25 ? '#facc15' : '#ef4444' }} />
+          </div>
+        </div>
         <Cell label={tokenMode ? 'TOKENS' : 'AMMO'} value={shotsLeft.toLocaleString()} sub={tokenMode ? `$${b.token?.sym ?? ''} · ${ammoNow.toLocaleString()} sats fuel` : `sats shots · tag only`} />
         <Cell label="ON CHAIN" value={`${hud.onChain.toLocaleString()} / ${hud.shots.toLocaleString()}`} />
         <Cell label="KILLS" value={hud.kills.toLocaleString()} />
