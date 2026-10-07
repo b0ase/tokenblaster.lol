@@ -16,13 +16,16 @@ import { refreshLoot } from '../lootCanvas';
 import { tokenMeta } from '../tokenMeta';
 import { sfx } from '../sfx';
 import { InvadersAudio } from './audio';
+import { disposeAvatarTag, fitAvatarTag, makeAvatarTag, tagKey } from '../avatarTag';
+import type { RaceLink } from '../racemp/session';
+import { InvadersNet, claimBeats, mulberry32, type BoltRow, type Claim, type InvCfg, type NetHandlers, type Peer, type SpawnMsg, type WaveMsg, type WireRow } from './mp';
 import {
   Atlas, Billboards, Particles, drawPopup, drawPowerIcon, drawTokenLabel, drawTxLabel, hullGeometry, hullMaterial, makeFarBlocks, makeFloor, makeHullMesh, makeRails, makeSky, makeStars, playerGeometry,
   type HullMesh, type Q,
 } from './art';
 import {
   COMBO_WINDOW, HW, KIND_HEX, KIND_NAME, KIND_ORDER, KIND_POINTS, POWER_META, comboKill, comboTick, fireDelay, fireSpecs, formationSlots, hpFor, multFor, newCombo, nextMultAt, pressureFrom, rollPower, sizeFor, waveSpec,
-  type Combo, type Power, type Slot,
+  type Combo, type Power, type ShotSpec, type Slot,
 } from './sim';
 
 export type Phase = 'loading' | 'menu' | 'playing' | 'paused' | 'over';
@@ -30,7 +33,9 @@ export type Hud = {
   score: number; hi: number; lives: number; maxLives: number; wave: number; combo: number; mult: number; comboT: number; nextAt: number | null; bombs: number; shield: boolean;
   powers: { key: Power; t: number }[]; boss: { name: string; hp: number } | null; pressure: number; txs: number; left: number; kills: number; beat: number; fps: number;
 };
-export type Result = { score: number; wave: number; kills: number; maxCombo: number; secs: number; tokens: number; bosses: number };
+export type Result = { score: number; wave: number; kills: number; maxCombo: number; secs: number; tokens: number; bosses: number; team?: number; board?: BoardRow[]; mode?: 'coop' | 'versus' };
+/** One pilot on the multiplayer scoreboard. */
+export type BoardRow = { id: string; handle: string | null; name: string; verified: boolean; colour: string; score: number; kills: number; lives: number; down: boolean; me: boolean };
 export type Toast = { text: string; tone: 'good' | 'bad' | 'info' };
 export type Banner = { title: string; sub: string; tone: 'wave' | 'boss' | 'clear' };
 export type Callbacks = {
@@ -45,16 +50,25 @@ export type Callbacks = {
   onPerf?: (p: { fps: number; level: number }) => void;
   /** LIVE mode: a shot or power-up use could not be paid (no ammo loaded). */
   onNoAmmo?: () => void;
+  /** Multiplayer scoreboard (about 4 Hz, only when it changed). */
+  onBoard?: (rows: BoardRow[], mode: 'coop' | 'versus', team: number) => void;
 };
 export type Opts = { quality: Q; take: (pred?: (f: FeedTx) => boolean) => FeedTx | null; waiting: () => number; status: () => string; hi: number; cb: Callbacks;
   /** Pay-per-action hook (LIVE token-blasting): queue one tiny tx for this action. false = cannot pay, so the action is refused. Free modes always return true. */
-  payFor: (action: string[]) => boolean };
+  payFor: (action: string[]) => boolean;
+  /** Multiplayer: the room link (set before begin() when the room leader said GO). */
+  mp?: RaceLink<InvCfg>;
+  /** Multiplayer: how this pilot is named locally (X handle shown over the ship). */
+  me?: { name: string; handle: string | null };
+};
 
 type Inv = {
   alive: boolean; kind: TxKind; ghost: boolean; tx: FeedTx | null; col: THREE.Color; size: number; hp: number; maxHp: number; x: number; gy: number; vx: number; mode: 'form' | 'dive' | 'saucer';
   slot: Slot | null; col0: number; t: number; delay: number; flash: number; charge: number; fireIn: number; label: number; loot: Loot | null; seed: number; baseX: number; shot: boolean; pts: number; showLabel: boolean;
+  /** Network id (the tx id), slot index in the wave manifest (-1 = not a formation ship), private = versus invader sent to me only. */
+  id: string; si: number; priv: boolean;
 };
-type Bolt = { alive: boolean; x: number; gy: number; vx: number; vy: number; dmg: number; pierce: number; rail: boolean; hit: Inv[]; boss: boolean };
+type Bolt = { alive: boolean; x: number; gy: number; vx: number; vy: number; dmg: number; pierce: number; rail: boolean; hit: Inv[]; boss: boolean; remote?: boolean };
 type EBolt = { alive: boolean; x: number; gy: number; vx: number; vy: number; big: boolean };
 type Pod = { x: number; gy: number; kind: Power; cell: number; t: number };
 type Coin = { x: number; gy: number; loot: Loot; cell: number; t: number };
@@ -197,6 +211,18 @@ export class InvadersEngine {
   private overT = 0;
   private hi = 0;
 
+  // multiplayer (all null/empty in a solo game)
+  private net: InvadersNet | null = null;
+  private claims = new Map<string, Claim>();
+  private myClaim = new Map<string, number>();
+  private bossClaim: { t: number; pts: number } | null = null;
+  private remoteMesh!: HullMesh;
+  private tags = new Map<string, { sprite: THREE.Sprite; key: string }>();
+  private boardT = 0;
+  private boardKey = '';
+  private vsKills = 0;
+  private firing = false;
+
   // feel
   private trauma = 0;
   private freeze = 0;
@@ -229,7 +255,7 @@ export class InvadersEngine {
   touch = { bomb: false };
   private hudOut: Hud;
 
-  constructor(private el: HTMLElement, private opts: Opts) {
+  constructor(private el: HTMLElement, public opts: Opts) {
     this.hi = opts.hi;
     this.hudOut = { score: 0, hi: opts.hi, lives: 3, maxLives: 3, wave: 1, combo: 0, mult: 1, comboT: 0, nextAt: 5, bombs: 1, shield: false, powers: [], boss: null, pressure: 0, txs: 0, left: 0, kills: 0, beat: 0, fps: 60 };
   }
@@ -285,7 +311,8 @@ export class InvadersEngine {
     this.geos.push(bg, pg);
     this.bossMesh = makeHullMesh(bg, 1, bossMat);
     this.playerMesh = makeHullMesh(pg, 1, playerMat);
-    this.scene.add(this.bossMesh, this.playerMesh);
+    this.remoteMesh = makeHullMesh(pg, 8, playerMat);
+    this.scene.add(this.bossMesh, this.playerMesh, this.remoteMesh);
 
     // bolts, shards, shield
     const oct = new THREE.OctahedronGeometry(1);
@@ -477,13 +504,34 @@ export class InvadersEngine {
 
   begin() {
     if (this.phase === 'loading') return;
+    this.stopNet();
     this.resetGame();
+    const link = this.opts.mp;
+    if (link?.race) this.net = new InvadersNet(link, link.race, this.handlers());
     this.mode = 'play';
     this.setPhase('playing');
-    this.startWave(1);
+    const net = this.net;
+    if (net) {
+      // Ships side by side on the defence line.
+      const i = net.peers.get(net.me)?.index ?? 0;
+      this.pl.x = (((i + 0.5) / net.count) - 0.5) * (HW * 1.7);
+      this.claims.clear();
+      this.myClaim.clear();
+      this.opts.cb.onToast({ text: net.versus ? `VERSUS · ${net.count} PILOTS` : `CO-OP · ${net.count} PILOTS`, tone: 'info' });
+    }
+    if (net && !net.isLeader()) {
+      // Guests wait for the leader's wave manifest.
+      this.wave = 0;
+      this.waveState = 'clear';
+      this.clearT = 0;
+    } else this.startWave(1);
     this.audio.fx('wave');
   }
+  get multiplayer() {
+    return this.net !== null;
+  }
   pause(on: boolean) {
+    if (on && this.net) return; // the room does not wait for anyone
     if (on && this.phase === 'playing') this.setPhase('paused');
     else if (!on && this.phase === 'paused') this.setPhase('playing');
   }
@@ -565,6 +613,7 @@ export class InvadersEngine {
   }
 
   private startAttract() {
+    this.stopNet();
     this.resetGame();
     this.mode = 'attract';
     this.startWave(1 + Math.floor(Math.random() * 3));
@@ -578,15 +627,15 @@ export class InvadersEngine {
     return { id, kind, bytes: Math.floor(Math.exp(rnd(Math.log(220), Math.log(90000)))), sats: 0, mined: false };
   }
 
-  private makeInv(tx: FeedTx | null): Inv {
-    const ghost = !tx;
+  private makeInv(tx: FeedTx | null, ghostFlag?: boolean): Inv {
+    const ghost = ghostFlag ?? !tx;
     const f = tx ?? this.ghostTx();
     this.taken += tx ? 1 : 0;
     const col = new THREE.Color(KIND_HEX[f.kind]);
     const maxHp = hpFor(f.kind, f.bytes);
     const v: Inv = {
       alive: true, kind: f.kind, ghost, tx: f, col, size: sizeFor(f.bytes) * 1.0, hp: maxHp, maxHp, x: 0, gy: 40, vx: 0, mode: 'form', slot: null, col0: 0, t: 0, delay: 0, flash: 0, charge: 0, fireIn: 0, label: -1,
-      loot: ghost ? null : lootFrom(f), seed: Math.random() * 100, baseX: 0, shot: false, pts: ghost ? 5 : KIND_POINTS[f.kind], showLabel: false,
+      loot: ghost ? null : lootFrom(f), seed: Math.random() * 100, baseX: 0, shot: false, pts: ghost ? 5 : KIND_POINTS[f.kind], showLabel: false, id: f.id, si: -1, priv: false,
     };
     return v;
   }
@@ -603,37 +652,67 @@ export class InvadersEngine {
     });
   }
 
-  private startWave(n: number) {
+  private startWave(n: number, man?: WaveMsg) {
+    const net = this.net;
     this.wave = n;
+    if (net) net.wave = n;
     this.waveT = 0;
     this.waveState = 'intro';
-    const wantBoss = !!this.blockPending && n >= 2;
-    const spec = waveSpec(n, this.opts.waiting(), wantBoss);
-    const slots = formationSlots(spec.count, spec.pattern);
+    // Multiplayer: layout, delays, direction and the boss schedule come from the room seed; the txs come from the leader's manifest.
+    const rng = net ? mulberry32(net.seed ^ Math.imul(n, 0x9e3779b1)) : Math.random;
+    if (man) this.blockPending = man.bp ? { height: man.bp.h, txCount: man.bp.c } : null;
+    const wantBoss = man ? man.bd === 1 : !!this.blockPending && n >= 2;
+    const backlog = man ? man.bl : this.opts.waiting();
+    const spec = waveSpec(n, backlog, wantBoss);
+    const bp = wantBoss && this.blockPending ? { h: this.blockPending.height, c: this.blockPending.txCount } : null;
+    const slots = formationSlots(man ? man.t.length : spec.count, spec.pattern);
     slots.sort((a, b) => b.z - a.z || Math.abs(a.x) - Math.abs(b.x));
     const invs: Inv[] = [];
+    const rows: WireRow[] = [];
     let tokens = 0;
-    for (const s of slots) {
-      let tx: FeedTx | null = null;
-      if (tokens < spec.tokens) {
-        tx = this.opts.take((f) => f.kind === 'token');
-        if (tx) tokens++;
+    slots.forEach((s, si) => {
+      let v: Inv;
+      if (man) v = this.invFromRow(man.t[si]);
+      else {
+        let tx: FeedTx | null = null;
+        if (tokens < spec.tokens) {
+          tx = this.opts.take((f) => f.kind === 'token');
+          if (tx) tokens++;
+        }
+        tx ??= this.opts.take((f) => f.kind !== 'blast' && f.kind !== 'token');
+        v = this.makeInv(tx);
+        if (net) rows.push(this.rowOf(v));
       }
-      tx ??= this.opts.take((f) => f.kind !== 'blast' && f.kind !== 'token');
-      const v = this.makeInv(tx);
       v.slot = s;
-      v.delay = rnd(0, 1.3) + (s.z * 0.12);
+      v.si = si;
+      v.delay = rng() * 1.3 + (s.z * 0.12);
+      if (net) v.seed = rng() * 100;
+      if (this.claims.has(v.id)) v.alive = false;
       invs.push(v);
-    }
+    });
     // Front-of-column ships (every other column) and tokens wear their label.
     this.invs = this.invs.filter((v) => v.mode !== 'form');
     this.invs.push(...invs);
-    this.form = { x: 0, gy: 10 + Math.min(4, n * 0.3), dir: Math.random() < 0.5 ? 1 : -1, speed: spec.speed, descent: spec.descent, intro: 0, spec, total: invs.length, fireT: 2.2, diveT: spec.diverEvery * 0.8, saucerT: rnd(10, 18) };
+    this.form = { x: 0, gy: 10 + Math.min(4, n * 0.3), dir: rng() < 0.5 ? 1 : -1, speed: spec.speed, descent: spec.descent, intro: 0, spec, total: invs.length, fireT: 2.2, diveT: spec.diverEvery * 0.8, saucerT: 10 + rng() * 8 };
     if (spec.boss) this.spawnBoss(n, wantBoss);
+    if (net && !man && net.isLeader()) net.sendWave({ n, bl: backlog, bd: wantBoss ? 1 : 0, bp, t: rows });
+    if (net && n > 1 && this.lives <= 0 && this.phase === 'playing') {
+      this.lives = 1;
+      this.pl.invuln = 2.4;
+      this.opts.cb.onToast({ text: 'REVIVED FOR THE NEW WAVE', tone: 'good' });
+    }
     this.opts.cb.onBanner(spec.boss ? { title: 'BOSS', sub: `${this.boss?.name ?? 'BLOCK'} · ${this.boss?.tx ? `${this.boss.tx.toLocaleString()} TXS` : 'THE BLOCK LANDS'}`, tone: 'boss' } : { title: `WAVE ${n}`, sub: `${invs.filter((v) => !v.ghost).length} LIVE TXS IN FORMATION${this.opts.waiting() > 20 ? ` · ${this.opts.waiting()} IN THE MEMPOOL` : ''}`, tone: 'wave' });
     if (spec.boss) this.audio.fx('warn');
     else if (n > 1) this.audio.fx('wave');
     this.ring(0, P_GY, 14, 0.9, hdr('#27e6ff', 1.6));
+  }
+
+  private rowOf(v: Inv): WireRow {
+    return [v.id, v.kind, v.tx?.bytes ?? 250, v.tx?.token ?? 0, v.ghost ? 1 : 0];
+  }
+  private invFromRow(r: WireRow): Inv {
+    const tx: FeedTx = { id: r[0], kind: r[1] as TxKind, bytes: r[2], sats: 0, mined: false, ...(r[3] ? { token: r[3] } : {}) };
+    return this.makeInv(tx, r[4] === 1);
   }
 
   private spawnBoss(n: number, block: boolean) {
@@ -696,23 +775,28 @@ export class InvadersEngine {
     const spread = this.powerT.spread > 0;
     const rail = this.powerT.rail > 0;
     const specs = fireSpecs(spread, rail);
-    for (const s of specs) {
-      const b = this.bolts.find((q) => !q.alive) ?? (this.bolts.length < 80 ? (this.bolts[this.bolts.push({ alive: false, x: 0, gy: 0, vx: 0, vy: 0, dmg: 1, pierce: 0, rail: false, hit: [], boss: false }) - 1]) : null);
-      if (!b) break;
-      b.alive = true;
-      b.x = this.pl.x + Math.sin(s.ang) * 0.3;
-      b.gy = P_GY + 1.5;
-      b.vx = Math.sin(s.ang) * s.speed;
-      b.vy = Math.cos(s.ang) * s.speed;
-      b.dmg = s.dmg;
-      b.pierce = s.pierce;
-      b.rail = s.rail;
-      b.hit.length = 0;
-      b.boss = false;
-    }
+    for (const s of specs) if (!this.spawnBolt(this.pl.x, s, false)) break;
     this.pl.recoil = 1;
     this.audio.fx(rail ? 'rail' : 'shot');
     this.parts.emit(this.pl.x, SHIP_Y + 0.1, -(P_GY + 1.7), rnd(-1, 1), 0.5, -rnd(2, 6), 0.18, 0.4, 0.5, 2.2, 2.6, 4);
+    return true;
+  }
+
+  /** A player bolt (mine, or a cosmetic copy of another pilot's: those never collide, their kills arrive as claims). */
+  private spawnBolt(x: number, s: ShotSpec, remote: boolean): boolean {
+    const b = this.bolts.find((q) => !q.alive) ?? (this.bolts.length < 80 ? (this.bolts[this.bolts.push({ alive: false, x: 0, gy: 0, vx: 0, vy: 0, dmg: 1, pierce: 0, rail: false, hit: [], boss: false }) - 1]) : null);
+    if (!b) return false;
+    b.alive = true;
+    b.x = x + Math.sin(s.ang) * 0.3;
+    b.gy = P_GY + 1.5;
+    b.vx = Math.sin(s.ang) * s.speed;
+    b.vy = Math.cos(s.ang) * s.speed;
+    b.dmg = s.dmg;
+    b.pierce = s.pierce;
+    b.rail = s.rail;
+    b.hit.length = 0;
+    b.boss = false;
+    b.remote = remote;
     return true;
   }
 
@@ -736,6 +820,7 @@ export class InvadersEngine {
 
   private damagePlayer() {
     if (this.pl.invuln > 0) return;
+    if (this.net && this.lives <= 0) return; // already down
     if (this.shield) {
       this.shield = false;
       this.shieldFlash = 1;
@@ -758,7 +843,18 @@ export class InvadersEngine {
     this.powerT = { spread: 0, rail: 0, overdrive: 0 };
     for (const b of this.ebolts) if (Math.hypot(b.x - this.pl.x, b.gy - P_GY) < 7) b.alive = false;
     this.pl.invuln = 2.4;
-    if (this.lives <= 0) this.gameOver();
+    if (this.lives <= 0) {
+      if (this.net?.anyOtherUp()) this.goDown();
+      else this.gameOver();
+    }
+  }
+
+  /** Co-op/versus: out of hulls but the others fight on; you come back at the next wave. */
+  private goDown() {
+    this.lives = 0;
+    this.shield = false;
+    this.opts.cb.onToast({ text: 'YOU ARE DOWN · BACK NEXT WAVE', tone: 'bad' });
+    this.explode(this.pl.x, P_GY, new THREE.Color('#ff4a2e'), 1.8, true);
   }
 
   private gameOver() {
@@ -770,7 +866,8 @@ export class InvadersEngine {
     this.explode(this.pl.x, P_GY, new THREE.Color('#ff4a2e'), 2, true);
     this.phase = 'over';
     this.opts.cb.onPhase('over');
-    this.opts.cb.onOver({ score: this.score, wave: this.wave, kills: this.kills, maxCombo: this.combo.best, secs: this.runSecs, tokens: this.tokensCaught, bosses: this.bossKills });
+    const board = this.net ? this.buildBoard() : undefined;
+    this.opts.cb.onOver({ score: this.score, wave: this.wave, kills: this.kills, maxCombo: this.combo.best, secs: this.runSecs, tokens: this.tokensCaught, bosses: this.bossKills, team: board ? board.reduce((a, r) => a + r.score, 0) : undefined, board, mode: this.net?.cfg.mode });
   }
 
   // ───────────── Kills ─────────────
@@ -779,7 +876,7 @@ export class InvadersEngine {
     return this.audio.beatDistance(performance.now()) < 85;
   }
 
-  private award(base: number, x: number, gy: number, col: string, big = false) {
+  private award(base: number, x: number, gy: number, col: string, big = false): number {
     const onBeat = this.mode === 'play' && this.comboNow();
     const mult = comboKill(this.combo, onBeat);
     const pts = base * (this.mode === 'play' ? mult : 1);
@@ -805,6 +902,7 @@ export class InvadersEngine {
       this.ring(this.pl.x, P_GY, 12, 0.6, hdr('#ffb800', 2));
     }
     this.lastMult = m;
+    return this.mode === 'play' ? pts : 0;
   }
 
   private killInv(v: Inv, byBomb = false) {
@@ -812,7 +910,22 @@ export class InvadersEngine {
     const col = v.ghost ? v.col.clone().multiplyScalar(0.6) : v.col;
     const big = v.maxHp >= 3 || v.kind === 'token';
     this.explode(v.x, v.gy, col, v.size, big);
-    this.award(v.pts * (v.maxHp >= 3 ? 2 : 1), v.x, v.gy, `#${v.col.getHexString()}`, big);
+    const net = this.net;
+    let claimed = false;
+    if (net && !v.priv) {
+      const prior = this.claims.get(v.id);
+      if (prior && prior.by !== net.me) return; // another pilot's claim got here first: theirs
+      if (!prior) {
+        const t = Date.now();
+        this.claims.set(v.id, { by: net.me, t });
+        this.trimClaims();
+        net.sendKill(v.id, t);
+      }
+      claimed = true;
+    }
+    const pts = this.award(v.pts * (v.maxHp >= 3 ? 2 : 1), v.x, v.gy, `#${v.col.getHexString()}`, big);
+    if (claimed) this.myClaim.set(v.id, pts);
+    if (net?.versus && !v.priv && this.mode === 'play') this.vsSend(big);
     if (big) {
       this.audio.fx('bigkill');
       this.freeze = Math.max(this.freeze, byBomb ? 0 : 0.045);
@@ -881,13 +994,15 @@ export class InvadersEngine {
       this.killInv(v);
       return true;
     }
+    if (this.net && !v.priv) this.net.sendHit(v.id, dmg);
     this.audio.fx('bossHit');
     return false;
   }
 
-  private damageBoss(dmg: number, x: number, gy: number) {
+  private damageBoss(dmg: number, x: number, gy: number, remote = false) {
     const b = this.boss;
     if (!b || b.dead) return;
+    if (this.net && !remote) this.net.sendBossHit(dmg);
     b.hp -= dmg;
     b.flash = 1;
     this.parts.burst(x, SHIP_Y + 0.5, -gy, 4, 6, 0.3, 0.4, 3, 1.2, 0.6);
@@ -908,7 +1023,14 @@ export class InvadersEngine {
       this.slow = 0.2;
       this.slowT = 1.4;
       this.freeze = 0.25;
-      this.award(1500, b.x, b.gy, '#ffb800', true);
+      if (!remote) {
+        const pts = this.award(1500, b.x, b.gy, '#ffb800', true);
+        if (this.net) {
+          const t = Date.now();
+          this.bossClaim = { t, pts };
+          this.net.sendBossKill(t);
+        }
+      }
       for (const e of this.ebolts) e.alive = false;
     }
   }
@@ -960,6 +1082,7 @@ export class InvadersEngine {
     pl.invuln = Math.max(0, pl.invuln - dt);
     pl.cool -= dt;
     for (const k of ['spread', 'rail', 'overdrive'] as const) this.powerT[k] = Math.max(0, this.powerT[k] - dt);
+    this.firing = wantFire && (this.lives > 0 || this.mode === 'attract');
     if (wantFire && pl.cool <= 0 && (this.lives > 0 || this.mode === 'attract')) {
       pl.cool = this.fire() ? fireDelay(this.powerT.overdrive > 0, this.powerT.spread > 0, this.powerT.rail > 0) : 0.3;
     }
@@ -970,6 +1093,7 @@ export class InvadersEngine {
     }
     if (!play) comboTick(this.combo, dt);
 
+    if (this.net && this.mode === 'play') this.stepNet(dt);
     this.stepWave(dt);
     this.stepBolts(dt);
     this.stepPickups(dt);
@@ -1086,7 +1210,7 @@ export class InvadersEngine {
         }
         const arr = [...fronts.values()].filter((v) => v.gy < 36 && v.fireIn <= 0);
         const v = arr[Math.floor(Math.random() * arr.length)];
-        if (v) v.fireIn = 0.35;
+        if (v && !this.guest) v.fireIn = 0.35;
       }
     }
     // state machine
@@ -1096,7 +1220,7 @@ export class InvadersEngine {
         f.diveT -= dt;
         if (f.diveT <= 0) {
           f.diveT = spec.diverEvery * rnd(0.7, 1.2) * (1.15 - this.press * 0.4);
-          if (this.liveInvs() < MAX_INV - 4) {
+          if (!this.guest && this.liveInvs() < MAX_INV - 4) {
             const tx = this.opts.take((x) => x.kind !== 'blast' && x.kind !== 'token');
             if (tx || Math.random() < 0.4) {
               const d = this.makeInv(tx);
@@ -1108,6 +1232,7 @@ export class InvadersEngine {
               d.size = Math.max(d.size, 0.95);
               this.invs.push(d);
               this.labelFor(d);
+              this.announce(d, 'd');
             }
           }
         }
@@ -1115,7 +1240,7 @@ export class InvadersEngine {
         if (f.saucerT <= 0) {
           f.saucerT = rnd(14, 24);
           const tx = this.opts.take((x) => x.kind === 'blast');
-          if (tx && !this.invs.some((v) => v.alive && v.mode === 'saucer')) {
+          if (!this.guest && tx && !this.invs.some((v) => v.alive && v.mode === 'saucer')) {
             const s = this.makeInv(tx);
             s.mode = 'saucer';
             s.size = 1.1;
@@ -1127,6 +1252,7 @@ export class InvadersEngine {
             s.hp = s.maxHp = 1;
             this.invs.push(s);
             this.labelFor(s);
+            this.announce(s, 's');
           }
         }
       }
@@ -1144,7 +1270,7 @@ export class InvadersEngine {
       }
     } else if (this.waveState === 'clear') {
       this.clearT -= dt;
-      if (this.clearT <= 0) this.startWave(this.wave + 1);
+      if (this.clearT <= 0 && !this.guest) this.startWave(this.wave + 1); // guests wait for the leader's manifest
     }
     // labels: front-of-column (every other column) and tokens
     if ((this.frameN & 15) === 0) this.refreshLabels(form);
@@ -1182,18 +1308,35 @@ export class InvadersEngine {
     }
   }
 
+  /** Leader only in multiplayer: decide a bolt, spawn it and queue it for the others. Guests just receive them ('eb'). */
   private enemyBolt(x: number, gy: number, aimX: number, aimed: boolean, big = false, angle?: number) {
+    if (this.guest) return;
+    const speed = Math.min(15, 7 + this.wave * 0.38) * (big ? 0.85 : 1);
+    let ang = angle ?? 0;
+    if (angle === undefined && aimed) ang = Math.atan2(this.aimAt(x, aimX) - x, Math.max(2, gy - P_GY)) * 0.9;
+    const vx = Math.sin(ang) * speed;
+    const vy = -Math.cos(ang) * speed;
+    this.spawnEBolt(x, gy - 0.8, vx, vy, big);
+    this.net?.queueBolt([+x.toFixed(2), +(gy - 0.8).toFixed(2), +vx.toFixed(2), +vy.toFixed(2), big ? 1 : 0]);
+  }
+
+  private spawnEBolt(x: number, gy: number, vx: number, vy: number, big: boolean) {
     const b = this.ebolts.find((q) => !q.alive) ?? (this.ebolts.length < 140 ? this.ebolts[this.ebolts.push({ alive: false, x: 0, gy: 0, vx: 0, vy: 0, big: false }) - 1] : null);
     if (!b) return;
-    const speed = Math.min(15, 7 + this.wave * 0.38) * (big ? 0.85 : 1);
     b.alive = true;
     b.x = x;
-    b.gy = gy - 0.8;
+    b.gy = gy;
     b.big = big;
-    let ang = angle ?? 0;
-    if (angle === undefined && aimed) ang = Math.atan2(aimX - x, Math.max(2, gy - P_GY)) * 0.9;
-    b.vx = Math.sin(ang) * speed;
-    b.vy = -Math.cos(ang) * speed;
+    b.vx = vx;
+    b.vy = vy;
+  }
+
+  /** Where an aimed shot goes: my ship, or (multiplayer) whichever living ship is nearest the shooter. */
+  private aimAt(x: number, mine: number) {
+    const o = this.net?.nearestOther(x);
+    if (o === null || o === undefined) return mine;
+    if (this.lives <= 0) return o;
+    return Math.abs(o - x) < Math.abs(mine - x) ? o : mine;
   }
 
   private stepBolts(dt: number) {
@@ -1206,6 +1349,7 @@ export class InvadersEngine {
         b.alive = false;
         continue;
       }
+      if (b.remote) continue; // another pilot's shot: cosmetic only
       let used = false;
       for (const v of this.invs) {
         if (!v.alive || v.gy < 1.5 || b.hit.includes(v)) continue;
@@ -1386,7 +1530,7 @@ export class InvadersEngine {
     b.sum -= dt;
     if (b.sum <= 0) {
       b.sum = b.phase === 2 ? 4.5 : 7;
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; !this.guest && i < 2; i++) {
         const tx = this.opts.take((x) => x.kind !== 'blast' && x.kind !== 'token');
         const d = this.makeInv(tx);
         d.mode = 'dive';
@@ -1396,8 +1540,278 @@ export class InvadersEngine {
         d.showLabel = true;
         this.invs.push(d);
         this.labelFor(d);
+        this.announce(d, 'd');
       }
     }
+  }
+
+  // ───────────── Multiplayer ─────────────
+
+  /** I am in a room but not the leader: the leader spawns waves, divers and enemy bolts; I mirror them. */
+  private get guest() {
+    return !!this.net && !this.net.isLeader();
+  }
+
+  private stopNet() {
+    this.net?.dispose();
+    this.net = null;
+    this.claims.clear();
+    this.myClaim.clear();
+    this.bossClaim = null;
+    this.boardKey = '';
+    this.vsKills = 0;
+    for (const t of this.tags.values()) disposeAvatarTag(t.sprite);
+    this.tags.clear();
+    if (this.remoteMesh) this.remoteMesh.count = 0;
+  }
+
+  private trimClaims() {
+    if (this.claims.size < 700) return;
+    let n = this.claims.size - 500;
+    for (const k of this.claims.keys()) {
+      if (n-- <= 0) break;
+      this.claims.delete(k);
+      this.myClaim.delete(k);
+    }
+  }
+
+  /** Other pilots' shots: simulated from their pose flags at their fire cadence (cosmetic; their kills arrive as claims). */
+  private stepRemoteFire(net: InvadersNet, dt: number) {
+    const now = performance.now();
+    for (const p of net.others(now)) {
+      p.cool -= dt;
+      if (!(p.fb & 1) || p.down || p.cool > 0 || p.buf.size === 0) continue;
+      const spread = (p.fb & 2) !== 0;
+      const rail = (p.fb & 4) !== 0;
+      const x = p.buf.sample(now);
+      for (const sp of fireSpecs(spread, rail)) if (!this.spawnBolt(x, sp, true)) break;
+      p.cool = fireDelay((p.fb & 8) !== 0, spread, rail);
+    }
+  }
+
+  private teamScore() {
+    let t = this.score;
+    if (this.net) for (const p of this.net.others()) t += p.score;
+    return t;
+  }
+
+  private buildBoard(): BoardRow[] {
+    const net = this.net;
+    if (!net) return [];
+    const now = performance.now();
+    const rows: BoardRow[] = [];
+    for (const p of net.peers.values()) {
+      const me = p.id === net.me;
+      if (!me && !net.present(p.id, now)) continue;
+      rows.push({ id: p.id, handle: p.handle ?? (me ? this.opts.me?.handle ?? null : null), name: me ? this.opts.me?.name || p.name : p.name, verified: p.verified, colour: p.colour, score: me ? this.score : p.score, kills: me ? this.kills : p.kills, lives: me ? Math.max(0, this.lives) : Math.max(0, p.lives), down: me ? this.lives <= 0 : p.down, me });
+    }
+    return rows.sort((a, b) => b.score - a.score);
+  }
+
+  private stepNet(dt: number) {
+    const net = this.net!;
+    net.wave = this.wave;
+    const pw = this.powerT;
+    if (net.poseTick(dt)) net.sendPose({ x: this.pl.x, vx: this.pl.vx, lives: Math.max(0, this.lives), score: this.score, kills: this.kills, down: this.lives <= 0, shield: this.shield, fb: (this.firing ? 1 : 0) | (pw.spread > 0 ? 2 : 0) | (pw.rail > 0 ? 4 : 0) | (pw.overdrive > 0 ? 8 : 0), wave: this.wave });
+    this.stepRemoteFire(net, dt);
+    net.tick(dt, () => (this.waveState === 'clear' && !this.invs.length ? null : { x: this.form.x, gy: this.form.gy, dir: this.form.dir, wt: this.waveT, bt: this.boss && !this.boss.dead ? this.boss.t : null }));
+    // Everyone down at once: the run is over for the whole room.
+    if (this.lives <= 0 && this.phase === 'playing' && !net.anyOtherUp()) this.gameOver();
+    this.boardT -= dt;
+    if (this.boardT <= 0) {
+      this.boardT = 0.25;
+      const rows = this.buildBoard();
+      const key = rows.map((r) => `${r.id}${r.score}${r.kills}${r.lives}${r.down ? 1 : 0}${r.verified ? 1 : 0}`).join('|');
+      if (key !== this.boardKey) {
+        this.boardKey = key;
+        this.opts.cb.onBoard?.(rows, net.cfg.mode, rows.reduce((a, r) => a + r.score, 0));
+      }
+    }
+  }
+
+  /** Leader: tell the others about a ship I just spawned (diver, saucer, boss summon). */
+  private announce(v: Inv, m: 'd' | 's') {
+    if (this.net?.isLeader()) this.net.sendSpawn({ m, r: this.rowOf(v), x: +v.x.toFixed(2), bx: +v.baseX.toFixed(2), vx: +v.vx.toFixed(2), gy: +v.gy.toFixed(2) });
+  }
+
+  /** Versus: my big kills (and every third kill) send extra divers down another pilot's lane. */
+  private vsSend(big: boolean) {
+    const net = this.net;
+    if (!net) return;
+    this.vsKills++;
+    if (!big && this.vsKills % 3 !== 0) return;
+    const targets = net.others().filter((p) => !p.down);
+    if (!targets.length) return;
+    const to = targets[Math.floor(Math.random() * targets.length)];
+    net.sendVs(to.id, big ? 2 : 1);
+  }
+
+  private killRemote(v: Inv) {
+    v.alive = false;
+    this.explode(v.x, v.gy, v.ghost ? v.col.clone().multiplyScalar(0.6) : v.col, v.size, v.maxHp >= 3 || v.kind === 'token');
+  }
+
+  private applyRemoteKill(id: string, claim: Claim) {
+    const net = this.net;
+    if (!net) return;
+    const mine = this.claims.get(id);
+    if (!mine) {
+      this.claims.set(id, claim);
+      this.trimClaims();
+      const v = this.invs.find((q) => q.alive && q.id === id && !q.priv);
+      if (v) this.killRemote(v);
+      return;
+    }
+    if (mine.by === claim.by) return; // the same claim again
+    if (!claimBeats(claim, mine)) return; // mine (or an earlier one) stands
+    this.claims.set(id, claim);
+    if (mine.by === net.me) {
+      const pts = this.myClaim.get(id) ?? 0;
+      this.myClaim.delete(id);
+      this.score = Math.max(0, this.score - pts);
+      this.kills = Math.max(0, this.kills - 1);
+      const w = net.peers.get(claim.by);
+      this.opts.cb.onToast({ text: `KILL LOST TO ${w?.handle ? `@${w.handle}` : (w?.name ?? 'A PILOT')}`, tone: 'bad' });
+    }
+  }
+
+  private handlers(): NetHandlers {
+    return {
+      onWave: (m) => {
+        if (this.guest && m.n >= this.wave) this.startWave(m.n, m);
+      },
+      onSpawn: (m: SpawnMsg) => {
+        const v = this.invFromRow(m.r);
+        if (this.claims.has(v.id) || this.invs.some((q) => q.id === v.id)) return;
+        v.mode = m.m === 's' ? 'saucer' : 'dive';
+        v.baseX = m.bx;
+        v.x = m.x;
+        v.vx = m.vx;
+        v.gy = m.gy;
+        v.showLabel = true;
+        if (v.mode === 'saucer') {
+          v.size = 1.1;
+          v.hp = v.maxHp = 1;
+        } else v.size = Math.max(v.size, 0.95);
+        this.invs.push(v);
+        this.labelFor(v);
+      },
+      onBolts: (rows: BoltRow[]) => {
+        if (!this.guest) return;
+        for (const r of rows) this.spawnEBolt(r[0], r[1], r[2], r[3], r[4] === 1);
+      },
+      onHit: (id, d) => {
+        const v = this.invs.find((q) => q.alive && q.id === id && !q.priv);
+        if (!v) return;
+        v.hp = Math.max(1, v.hp - d); // only a claim can finish it
+        v.flash = 1;
+        this.parts.burst(v.x, SHIP_Y, -v.gy, 4, 5, 0.3, 0.35, 2, 2, 2);
+      },
+      onKill: (id, claim) => this.applyRemoteKill(id, claim),
+      onBossHit: (d) => {
+        const b = this.boss;
+        if (b && !b.dead) this.damageBoss(d, b.x, b.gy, true);
+      },
+      onBossKill: (claim) => {
+        const b = this.boss;
+        const net = this.net;
+        if (!b || !net) return;
+        if (!b.dead) {
+          b.hp = 0;
+          this.damageBoss(0, b.x, b.gy, true);
+          return;
+        }
+        const mine = this.bossClaim;
+        if (mine && claimBeats(claim, { by: net.me, t: mine.t })) {
+          this.score = Math.max(0, this.score - mine.pts);
+          this.bossClaim = null;
+          this.opts.cb.onToast({ text: 'BOSS KILL LOST', tone: 'bad' });
+        }
+      },
+      onForm: (f) => {
+        if (!this.guest) return;
+        const fm = this.form;
+        fm.dir = f.dir;
+        fm.x += (f.x - fm.x) * 0.4;
+        fm.gy += (f.gy - fm.gy) * 0.4;
+        this.waveT = Math.abs(this.waveT - f.wt) > 0.25 ? f.wt : this.waveT + (f.wt - this.waveT) * 0.4;
+        const b = this.boss;
+        if (f.bt !== null && b && !b.dead) b.t = Math.abs(b.t - f.bt) > 0.3 ? f.bt : b.t + (f.bt - b.t) * 0.4;
+      },
+      onVs: (n: number, from: Peer) => {
+        if (this.lives <= 0 || this.phase !== 'playing') return;
+        for (let i = 0; i < n; i++) {
+          const v = this.makeInv(this.ghostTx(), false);
+          v.mode = 'dive';
+          v.priv = true;
+          v.baseX = clamp(this.pl.x + rnd(-2.4, 2.4), -HW + 1.6, HW - 1.6);
+          v.x = v.baseX;
+          v.gy = 33 + i * 3;
+          v.showLabel = true;
+          v.size = Math.max(v.size, 0.95);
+          this.invs.push(v);
+          this.labelFor(v);
+        }
+        this.opts.cb.onToast({ text: `${n} INVADER${n > 1 ? 'S' : ''} FROM ${from.handle ? `@${from.handle}` : from.name}`, tone: 'bad' });
+      },
+      onPeers: () => undefined,
+    };
+  }
+
+  /** Remote ships (interpolated from the snapshot buffer) and the avatar billboards over every ship, mine included. */
+  private writeRemotes(t: number) {
+    const rm = this.remoteMesh;
+    const net = this.net;
+    let n = 0;
+    const seen = new Set<string>();
+    if (net && this.mode === 'play') {
+      const now = performance.now();
+      const arr = rm.instanceColor!.array as Float32Array;
+      for (const p of net.peers.values()) {
+        const me = p.id === net.me;
+        const here = me || (net.present(p.id, now) && p.buf.size > 0);
+        const down = me ? this.lives <= 0 : p.down;
+        if (!here || down) continue;
+        const x = me ? this.pl.x : p.buf.sample(now);
+        if (!me) {
+          const i = n++;
+          TMP.v.set(x, SHIP_Y + 0.05 + Math.sin(t * 3 + i) * 0.05, 0);
+          TMP.e.set(0.02, 0, clamp(-(x - p.buf.sample(now - 60)) * 3, -0.7, 0.7));
+          TMP.q.setFromEuler(TMP.e);
+          TMP.s.setScalar(0.85);
+          TMP.m.compose(TMP.v, TMP.q, TMP.s);
+          rm.setMatrixAt(i, TMP.m);
+          TMP.c.set(p.colour);
+          arr[i * 3] = TMP.c.r * 1.9;
+          arr[i * 3 + 1] = TMP.c.g * 1.9;
+          arr[i * 3 + 2] = TMP.c.b * 1.9;
+          rm.state.setXYZW(i, 0, 0, 1, 0);
+        }
+        // Avatar billboard (sprites: any AO pass must hide them; this game has none, only bloom).
+        const o = { handle: p.handle, name: p.name, ring: p.colour, verified: p.verified };
+        const key = tagKey(o);
+        let tag = this.tags.get(p.id);
+        if (!tag || tag.key !== key) {
+          if (tag) disposeAvatarTag(tag.sprite);
+          tag = { sprite: makeAvatarTag(o, me ? 0.95 : 1.15), key };
+          this.scene.add(tag.sprite);
+          this.tags.set(p.id, tag);
+        }
+        tag.sprite.position.set(x, SHIP_Y + 0.85, 0);
+        fitAvatarTag(tag.sprite, this.camera, 0.04, 3.2);
+        seen.add(p.id);
+      }
+    }
+    for (const [id, tag] of this.tags) {
+      if (!seen.has(id)) {
+        disposeAvatarTag(tag.sprite);
+        this.tags.delete(id);
+      }
+    }
+    rm.count = n;
+    rm.instanceMatrix.needsUpdate = true;
+    rm.instanceColor!.needsUpdate = true;
+    rm.state.needsUpdate = true;
   }
 
   // ───────────── Per-frame ─────────────
@@ -1561,7 +1975,8 @@ export class InvadersEngine {
       TMP.m.compose(TMP.v, TMP.q, TMP.s);
       pm.setMatrixAt(0, TMP.m);
       const arr = pm.instanceColor!.array as Float32Array;
-      const hot = this.powerT.overdrive > 0 ? [0.8, 1.6, 0.1] : this.powerT.rail > 0 ? [0.1, 1.2, 1.8] : this.powerT.spread > 0 ? [1.8, 0.2, 0.9] : [1.9, 0.18, 0.12];
+      const mine = this.net ? TMP.c.set(this.net.peers.get(this.net.me)?.colour ?? '#e8261d') : null;
+      const hot = this.powerT.overdrive > 0 ? [0.8, 1.6, 0.1] : this.powerT.rail > 0 ? [0.1, 1.2, 1.8] : this.powerT.spread > 0 ? [1.8, 0.2, 0.9] : mine ? [mine.r * 1.9, mine.g * 1.9, mine.b * 1.9] : [1.9, 0.18, 0.12];
       arr[0] = hot[0];
       arr[1] = hot[1];
       arr[2] = hot[2];
@@ -1570,6 +1985,7 @@ export class InvadersEngine {
       pm.instanceColor!.needsUpdate = true;
       pm.state.needsUpdate = true;
     }
+    this.writeRemotes(t);
     // shield
     this.shieldMesh.visible = this.shield || this.shieldFlash > 0;
     if (this.shieldMesh.visible) {
@@ -1799,7 +2215,7 @@ export class InvadersEngine {
   private pushHud() {
     const h = this.hudOut;
     const play = this.mode === 'play';
-    h.score = play ? this.score : 0;
+    h.score = play ? (this.net && !this.net.versus ? this.teamScore() : this.score) : 0;
     h.hi = Math.max(this.hi, this.score);
     h.lives = Math.max(0, this.lives);
     h.wave = this.wave;
@@ -1848,6 +2264,7 @@ export class InvadersEngine {
     },
     ndc: (x: number, gy: number) => { const v = new THREE.Vector3(x, SHIP_Y, -gy).project(this.camera); return [v.x, v.y]; },
     drop: (kind: Power) => this.dropPod(this.pl.x, 9, kind),
+    mp: () => ({ on: !!this.net, sent: this.net?.sent ?? 0, got: this.net?.got ?? 0, leader: this.net?.leaderId() ?? null, me: this.net?.me ?? null, wave: this.wave, waveState: this.waveState, alive: this.invs.filter((v) => v.alive && !v.priv).map((v) => v.id.slice(0, 8)).sort(), form: this.invs.filter((v) => v.alive && v.mode === 'form').length, claims: this.claims.size, score: this.score, kills: this.kills, lives: this.lives, boss: this.boss ? Math.round(this.boss.hp) : null, tags: [...this.tags.keys()], peers: this.net ? [...this.net.peers.values()].map((p) => ({ id: p.id, h: p.handle, v: p.verified, x: +p.buf.sample(performance.now()).toFixed(1), score: p.score, down: p.down })) : [], fx: +this.form.x.toFixed(2), fgy: +this.form.gy.toFixed(2) }),
     state: () => ({ phase: this.phase, mode: this.mode, score: this.score, lives: this.lives, wave: this.wave, invs: this.invs.length, alive: this.liveInvs(), boss: this.boss?.hp ?? null, draw: this.renderer.info.render.calls, tris: this.renderer.info.render.triangles, fps: Math.round(1000 / this.fpsMs), parts: this.parts.count }),
   };
 
@@ -1855,6 +2272,7 @@ export class InvadersEngine {
 
   dispose() {
     this.disposed = true;
+    this.stopNet();
     if (this.blockTimer) clearInterval(this.blockTimer);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
