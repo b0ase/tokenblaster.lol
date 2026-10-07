@@ -14,6 +14,8 @@ const GAMES = [
   { href: '/arcade/rally', img: '/arcade/rally.jpg', title: 'Token Rally', tag: 'V1 · 3D rally', blurb: 'Drift gravel stages against the live chain: every rival car is a mainnet transaction, faster the bigger the move. Handbrake, nitro, splits, high scores.' },
   { href: '/arcade/2048', img: '/arcade/2048.jpg', title: 'Sat Stack 2048', tag: 'V1 · puzzle', blurb: 'Merge equal sat stacks, doubling up from dust to a 1 BSV tile. Smooth sliding, arrows or swipe.' },
   { href: '/arcade/highway21', img: '/arcade/highway21.jpg', title: 'Highway 21M', tag: 'V1 · arcade racer', blurb: 'Beat the clock down a sunset highway: traffic coloured by transaction kind, billboards scrolling live token moves.' },
+  { href: '/arcade/bubbo-bubbo', img: '/arcade/bubbo-bubbo.jpg', title: 'Coin Pop', tag: 'V1 · bubble shooter', blurb: 'Aim the cannon and pop token coins in groups of three: bombs, super coins and a ceiling that keeps coming. 10p a game or practice free.' },
+  { href: '/arcade/puzzling-potions', img: '/arcade/puzzling-potions.jpg', title: 'Token Potions', tag: 'V1 · match-3', blurb: 'Swap potions, chain combos and build specials before the 60 seconds run out. 10p a game or practice free.' },
 ];
 
 const STACK = [

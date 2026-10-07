@@ -26,6 +26,8 @@ const GAMES: Game[] = [
   { href: '/arcade/rally', tag: 'rally', title: 'Token Rally', version: 'V1', img: '/arcade/rally.jpg', blurb: 'Rally racing against the live chain: every rival car is a mainnet transaction, faster the bigger the move. Forest, desert and snow stages, handbrake drifts, nitro coins, splits.', status: 'live' },
   { href: '/arcade/2048', tag: 'sats2048', title: 'Sat Stack 2048', version: 'V1', img: '/arcade/2048.jpg', blurb: 'The merge puzzle with a coin purse: slide equal sat stacks together, dust to sat to vault, until you cut a 1 BSV tile. Arrows or swipe.', status: 'live' },
   { href: '/arcade/highway21', tag: 'highway21', title: 'Highway 21M', version: 'V1', img: '/arcade/highway21.jpg', blurb: 'OutRun-style pseudo-3D racer against the clock. Traffic is coloured by live transaction kind and the roadside billboards scroll real BSV-21 token moves.', status: 'live' },
+  { href: '/arcade/bubbo-bubbo', tag: 'bubbo', title: 'Coin Pop', version: 'V1', img: '/arcade/bubbo-bubbo.jpg', blurb: 'Bubble shooter with token coins (PixiJS open game Bubbo Bubbo, reskinned): aim, match three, drop bombs and super coins, beat the ceiling. 10p a game or practice free.', status: 'live' },
+  { href: '/arcade/puzzling-potions', tag: 'potions', title: 'Token Potions', version: 'V1', img: '/arcade/puzzling-potions.jpg', blurb: 'Match-3 with specials and combos against a 60-second clock (PixiJS open game Puzzling Potions, reskinned). 10p a game or practice free.', status: 'live' },
 ];
 
 /** Not ours: other people's BSV games, linked out to their own sites. Not hosted, run or endorsed here. */

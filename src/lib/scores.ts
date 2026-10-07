@@ -20,6 +20,8 @@ export const SCORE_GAMES = {
   'rally-snow': { title: 'Token Rally · Orphan Ridge', tag: 'rally', sort: 'score' },
   sats2048: { title: 'Sat Stack 2048', tag: 'sats2048', sort: 'score' },
   highway21: { title: 'Highway 21M', tag: 'highway21', sort: 'score' },
+  bubbo: { title: 'Coin Pop (Bubbo Bubbo)', tag: 'bubbo', sort: 'score' },
+  potions: { title: 'Token Potions (Puzzling Potions)', tag: 'potions', sort: 'score' },
 } as const;
 export type ScoreGame = keyof typeof SCORE_GAMES;
 export const isScoreGame = (g: string | null): g is ScoreGame => !!g && Object.prototype.hasOwnProperty.call(SCORE_GAMES, g);
