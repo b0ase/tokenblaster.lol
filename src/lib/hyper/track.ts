@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { rng } from '@/lib/rally/noise';
+import type { Music } from '@/lib/content/schema';
 
 export const STEP = 2.5;
 export const HALF_W = 17;
@@ -19,7 +20,8 @@ export type Palette = {
   fogDensity: number;
 };
 
-export type TrackId = 'canyon' | 'spiral' | 'void';
+/** Track ids are content-pack folder names (content/bracer/tracks/<slug>/track.json). */
+export type TrackId = string;
 
 export type TrackDef = {
   id: TrackId;
@@ -28,6 +30,12 @@ export type TrackDef = {
   kana: string;
   code: string;
   blurb: string;
+  author: string;
+  licence: string;
+  credit?: string;
+  /** True for packs shipped by the core team (the three launch circuits). */
+  core: boolean;
+  order: number;
   seed: number;
   R: number;
   oval: number;
@@ -37,6 +45,8 @@ export type TrackDef = {
   base: number;
   /** Gaussian drops: [theta, depth, width (rad)]. */
   drops: [number, number, number][];
+  /** Explicit control points (replaces the ring parameters above when set). Bank in radians. */
+  points?: { x: number; y: number; z: number; bank: number }[];
   loops: { k: number; r: number; w: number }[];
   /** [start, end, turns] as fractions of the lap. */
   twists: [number, number, number][];
@@ -48,80 +58,10 @@ export type TrackDef = {
   /** Pit-lane recharge strip along the left edge, as a fraction of the lap. */
   pit: [number, number];
   palette: Palette;
+  signs: string[];
+  music: Music;
+  par?: { lapSeconds?: number; raceSeconds?: number };
 };
-
-export const TRACKS: Record<TrackId, TrackDef> = {
-  canyon: {
-    id: 'canyon',
-    name: 'Genesis Canyon',
-    kana: 'ジェネシス',
-    code: 'HG-001',
-    blurb: 'Warm-up circuit through the data canyon: sweeping bends, one big drop and a tunnel of strobing gates.',
-    seed: 11,
-    R: 900,
-    oval: 0.72,
-    harm: [[2, 0.2, 0.4], [3, 0.12, 1.7], [5, 0.05, 0.3]],
-    hy: [[1, 26, 0.3], [2, 18, 1.1], [3, 10, 2.4]],
-    base: 150,
-    drops: [[2.2, 70, 0.1]],
-    loops: [],
-    twists: [],
-    tunnels: [[0.42, 0.52]],
-    pipes: [[0.74, 0.84]],
-    jumps: [0.12, 0.64],
-    pads: [[0.04, 0], [0.2, -6], [0.33, 6], [0.55, 0], [0.7, -5], [0.9, 5]],
-    weapons: [0.08, 0.28, 0.5, 0.68, 0.88],
-    pit: [0.9, 0.985],
-    palette: { zenith: '#04041a', horizon: '#ff3d8b', glow: '#27e6ff', fog: '#2a1038', a1: '#27e6ff', a2: '#ff2f92', sun: '#ffb5e8', fogDensity: 0.00115 },
-  },
-  spiral: {
-    id: 'spiral',
-    name: 'Orphan Spiral',
-    kana: 'スパイラル',
-    code: 'HG-002',
-    blurb: 'A vertical loop, a full corkscrew and a half-pipe over the megastructure. Hold your nerve.',
-    seed: 23,
-    R: 980,
-    oval: 0.78,
-    harm: [[2, 0.14, 2.2], [3, 0.16, 0.6], [4, 0.07, 1.4]],
-    hy: [[1, 20, 1.2], [2, 14, 0.2], [4, 8, 2.9]],
-    base: 160,
-    drops: [[4.4, 60, 0.12]],
-    loops: [{ k: 10, r: 62, w: 30 }],
-    twists: [[0.58, 0.7, 1]],
-    tunnels: [[0.28, 0.36]],
-    pipes: [[0.82, 0.92]],
-    jumps: [0.2, 0.5],
-    pads: [[0.03, 0], [0.16, 5], [0.32, -5], [0.45, 0], [0.55, 6], [0.76, -4], [0.95, 0]],
-    weapons: [0.06, 0.24, 0.42, 0.62, 0.8],
-    pit: [0.915, 0.985],
-    palette: { zenith: '#0a0420', horizon: '#ff8a1c', glow: '#b04bff', fog: '#2a0f2c', a1: '#ffb020', a2: '#b04bff', sun: '#ffd27a', fogDensity: 0.00125 },
-  },
-  void: {
-    id: 'void',
-    name: 'Coinbase Void',
-    kana: 'ボイド',
-    code: 'HG-003',
-    blurb: 'The long one: towers and chicanes at 700 km/h, tunnels, jumps and a double corkscrew.',
-    seed: 37,
-    R: 1050,
-    oval: 0.66,
-    harm: [[2, 0.24, 1.0], [3, 0.1, 2.0], [4, 0.1, 0.2], [6, 0.03, 0.9]],
-    hy: [[1, 30, 2.0], [2, 16, 0.5], [3, 12, 1.3]],
-    base: 175,
-    drops: [[0.8, 80, 0.1], [3.9, 60, 0.12]],
-    loops: [{ k: 22, r: 70, w: 34 }],
-    twists: [[0.3, 0.4, 1], [0.84, 0.94, -1]],
-    tunnels: [[0.1, 0.2], [0.6, 0.68]],
-    pipes: [[0.46, 0.55]],
-    jumps: [0.25, 0.75],
-    pads: [[0.02, 0], [0.14, -6], [0.24, 5], [0.38, 0], [0.5, 6], [0.72, -5], [0.8, 4]],
-    weapons: [0.05, 0.22, 0.4, 0.58, 0.78],
-    pit: [0.9, 0.98],
-    palette: { zenith: '#02130f', horizon: '#18ffa6', glow: '#ff3fd0', fog: '#04241f', a1: '#18ffa6', a2: '#ff3fd0', sun: '#b8fff0', fogDensity: 0.00105 },
-  },
-};
-export const TRACK_LIST = Object.values(TRACKS);
 
 export type Track = {
   def: TrackDef;
@@ -180,16 +120,22 @@ export function buildTrack(def: TrackDef): Track {
     }
     return new THREE.Vector3(r * Math.cos(th), y, r * def.oval * Math.sin(th));
   };
-  for (let k = 0; k < N; k++) {
+  // Control-point layouts: the points as given (bank per point, in radians).
+  const cp = def.points?.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+  const ctrlBank: number[] = [];
+  const count = cp ? cp.length : N;
+  for (let k = 0; k < count; k++) {
     const th = (k / N) * Math.PI * 2;
     const loop = def.loops.find((l) => l.k === k);
+    const bk = def.points ? def.points[k].bank : 0;
     if (!loop) {
-      pts.push(ringPt(th));
+      pts.push(cp ? cp[k].clone() : ringPt(th));
       tag.push(false);
+      ctrlBank.push(bk);
       continue;
     }
-    const P0 = ringPt(th);
-    const H = ringPt(th + 0.02).sub(ringPt(th - 0.02));
+    const P0 = cp ? cp[k].clone() : ringPt(th);
+    const H = cp ? cp[(k + 1) % count].clone().sub(cp[(k + count - 1) % count]) : ringPt(th + 0.02).sub(ringPt(th - 0.02));
     H.y = 0;
     H.normalize();
     const S = new THREE.Vector3(0, 1, 0).cross(H); // left
@@ -197,14 +143,17 @@ export function buildTrack(def: TrackDef): Track {
     if (S.dot(out) < 0) S.negate();
     pts.push(P0.clone().addScaledVector(H, -90));
     tag.push(false);
+    ctrlBank.push(0);
     const M = 14;
     for (let i = 0; i <= M; i++) {
       const ph = (i / M) * Math.PI * 2;
       pts.push(P0.clone().addScaledVector(H, loop.r * Math.sin(ph)).add(new THREE.Vector3(0, loop.r * (1 - Math.cos(ph)), 0)).addScaledVector(S, (loop.w * ph) / (Math.PI * 2)));
       tag.push(true);
+      ctrlBank.push(0);
     }
     pts.push(P0.clone().addScaledVector(S, loop.w).addScaledVector(H, 90));
     tag.push(false);
+    ctrlBank.push(0);
   }
   const curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
   curve.arcLengthDivisions = pts.length * 60;
@@ -302,6 +251,20 @@ export function buildTrack(def: TrackDef): Track {
   }
   const tw = new Float32Array(n);
   for (const [f0, f1, turns] of def.twists) for (let i = 0; i < n; i++) tw[i] += turns * Math.PI * 2 * smooth01(f0, f1, i / n);
+  if (def.points && ctrlBank.some((x) => x !== 0)) {
+    // Authored bank: interpolate the per-point angles along the lap (arc fraction of each control point).
+    const at = ctrlBank.map((_, k) => uAt(k));
+    for (let i = 0; i < n; i++) {
+      const f = i / n;
+      let k = 0;
+      while (k < at.length - 1 && at[k + 1] <= f) k++;
+      const k2 = (k + 1) % at.length;
+      const span = (k2 === 0 ? 1 : at[k2]) - at[k];
+      const x = span > 1e-9 ? Math.max(0, Math.min(1, (f - at[k]) / span)) : 0;
+      const e = x * x * (3 - 2 * x);
+      tw[i] += ctrlBank[k] + (ctrlBank[k2] - ctrlBank[k]) * e;
+    }
+  }
   const R0 = new THREE.Vector3();
   const Rg = new THREE.Vector3();
   for (let i = 0; i < n; i++) {

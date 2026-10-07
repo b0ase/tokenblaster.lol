@@ -2,6 +2,10 @@ import Link from 'next/link';
 import { BRacer } from '@/components/BRacer';
 import { HighScoresPanel } from '@/components/HighScores';
 import { GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
+import { bracerScoreGame, TRACK_LIST } from '@/lib/hyper/content';
+
+// Boards for every track pack: normal first, then hardcore.
+const BOARDS = [false, true].flatMap((hc) => TRACK_LIST.map((t) => ({ game: bracerScoreGame(t.id, hc), title: `${t.name.toUpperCase()}${hc ? ' HARDCORE' : ''}` })));
 
 const description = `${GAME_TAGLINE}: rival ships are live BSV transactions, the bigger the move the faster the ship. Loops, corkscrews, half-pipes, boost pads, weapons, barrel rolls.`;
 // The share card has its own file name, so apps that cached the old card fetch this one fresh. Give a
@@ -36,7 +40,7 @@ export default function BRacerPage() {
         <p className="mt-1 text-dim">Anti-gravity racing at 700 km/h. Every rival ship is a live mainnet transaction; the biggest moves are the fastest.</p>
       </header>
       <BRacer />
-      <HighScoresPanel games={['bracer-canyon', 'bracer-spiral', 'bracer-void', 'bracer-canyon-hc', 'bracer-spiral-hc', 'bracer-void-hc']} titles={['GENESIS CANYON', 'ORPHAN SPIRAL', 'COINBASE VOID', 'CANYON HARDCORE', 'SPIRAL HARDCORE', 'VOID HARDCORE']} sorts={['score', 'time']} label="SCORE" />
+      <HighScoresPanel games={BOARDS.map((b) => b.game)} titles={BOARDS.map((b) => b.title)} sorts={['score', 'time']} label="SCORE" />
     </main>
   );
 }

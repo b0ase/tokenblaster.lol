@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm storm:build && next dev",
-    "build": "pnpm storm:build && next build",
+    "dev": "pnpm content:index && pnpm storm:build && next dev",
+    "build": "pnpm content:check && pnpm storm:build && next build",
     "storm:build": "esbuild src/workers/storm.ts --bundle --format=esm --target=es2022 --minify --outfile=public/storm-worker.js",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/*.test.ts",
+    "test": "pnpm content:check && tsx --test src/lib/*.test.ts",
+    "content:index": "tsx scripts/content-index.ts",
+    "content:check": "tsx scripts/content-check.ts",
+    "content:score-rows": "tsx scripts/bracer-score-rows.ts",
     "blast": "tsx blaster/blast.ts",
     "worker:build": "esbuild worker/indexer.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/indexer.mjs --external:pg-native --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "vault:build": "esbuild worker/vault.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/vault.mjs"

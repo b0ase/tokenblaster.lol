@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "name": "Wedge",
+  "author": "TokenBlaster.lol",
+  "licence": "MIT",
+  "description": "Balanced all-rounder",
+  "order": 2,
+  "stats": { "vmax": 174, "accel": 46, "turn": 74, "grip": 2.7 },
+  "hull": { "span": 4.4, "length": 5.8, "sweep": 0.55 }
+}

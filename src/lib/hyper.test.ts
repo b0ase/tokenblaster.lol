@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildTrack, TRACK_LIST } from './hyper/track';
+import { buildTrack } from './hyper/track';
+import { TRACK_LIST } from './hyper/content';
 import { newShip, noInput, SHIPS, stepShip } from './hyper/sim';
 
 for (const def of TRACK_LIST) {

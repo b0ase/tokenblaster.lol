@@ -126,6 +126,21 @@ export function drawLogo(g: CanvasRenderingContext2D, x: number, y: number, size
 
 export const SIGN_COUNT = 8;
 
+/** A track pack's own signage text (theme.signs) on a 1024x512 board in the track's colours. */
+export function drawTextSign(c: HTMLCanvasElement, msg: string, i: number, a1: string, a2: string) {
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = i % 2 ? '#0b0b10' : '#f2efe6';
+  g.fillRect(0, 0, W, H);
+  if (i % 2) grid(g, a1, 64, 0.18);
+  chevrons(g, 0, 0, W, 70, 18, i % 2 ? a2 : '#111');
+  chevrons(g, 0, H - 70, W, 70, 18, a1, -1);
+  const s = msg.toUpperCase();
+  const size = Math.min(170, Math.floor(1800 / Math.max(4, s.length)));
+  text(g, s, W / 2, H / 2 + size * 0.36, size, i % 2 ? '#ffffff' : '#111', FONTS.display, 'center');
+}
+
 /** Draw design `i` onto a 1024x512 canvas. */
 export function drawSign(c: HTMLCanvasElement, i: number, a1: string, a2: string) {
   c.width = W;

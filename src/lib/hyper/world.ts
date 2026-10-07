@@ -1,7 +1,7 @@
 /** bRacer world: procedural sky, glossy track, tunnels, megastructure city, signage, pads, speed lines, particles. */
 import * as THREE from 'three';
 import { rng } from '@/lib/rally/noise';
-import { drawLogo, drawSign, SIGN_COUNT } from './signs';
+import { drawLogo, drawSign, drawTextSign, SIGN_COUNT } from './signs';
 import { frameAt, HALF_W, newFrame, STEP, surfaceH, type Track } from './track';
 
 export type Quality = 'low' | 'high' | 'ultra';
@@ -530,6 +530,12 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     drawSign(c, i, p.a1, p.a2);
     signTexs.push(own(texOf(c, true, false)));
   }
+  // Pack signage text joins the rotation (tracks without it keep exactly the stock boards).
+  tr.def.signs.forEach((msg, i) => {
+    const c = canvas(1024, 512);
+    drawTextSign(c, msg, i, p.a1, p.a2);
+    signTexs.push(own(texOf(c, true, false)));
+  });
   const signGeo = own(new THREE.PlaneGeometry(44, 22));
   const signLists: THREE.Matrix4[][] = signTexs.map(() => []);
   const sd = (tr.len / 190) | 0;
@@ -544,7 +550,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     const Z = side > 0 ? new THREE.Vector3(-f.rx, -f.ry, -f.rz) : new THREE.Vector3(f.rx, f.ry, f.rz);
     const m = new THREE.Matrix4().makeBasis(X, new THREE.Vector3(f.ux, f.uy, f.uz), Z);
     m.setPosition(f.px + f.rx * side * off + f.ux * up, f.py + f.ry * side * off + f.uy * up, f.pz + f.rz * side * off + f.uz * up);
-    signLists[k % SIGN_COUNT].push(m);
+    signLists[k % signTexs.length].push(m);
   }
   signLists.forEach((list, i) => {
     if (!list.length) return;
