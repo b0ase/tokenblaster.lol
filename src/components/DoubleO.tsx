@@ -12,6 +12,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
 import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type ArenaAssets, type GunDef, type HeldGun } from '@/lib/arenaHD';
@@ -42,6 +43,9 @@ import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
 import { gunDefFor, loadGunModel } from '@/lib/ordnanceModels';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GAME_COINS, HOUSE_DMG, HOUSE_GOLD } from '@/lib/gameCoins';
+import { detectQuality, LOOKS, loadLook, makeGradePass, saveQuality, type Look, type Quality } from '@/lib/visuals/look';
+import { dressLevel, type Dressing } from '@/lib/visuals/dressing';
+import { makeImpacts } from '@/lib/visuals/impacts';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -75,7 +79,7 @@ type Hud = {
   dirs: number[]; // radians (0 = ahead) to whoever just shot me, for the red damage arcs
 };
 type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[]; sats: number; satsTotal: number; intel: number; intelTotal: number };
-type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void };
+type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void; setQuality: (q: Quality) => void };
 type NetInfo = { status: 'off' | 'connecting' | 'live'; agents: { name: string; host: boolean; me: boolean; vs: boolean }[] };
 /** Level-map letters for each cast kind (also the wire format for the host's actor list). */
 const KIND_CODE: Record<string, string> = { bot: 'g', goon: 'p', hazmat: 'h', kingpin: 'K', custodian: 'U', hoarder: 'L' };
@@ -146,6 +150,12 @@ export function DoubleO() {
   const [chainError, setChainError] = useState<string | null>(null);
   const [empty, setEmpty] = useState(false);
   const [touchUi, setTouchUi] = useState(false);
+  const [qual, setQual] = useState<Quality>('high');
+  const pickQuality = (q: Quality) => {
+    setQual(q);
+    saveQuality(q);
+    engine.current?.setQuality(q);
+  };
   // Multiplayer: name, VERSUS toggle, per-mission head counts, toasts.
   const [name, setName] = useState('');
   const [versus, setVersus] = useState(false);
@@ -188,6 +198,7 @@ export function DoubleO() {
     void Promise.resolve().then(() => {
       setDone(loadDone());
       setName(loadName() || `Agent ${String(Math.floor(Math.random() * 900) + 100)}`);
+      setQual(detectQuality());
       setTouchUi(isPhone() || window.matchMedia?.('(pointer: coarse)').matches);
     });
   }, []);
@@ -241,13 +252,14 @@ export function DoubleO() {
 
     // ── Renderer ──
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    // Full device resolution; the quality governor below steps down if frames get slow.
+    // Quality presets, best first. Low/High picks the starting step; the governor below steps further down if frames get slow.
     const qualities = [
-      { ratio: Math.min(window.devicePixelRatio, 2), shadows: true },
-      { ratio: Math.min(window.devicePixelRatio, 1.5), shadows: true },
-      { ratio: 1, shadows: false },
+      { ratio: Math.min(window.devicePixelRatio, 2), shadows: true, ao: true, bloom: 0.5, samples: 4 },
+      { ratio: Math.min(window.devicePixelRatio, 1.5), shadows: true, ao: true, bloom: 0.45, samples: 4 },
+      { ratio: 1, shadows: false, ao: false, bloom: 0.35, samples: 0 },
     ];
-    let quality = phone ? 1 : 0;
+    const startQuality = detectQuality();
+    let quality = startQuality === 'low' ? 2 : phone ? 1 : 0;
     renderer.setPixelRatio(qualities[quality].ratio);
     renderer.shadowMap.enabled = qualities[quality].shadows;
     renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft was removed from three; PCF + shadow.radius is soft enough
@@ -262,11 +274,41 @@ export function DoubleO() {
     const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 140);
     scene.add(camera);
     // MSAA render target so the post-processing chain keeps antialiasing.
-    const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
+    const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: qualities[quality].samples, type: THREE.HalfFloatType }));
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.4, 0.97);
+    // Ambient occlusion (High only): contact shadows in corners and under props.
+    const gtao = new GTAOPass(scene, camera, 256, 256);
+    gtao.updateGtaoMaterial({ radius: 0.7, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 10, distanceFallOff: 1, screenSpaceRadius: false });
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, radiusExponent: 1, rings: 2, samples: 8 });
+    gtao.enabled = qualities[quality].ao;
+    composer.addPass(gtao);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), qualities[quality].bloom, 0.4, 1.6); // high threshold: only lamps, flashes and screens glow, not lit walls
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
+    const grade = makeGradePass();
+    composer.addPass(grade.pass);
+    let hurtAmt = 0;
+    const applyQuality = (i: number) => {
+      quality = i;
+      const qd = qualities[i];
+      renderer.setPixelRatio(qd.ratio);
+      composer.setPixelRatio(qd.ratio);
+      renderer.shadowMap.enabled = qd.shadows;
+      key.castShadow = qd.shadows;
+      gtao.enabled = qd.ao;
+      bloom.strength = qd.bloom;
+      for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+        if (rt.samples !== qd.samples) {
+          rt.samples = qd.samples;
+          rt.dispose();
+        }
+      }
+      scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+        if (m) m.needsUpdate = true;
+      });
+      renderer.setSize(0, 0, false); // forces the resize below
+    };
     const hemi = new THREE.HemisphereLight('#ffffff', '#202020', 0.6);
     scene.add(hemi);
     // Environment reflections (studio room, prefiltered).
@@ -278,7 +320,7 @@ export function DoubleO() {
     scene.add(torch);
     // Soft shadows from a ceiling spotlight that follows the agent.
     const key = new THREE.SpotLight('#fff4e0', 32, 26, 0.9, 0.6, 1.4);
-    key.castShadow = true;
+    key.castShadow = qualities[quality].shadows;
     key.shadow.mapSize.set(2048, 2048);
     key.shadow.radius = 4;
     key.shadow.bias = -0.0004;
@@ -313,6 +355,30 @@ export function DoubleO() {
     flash.visible = false;
     flash.renderOrder = 11;
     gunHolder.add(flash);
+    // A second, star-shaped flash (spikes) layered over the fireball for a proper muzzle blast.
+    const starCv = document.createElement('canvas');
+    starCv.width = starCv.height = 128;
+    {
+      const c = starCv.getContext('2d')!;
+      c.translate(64, 64);
+      for (let i = 0; i < 8; i++) {
+        c.rotate(Math.PI / 4);
+        const g = c.createLinearGradient(0, 0, 60, 0);
+        g.addColorStop(0, 'rgba(255,255,230,1)');
+        g.addColorStop(1, 'rgba(255,170,60,0)');
+        c.fillStyle = g;
+        c.beginPath();
+        c.moveTo(0, -4 - (i % 2) * 2);
+        c.lineTo(i % 2 ? 34 : 62, 0);
+        c.lineTo(0, 4 + (i % 2) * 2);
+        c.fill();
+      }
+    }
+    const flash2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(starCv), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+    flash2.scale.setScalar(0.5);
+    flash2.visible = false;
+    flash2.renderOrder = 12;
+    gunHolder.add(flash2);
 
     // ── PNEE coins: the token's icon on a gold coin (or "PNEE" stamped on it) ──
     const coinCanvas = document.createElement('canvas');
@@ -358,7 +424,7 @@ export function DoubleO() {
     const faceMat = new THREE.MeshStandardMaterial({ map: coinTex, metalness: 0.5, roughness: 0.35, emissive: new THREE.Color('#3a2600'), emissiveMap: coinTex });
     const coinGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.025, 20);
     const coinMats = [rimMat, faceMat, faceMat];
-    type Flyer = { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; target: Actor | null; point: THREE.Vector3; dmg?: number };
+    type Flyer = { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; target: Actor | null; point: THREE.Vector3; dmg?: number; n?: THREE.Vector3 | null };
     const flyers: Flyer[] = [];
     // Q Branch ordnance fires its own ammo (tracers, pellets, beams, plasma, rockets, grenades).
     const ammoFx = makeAmmoFx(scene, 0);
@@ -414,6 +480,9 @@ export function DoubleO() {
       sparks.push({ s, born: performance.now(), life: 160, size });
     };
 
+    const impacts = makeImpacts(scene, qualities[quality].ao);
+    const nrmTmp = new THREE.Vector3();
+
     // ── Enemy projectiles ──
     const shotMats = new Map<string, THREE.SpriteMaterial>();
     const fireTex = fireballTexture();
@@ -430,6 +499,8 @@ export function DoubleO() {
 
     // ── State ──
     let assets: ArenaAssets | null = null;
+    let lookSet: Look | null = null;
+    let dressing: Dressing | null = null;
     let sfx: Sfx | null = null;
     let lvlGroup: THREE.Group | null = null;
     let grid: Grid | null = null;
@@ -553,14 +624,23 @@ export function DoubleO() {
       scene.add(g);
       const T = L.theme;
       scene.background = new THREE.Color(T.fog);
-      scene.fog = new THREE.Fog(T.fog, 14, 46);
-      hemi.intensity = T.ambient;
+      const spec = lookSet ? LOOKS[L.id] : null;
+      scene.fog = spec ? new THREE.FogExp2(T.fog, spec.fogDensity) : new THREE.Fog(T.fog, 14, 46);
+      hemi.intensity = spec ? T.ambient * 0.8 : T.ambient;
+      if (spec) {
+        renderer.toneMappingExposure = spec.exposure;
+        scene.environmentIntensity = spec.envIntensity;
+        grade.apply(spec.grade);
+      }
+      if (dressing) dressing = null;
+      impacts.clear();
       const W = grid.w * SIZE;
       const H = grid.h * SIZE;
 
       // Floor + ceiling.
       let floorMat: THREE.MeshStandardMaterial;
-      if (T.floor) floorMat = assets.material(T.floor, [grid.w, grid.h]);
+      if (lookSet && spec) floorMat = lookSet.material(spec.floor, [grid.w * 1.6, grid.h * 1.6], spec.floorTint, 0);
+      else if (T.floor) floorMat = assets.material(T.floor, [grid.w, grid.h]);
       else {
         const c = document.createElement('canvas');
         c.width = c.height = 64;
@@ -588,7 +668,7 @@ export function DoubleO() {
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(W / 2, 0, H / 2);
       g.add(floor);
-      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ color: T.ceiling, roughness: 1 }));
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, H), lookSet && spec ? lookSet.material(spec.ceiling, [grid.w * 1.2, grid.h * 1.2], spec.ceilingTint, 0.2) : new THREE.MeshStandardMaterial({ color: T.ceiling, roughness: 1 }));
       ceil.rotation.x = Math.PI / 2;
       ceil.position.set(W / 2, WALL_H, H / 2);
       g.add(ceil);
@@ -597,7 +677,8 @@ export function DoubleO() {
       const wallCells: [number, number][] = [];
       grid.rows.forEach((r, z) => [...r].forEach((c, x) => c === '#' && wallCells.push([x, z])));
       const wallGeo = new THREE.BoxGeometry(SIZE, WALL_H, SIZE);
-      const mats = [assets.material(T.wall, [1, 0.9]), assets.material(T.trim, [1, 0.9])];
+      const trimMat = lookSet && spec ? lookSet.material(spec.trim, [1, 0.9], spec.trimTint, 0.5) : assets.material(T.trim, [1, 0.9]);
+      const mats = [lookSet && spec ? lookSet.material(spec.wall, [1, 0.9], spec.wallTint) : assets.material(T.wall, [1, 0.9]), trimMat];
       const parts = [wallCells.filter(([x, z]) => (x * 7 + z * 3) % 5 !== 0), wallCells.filter(([x, z]) => (x * 7 + z * 3) % 5 === 0)];
       const mtx = new THREE.Matrix4();
       parts.forEach((cells, k) => {
@@ -810,6 +891,8 @@ export function DoubleO() {
         }
       });
 
+      if (lookSet && spec) dressing = dressLevel(g, grid, L, spec, trimMat, qualities[quality].ao);
+
       // Objective beacon.
       beacon = new THREE.Group();
       const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, WALL_H, 20, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color('#40ff90').multiplyScalar(1.5), transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
@@ -906,6 +989,7 @@ export function DoubleO() {
     const damagePlayer = (n: number, from?: THREE.Vector3) => {
       if (!running) return;
       shake = Math.max(shake, 0.2);
+      hurtAmt = 0.5;
       if (from) {
         hitDirs.push({ ang: Math.atan2(-(from.x - camera.position.x), -(from.z - camera.position.z)), until: elapsed + 1.6 });
         if (hitDirs.length > 6) hitDirs.shift();
@@ -1053,6 +1137,7 @@ export function DoubleO() {
       sfx?.hit();
       burstCoins(point, a.cast.boss ? 3 : 2);
       spark(point, a.cast.boss ? 0.7 : 0.5);
+      impacts.hit(point, nrmTmp.copy(camera.position).sub(point).normalize(), false, now);
       if (mine && !(markerKill && markerT > 0.2)) {
         markerT = 0.18;
         markerKill = false;
@@ -1190,7 +1275,7 @@ export function DoubleO() {
         const m = new THREE.Mesh(coinGeo, coinMats);
         m.position.copy(from);
         scene.add(m);
-        flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone(), dmg });
+        flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone(), dmg, n: hit && !target && !foe && hit.face ? hit.face.normal.clone() : null });
         if (gold) ammoFx.fire('laser', from, end, HOUSE_GOLD); // gold tracer behind the coin (visual only)
       }
       // Noise wakes up anyone nearby.
@@ -1206,7 +1291,9 @@ export function DoubleO() {
         heat = queue.length;
         void drain();
       }
-      flash.visible = true;
+      flash.visible = flash2.visible = true;
+      flash2.material.rotation = Math.random() * Math.PI;
+      flash2.scale.setScalar(0.35 + Math.random() * 0.25);
       flash.material.rotation = Math.random() * Math.PI;
       muzzleLight.intensity = 14;
       recoil = 0.6;
@@ -1316,6 +1403,7 @@ export function DoubleO() {
         setScreen('menu');
       },
       leave: () => leaveMission(),
+      setQuality: (q) => applyQuality(q === 'low' ? 2 : phone ? 1 : 0),
       arm: (id) => {
         if (!assets) return;
         const o = ORDNANCE.find((x) => x.id === id);
@@ -1329,6 +1417,7 @@ export function DoubleO() {
           }
           gunHolder.add(held.group);
           flash.position.copy(held.muzzle);
+          flash2.position.copy(held.muzzle);
         };
         const stock = GUNS.find((g) => g.id === (o ? o.base : gunDef.id)) ?? gunDef;
         // Hold the stock model at once; an ordnance gun with its own model swaps it in when the file arrives.
@@ -1944,7 +2033,7 @@ export function DoubleO() {
       key.position.set(camera.position.x - Math.sin(yaw) * 1.5, WALL_H - 0.15, camera.position.z - Math.cos(yaw) * 1.5);
       key.target.position.set(camera.position.x - Math.sin(yaw) * 7, 0, camera.position.z - Math.cos(yaw) * 7);
       muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 200);
-      if (muzzleLight.intensity < 4) flash.visible = false;
+      if (muzzleLight.intensity < 4) flash.visible = flash2.visible = false;
       recoil = Math.max(0, recoil - dt * 8);
       gunHolder.position.set(gunRest.x + Math.cos(walkPhase / 2) * 0.01, gunRest.y + Math.abs(Math.sin(walkPhase / 2)) * 0.01, gunRest.z + recoil * 0.06);
       gunHolder.rotation.x = recoil * 0.1;
@@ -1959,7 +2048,10 @@ export function DoubleO() {
           scene.remove(fl.m);
           flyers.splice(i, 1);
           if (fl.target) hitActor(fl.target, fl.point, now, true, fl.dmg);
-          else burstCoins(fl.point, 1);
+          else {
+            burstCoins(fl.point, 1);
+            if (fl.n) impacts.hit(fl.point, fl.n, true, now);
+          }
         }
       }
       for (let i = loose.length - 1; i >= 0; i--) {
@@ -1989,6 +2081,10 @@ export function DoubleO() {
         sp.s.scale.setScalar(sp.size * (0.4 + t));
         sp.s.material.opacity = 1 - t;
       }
+      impacts.update(dt, now);
+      dressing?.update(dt, camera.position);
+      hurtAmt = Math.max(0, hurtAmt - dt * 3);
+      grade.tick(now / 1000, Math.min(1, hurtAmt));
       // Crosshair hit marker (an X that flashes white on a hit, red on a kill).
       markerT = Math.max(0, markerT - dt);
       const mk = marker.current;
@@ -2042,7 +2138,7 @@ export function DoubleO() {
     let prevFrame = performance.now();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const dt = Math.min(0.05, (now - lastTick) / 1000);
+      const dt = Math.max(0, Math.min(0.05, (now - lastTick) / 1000)); // rAF timestamps can predate lastTick: never run time backwards
       lastTick = now;
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -2059,14 +2155,9 @@ export function DoubleO() {
       prevFrame = now;
       if (running && slowT > 20 && quality < qualities.length - 1) {
         if ((slowFor += dt) > 2) {
-          quality++;
           slowFor = 0;
           slowT = 16;
-          renderer.setPixelRatio(qualities[quality].ratio);
-          renderer.shadowMap.enabled = qualities[quality].shadows;
-          key.castShadow = qualities[quality].shadows;
-          composer.setPixelRatio(qualities[quality].ratio);
-          renderer.setSize(0, 0, false); // forces the resize below
+          applyQuality(quality + 1);
         }
       } else slowFor = 0;
       if (running) step(dt, performance.now());
@@ -2155,16 +2246,20 @@ export function DoubleO() {
           health = 1e6;
         },
         place: (x: number, z: number) => camera.position.set(x, EYE, z),
+        dbg: { scene, renderer, bloom, gtao, grade, composer, hurt: () => hurtAmt },
       };
     }
 
-    Promise.all([loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p))), loadCastModels()])
-      .then(([a]) => {
+    Promise.all([loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p * 0.85))), loadCastModels(), loadLook(renderer, startQuality, (p) => !disposed && setLoading((l) => Math.min(0.99, Math.max(l, 0.85 + p * 0.14)))).catch(() => null)])
+      .then(([a, , lk]) => {
         if (disposed) return;
         assets = a;
+        lookSet = lk;
+        if (lk?.env) scene.environment = lk.env;
         held = buildGun(gunDef, a.guns[gunDef.id]);
         gunHolder.add(held.group);
         flash.position.copy(held.muzzle);
+        flash2.position.copy(held.muzzle);
         if (gearRef.current) engine.current?.arm(gearRef.current);
         // Menu backdrop: mission 1, nobody playing.
         buildLevel(0);
@@ -2199,6 +2294,8 @@ export function DoubleO() {
       document.removeEventListener('pointerlockchange', onLock);
       if (lvlGroup) disposeGroup(lvlGroup);
       composer.dispose();
+      impacts.dispose();
+      lookSet?.dispose();
       envTex.dispose();
       pmrem.dispose();
       renderer.dispose();
@@ -2263,6 +2360,14 @@ export function DoubleO() {
         <button onClick={() => setVersus((v) => !v)} className={`btn px-2 py-0.5 text-xs ${versus ? 'btn-on' : ''}`} title="Agents with VERSUS on can shoot each other (V in game)">
           VERSUS {versus ? 'ON' : 'OFF'}
         </button>
+        <span className="ml-auto flex items-center gap-1 text-xs">
+          <span className="font-bold tracking-widest text-dim">GRAPHICS</span>
+          {(['low', 'high'] as const).map((q) => (
+            <button key={q} onClick={() => pickQuality(q)} className={`btn px-2 py-0.5 text-xs ${qual === q ? 'btn-on' : 'opacity-70'}`} title={q === 'high' ? 'Ambient occlusion, soft shadows, full resolution' : 'Faster: no ambient occlusion or shadows, lower resolution (default on phones)'}>
+              {q.toUpperCase()}
+            </button>
+          ))}
+        </span>
       </div>
       <p className="text-xs text-dim">
         {realtimeConfigured()
