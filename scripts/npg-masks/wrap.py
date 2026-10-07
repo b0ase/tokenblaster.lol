@@ -32,6 +32,10 @@ def uv_of(co):
     if mode == 'eyes':
         px = 482 + (co.x + 0.025) * 1033
         py = 655 + (0.575 - co.z) * 920
+    elif mode == 'planar':
+        # Ayumi is the base mask's own design: the front-on registration is exact for it.
+        px = CX + co.x * SX
+        py = CY + (Z0 - co.z) * SZ
     else:
         # Cylindrical, not planar: arc length round the head, so the card's outer art wraps onto
         # the cheeks instead of smearing. Same px/m as vertical (843) also matches the card width.
@@ -61,8 +65,8 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
     cid = os.path.splitext(os.path.basename(crop))[0]
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=chibi)
-    mode = 'eyes' if cid in EYE_CARDS else 'mask'
-    src = bpy.data.objects['mask' if mode == 'mask' else 'head']
+    mode = 'eyes' if cid in EYE_CARDS else 'planar' if cid == '11_003_Mask_Ayumi-Mask' else 'mask'
+    src = bpy.data.objects['head' if mode == 'eyes' else 'mask']
     me = src.data.copy()
     me.transform(src.matrix_world)  # rest pose, model space
     if mode == 'eyes':
@@ -87,11 +91,13 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
 
         def keep(f):
             c = f.calc_center_median()
-            top = 0.60 if abs(c.x) < 0.035 else 0.553
+            top = 0.575 if abs(c.x) < 0.03 else 0.54  # stays below the eyes
             return f.normal.y < -0.3 and 0.5 < c.z < top
         bmesh.ops.delete(bm0, geom=[f for f in bm0.faces if not keep(f)], context='FACES')
         for v in bm0.verts:
             v.co += v.normal * 0.003
+        for f in bm0.faces:
+            f.material_index = 1  # tag: extension, not the base mask
         bm0.from_mesh(me)  # append the mask itself
         bm0.to_mesh(me)
         bm0.free()
@@ -117,36 +123,44 @@ for crop in sorted(glob.glob(os.path.join(crops, '*.png'))):
     uvl = bm.loops.layers.uv.verify()
     dead = []
     for f in bm.faces:
-        hit = False
+        hits = 0
         cen = f.calc_center_median()
         pts = [cen] + [l.vert.co for l in f.loops] + [(cen + l.vert.co) / 2 for l in f.loops]
         for p in pts:
             u, v = uv_of(p)
             if alpha(u, v) > 0.5:
-                hit = True
-                break
+                hits += 1
         for l in f.loops:
             l[uvl].uv = uv_of(l.vert.co)
-        if not hit:
+        if hits < 3:  # needs real coverage, so no ragged slivers on the outline
             dead.append(f)
     bmesh.ops.delete(bm, geom=dead, context='FACES')
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
 
-    # Flush: pull the outline (boundary loop) onto the face, 1.5 mm out, and the next ring half
-    # way, so edges and straps don't stand proud. Interior keeps its shape (respirators etc.).
+    # Flush: shrinkwrap EVERY vertex to the face (nearest surface point), 2 mm out, keeping only
+    # a little of the original relief (at most +3 mm) so no beak stands off in side view.
     # UVs are already set, so the art doesn't slide.
     def gap(co):
         hit = face_bvh.find_nearest(co)
         return (hit[0], hit[1], hit[3]) if hit[0] is not None else (None, None, 0.0)
     edge = {v for v in bm.verts if any(e.is_boundary for e in v.link_edges)}
-    ring = {n for v in edge for e in v.link_edges for n in (e.other_vert(v),)} - edge
-    for vs, k in ((edge, 1.0), (ring, 0.5)):
-        for v in vs:
-            loc, nrm, d = gap(v.co)
-            if loc is None or d < 0.0015:
-                continue
-            target = loc + nrm.normalized() * 0.0015
-            v.co = v.co.lerp(target, k)
+    moved = []
+    for v in bm.verts:
+        loc, nrm, d = gap(v.co)
+        if loc is not None:
+            relief = 0 if v in edge else min(0.003, 0.25 * max(0.0, d - 0.002))  # outline sits flat
+            moved.append((v, loc + nrm.normalized() * (0.002 + relief)))
+    for v, co in moved:
+        v.co = co
+    if cid in TALL_CARDS:
+        # Nothing over the eyes: drop any face reaching above the under-eye line.
+        def above(f):
+            return f.material_index == 1 and any(v.co.z > (0.575 if abs(v.co.x) < 0.025 else 0.525) for v in f.verts)
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if above(f)], context='FACES')
+        for f in bm.faces:
+            f.material_index = 0
+        bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    edge = {v for v in bm.verts if any(e.is_boundary for e in v.link_edges)}
     edge_gap = max((gap(v.co)[2] for v in edge), default=0)
     all_gap = max((gap(v.co)[2] for v in bm.verts), default=0)
     print('GAP', cid, 'edge_mm=%.1f' % (edge_gap * 1000), 'max_mm=%.1f' % (all_gap * 1000))
