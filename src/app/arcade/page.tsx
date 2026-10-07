@@ -3,13 +3,14 @@ import { GameBlasts } from '@/components/GameBlasts';
 import { PageHead, SectionHead } from '@/components/dr/site';
 import { Pictogram } from '@/components/dr';
 import { byTitle } from '@/lib/alpha';
+import { ARCADE_CARD, shareImages } from '@/lib/og';
 
 const description = 'Games built on the live BSV chain: shoot your own tokens, dodge real mainnet traffic, and more on the way.';
 export const metadata = {
   title: 'Arcade · TokenBlaster.lol',
   description,
-  openGraph: { title: 'TokenBlaster Arcade', description, url: '/arcade' },
-  twitter: { card: 'summary_large_image', title: 'TokenBlaster Arcade', description },
+  openGraph: { title: 'TokenBlaster Arcade', description, url: '/arcade', images: shareImages(ARCADE_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'TokenBlaster Arcade', description, images: shareImages(ARCADE_CARD).twitter },
 };
 
 type Game = { href?: string; title: string; blurb: string; status: 'live' | 'soon'; img: string; version?: string; /** game name in its blasts' OP_RETURN */ tag?: string };

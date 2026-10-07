@@ -1,1 +1,0 @@
-TokenBlaster.lol: a DOOM-style arena where every bullet is a real BSV transaction

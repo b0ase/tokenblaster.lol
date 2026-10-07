@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
+import { LAUNCH_CARD, shareImages } from '@/lib/og';
 
 const description = 'Launch a BSV-21 memecoin, trade it on its bonding curve in one atomic transaction, then shoot it in the Arena. Indexed from block one, with proof of reserves.';
 const title = 'BLASTPAD: launch a coin. Blast it up the curve.';
 
-/** Every BlastPad page shares as BlastPad (with the /launch card), not as the TokenBlaster home page. */
+/** Every BlastPad page shares as BlastPad (with the /launch card, public/og/launch-dr-v1.jpg), not as the TokenBlaster home page. */
 export const metadata: Metadata = {
   description,
-  openGraph: { title, description, url: '/launch', siteName: 'TokenBlaster.lol', type: 'website' },
-  twitter: { card: 'summary_large_image', title, description },
+  openGraph: { title, description, url: '/launch', siteName: 'TokenBlaster.lol', type: 'website', images: shareImages(LAUNCH_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title, description, images: shareImages(LAUNCH_CARD).twitter },
 };
 
 export default function LaunchLayout({ children }: { children: React.ReactNode }) {
