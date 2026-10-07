@@ -23,6 +23,7 @@ import { buildWorld, Particles, SpeedLines, type Quality, type World } from './w
 
 export type Phase = 'loading' | 'menu' | 'countdown' | 'racing' | 'paused' | 'finished';
 export type Mode = 'race' | 'trial';
+export type Difficulty = 'normal' | 'hardcore';
 export type Hud = {
   kmh: number;
   speed01: number;
@@ -33,6 +34,7 @@ export type Hud = {
   lapTime: number;
   time: number;
   energy: number;
+  hp: number;
   boosting: boolean;
   weapon: Weapon | null;
   shield: boolean;
@@ -47,6 +49,8 @@ export type Result = {
   track: TrackId;
   ship: string;
   mode: Mode;
+  difficulty: Difficulty;
+  dnf: boolean;
   pos: number;
   total_cars: number;
   total: number;
@@ -73,7 +77,7 @@ export type Callbacks = {
   onBoard(rows: LiveRow[]): void;
   onStartRequest?(): void;
   onPerf?(info: { fps: number; level: number }): void;
-  onFlash?(kind: 'pad' | 'hit' | 'boost' | 'quake'): void;
+  onFlash?(kind: 'pad' | 'hit' | 'boost' | 'quake' | 'pit'): void;
 };
 
 export type Options = {
@@ -81,6 +85,7 @@ export type Options = {
   ship: string;
   team: string;
   mode: Mode;
+  difficulty: Difficulty;
   quality: Quality;
   take: (pred?: (f: FeedTx) => boolean) => FeedTx | null;
   cb: Callbacks;
@@ -247,6 +252,10 @@ export class HyperEngine {
   private lastCount = -1;
   private laps = 3;
   private finishedMe = false;
+  private dead = false;
+  private deathT = 0;
+  private dmgCool = 0;
+  private hc = false;
   private rivalHits = 0;
   private lastHud = 0;
   private lastMap = 0;
@@ -268,6 +277,7 @@ export class HyperEngine {
     this.spec = SHIPS.find((s) => s.id === opts.ship) ?? SHIPS[1];
     this.team = TEAMS.find((t) => t.id === opts.team) ?? TEAMS[0];
     this.laps = 3;
+    this.hc = opts.difficulty === 'hardcore';
     this.maxDpr = opts.quality === 'ultra' ? 2 : opts.quality === 'high' ? 1.6 : 1.05;
   }
 
@@ -322,7 +332,7 @@ export class HyperEngine {
     cb.onLoading('Building the megastructure', 0.3);
     await new Promise((r) => setTimeout(r, 0));
     if (this.disposed) return;
-    this.world = buildWorld(tr, q, renderer);
+    this.world = buildWorld(tr, q, renderer, this.opts.difficulty !== 'hardcore');
     const sky = this.world.sky;
     // Image-based light from the sky dome.
     const envScene = new THREE.Scene();
@@ -575,6 +585,12 @@ export class HyperEngine {
     this.lapSplits = [];
     this.sectorShown = -1;
     this.finishedMe = false;
+    this.dead = false;
+    this.deathT = 0;
+    this.dmgCool = 0;
+    this.playerRig.root.visible = true;
+    if (this.trailL) this.trailL.mesh.visible = true;
+    if (this.trailR) this.trailR.mesh.visible = true;
     this.rivalHits = 0;
     this.cellTaken = [];
     this.weaponCool = this.tr.weapons.map(() => 0);
@@ -740,8 +756,37 @@ export class HyperEngine {
       this.audio.fx('turbo');
       this.boostBurst(true);
     }
-    stepShip(me, inp, this.spec, tr, dt, this.frame);
+    if (this.dead) {
+      this.deathT += dt;
+      this.stepRivals(dt);
+      this.stepWeapons(dt);
+      if (this.deathT > 2 && !this.finishedMe) this.finish(true);
+      return;
+    }
+    stepShip(me, inp, this.spec, tr, dt, this.frame, !this.hc);
     const ev = me.ev;
+    this.dmgCool = Math.max(0, this.dmgCool - dt);
+    const drain = this.hc ? 2.5 : 1;
+    if (ev.wall > 0 && !finished) {
+      if (me.shieldT > 0) me.shieldT = Math.max(0, me.shieldT - 0.5);
+      else if (this.dmgCool <= 0) {
+        this.dmgCool = 0.2;
+        const dmg = (0.004 + Math.max(0, ev.wall - 5) * 0.0075 + ev.wallAng * 0.16 * (me.vs / 180)) * drain;
+        me.hp = Math.max(0, me.hp - dmg);
+        if (this.hc && me.vs > this.spec.vmax * 0.85 && ev.wallAng > 0.3) me.hp = 0;
+        if (dmg > 0.05) {
+          this.hitFlash = Math.max(this.hitFlash, 0.6);
+          this.opts.cb.onFlash?.('hit');
+        }
+      }
+    }
+    if (ev.pit && !finished) {
+      if (me.hp < 1) this.opts.cb.onFlash?.('pit');
+    }
+    if (me.hp <= 0 && !finished) {
+      this.die();
+      return;
+    }
     if (ev.pad) {
       this.pulse = 0;
       this.audio.fx('pad');
@@ -1055,6 +1100,7 @@ export class HyperEngine {
     }
     me.stunT = 1.1;
     me.hits++;
+    me.hp = Math.max(0, me.hp - 0.28 * (this.hc ? 2.5 : 1));
     me.vs *= 0.55;
     this.shake = 1;
     this.hitFlash = 1;
@@ -1071,7 +1117,23 @@ export class HyperEngine {
     m.quaternion.setFromRotationMatrix(this.mTmp);
   }
 
-  private finish() {
+  private die() {
+    this.dead = true;
+    this.deathT = 0;
+    const me = this.me;
+    this.playerRig.root.visible = false;
+    if (this.trailL) this.trailL.mesh.visible = false;
+    if (this.trailR) this.trailR.mesh.visible = false;
+    this.explodeAt(me.S, me.lat, 3);
+    this.shake = 1;
+    this.hitFlash = 1;
+    this.audio.fx('boom');
+    this.audio.fx('quake');
+    this.toast('SHIP DESTROYED', 'bad');
+    this.opts.cb.onFlash?.('hit');
+  }
+
+  private finish(dnf = false) {
     this.finishedMe = true;
     const me = this.me;
     const total = this.raceT;
@@ -1081,21 +1143,22 @@ export class HyperEngine {
       const t = (r.done ? this.raceT : this.raceT + left) - 0;
       return { name: this.labelText(r).main, sub: r.spec.detail, time: r.done ? Math.min(t, this.raceT + 0.01) : t, me: false, tx: r.spec.tx, color: r.team.base, logo: tokenMeta(r.spec.token ?? '')?.iconSrc ?? null };
     });
-    board.push({ name: 'YOU', sub: this.team.name, time: total, me: true, tx: null, color: this.team.base, logo: null });
+    board.push({ name: dnf ? 'YOU (DNF)' : 'YOU', sub: this.team.name, time: dnf ? 9999 : total, me: true, tx: null, color: this.team.base, logo: null });
     board.sort((a, b) => a.time - b.time);
-    const pos = trial ? 1 : board.findIndex((b) => b.me) + 1;
+    const pos = trial && !dnf ? 1 : board.findIndex((b) => b.me) + 1;
     const par = this.tr.tIdeal[this.tr.n - 1] * this.laps * 1.06;
     const timePts = Math.max(0, Math.min(3000, Math.round(3000 - (total - par) * 40))) * (trial ? 2 : 1);
     const place = trial ? 0 : POINTS[Math.min(7, pos - 1)] ?? 0;
     const cells = Math.min(40, me.cells) * 50;
     const clean = Math.max(0, 500 - me.hits * 50);
     const combat = Math.min(1000, this.rivalHits * 150);
-    const score = timePts + place + cells + clean + combat;
-    const r: Result = { track: this.opts.track, ship: this.spec.id, mode: this.opts.mode, pos, total_cars: trial ? 1 : board.length, total, laps: this.lapTimes.slice(), bestLap: Math.min(...this.lapTimes, 9999), hits: me.hits, cells: me.cells, rivalHits: this.rivalHits, parts: { time: timePts, place, cells, clean, combat }, score, board };
-    this.audio.fx('win');
+    const prog = Math.max(0, Math.min(1, me.S / total));
+    const score = dnf ? Math.round(prog * 1500) + cells + combat : timePts + place + cells + clean + combat;
+    const r: Result = { track: this.opts.track, ship: this.spec.id, mode: this.opts.mode, difficulty: this.opts.difficulty, dnf, pos, total_cars: trial ? 1 : board.length, total, laps: this.lapTimes.slice(), bestLap: Math.min(...this.lapTimes, 9999), hits: me.hits, cells: me.cells, rivalHits: this.rivalHits, parts: dnf ? { time: 0, place: 0, cells, clean: 0, combat } : { time: timePts, place, cells, clean, combat }, score, board };
+    if (!dnf) this.audio.fx('win');
     this.setPhase('finished');
     this.opts.cb.onFinish(r);
-    this.opts.cb.onHud({ kmh: 0, speed01: 0, lap: this.laps, laps: this.laps, pos, total: board.length, lapTime: 0, time: total, energy: 0, boosting: false, weapon: null, shield: false, progress: 1, air: false, wrongWay: false, best: this.bestLap });
+    this.opts.cb.onHud({ kmh: 0, speed01: 0, lap: this.laps, laps: this.laps, pos, total: board.length, lapTime: 0, time: total, energy: 0, hp: me.hp, boosting: false, weapon: null, shield: false, progress: 1, air: false, wrongWay: false, best: this.bestLap });
   }
 
   // ───────────── Placement and camera ─────────────
@@ -1323,6 +1386,7 @@ export class HyperEngine {
       lapTime: this.lapT,
       time: this.raceT,
       energy: me.energy,
+      hp: me.hp,
       boosting: me.boostT > 0,
       weapon: me.weapon,
       shield: me.shieldT > 0,

@@ -160,7 +160,7 @@ export type CoinOp = ReturnType<typeof useCoinOp>;
  * the coin and starts the game the moment it lands (owner, 7 Oct 2026: paying then hunting for a
  * separate start button was bad design). Without `start` it only takes a coin (a credit for later).
  */
-export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY' }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string }) {
+export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void }) {
   const label = !co.enabled
     ? 'COIN SLOT CLOSED'
     : co.paying
@@ -176,7 +176,11 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY' }: { co: C
   return (
     <div className="flex flex-col items-center gap-1" onKeyDown={(e) => e.stopPropagation()}>
       <button
-        onClick={() => (start ? co.playPaid(start) : co.insert())}
+        onClick={() => {
+          onPress?.(); // runs inside the click, so a game can ask for fullscreen while the user gesture is live
+          if (start) co.playPaid(start);
+          else void co.insert();
+        }}
         disabled={!co.enabled || co.paying || (!canUseCredit && !co.sats)}
         className="btn btn-on border-2 border-[#ffd36a] px-5 py-2.5 text-base font-bold tracking-widest text-[#ffd36a] shadow-[0_0_14px_#ffd36a80] disabled:opacity-50 sm:text-lg"
       >
@@ -202,17 +206,25 @@ export function CoinOpButtons({
   perCredit,
   playLabel = 'PLAY',
   practiceLabel = '▶ PRACTICE · FREE',
+  onPress,
 }: {
   co: CoinOp;
   start: (paid: boolean) => void;
   perCredit?: string;
   playLabel?: string;
   practiceLabel?: string;
+  onPress?: () => void;
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <InsertCoin co={co} perCredit={perCredit} start={start} playLabel={playLabel} />
-      <button onClick={() => start(false)} className="btn px-3 py-1 text-sm">
+      <InsertCoin co={co} perCredit={perCredit} start={start} playLabel={playLabel} onPress={onPress} />
+      <button
+        onClick={() => {
+          onPress?.();
+          start(false);
+        }}
+        className="btn px-3 py-1 text-sm"
+      >
         {practiceLabel}
       </button>
     </div>

@@ -1,0 +1,1 @@
+Sat Stack 2048 V1 on TokenBlaster.lol: a sliding-tile merge puzzle where equal sat stacks combine, dust to sat to coin to vault

@@ -297,7 +297,7 @@ const WINDOW_MAT = (tint: number) => {
   return m;
 };
 
-export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer): World {
+export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer, pitLane = true): World {
   const p = tr.def.palette;
   const group = new THREE.Group();
   const disposables: { dispose(): void }[] = [];
@@ -355,6 +355,24 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer)
     group.add(m);
   }
 
+  // Pit lane: a green recharge strip along the left edge.
+  if (pitLane) {
+    const pc = canvas(256, 256);
+    const pg = pc.getContext('2d')!;
+    pg.fillStyle = '#04140a';
+    pg.fillRect(0, 0, 256, 256);
+    pg.fillStyle = '#18ff7a';
+    pg.fillRect(0, 0, 256, 10);
+    pg.fillRect(0, 246, 256, 10);
+    pg.fillRect(120, 70, 16, 116);
+    pg.fillRect(70, 120, 116, 16);
+    const pitTex = own(texOf(pc, true));
+    const pitMat = own(new THREE.MeshBasicMaterial({ map: pitTex, color: col('#ffffff', 1.5), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const [a, b] = tr.def.pit;
+    const pm = new THREE.Mesh(own(strip(tr, a * tr.len, b * tr.len, -HALF_W + 1, -9, 0.1, ((b - a) * tr.len) / 12, 4)), pitMat);
+    pm.frustumCulled = false;
+    group.add(pm);
+  }
   // Cells (energy), weapon pads: instanced.
   const dummy = new THREE.Object3D();
   const cellGeo = own(new THREE.OctahedronGeometry(0.8, 0));

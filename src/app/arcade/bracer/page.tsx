@@ -27,7 +27,7 @@ export default function BRacerPage() {
         <p className="mt-1 text-dim">Anti-gravity racing at 700 km/h. Every rival ship is a live mainnet transaction; the biggest moves are the fastest.</p>
       </header>
       <BRacer />
-      <HighScoresPanel games={['bracer-canyon', 'bracer-spiral', 'bracer-void']} titles={['GENESIS CANYON', 'ORPHAN SPIRAL', 'COINBASE VOID']} sorts={['score', 'time']} label="SCORE" />
+      <HighScoresPanel games={['bracer-canyon', 'bracer-spiral', 'bracer-void', 'bracer-canyon-hc', 'bracer-spiral-hc', 'bracer-void-hc']} titles={['GENESIS CANYON', 'ORPHAN SPIRAL', 'COINBASE VOID', 'CANYON HARDCORE', 'SPIRAL HARDCORE', 'VOID HARDCORE']} sorts={['score', 'time']} label="SCORE" />
     </main>
   );
 }

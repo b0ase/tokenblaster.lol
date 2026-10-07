@@ -45,6 +45,8 @@ export type TrackDef = {
   jumps: number[];
   pads: [number, number][];
   weapons: number[];
+  /** Pit-lane recharge strip along the left edge, as a fraction of the lap. */
+  pit: [number, number];
   palette: Palette;
 };
 
@@ -69,6 +71,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     jumps: [0.12, 0.64],
     pads: [[0.04, 0], [0.2, -6], [0.33, 6], [0.55, 0], [0.7, -5], [0.9, 5]],
     weapons: [0.08, 0.28, 0.5, 0.68, 0.88],
+    pit: [0.9, 0.985],
     palette: { zenith: '#04041a', horizon: '#ff3d8b', glow: '#27e6ff', fog: '#2a1038', a1: '#27e6ff', a2: '#ff2f92', sun: '#ffb5e8', fogDensity: 0.00115 },
   },
   spiral: {
@@ -91,6 +94,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     jumps: [0.2, 0.5],
     pads: [[0.03, 0], [0.16, 5], [0.32, -5], [0.45, 0], [0.55, 6], [0.76, -4], [0.95, 0]],
     weapons: [0.06, 0.24, 0.42, 0.62, 0.8],
+    pit: [0.915, 0.985],
     palette: { zenith: '#0a0420', horizon: '#ff8a1c', glow: '#b04bff', fog: '#2a0f2c', a1: '#ffb020', a2: '#b04bff', sun: '#ffd27a', fogDensity: 0.00125 },
   },
   void: {
@@ -113,6 +117,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     jumps: [0.25, 0.75],
     pads: [[0.02, 0], [0.14, -6], [0.24, 5], [0.38, 0], [0.5, 6], [0.72, -5], [0.8, 4]],
     weapons: [0.05, 0.22, 0.4, 0.58, 0.78],
+    pit: [0.9, 0.98],
     palette: { zenith: '#02130f', horizon: '#18ffa6', glow: '#ff3fd0', fog: '#04241f', a1: '#18ffa6', a2: '#ff3fd0', sun: '#b8fff0', fogDensity: 0.00105 },
   },
 };

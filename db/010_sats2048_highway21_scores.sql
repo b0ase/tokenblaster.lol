@@ -1,8 +1,9 @@
--- bRacer circuits ('bracer-canyon', 'bracer-spiral', 'bracer-void') in the per-game score plausibility table.
--- Same function as 009 (every existing row kept), plus the three circuits. A race is 3 laps (about 100s at
--- best) and tops out near 9,500 points (time + place + cells + clean + combat; a time trial doubles the time
--- part), so allow 5,000 + 60 per second of run, min 45s.
--- Apply on the Hetzner database before shipping the game (scores for these games are rejected until then).
+-- Sat Stack 2048 ('sats2048') and Highway 21M ('highway21') in the per-game score plausibility table.
+-- Same function as 009 (every existing row kept), plus the two games. NOT APPLIED: apply on the Hetzner
+-- database before shipping (scores for these games are rejected until then). If another migration that
+-- also replaces this function lands first, merge the rows; the function is replaced whole.
+--   sats2048:  a very fast 2048 run earns about 300 points/s (a 16384 run is ~200k over 20+ minutes), base 3,000, min 5s.
+--   highway21: distance ~100/s at top speed + 100 per overtake (a few a second at most), base 1,500, min 30s (one timer).
 create or replace function public.tokenblaster_score_limit(g text)
 returns table (per_sec numeric, base numeric, min_secs numeric)
 language sql immutable as $$
@@ -22,8 +23,7 @@ language sql immutable as $$
     ('rally-forest',     60, 5000, 30),
     ('rally-desert',     60, 5000, 30),
     ('rally-snow',       60, 5000, 30),
-    ('bracer-canyon',    60, 5000, 45),
-    ('bracer-spiral',    60, 5000, 45),
-    ('bracer-void',      60, 5000, 45)
+    ('sats2048',         300, 3000, 5),
+    ('highway21',        250, 1500, 30)
   ) as t(game, per_sec, base, min_secs) where t.game = g;
 $$;

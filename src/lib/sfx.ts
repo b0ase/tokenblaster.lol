@@ -489,6 +489,12 @@ const SONGS: Record<Track, Loop> = {
     bass: N('38 . 38 50 38 . 38 50  34 . 34 46 34 . 34 46  36 . 36 48 36 . 36 48  33 . 33 45 33 . 33 45'),
     drums: 'k..hs..hk.khs..hk..hs..hk.khs.sh',
   },
+  bracer: {
+    bpm: 150, leadWave: 'square', bassWave: 'sawtooth', leadVol: 0.05,
+    lead: N('69 . 72 . 76 . 72 .  69 . 72 . 79 . 76 .  67 . 71 . 74 . 71 .  67 . 71 . 79 . 74 .'),
+    bass: N('33 33 45 33 33 45 33 40  33 33 45 33 36 33 43 33  31 31 43 31 31 43 31 38  31 31 43 31 34 31 41 31'),
+    drums: 'k.h.shh.k.h.shh.k.h.shhhk.h.sshh',
+  },
 };
 
 let wantTrack: Track | null = null;

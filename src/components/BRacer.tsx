@@ -14,7 +14,7 @@ import { drDisplay, drFontClass, drJp, drMono } from './dr/fonts';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { DR } from '@/lib/dr/tokens';
 import { GAME_B, GAME_KANA, GAME_NAME, GAME_REST, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
-import { fmt, HyperEngine, SHIPS, TEAMS, TRACKS, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
+import { fmt, HyperEngine, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
 import { TRACK_LIST, type Track, type TrackId } from '@/lib/hyper/track';
 import type { Weapon } from '@/lib/hyper/sim';
@@ -55,6 +55,8 @@ class HudDom {
     this.text('lapTime', fmt(h.lapTime));
     this.text('best', h.best ? `BEST ${fmt(h.best)}` : 'BEST --');
     this.css('energy', { width: `${Math.round(h.energy * 100)}%`, background: h.energy >= 0.2 ? DR.colour.cyan : DR.colour.grey });
+    this.css('hp', { width: `${Math.round(h.hp * 100)}%`, background: h.hp > 0.5 ? DR.colour.acid : h.hp > 0.25 ? DR.colour.amber : DR.colour.signal });
+    this.css('hpTag', { opacity: h.hp > 0.25 ? '1' : String(0.4 + 0.6 * (Math.floor(performance.now() / 180) % 2)) });
     this.css('boostTag', { opacity: h.energy >= 0.2 ? '1' : '0.3' });
     this.css('speedBar', { width: `${Math.round(h.speed01 * 100)}%`, background: h.boosting ? DR.colour.cyan : DR.colour.amber });
     this.css('prog', { width: `${Math.round(h.progress * 100)}%` });
@@ -88,6 +90,10 @@ export function BRacer() {
   const [shipId, setShipId] = useState('wedge');
   const [teamId, setTeamId] = useState('house');
   const [mode, setMode] = useState<Mode>('race');
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
+  const wrap = useRef<HTMLDivElement>(null);
+  const [fs, setFs] = useState(false);
+  const fsPending = useRef(false);
   const [qualityPref, setQualityPref] = useState<QualityPref>('auto');
   const [phase, setPhase] = useState<Phase>('loading');
   const [loading, setLoading] = useState({ msg: 'Starting', pct: 0 });
@@ -118,11 +124,12 @@ export function BRacer() {
       setBest(readBest());
       setTouch(Boolean(window.matchMedia?.('(pointer: coarse)').matches));
       try {
-        const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; q?: QualityPref };
+        const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; diff?: Difficulty; q?: QualityPref };
         if (p.track && TRACKS[p.track]) setTrackId(p.track);
         if (p.ship && SHIPS.some((s) => s.id === p.ship)) setShipId(p.ship);
         if (p.team && TEAMS.some((t) => t.id === p.team)) setTeamId(p.team);
         if (p.mode) setMode(p.mode);
+        if (p.diff) setDifficulty(p.diff);
         if (p.q) setQualityPref(p.q);
       } catch {
         /* storage blocked */
@@ -133,11 +140,11 @@ export function BRacer() {
   useEffect(() => {
     if (!ready) return;
     try {
-      localStorage.setItem(PREFS, JSON.stringify({ track: trackId, ship: shipId, team: teamId, mode, q: qualityPref }));
+      localStorage.setItem(PREFS, JSON.stringify({ track: trackId, ship: shipId, team: teamId, mode, diff: difficulty, q: qualityPref }));
     } catch {
       /* storage blocked */
     }
-  }, [ready, trackId, shipId, teamId, mode, qualityPref]);
+  }, [ready, trackId, shipId, teamId, mode, difficulty, qualityPref]);
 
   const pushToast = useCallback((t: Toast) => {
     const id = ++toastId.current;
@@ -231,6 +238,7 @@ export function BRacer() {
       ship: shipId,
       team: teamId,
       mode,
+      difficulty,
       quality: q,
       touchDevice: isMobileish() && Boolean(window.matchMedia?.('(pointer: coarse)').matches),
       take: (p) => takeRef.current(p),
@@ -261,7 +269,7 @@ export function BRacer() {
           setTimeout(() => !life.dead && setShowBoard(true), 1500);
           const b = readBest();
           const k = `${r.track}:${r.mode}`;
-          if (!b[k] || r.total < b[k]) {
+          if (!r.dnf && (!b[k] || r.total < b[k])) {
             b[k] = r.total;
             try {
               localStorage.setItem(BEST, JSON.stringify(b));
@@ -296,7 +304,7 @@ export function BRacer() {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, trackId, shipId, teamId, mode, qualityPref, session, onHud, pushToast, drawMini, bakeMini]);
+  }, [ready, trackId, shipId, teamId, mode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini]);
 
   useEffect(() => {
     if (phase !== 'menu') return;
@@ -335,18 +343,56 @@ export function BRacer() {
     },
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   });
-  const fullscreen = () => {
-    const root = mount.current?.parentElement;
-    if (!root) return;
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else {
-      void root.requestFullscreen?.().then(() => {
-        const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-        void o?.lock?.('landscape').catch(() => undefined);
-      });
+  /** Fullscreen from the click itself (the coin lands later, after the gesture has expired). Refusals are quiet. */
+  const enterFs = () => {
+    const el = wrap.current;
+    fsPending.current = true;
+    if (!el || document.fullscreenElement || !el.requestFullscreen) return;
+    try {
+      void el
+        .requestFullscreen()
+        .then(() => {
+          if (isMobileish()) {
+            const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+            void o?.lock?.('landscape').catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    } catch {
+      /* not allowed here */
     }
   };
-  const scoreGame = `${GAME_SLUG}-${trackId}` as ScoreGame;
+  const exitFs = () => {
+    fsPending.current = false;
+    try {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      (screen.orientation as ScreenOrientation & { unlock?: () => void })?.unlock?.();
+    } catch {
+      /* nothing to leave */
+    }
+  };
+  const fullscreen = () => (document.fullscreenElement ? exitFs() : enterFs());
+  const hardcore = difficulty === 'hardcore';
+  const scoreGame = `${GAME_SLUG}-${trackId}${hardcore ? '-hc' : ''}` as ScoreGame;
+  const cover = phase === 'countdown' || phase === 'racing' || phase === 'paused';
+  const phaseRef = useRef(phase);
+  useEffect(() => {
+    phaseRef.current = phase;
+    if (phase === 'countdown' || phase === 'racing') fsPending.current = false;
+    if (phase === 'finished') exitFs();
+  }, [phase]);
+  useEffect(() => {
+    const on = () => {
+      setFs(Boolean(document.fullscreenElement));
+      if (!document.fullscreenElement && phaseRef.current === 'racing') engine.current?.pause(true);
+    };
+    document.addEventListener('fullscreenchange', on);
+    return () => document.removeEventListener('fullscreenchange', on);
+  }, []);
+  // A cancelled payment leaves fullscreen again.
+  useEffect(() => {
+    if (co.msg && !co.msg.ok && fsPending.current && phase === 'menu') exitFs();
+  }, [co.msg, phase]);
   const accent = def.palette.a1;
   const accent2 = def.palette.a2;
 
@@ -367,9 +413,10 @@ export function BRacer() {
           )}
         </span>
       </div>
-      <div className="relative select-none overflow-hidden bg-black" style={{ height: 'min(80vh, 800px)', minHeight: 440 }}>
+      <div className="relative" style={{ height: 'min(80vh, 800px)', minHeight: 440 }}>
+      <div ref={wrap} className={`select-none overflow-hidden bg-black ${cover || fs ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={cover || fs ? { height: '100dvh' } : undefined}>
         <div ref={mount} className="absolute inset-0 touch-none" />
-        {flash && <div className="pointer-events-none absolute inset-0" style={{ background: flash === 'hit' ? 'rgba(232,38,29,0.28)' : flash === 'quake' ? 'rgba(255,184,0,0.2)' : 'rgba(39,230,255,0.14)' }} />}
+        {flash && <div className="pointer-events-none absolute inset-0" style={{ background: flash === 'hit' ? 'rgba(232,38,29,0.28)' : flash === 'quake' ? 'rgba(255,184,0,0.2)' : flash === 'pit' ? 'rgba(24,255,122,0.1)' : 'rgba(39,230,255,0.14)' }} />}
 
         {/* ── HUD ── */}
         <div className={`pointer-events-none absolute inset-0 transition-opacity ${racing ? 'opacity-100' : 'opacity-0'}`}>
@@ -444,7 +491,15 @@ export function BRacer() {
               <div ref={hud.ref('speedBar')} className="h-full" style={{ width: '0%', background: DR.colour.amber }} />
             </div>
             <div className="mt-1 flex w-[min(70vw,360px)] items-center gap-2">
-              <span ref={hud.ref('boostTag')} className="text-xs" style={{ ...hudFont, color: DR.colour.cyan }}>
+              <span ref={hud.ref('hpTag')} className="w-12 text-xs" style={{ ...hudFont, color: DR.colour.acid }}>
+                SHIELD
+              </span>
+              <div className="h-3 flex-1 bg-black/70" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 14px, rgba(0,0,0,0.9) 14px 16px)' }}>
+                <div ref={hud.ref('hp')} className="h-full" style={{ width: '100%', background: DR.colour.acid }} />
+              </div>
+            </div>
+            <div className="mt-1 flex w-[min(70vw,360px)] items-center gap-2">
+              <span ref={hud.ref('boostTag')} className="w-12 text-xs" style={{ ...hudFont, color: DR.colour.cyan }}>
                 BOOST
               </span>
               <div className="h-2.5 flex-1 bg-black/70" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 9px, rgba(0,0,0,0.9) 9px 10px)' }}>
@@ -641,6 +696,17 @@ export function BRacer() {
                       </button>
                     ))}
                   </div>
+                  <p className="mb-1 mt-2 text-[10px] tracking-widest text-dim">02b / DIFFICULTY</p>
+                  <div className="flex gap-1.5">
+                    {(['normal', 'hardcore'] as const).map((d) => (
+                      <button key={d} onClick={() => setDifficulty(d)} aria-pressed={d === difficulty} className="flex-1 border-2 px-2 py-1 text-left" style={{ ...hudFont, borderColor: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : DR.colour.acid) : '#333', background: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : '#10200a') : '#07070a', color: d === difficulty && d === 'hardcore' ? '#fff' : '#ddd' }}>
+                        <span className="block text-base leading-none">{d === 'normal' ? 'NORMAL' : 'HARDCORE'}</span>
+                        <span className="block text-[9px] leading-tight opacity-80" style={{ fontFamily: DR.font.mono, fontStyle: 'normal', textTransform: 'none' }}>
+                          {d === 'normal' ? 'shield + pit lane' : '2.5x damage, no pit, head-on = boom'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <p className="mb-1 text-[10px] tracking-widest text-dim">03 / HULL</p>
@@ -705,7 +771,7 @@ export function BRacer() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" practiceLabel="▶ RACE · PRACTICE" />
+                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" practiceLabel="▶ RACE · PRACTICE" onPress={enterFs} />
                 {bestTime ? <span className="text-sm" style={{ color: DR.colour.amber }}>BEST {fmt(bestTime)}</span> : null}
               </div>
               <details className="text-[11px] text-dim">
@@ -743,6 +809,9 @@ export function BRacer() {
             <button onClick={() => engine.current?.begin()} className="btn">
               RESTART RACE
             </button>
+            <button onClick={fullscreen} className="btn">
+              {fs ? 'EXIT FULL SCREEN' : 'FULL SCREEN'}
+            </button>
             <button onClick={toMenu} className="btn">
               TITLE
             </button>
@@ -755,25 +824,25 @@ export function BRacer() {
             <PosterFrame accent={accent} code={`${def.code} / RESULT`} kana="リザルト" className="mx-auto max-w-4xl" style={{ background: 'rgba(8,8,12,0.94)' }}>
               <div className="flex flex-col gap-3 p-3 sm:p-5">
                 <div className="flex flex-wrap items-end gap-x-4 gap-y-1">
-                  <Display size="clamp(80px,16vw,170px)" colour={result.mode === 'trial' || result.pos === 1 ? DR.colour.acid : DR.colour.paper}>
-                    {result.mode === 'trial' ? 'DONE' : ORD[result.pos] ?? `${result.pos}TH`}
+                  <Display size="clamp(80px,16vw,170px)" colour={result.dnf ? DR.colour.signal : result.mode === 'trial' || result.pos === 1 ? DR.colour.acid : DR.colour.paper}>
+                    {result.dnf ? 'DNF' : result.mode === 'trial' ? 'DONE' : ORD[result.pos] ?? `${result.pos}TH`}
                   </Display>
                   <div className="pb-2">
                     <Display size={34} colour={DR.colour.amber}>
-                      {result.mode === 'trial' ? def.name : `OF ${result.total_cars}`}
+                      {result.dnf ? 'SHIP DESTROYED' : result.mode === 'trial' ? def.name : `OF ${result.total_cars}`}
                     </Display>
                     <div className="text-3xl tabular-nums text-white" style={hudFont}>
-                      {fmt(result.total)}
+                      {result.dnf ? (hardcore ? 'HARDCORE' : 'NORMAL') : fmt(result.total)}
                       {newBest && <span className="ml-2 text-base" style={{ color: DR.colour.acid }}>NEW BEST</span>}
                     </div>
                   </div>
                   <div className="ml-auto hidden pb-2 sm:block">
-                    <ProductCode code={def.code} label={ship.name.toUpperCase()} />
+                    <ProductCode code={def.code} label={(hardcore ? 'HC ' : '') + ship.name.toUpperCase()} />
                   </div>
                 </div>
                 <ChevronBar n={44} h={12} colour={accent2} />
                 <p className="text-xs text-dim">
-                  laps {result.laps.map(fmt).join(' / ')} · best lap {fmt(result.bestLap)} · {result.hits} wall hits · {result.cells} cells · {result.rivalHits} rival hits
+                  laps {result.laps.map(fmt).join(' / ') || '-'} · best lap {result.laps.length ? fmt(result.bestLap) : '-'} · {result.hits} wall hits · {result.cells} cells · {result.rivalHits} rival hits
                 </p>
                 <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-5">
                   {([['TIME', result.parts.time], ['PLACE', result.parts.place], ['CELLS', result.parts.cells], ['CLEAN', result.parts.clean], ['COMBAT', result.parts.combat]] as const).map(([k, v]) => (
@@ -805,15 +874,24 @@ export function BRacer() {
                               tx↗
                             </a>
                           ) : null}
-                          <span className="ml-auto tabular-nums">{fmt(r.time)}</span>
+                          <span className="ml-auto tabular-nums">{r.time >= 9999 ? 'DNF' : fmt(r.time)}</span>
                         </div>
                       ))}
                     </div>
                   )}
-                  <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.paid} txid={run.txid} meta={run.paid ? { ship: result.ship, mode: result.mode, pos: result.pos, coinop: 1 } : { ship: result.ship, mode: result.mode, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
+                  {result.dnf ? (
+                    <div className="inset w-full bg-black/70 p-3 text-center text-xs sm:max-w-sm">
+                      <p className="font-bold tracking-widest" style={{ color: DR.colour.signal }}>
+                        DID NOT FINISH
+                      </p>
+                      <p className="mt-1 text-dim">A wrecked ship has no time to post. The credit is spent: keep it off the walls, grab the pit lane and use shields.</p>
+                    </div>
+                  ) : (
+                  <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.paid} txid={run.txid} meta={run.paid ? { ship: result.ship, mode: result.mode, diff: result.difficulty, pos: result.pos, coinop: 1 } : { ship: result.ship, mode: result.mode, diff: result.difficulty, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
+                  )}
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
-                  <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" />
+                  <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" onPress={enterFs} />
                   <button onClick={toMenu} className="btn">
                     TITLE / NEW RIVALS
                   </button>
@@ -822,6 +900,7 @@ export function BRacer() {
             </PosterFrame>
           </div>
         )}
+      </div>
       </div>
       <HazardBar h={8} colour={DR.colour.amber} />
       <p className="mt-2 text-xs text-muted">

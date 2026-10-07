@@ -36,7 +36,7 @@ export type SimInput = {
 };
 export const noInput = (): SimInput => ({ throttle: 0, brake: 0, steer: 0, airL: false, airR: false, boost: false, rollL: false, rollR: false });
 
-export type Ev = { pad: boolean; wall: number; jump: boolean; roll: boolean; rollBoost: boolean; land: number; cell: boolean; weapon: boolean };
+export type Ev = { pad: boolean; wall: number; wallAng: number; pit: boolean; jump: boolean; roll: boolean; rollBoost: boolean; land: number; cell: boolean; weapon: boolean };
 
 export type SimShip = {
   S: number;
@@ -55,6 +55,8 @@ export type SimShip = {
   scrape: number;
   weapon: Weapon | null;
   hits: number;
+  /** Shield energy 0..1 (0 = destroyed). */
+  hp: number;
   cells: number;
   air: boolean;
   /** Visual state. */
@@ -68,18 +70,18 @@ export type SimShip = {
 };
 
 export const newShip = (S = 0): SimShip => ({
-  S, lat: 0, h: 1, vs: 0, vl: 0, vh: 0, boostT: 0, energy: 0, stunT: 0, shieldT: 0, rollT: 0, rollDir: 1, rollAir: false, scrape: 0, weapon: null, hits: 0, cells: 0, air: false,
+  S, lat: 0, h: 1, vs: 0, vl: 0, vh: 0, boostT: 0, energy: 0, stunT: 0, shieldT: 0, rollT: 0, rollDir: 1, rollAir: false, scrape: 0, weapon: null, hits: 0, hp: 1, cells: 0, air: false,
   yaw: 0, pitch: 0, rollVis: 0, steerVis: 0, jumpDone: -1, lastPad: -1,
-  ev: { pad: false, wall: 0, jump: false, roll: false, rollBoost: false, land: 0, cell: false, weapon: false },
+  ev: { pad: false, wall: 0, wallAng: 0, pit: false, jump: false, roll: false, rollBoost: false, land: 0, cell: false, weapon: false },
 });
 
 const G = 18;
 export const HOVER = 1.3;
 const F = newFrame();
 
-export function stepShip(sh: SimShip, inp: SimInput, spec: ShipSpec, tr: Track, dt: number, f: Frame = F) {
+export function stepShip(sh: SimShip, inp: SimInput, spec: ShipSpec, tr: Track, dt: number, f: Frame = F, pitLane = true) {
   const ev = sh.ev;
-  ev.pad = false; ev.wall = 0; ev.jump = false; ev.roll = false; ev.rollBoost = false; ev.land = 0; ev.cell = false; ev.weapon = false;
+  ev.pad = false; ev.wall = 0; ev.wallAng = 0; ev.pit = false; ev.jump = false; ev.roll = false; ev.rollBoost = false; ev.land = 0; ev.cell = false; ev.weapon = false;
   const len = tr.len;
   const s = ((sh.S % len) + len) % len;
   frameAt(tr, s, f);
@@ -139,11 +141,12 @@ export function stepShip(sh: SimShip, inp: SimInput, spec: ShipSpec, tr: Track, 
     if (sh.vl * out > 0) {
       const imp = Math.abs(sh.vl);
       sh.vl = -sh.vl * 0.35;
-      sh.vs *= 1 - Math.min(0.22, 0.04 + imp * 0.004);
+      sh.vs *= 1 - Math.min(0.45, 0.02 + Math.max(0, imp - 6) * 0.014);
       if (imp > 4) {
         sh.scrape = 0.3;
         sh.hits += 1;
         ev.wall = imp;
+        ev.wallAng = imp / Math.max(30, sh.vs);
       }
     }
   }
@@ -187,6 +190,16 @@ export function stepShip(sh: SimShip, inp: SimInput, spec: ShipSpec, tr: Track, 
       sh.lastPad = p;
       ev.pad = true;
     } else if (sh.lastPad === p && (d > 40 || d < -40)) sh.lastPad = -1;
+  }
+  // Pit lane: slow, recharge the shield.
+  if (pitLane) {
+    const [p0, p1] = tr.def.pit;
+    const fr = sNow / len;
+    if (fr >= p0 && fr <= p1 && sh.lat < -9 && sh.h < 4) {
+      ev.pit = true;
+      sh.hp = Math.min(1, sh.hp + 0.2 * dt);
+      if (sh.vs > 105) sh.vs -= Math.min(sh.vs - 105, 70 * dt);
+    }
   }
   // Visuals.
   const spd = Math.max(20, sh.vs);

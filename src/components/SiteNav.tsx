@@ -13,6 +13,8 @@ export const ARCADE_GAMES = [
   ['/arena', 'Arena'],
   ['/arcade/doubleosatoshi', 'Double-O Satoshi'],
   ['/arcade/rally', 'Token Rally'],
+  ['/arcade/2048', 'Sat Stack 2048'],
+  ['/arcade/highway21', 'Highway 21M'],
   ['/arcade/bracer', 'bRacer'],
   ['/arcade/city', 'Satoshi City'],
   ['/arcade/frogger', 'Chain Frogger'],
@@ -23,6 +25,8 @@ export const ARCADE_GAMES = [
   ['/arcade/kweg', "Kweg's Expedition"],
   ['/arcade/npg-runner', 'NPG: Erobot Uprising'],
   ['/arcade/npg-cards', 'NPG: Card Battle'],
+  ['/arcade/bubbo-bubbo', 'Coin Pop'],
+  ['/arcade/puzzling-potions', 'Token Potions'],
 ] as const;
 
 const LINKS = [
