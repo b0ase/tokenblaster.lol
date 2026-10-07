@@ -12,6 +12,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameAudio } from './SoundToggle';
 import { HighScores } from './HighScores';
 import { WalletChooser } from './WalletChooser';
+import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
+import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
+import { cleanRoomCode, type RaceInfo } from '@/lib/racemp/session';
+import { DRIVER_COLOURS, driverColour, validateRallyCfg, type RallyCfg } from '@/lib/rally/mp';
 import { useBlaster } from '@/lib/useBlaster';
 import { TOKEN_FEE } from '@/lib/gun';
 import { actionsForStage, FUEL_M, MIN_START_ACTIONS, SpendMeter, type SpendKind, type SpendLine } from '@/lib/rally/spend';
@@ -177,6 +181,32 @@ export function TokenRally() {
   const [showBoard, setShowBoard] = useState(false);
   const [ready, setReady] = useState(false);
   const toastId = useRef(0);
+  // Multiplayer (src/lib/racemp): rooms live in the hook, the race itself is the engine's (src/lib/rally/engine.ts).
+  const [pilot, setPilot] = useState('');
+  const [colourId, setColourId] = useState('red');
+  const [joinCode, setJoinCode] = useState('');
+  const pendingGo = useRef<RaceInfo<RallyCfg> | null>(null);
+  const [goTick, setGoTick] = useState(0);
+  const room = useRaceRoom<RallyCfg>({
+    game: 'rally',
+    enabled: ready,
+    profile: { name: pilot || 'DRIVER', vehicle: carId, team: colourId, gun: b.gunAddress || undefined },
+    cfg: { stage: stageId },
+    quickKey: (c) => c.stage,
+    sameCfg: (x, y) => x.stage === y.stage,
+    validateCfg: validateRallyCfg,
+    events: ['s'],
+    onRemoteCfg: (c) => setStageId(c.stage),
+    onGo: (race) => {
+      pendingGo.current = race;
+      setGoTick((t) => t + 1);
+    },
+  });
+  const mpOn = room.info !== null;
+  const meId = room.info?.id ?? null;
+  const meRow = room.ui.players.find((x) => x.id === meId) ?? null;
+  // Quick rooms are one per stage; in a private room only the host picks the stage.
+  const locked = mpOn && !room.info?.quick && room.ui.leader !== meId && room.ui.players.length > 1;
 
   const [hud] = useState(() => new HudDom());
   const mini = useRef<HTMLCanvasElement>(null);
@@ -187,10 +217,12 @@ export function TokenRally() {
       setBest(readBest());
       setTouch(Boolean(window.matchMedia?.('(pointer: coarse)').matches));
       try {
-        const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { stage?: StageId; car?: string; q?: QualityPref };
+        const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { stage?: StageId; car?: string; q?: QualityPref; name?: string; colour?: string };
         if (p.stage && STAGES[p.stage]) setStageId(p.stage);
         if (p.car && CARS.some((c) => c.id === p.car)) setCarId(p.car);
         if (p.q) setQualityPref(p.q);
+        if (typeof p.name === 'string') setPilot(p.name.slice(0, 14));
+        if (p.colour && DRIVER_COLOURS.some((c) => c.id === p.colour)) setColourId(p.colour);
       } catch {
         /* storage blocked */
       }
@@ -200,11 +232,11 @@ export function TokenRally() {
   useEffect(() => {
     if (!ready) return;
     try {
-      localStorage.setItem(PREFS, JSON.stringify({ stage: stageId, car: carId, q: qualityPref }));
+      localStorage.setItem(PREFS, JSON.stringify({ stage: stageId, car: carId, q: qualityPref, name: pilot, colour: colourId }));
     } catch {
       /* storage blocked */
     }
-  }, [ready, stageId, carId, qualityPref]);
+  }, [ready, stageId, carId, qualityPref, pilot, colourId]);
 
   const pushToast = useCallback((t: Toast) => {
     const id = ++toastId.current;
@@ -382,7 +414,9 @@ export function TokenRally() {
     eng.begin();
   };
   useEffect(() => {
-    startRef.current = () => start();
+    startRef.current = () => {
+      if (!room.info) start();
+    };
   });
   // Fuel gauge + tx counter straight to the DOM (4 Hz), like the rest of the HUD.
   useEffect(() => {
@@ -397,8 +431,28 @@ export function TokenRally() {
   });
   const toMenu = () => {
     setResult(null);
+    room.endRace();
     void engine.current?.toMenu();
   };
+  // The room leader said GO: start as soon as this engine is on the right stage and idle at the menu.
+  useEffect(() => {
+    const race = pendingGo.current;
+    const link = room.getLink();
+    const eng = engine.current;
+    if (!race || !link || !goTick) return;
+    if (race.cfg.stage !== stageId) return void setStageId(race.cfg.stage);
+    if (!eng || (phase !== 'menu' && phase !== 'finished') || eng.stage.id !== race.cfg.stage) return;
+    pendingGo.current = null;
+    eng.opts.mp = link;
+    const live = liveMode && canGoLive;
+    void eng.startMp({ name: pilot || 'DRIVER', colour: colourId }).then((ok) => {
+      if (!ok) return;
+      setResult(null);
+      start(live);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goTick, phase, stageId]);
+  const lobbyReady = () => room.setReady(true, liveMode && canGoLive);
 
   const heldTok = Math.floor(b.token?.balance ?? 0);
   const tokOpts = (() => {
@@ -598,7 +652,7 @@ export function TokenRally() {
           {run.live && dry && (
             <div className="absolute left-1/2 top-[28%] -translate-x-1/2 bg-red-700/85 px-4 py-2 text-center text-xl font-black text-white sm:text-3xl">
               OUT OF FUEL · COASTING
-              <div className="text-xs font-bold text-white/80">Pause (P) and load more to keep driving</div>
+              <div className="text-xs font-bold text-white/80">{mpOn ? 'The race goes on: coast to the line' : 'Pause (P) and load more to keep driving'}</div>
             </div>
           )}
           <div ref={hud.ref('wrong')} className="absolute left-1/2 top-1/3 -translate-x-1/2 bg-red-700/80 px-4 py-2 text-2xl font-black text-white opacity-0">
@@ -671,9 +725,11 @@ export function TokenRally() {
         )}
         {racing && (
           <div className="absolute right-3 top-[8.4rem] flex gap-1 sm:top-[11.5rem]">
-            <button onClick={() => engine.current?.pause(phase !== 'paused')} className="btn px-2 py-1 text-xs" aria-label="Pause">
-              {phase === 'paused' ? '▶' : 'Ⅱ'}
-            </button>
+            {!mpOn && (
+              <button onClick={() => engine.current?.pause(phase !== 'paused')} className="btn px-2 py-1 text-xs" aria-label="Pause">
+                {phase === 'paused' ? '▶' : 'Ⅱ'}
+              </button>
+            )}
             <button onClick={fullscreen} className="btn px-2 py-1 text-xs" aria-label="Fullscreen">
               ⛶
             </button>
@@ -714,7 +770,7 @@ export function TokenRally() {
                 <p className="mb-1 text-[10px] tracking-widest text-dim">STAGE</p>
                 <div className="grid grid-cols-3 gap-1.5">
                   {STAGE_LIST.map((s) => (
-                    <button key={s.id} onClick={() => setStageId(s.id)} aria-pressed={s.id === stageId} className={`btn flex flex-col items-start gap-0 px-2 py-1.5 text-left ${s.id === stageId ? 'btn-on' : ''}`}>
+                    <button key={s.id} onClick={() => !locked && setStageId(s.id)} disabled={locked} aria-pressed={s.id === stageId} className={`btn flex flex-col items-start gap-0 px-2 py-1.5 text-left ${s.id === stageId ? 'btn-on' : ''}`}>
                       <span className="text-xs font-bold leading-tight">{s.name}</span>
                       <span className="text-[10px] opacity-70">{(s.length / 1000).toFixed(1)} km · {s.id}</span>
                       {best[`${s.id}:${carId}`] ? <span className="text-[10px] text-hot">{fmt(best[`${s.id}:${carId}`])}</span> : null}
@@ -751,6 +807,76 @@ export function TokenRally() {
                   ↻ NEW RIVALS FROM THE CHAIN
                 </button>
               </div>
+              {room.available && !mpOn && (
+                <div className="inset bg-black/60 p-2" data-rally-mp="menu">
+                  <p className="mb-1 text-[10px] tracking-widest text-dim">MULTIPLAYER · UP TO 8 DRIVERS</p>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <label className="text-dim" htmlFor="rally-pilot">
+                      DRIVER
+                    </label>
+                    <input id="rally-pilot" value={pilot} maxLength={14} onChange={(e) => setPilot(e.target.value.replace(/[^\w .·-]/g, '').toUpperCase())} className="w-28 border border-white/25 bg-black px-1.5 py-0.5 text-fg" />
+                    {DRIVER_COLOURS.map((c) => (
+                      <button key={c.id} onClick={() => setColourId(c.id)} aria-pressed={c.id === colourId} aria-label={`${c.name} paint`} title={c.name} className="h-5 w-5 border-2" style={{ background: c.base, borderColor: c.id === colourId ? '#fff' : '#333' }} />
+                    ))}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <button onClick={room.joinQuick} className="btn btn-on px-3 py-1 text-sm" data-rally-quick>
+                      QUICK RACE · {stage.name}
+                    </button>
+                    <button onClick={() => room.joinPrivate()} className="btn px-3 py-1 text-sm" data-rally-private>
+                      NEW PRIVATE ROOM
+                    </button>
+                    <input value={joinCode} placeholder="ROOM CODE" maxLength={8} onChange={(e) => setJoinCode(cleanRoomCode(e.target.value))} className="w-24 border border-white/25 bg-black px-1.5 py-0.5 text-fg" aria-label="Room code" />
+                    <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
+                      JOIN
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[10px] text-dim">Empty slots are filled by live-chain AI rivals. Cars do not collide. Each driver pays their own fuel; practice is free.</p>
+                </div>
+              )}
+              {mpOn && room.info && (
+                <RaceLobby
+                  game="Token Rally"
+                  aiLabel="AI RIVAL: a live chain transaction fills this slot"
+                  circuit={stage.name}
+                  mine={meId}
+                  code={room.info.code}
+                  quick={room.info.quick}
+                  status={room.ui.status}
+                  players={room.ui.players}
+                  leader={room.ui.leader}
+                  count={room.ui.count}
+                  full={room.ui.full}
+                  racingElsewhere={room.ui.players.some((x) => x.st === 'racing') && !meRow?.ready}
+                  colours={{ quick: '#7ae7ff', priv: '#ffd23f', ok: '#7dff9a', warn: '#ff2d2d', amber: '#ffb000' }}
+                  titleStyle={{ fontFamily: 'Impact, "Arial Black", sans-serif', letterSpacing: '0.02em' }}
+                  readyLabels={{ paid: 'READY · LIVE', free: 'READY · PRACTICE' }}
+                  teamColour={(x) => driverColour(x.team).base}
+                  detail={(x) => `${CARS.find((c) => c.id === x.vehicle)?.name ?? x.vehicle} · ${driverColour(x.team).name}`}
+                  onLeave={() => {
+                    pendingGo.current = null;
+                    room.leave();
+                    if (engine.current) engine.current.opts.mp = undefined;
+                  }}
+                  onStart={() => room.go()}
+                  controls={
+                    meRow?.ready ? (
+                      <>
+                        <span className="px-2 py-1 text-sm font-bold" style={{ background: '#7dff9a', color: '#000' }}>
+                          READY {meRow.paid ? '· LIVE' : '· PRACTICE'}
+                        </span>
+                        <button onClick={() => room.setReady(false)} className="btn px-2 py-0.5 text-[11px]">
+                          UNREADY
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={lobbyReady} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40" data-rally-ready>
+                        {liveMode ? 'READY · LIVE' : 'READY · PRACTICE'}
+                      </button>
+                    )
+                  }
+                />
+              )}
               <div className="grid grid-cols-2 gap-1.5">
                 <button onClick={() => setLiveMode(false)} aria-pressed={!liveMode} className={`btn flex flex-col items-start px-2 py-1.5 text-left ${!liveMode ? 'btn-on' : ''}`}>
                   <span className="text-xs font-bold">{!liveMode ? '● ' : '○ '}PRACTICE · FREE</span>
@@ -763,9 +889,11 @@ export function TokenRally() {
               </div>
               {liveMode && fuelPanel}
               <div className="flex flex-wrap items-center gap-2">
-                <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
-                  {liveMode ? '▶ START LIVE RACE' : '▶ START STAGE · PRACTICE'}
-                </button>
+                {!mpOn && (
+                  <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
+                    {liveMode ? '▶ START LIVE RACE' : '▶ START STAGE · PRACTICE'}
+                  </button>
+                )}
                 {liveMode && !canGoLive && <span className="text-[11px] text-hot">{b.wallet ? `Load at least ${MIN_START_ACTIONS} burns of fuel first.` : 'Connect a wallet and load fuel.'}</span>}
                 {bestTime ? <span className="text-sm text-hot">BEST {fmt(bestTime)}</span> : null}
               </div>
@@ -869,6 +997,7 @@ export function TokenRally() {
                 </div>
               )}
               <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-center">
+                {mpOn && <RaceStandings rows={room.ui.standings} final={room.ui.final} teamColour={(t) => driverColour(t).base} fmt={fmt} />}
                 <div className="inset w-full bg-black/70 p-2 text-left text-xs sm:max-w-sm">
                   <p className="mb-1 text-center font-bold tracking-widest text-dim">THE FIELD (LIVE TXS)</p>
                   {result.board.map((r, i) => (
@@ -888,11 +1017,13 @@ export function TokenRally() {
                 <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.live} txid={spent.first} meta={run.live ? { car: result.car, pos: result.pos, txs: spent.sent } : { car: result.car, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
               </div>
               <div className="flex flex-wrap justify-center gap-2">
-                <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
-                  {liveMode ? '▶ RACE AGAIN · LIVE' : '▶ RACE AGAIN · PRACTICE'}
-                </button>
+                {!mpOn && (
+                  <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
+                    {liveMode ? '▶ RACE AGAIN · LIVE' : '▶ RACE AGAIN · PRACTICE'}
+                  </button>
+                )}
                 <button onClick={toMenu} className="btn">
-                  STAGE SELECT / NEW RIVALS
+                  {mpOn ? 'BACK TO THE ROOM' : 'STAGE SELECT / NEW RIVALS'}
                 </button>
               </div>
             </div>

@@ -35,6 +35,8 @@ export type RaceLobbyProps = {
   /** Second line (hull/car, team). */
   detail(p: RacePlayer): string;
   controls: ReactNode;
+  /** Ready-badge wording for a paying / free pilot (default: credit / practice). */
+  readyLabels?: { paid: string; free: string };
   /** Optional decoration between the title and the list (e.g. a chevron bar). */
   bar?: ReactNode;
   onLeave(): void;
@@ -104,7 +106,7 @@ export function RaceLobby(p: RaceLobbyProps) {
               )}
               <span className="hidden text-[10px] text-dim sm:inline">{p.detail(x)}</span>
               <span className="ml-auto shrink-0 px-1.5 text-[10px] font-bold tracking-widest" style={{ background: x.st === 'racing' ? c.warn : x.ready ? c.ok : '#222', color: x.st === 'racing' ? '#fff' : x.ready ? '#000' : '#aaa' }}>
-                {x.st === 'racing' ? 'RACING' : x.ready ? (x.paid ? 'READY · CREDIT' : 'READY · PRACTICE') : 'WAITING'}
+                {x.st === 'racing' ? 'RACING' : x.ready ? (x.paid ? (p.readyLabels?.paid ?? 'READY · CREDIT') : (p.readyLabels?.free ?? 'READY · PRACTICE')) : 'WAITING'}
               </span>
             </div>
           );
