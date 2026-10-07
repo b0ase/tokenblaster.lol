@@ -12,6 +12,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { fireballTexture, makeSfx, type Sfx } from '@/lib/arenaArt';
 import { buildGun, GUNS, loadArenaAssets, Monster, MONSTERS, type ArenaAssets, type GunDef, type HeldGun } from '@/lib/arenaHD';
@@ -42,6 +43,9 @@ import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
 import { gunDefFor, loadGunModel } from '@/lib/ordnanceModels';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GAME_COINS, HOUSE_DMG, HOUSE_GOLD } from '@/lib/gameCoins';
+import { detectQuality, LOOKS, loadLook, makeGradePass, saveQuality, type Look, type Quality } from '@/lib/visuals/look';
+import { dressLevel, type Dressing } from '@/lib/visuals/dressing';
+import { makeImpacts } from '@/lib/visuals/impacts';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -72,9 +76,10 @@ type Hud = {
   intel: number;
   intelTotal: number;
   boost: number; // seconds of adrenaline left
+  dirs: number[]; // radians (0 = ahead) to whoever just shot me, for the red damage arcs
 };
 type Debrief = { level: number; secs: number; shots: number; hits: number; kills: number; onChain: number; live: boolean; sym: string; squad: string[]; sats: number; satsTotal: number; intel: number; intelTotal: number };
-type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void };
+type Engine = { start: (i: number, live: boolean) => void; resume: () => void; abort: () => void; leave: () => void; arm: (ordnanceId: string | null) => void; setQuality: (q: Quality) => void };
 type NetInfo = { status: 'off' | 'connecting' | 'live'; agents: { name: string; host: boolean; me: boolean; vs: boolean }[] };
 /** Level-map letters for each cast kind (also the wire format for the host's actor list). */
 const KIND_CODE: Record<string, string> = { bot: 'g', goon: 'p', hazmat: 'h', kingpin: 'K', custodian: 'U', hoarder: 'L' };
@@ -89,7 +94,7 @@ const loadName = () => {
   }
 };
 
-const HUD0: Hud = { health: 100, armor: 0, obj: '', objIdx: 0, objTotal: 0, progress: null, bosses: [], shots: 0, hits: 0, kills: 0, onChain: 0, heat: 0, last: null, dist: 0, arrow: 0, sats: 0, satsTotal: 0, intel: 0, intelTotal: 0, boost: 0 };
+const HUD0: Hud = { health: 100, armor: 0, obj: '', objIdx: 0, objTotal: 0, progress: null, bosses: [], shots: 0, hits: 0, kills: 0, onChain: 0, heat: 0, last: null, dist: 0, arrow: 0, sats: 0, satsTotal: 0, intel: 0, intelTotal: 0, boost: 0, dirs: [] };
 
 const loadDone = (): string[] => {
   try {
@@ -109,6 +114,7 @@ const saveDone = (ids: string[]) => {
 export function DoubleO() {
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
+  const marker = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
   /** Q Branch: the 1Sat Ordnance gun Kweg carries (null = the standard gadget gun). Owned ordinals only. */
   const { owned: ownedOrdnance } = useOrdnance(b.wallet);
@@ -144,6 +150,12 @@ export function DoubleO() {
   const [chainError, setChainError] = useState<string | null>(null);
   const [empty, setEmpty] = useState(false);
   const [touchUi, setTouchUi] = useState(false);
+  const [qual, setQual] = useState<Quality>('high');
+  const pickQuality = (q: Quality) => {
+    setQual(q);
+    saveQuality(q);
+    engine.current?.setQuality(q);
+  };
   // Multiplayer: name, VERSUS toggle, per-mission head counts, toasts.
   const [name, setName] = useState('');
   const [versus, setVersus] = useState(false);
@@ -186,6 +198,7 @@ export function DoubleO() {
     void Promise.resolve().then(() => {
       setDone(loadDone());
       setName(loadName() || `Agent ${String(Math.floor(Math.random() * 900) + 100)}`);
+      setQual(detectQuality());
       setTouchUi(isPhone() || window.matchMedia?.('(pointer: coarse)').matches);
     });
   }, []);
@@ -239,16 +252,17 @@ export function DoubleO() {
 
     // ── Renderer ──
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    // Full device resolution; the quality governor below steps down if frames get slow.
+    // Quality presets, best first. Low/High picks the starting step; the governor below steps further down if frames get slow.
     const qualities = [
-      { ratio: Math.min(window.devicePixelRatio, 2), shadows: true },
-      { ratio: Math.min(window.devicePixelRatio, 1.5), shadows: true },
-      { ratio: 1, shadows: false },
+      { ratio: Math.min(window.devicePixelRatio, 2), shadows: true, ao: true, bloom: 0.5, samples: 4 },
+      { ratio: Math.min(window.devicePixelRatio, 1.5), shadows: true, ao: true, bloom: 0.45, samples: 4 },
+      { ratio: 1, shadows: false, ao: false, bloom: 0.35, samples: 0 },
     ];
-    let quality = phone ? 1 : 0;
+    const startQuality = detectQuality();
+    let quality = startQuality === 'low' ? 2 : phone ? 1 : 0;
     renderer.setPixelRatio(qualities[quality].ratio);
     renderer.shadowMap.enabled = qualities[quality].shadows;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap; // PCFSoft was removed from three; PCF + shadow.radius is soft enough
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
@@ -260,11 +274,41 @@ export function DoubleO() {
     const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 140);
     scene.add(camera);
     // MSAA render target so the post-processing chain keeps antialiasing.
-    const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: 4, type: THREE.HalfFloatType }));
+    const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { samples: qualities[quality].samples, type: THREE.HalfFloatType }));
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.4, 0.97);
+    // Ambient occlusion (High only): contact shadows in corners and under props.
+    const gtao = new GTAOPass(scene, camera, 256, 256);
+    gtao.updateGtaoMaterial({ radius: 0.7, distanceExponent: 1.4, thickness: 1.2, scale: 1.1, samples: 10, distanceFallOff: 1, screenSpaceRadius: false });
+    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 4, radiusExponent: 1, rings: 2, samples: 8 });
+    gtao.enabled = qualities[quality].ao;
+    composer.addPass(gtao);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), qualities[quality].bloom, 0.4, 1.6); // high threshold: only lamps, flashes and screens glow, not lit walls
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
+    const grade = makeGradePass();
+    composer.addPass(grade.pass);
+    let hurtAmt = 0;
+    const applyQuality = (i: number) => {
+      quality = i;
+      const qd = qualities[i];
+      renderer.setPixelRatio(qd.ratio);
+      composer.setPixelRatio(qd.ratio);
+      renderer.shadowMap.enabled = qd.shadows;
+      key.castShadow = qd.shadows;
+      gtao.enabled = qd.ao;
+      bloom.strength = qd.bloom;
+      for (const rt of [composer.renderTarget1, composer.renderTarget2]) {
+        if (rt.samples !== qd.samples) {
+          rt.samples = qd.samples;
+          rt.dispose();
+        }
+      }
+      scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+        if (m) m.needsUpdate = true;
+      });
+      renderer.setSize(0, 0, false); // forces the resize below
+    };
     const hemi = new THREE.HemisphereLight('#ffffff', '#202020', 0.6);
     scene.add(hemi);
     // Environment reflections (studio room, prefiltered).
@@ -276,7 +320,7 @@ export function DoubleO() {
     scene.add(torch);
     // Soft shadows from a ceiling spotlight that follows the agent.
     const key = new THREE.SpotLight('#fff4e0', 32, 26, 0.9, 0.6, 1.4);
-    key.castShadow = true;
+    key.castShadow = qualities[quality].shadows;
     key.shadow.mapSize.set(2048, 2048);
     key.shadow.radius = 4;
     key.shadow.bias = -0.0004;
@@ -311,6 +355,30 @@ export function DoubleO() {
     flash.visible = false;
     flash.renderOrder = 11;
     gunHolder.add(flash);
+    // A second, star-shaped flash (spikes) layered over the fireball for a proper muzzle blast.
+    const starCv = document.createElement('canvas');
+    starCv.width = starCv.height = 128;
+    {
+      const c = starCv.getContext('2d')!;
+      c.translate(64, 64);
+      for (let i = 0; i < 8; i++) {
+        c.rotate(Math.PI / 4);
+        const g = c.createLinearGradient(0, 0, 60, 0);
+        g.addColorStop(0, 'rgba(255,255,230,1)');
+        g.addColorStop(1, 'rgba(255,170,60,0)');
+        c.fillStyle = g;
+        c.beginPath();
+        c.moveTo(0, -4 - (i % 2) * 2);
+        c.lineTo(i % 2 ? 34 : 62, 0);
+        c.lineTo(0, 4 + (i % 2) * 2);
+        c.fill();
+      }
+    }
+    const flash2 = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(starCv), color: new THREE.Color(3, 2.6, 1.6), toneMapped: false, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending }));
+    flash2.scale.setScalar(0.5);
+    flash2.visible = false;
+    flash2.renderOrder = 12;
+    gunHolder.add(flash2);
 
     // ── PNEE coins: the token's icon on a gold coin (or "PNEE" stamped on it) ──
     const coinCanvas = document.createElement('canvas');
@@ -356,7 +424,7 @@ export function DoubleO() {
     const faceMat = new THREE.MeshStandardMaterial({ map: coinTex, metalness: 0.5, roughness: 0.35, emissive: new THREE.Color('#3a2600'), emissiveMap: coinTex });
     const coinGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.025, 20);
     const coinMats = [rimMat, faceMat, faceMat];
-    type Flyer = { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; target: Actor | null; point: THREE.Vector3; dmg?: number };
+    type Flyer = { m: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number; dur: number; target: Actor | null; point: THREE.Vector3; dmg?: number; n?: THREE.Vector3 | null };
     const flyers: Flyer[] = [];
     // Q Branch ordnance fires its own ammo (tracers, pellets, beams, plasma, rockets, grenades).
     const ammoFx = makeAmmoFx(scene, 0);
@@ -399,6 +467,22 @@ export function DoubleO() {
       pops.push({ s, born: performance.now(), life: big ? 1600 : 1300, rise: 0.9 });
     };
 
+    // ── Impact sparks: a quick white-gold flash where a coin lands ──
+    type Spark = { s: THREE.Sprite; born: number; life: number; size: number };
+    const sparks: Spark[] = [];
+    const sparkMat = new THREE.SpriteMaterial({ map: fireballTexture(), color: new THREE.Color(3, 2.4, 1.2), toneMapped: false, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const spark = (at: THREE.Vector3, size: number) => {
+      if (sparks.length > 24) return;
+      const s = new THREE.Sprite(sparkMat.clone());
+      s.position.copy(at);
+      s.scale.setScalar(size * 0.4);
+      scene.add(s);
+      sparks.push({ s, born: performance.now(), life: 160, size });
+    };
+
+    const impacts = makeImpacts(scene, qualities[quality].ao);
+    const nrmTmp = new THREE.Vector3();
+
     // ── Enemy projectiles ──
     const shotMats = new Map<string, THREE.SpriteMaterial>();
     const fireTex = fireballTexture();
@@ -410,11 +494,13 @@ export function DoubleO() {
       }
       return m;
     };
-    type Bolt = { s: THREE.Sprite; v: THREE.Vector3; dmg: number; born: number; from: Actor | null };
+    type Bolt = { s: THREE.Sprite; v: THREE.Vector3; dmg: number; born: number; from: Actor | null; origin: THREE.Vector3 };
     const bolts: Bolt[] = [];
 
     // ── State ──
     let assets: ArenaAssets | null = null;
+    let lookSet: Look | null = null;
+    let dressing: Dressing | null = null;
     let sfx: Sfx | null = null;
     let lvlGroup: THREE.Group | null = null;
     let grid: Grid | null = null;
@@ -435,6 +521,9 @@ export function DoubleO() {
     let walkPhase = 0;
     let shake = 0; // seconds of camera shake left (set pieces)
     let recoil = 0;
+    let kick = 0; // camera pitch kick from firing, decays fast
+    let markerT = 0; // seconds the crosshair hit marker has left
+    let markerKill = false;
     let lastShot = 0;
     const walls: THREE.Object3D[] = []; // shot blockers
     type DoorMesh = { key: string; mesh: THREE.Mesh };
@@ -523,8 +612,9 @@ export function DoubleO() {
         scene.remove(lvlGroup);
         disposeGroup(lvlGroup);
       }
-      for (const a of [...flyers.map((f) => f.m), ...loose.map((l) => l.m), ...pops.map((p) => p.s), ...bolts.map((x) => x.s)]) scene.remove(a);
-      flyers.length = loose.length = pops.length = bolts.length = 0;
+      for (const a of [...flyers.map((f) => f.m), ...loose.map((l) => l.m), ...pops.map((p) => p.s), ...bolts.map((x) => x.s), ...sparks.map((x) => x.s)]) scene.remove(a);
+      flyers.length = loose.length = pops.length = bolts.length = sparks.length = 0;
+      markerT = kick = 0;
       actors.length = walls.length = doorMeshes.length = pickups.length = 0;
       lvlIdx = i;
       L = LEVELS[i];
@@ -534,14 +624,23 @@ export function DoubleO() {
       scene.add(g);
       const T = L.theme;
       scene.background = new THREE.Color(T.fog);
-      scene.fog = new THREE.Fog(T.fog, 14, 46);
-      hemi.intensity = T.ambient;
+      const spec = lookSet ? LOOKS[L.id] : null;
+      scene.fog = spec ? new THREE.FogExp2(T.fog, spec.fogDensity) : new THREE.Fog(T.fog, 14, 46);
+      hemi.intensity = spec ? T.ambient * 0.8 : T.ambient;
+      if (spec) {
+        renderer.toneMappingExposure = spec.exposure;
+        scene.environmentIntensity = spec.envIntensity;
+        grade.apply(spec.grade);
+      }
+      if (dressing) dressing = null;
+      impacts.clear();
       const W = grid.w * SIZE;
       const H = grid.h * SIZE;
 
       // Floor + ceiling.
       let floorMat: THREE.MeshStandardMaterial;
-      if (T.floor) floorMat = assets.material(T.floor, [grid.w, grid.h]);
+      if (lookSet && spec) floorMat = lookSet.material(spec.floor, [grid.w * 1.6, grid.h * 1.6], spec.floorTint, 0);
+      else if (T.floor) floorMat = assets.material(T.floor, [grid.w, grid.h]);
       else {
         const c = document.createElement('canvas');
         c.width = c.height = 64;
@@ -569,7 +668,7 @@ export function DoubleO() {
       floor.rotation.x = -Math.PI / 2;
       floor.position.set(W / 2, 0, H / 2);
       g.add(floor);
-      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshStandardMaterial({ color: T.ceiling, roughness: 1 }));
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, H), lookSet && spec ? lookSet.material(spec.ceiling, [grid.w * 1.2, grid.h * 1.2], spec.ceilingTint, 0.2) : new THREE.MeshStandardMaterial({ color: T.ceiling, roughness: 1 }));
       ceil.rotation.x = Math.PI / 2;
       ceil.position.set(W / 2, WALL_H, H / 2);
       g.add(ceil);
@@ -578,7 +677,8 @@ export function DoubleO() {
       const wallCells: [number, number][] = [];
       grid.rows.forEach((r, z) => [...r].forEach((c, x) => c === '#' && wallCells.push([x, z])));
       const wallGeo = new THREE.BoxGeometry(SIZE, WALL_H, SIZE);
-      const mats = [assets.material(T.wall, [1, 0.9]), assets.material(T.trim, [1, 0.9])];
+      const trimMat = lookSet && spec ? lookSet.material(spec.trim, [1, 0.9], spec.trimTint, 0.5) : assets.material(T.trim, [1, 0.9]);
+      const mats = [lookSet && spec ? lookSet.material(spec.wall, [1, 0.9], spec.wallTint) : assets.material(T.wall, [1, 0.9]), trimMat];
       const parts = [wallCells.filter(([x, z]) => (x * 7 + z * 3) % 5 !== 0), wallCells.filter(([x, z]) => (x * 7 + z * 3) % 5 === 0)];
       const mtx = new THREE.Matrix4();
       parts.forEach((cells, k) => {
@@ -791,6 +891,8 @@ export function DoubleO() {
         }
       });
 
+      if (lookSet && spec) dressing = dressLevel(g, grid, L, spec, trimMat, qualities[quality].ao);
+
       // Objective beacon.
       beacon = new THREE.Group();
       const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, WALL_H, 20, 1, true), new THREE.MeshBasicMaterial({ color: new THREE.Color('#40ff90').multiplyScalar(1.5), transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
@@ -873,6 +975,7 @@ export function DoubleO() {
         heat,
         dist,
         arrow,
+        dirs: hitDirs.filter((d) => d.until > elapsed).map((d) => Math.atan2(Math.sin(d.ang - yaw), Math.cos(d.ang - yaw))),
         sats: stats.sats,
         satsTotal: satsTotal(),
         intel: stats.intel,
@@ -881,8 +984,16 @@ export function DoubleO() {
       }));
     };
 
-    const damagePlayer = (n: number) => {
+    const hitDirs: { ang: number; until: number }[] = [];
+    let beatAt = 0; // next low-health heartbeat
+    const damagePlayer = (n: number, from?: THREE.Vector3) => {
       if (!running) return;
+      shake = Math.max(shake, 0.2);
+      hurtAmt = 0.5;
+      if (from) {
+        hitDirs.push({ ang: Math.atan2(-(from.x - camera.position.x), -(from.z - camera.position.z)), until: elapsed + 1.6 });
+        if (hitDirs.length > 6) hitDirs.shift();
+      }
       const soak = Math.min(armor, n * 0.6);
       armor -= soak;
       health = Math.max(0, health - (n - soak));
@@ -1004,7 +1115,12 @@ export function DoubleO() {
     const killActor = (a: Actor, now: number, point: THREE.Vector3, mine: boolean) => {
       a.state = 'dying';
       a.dyingAt = now;
-      if (mine) stats.kills++;
+      if (mine) {
+        stats.kills++;
+        markerT = 0.4;
+        markerKill = true;
+        playSfx('rekt', 0.35);
+      }
       sfx?.die();
       if (a.cast.boss) {
         playSfx('explosion');
@@ -1020,6 +1136,12 @@ export function DoubleO() {
       a.wobble = now;
       sfx?.hit();
       burstCoins(point, a.cast.boss ? 3 : 2);
+      spark(point, a.cast.boss ? 0.7 : 0.5);
+      impacts.hit(point, nrmTmp.copy(camera.position).sub(point).normalize(), false, now);
+      if (mine && !(markerKill && markerT > 0.2)) {
+        markerT = 0.18;
+        markerKill = false;
+      }
       if (!isHost()) {
         if (mine) {
           a.hitByMe = now;
@@ -1031,6 +1153,19 @@ export function DoubleO() {
       if (a.state === 'patrol') {
         a.state = 'alert';
         a.lastSeen = now;
+      }
+      // Flinch: grunts are shoved back and lose their aim (shooting them first is the right call);
+      // bosses only stagger a hair so they stay a threat.
+      if (a.hp > 0 && grid) {
+        const away = a.root.position.clone().sub(camera.position).setY(0);
+        if (away.lengthSq() > 0.01) {
+          away.normalize().multiplyScalar(a.cast.boss ? 0.03 : 0.14);
+          moveActor(a, away.x, away.z);
+        }
+        if (!a.cast.boss) {
+          a.aimAt = 0;
+          a.nextShot = Math.max(a.nextShot, now + 500);
+        }
       }
       if (a.rig?.button && a.rig.button.parent) {
         // The WITHDRAW button pops right off.
@@ -1140,7 +1275,7 @@ export function DoubleO() {
         const m = new THREE.Mesh(coinGeo, coinMats);
         m.position.copy(from);
         scene.add(m);
-        flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone(), dmg });
+        flyers.push({ m, from: from.clone(), to: end, t: 0, dur: Math.max(0.05, from.distanceTo(end) / 50), target, point: end.clone(), dmg, n: hit && !target && !foe && hit.face ? hit.face.normal.clone() : null });
         if (gold) ammoFx.fire('laser', from, end, HOUSE_GOLD); // gold tracer behind the coin (visual only)
       }
       // Noise wakes up anyone nearby.
@@ -1156,10 +1291,13 @@ export function DoubleO() {
         heat = queue.length;
         void drain();
       }
-      flash.visible = true;
+      flash.visible = flash2.visible = true;
+      flash2.material.rotation = Math.random() * Math.PI;
+      flash2.scale.setScalar(0.35 + Math.random() * 0.25);
       flash.material.rotation = Math.random() * Math.PI;
       muzzleLight.intensity = 14;
       recoil = 0.6;
+      kick = Math.min(0.05, kick + 0.014);
       setHud((h) => ({ ...h, shots: stats.shots, hits: stats.hits, heat }));
     };
 
@@ -1265,6 +1403,7 @@ export function DoubleO() {
         setScreen('menu');
       },
       leave: () => leaveMission(),
+      setQuality: (q) => applyQuality(q === 'low' ? 2 : phone ? 1 : 0),
       arm: (id) => {
         if (!assets) return;
         const o = ORDNANCE.find((x) => x.id === id);
@@ -1278,6 +1417,7 @@ export function DoubleO() {
           }
           gunHolder.add(held.group);
           flash.position.copy(held.muzzle);
+          flash2.position.copy(held.muzzle);
         };
         const stock = GUNS.find((g) => g.id === (o ? o.base : gunDef.id)) ?? gunDef;
         // Hold the stock model at once; an ordnance gun with its own model swaps it in when the file arrives.
@@ -1310,7 +1450,7 @@ export function DoubleO() {
       s.scale.setScalar(size);
       s.position.copy(from);
       scene.add(s);
-      bolts.push({ s, v: dir.clone().multiplyScalar(speed), dmg, born: now, from: a });
+      bolts.push({ s, v: dir.clone().multiplyScalar(speed), dmg, born: now, from: a, origin: from.clone() });
     };
     const fireVolley = (a: Actor, now: number, tp: THREE.Vector3) => {
       const from = a.rig ? a.rig.muzzle.getWorldPosition(new THREE.Vector3()) : a.root.position.clone().setY(1.3);
@@ -1785,6 +1925,13 @@ export function DoubleO() {
         minigun(whine);
       }
 
+      // Low health: a double heartbeat thump.
+      if (health < 30 && health > 0 && now > beatAt) {
+        beatAt = now + 900 - (30 - health) * 15;
+        playSfx('stomp', 0.35);
+        setTimeout(() => running && playSfx('stomp', 0.22), 170);
+      }
+
       // Pickups.
       for (const p of pickups) {
         if (p.taken) continue;
@@ -1861,7 +2008,7 @@ export function DoubleO() {
         const p = bo.s.position;
         const hitMe = Math.hypot(p.x - camera.position.x, p.z - camera.position.z) < 0.5 && p.y > 0.2 && p.y < 2.1;
         if (hitMe) {
-          damagePlayer(bo.dmg);
+          damagePlayer(bo.dmg, bo.origin);
           const src = bo.from;
           if (src && src.cast.grab && src.state !== 'dying' && now > src.quipAt) {
             src.quipAt = now + 2500;
@@ -1879,13 +2026,14 @@ export function DoubleO() {
       // Gun bob/recoil.
       shake = Math.max(0, shake - dt);
       const sk = shake * 0.06;
-      camera.rotation.set(pitch + (Math.random() - 0.5) * sk, yaw + (Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk, 'YXZ');
+      kick = Math.max(0, kick - dt * 0.35);
+      camera.rotation.set(pitch + kick + (Math.random() - 0.5) * sk, yaw + (Math.random() - 0.5) * sk, (Math.random() - 0.5) * sk, 'YXZ');
       torch.position.copy(camera.position).add(new THREE.Vector3(-Math.sin(yaw) * 2, 1.3, -Math.cos(yaw) * 2));
       muzzleLight.position.copy(torch.position);
       key.position.set(camera.position.x - Math.sin(yaw) * 1.5, WALL_H - 0.15, camera.position.z - Math.cos(yaw) * 1.5);
       key.target.position.set(camera.position.x - Math.sin(yaw) * 7, 0, camera.position.z - Math.cos(yaw) * 7);
       muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 200);
-      if (muzzleLight.intensity < 4) flash.visible = false;
+      if (muzzleLight.intensity < 4) flash.visible = flash2.visible = false;
       recoil = Math.max(0, recoil - dt * 8);
       gunHolder.position.set(gunRest.x + Math.cos(walkPhase / 2) * 0.01, gunRest.y + Math.abs(Math.sin(walkPhase / 2)) * 0.01, gunRest.z + recoil * 0.06);
       gunHolder.rotation.x = recoil * 0.1;
@@ -1900,7 +2048,10 @@ export function DoubleO() {
           scene.remove(fl.m);
           flyers.splice(i, 1);
           if (fl.target) hitActor(fl.target, fl.point, now, true, fl.dmg);
-          else burstCoins(fl.point, 1);
+          else {
+            burstCoins(fl.point, 1);
+            if (fl.n) impacts.hit(fl.point, fl.n, true, now);
+          }
         }
       }
       for (let i = loose.length - 1; i >= 0; i--) {
@@ -1917,6 +2068,30 @@ export function DoubleO() {
           scene.remove(l.m);
           loose.splice(i, 1);
         }
+      }
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const sp = sparks[i];
+        const t = (now - sp.born) / sp.life;
+        if (t >= 1) {
+          scene.remove(sp.s);
+          sp.s.material.dispose();
+          sparks.splice(i, 1);
+          continue;
+        }
+        sp.s.scale.setScalar(sp.size * (0.4 + t));
+        sp.s.material.opacity = 1 - t;
+      }
+      impacts.update(dt, now);
+      dressing?.update(dt, camera.position);
+      hurtAmt = Math.max(0, hurtAmt - dt * 3);
+      grade.tick(now / 1000, Math.min(1, hurtAmt));
+      // Crosshair hit marker (an X that flashes white on a hit, red on a kill).
+      markerT = Math.max(0, markerT - dt);
+      const mk = marker.current;
+      if (mk) {
+        mk.style.opacity = String(Math.min(1, markerT * 6));
+        mk.style.transform = `translate(-50%, -50%) scale(${1 + (markerKill ? 0.5 : 0.25) * (1 - Math.min(1, markerT * 5))}) rotate(45deg)`;
+        mk.style.setProperty('--mk', markerKill ? '#ff4040' : '#ffffff');
       }
       for (let i = pops.length - 1; i >= 0; i--) {
         const p = pops[i];
@@ -1963,7 +2138,7 @@ export function DoubleO() {
     let prevFrame = performance.now();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
-      const dt = Math.min(0.05, (now - lastTick) / 1000);
+      const dt = Math.max(0, Math.min(0.05, (now - lastTick) / 1000)); // rAF timestamps can predate lastTick: never run time backwards
       lastTick = now;
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -1980,14 +2155,9 @@ export function DoubleO() {
       prevFrame = now;
       if (running && slowT > 20 && quality < qualities.length - 1) {
         if ((slowFor += dt) > 2) {
-          quality++;
           slowFor = 0;
           slowT = 16;
-          renderer.setPixelRatio(qualities[quality].ratio);
-          renderer.shadowMap.enabled = qualities[quality].shadows;
-          key.castShadow = qualities[quality].shadows;
-          composer.setPixelRatio(qualities[quality].ratio);
-          renderer.setSize(0, 0, false); // forces the resize below
+          applyQuality(quality + 1);
         }
       } else slowFor = 0;
       if (running) step(dt, performance.now());
@@ -2076,16 +2246,20 @@ export function DoubleO() {
           health = 1e6;
         },
         place: (x: number, z: number) => camera.position.set(x, EYE, z),
+        dbg: { scene, renderer, bloom, gtao, grade, composer, hurt: () => hurtAmt },
       };
     }
 
-    Promise.all([loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p))), loadCastModels()])
-      .then(([a]) => {
+    Promise.all([loadArenaAssets(renderer, (p) => !disposed && setLoading(Math.min(0.99, p * 0.85))), loadCastModels(), loadLook(renderer, startQuality, (p) => !disposed && setLoading((l) => Math.min(0.99, Math.max(l, 0.85 + p * 0.14)))).catch(() => null)])
+      .then(([a, , lk]) => {
         if (disposed) return;
         assets = a;
+        lookSet = lk;
+        if (lk?.env) scene.environment = lk.env;
         held = buildGun(gunDef, a.guns[gunDef.id]);
         gunHolder.add(held.group);
         flash.position.copy(held.muzzle);
+        flash2.position.copy(held.muzzle);
         if (gearRef.current) engine.current?.arm(gearRef.current);
         // Menu backdrop: mission 1, nobody playing.
         buildLevel(0);
@@ -2120,6 +2294,8 @@ export function DoubleO() {
       document.removeEventListener('pointerlockchange', onLock);
       if (lvlGroup) disposeGroup(lvlGroup);
       composer.dispose();
+      impacts.dispose();
+      lookSet?.dispose();
       envTex.dispose();
       pmrem.dispose();
       renderer.dispose();
@@ -2184,6 +2360,14 @@ export function DoubleO() {
         <button onClick={() => setVersus((v) => !v)} className={`btn px-2 py-0.5 text-xs ${versus ? 'btn-on' : ''}`} title="Agents with VERSUS on can shoot each other (V in game)">
           VERSUS {versus ? 'ON' : 'OFF'}
         </button>
+        <span className="ml-auto flex items-center gap-1 text-xs">
+          <span className="font-bold tracking-widest text-dim">GRAPHICS</span>
+          {(['low', 'high'] as const).map((q) => (
+            <button key={q} onClick={() => pickQuality(q)} className={`btn px-2 py-0.5 text-xs ${qual === q ? 'btn-on' : 'opacity-70'}`} title={q === 'high' ? 'Ambient occlusion, soft shadows, full resolution' : 'Faster: no ambient occlusion or shadows, lower resolution (default on phones)'}>
+              {q.toUpperCase()}
+            </button>
+          ))}
+        </span>
       </div>
       <p className="text-xs text-dim">
         {realtimeConfigured()
@@ -2205,7 +2389,17 @@ export function DoubleO() {
             <div className="pointer-events-none absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-hot/70">
               <div className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-hot" />
             </div>
+            <div ref={marker} className="pointer-events-none absolute left-1/2 top-1/2 h-9 w-9 opacity-0" style={{ transform: 'translate(-50%, -50%) rotate(45deg)' }}>
+              <div className="absolute left-1/2 top-0 h-full w-[3px] -translate-x-1/2" style={{ background: 'linear-gradient(var(--mk, #fff) 35%, transparent 35% 65%, var(--mk, #fff) 65%)' }} />
+              <div className="absolute left-0 top-1/2 h-[3px] w-full -translate-y-1/2" style={{ background: 'linear-gradient(90deg, var(--mk, #fff) 35%, transparent 35% 65%, var(--mk, #fff) 65%)' }} />
+            </div>
             {hurt && <div className="pointer-events-none absolute inset-0 bg-red-600/30" />}
+            {hud.health < 35 && hud.health > 0 && <div className="pointer-events-none absolute inset-0 animate-pulse" style={{ background: 'radial-gradient(ellipse at center, transparent 45%, rgba(200,0,0,0.55) 100%)' }} />}
+            {hud.dirs.map((d, i) => (
+              <div key={i} className="pointer-events-none absolute left-1/2 top-1/2 h-0 w-0" style={{ transform: `rotate(${d}rad)` }}>
+                <div className="absolute -left-10 -top-[170px] h-3 w-20 rounded-full bg-red-600/80 blur-[2px]" />
+              </div>
+            ))}
             {/* Squad (multiplayer) */}
             {net.agents.length > 1 && (
               <div className="pointer-events-none absolute bottom-16 left-2 flex flex-col gap-0.5 text-xs">
