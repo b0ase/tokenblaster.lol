@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
+import { byTitle } from '@/lib/alpha';
 
 const GAMES = [
   { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', title: 'Double-O Satoshi', tag: 'V1 · spy shooter', blurb: 'GoldenEye-style 3D missions: Special Agent Kweg Wong fires PNEE at parody crypto villains. LIVE mode: one token per bullet, one transaction per token.' },
@@ -103,7 +104,7 @@ export default function Home() {
           </Link>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {GAMES.map((g) => (
+          {byTitle(GAMES).map((g) => (
             <Link key={g.title} href={g.href} className="inset group overflow-hidden hover:border-fg">
               <div className="aspect-[1200/630] overflow-hidden">
                 {/* eslint-disable-next-line @next/next/no-img-element */}

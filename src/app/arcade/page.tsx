@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { GameBlasts } from '@/components/GameBlasts';
+import { byTitle } from '@/lib/alpha';
 
 const description = 'Games built on the live BSV chain: shoot your own tokens, dodge real mainnet traffic, and more on the way.';
 export const metadata = {
@@ -67,7 +68,7 @@ export default function ArcadePage() {
 
       <h2 className="text-lg font-bold text-hot">TokenBlaster games</h2>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {GAMES.map((g) => {
+        {byTitle(GAMES).map((g) => {
           const body = (
             <>
               <div className="relative -mx-2.5 -mt-2.5 mb-2 aspect-[1200/630] overflow-hidden border-b border-[var(--border-dim)]">

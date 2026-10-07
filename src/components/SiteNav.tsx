@@ -92,7 +92,7 @@ export function SiteNav() {
           </div>
           {open && (
             <div role="menu" className="absolute left-0 top-full z-40 mt-1 grid w-[min(92vw,26rem)] grid-cols-2 gap-1 border border-line bg-bg p-2 shadow-[0_8px_30px_rgba(0,0,0,0.6)]">
-              {ARCADE_GAMES.map(([href, label]) => (
+              {[...ARCADE_GAMES].sort((a, b) => a[1].localeCompare(b[1], 'en', { sensitivity: 'base', numeric: true })).map(([href, label]) => (
                 <Link
                   key={href}
                   role="menuitem"
