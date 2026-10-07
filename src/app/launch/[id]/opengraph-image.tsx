@@ -9,6 +9,29 @@ import sharp from 'sharp';
 import { GRAD_SOLD, marketCap, price, progress } from '@/lib/launch/curve';
 import { rpc } from '@/lib/launch/server';
 import { bsvUsd } from '@/lib/price';
+import { GAME_COINS } from '@/lib/gameCoins';
+
+/** Game coins get their game's artwork behind the card (owner, 7 Oct 2026: themed cards). */
+const GAME_ART: Record<string, { file: string; line: string }> = {
+  [GAME_COINS.arena.id]: { file: 'arena.jpg', line: 'HOUSE AMMO in the Arena: gold rounds hit 1.5x' },
+  [GAME_COINS.doubleo.id]: { file: 'doubleo.jpg', line: 'HOUSE AMMO in Double-O Satoshi: gold rounds hit 1.5x' },
+  [GAME_COINS.frogger.id]: { file: 'frogger.jpg', line: 'Pay your Chain Frogger hops in $FROGGER' },
+  [GAME_COINS.bsvgun.id]: { file: 'bsvgun.jpg', line: 'HOUSE AMMO in BSVGun: gold rounds hit 1.5x' },
+};
+
+async function gameArt(tokenId: string): Promise<string | null> {
+  const g = GAME_ART[tokenId];
+  if (!g) return null;
+  try {
+    // Fetched by URL: serverless functions don't ship public/.
+    const r = await fetch(`https://www.tokenblaster.lol/arcade/${g.file}`, { next: { revalidate: 86_400 } });
+    if (!r.ok) return null;
+    const jpg = await sharp(Buffer.from(await r.arrayBuffer())).resize(1200, 630, { fit: 'cover' }).jpeg({ quality: 80 }).toBuffer();
+    return `data:image/jpeg;base64,${jpg.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
 
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
@@ -45,7 +68,8 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     bsvUsd(),
   ]);
   const c = rows[0];
-  const img = c ? await picture(c.token_id) : null;
+  const [img, art] = c ? await Promise.all([picture(c.token_id), gameArt(c.token_id)]) : [null, null];
+  const fresh = Number(c?.sold ?? 0) === 0;
   const sold = BigInt(c?.sold ?? 0);
   const p = progress(sold);
   const grad = Boolean(c?.graduated_at) || sold >= GRAD_SOLD;
@@ -62,6 +86,12 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   return new ImageResponse(
     (
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: 'Space Mono', color: C.text, position: 'relative' }}>
+        {art && (
+          <>
+            <img src={art} width={1200} height={630} style={{ position: 'absolute', top: 0, left: 0 }} alt="" />
+            <div style={{ position: 'absolute', top: 0, left: 0, width: 1200, height: 630, display: 'flex', background: 'linear-gradient(90deg, rgba(10,4,4,0.93) 0%, rgba(10,4,4,0.82) 55%, rgba(10,4,4,0.55) 100%)' }} />
+          </>
+        )}
         <div style={{ position: 'absolute', top: 18, left: 18, right: 18, bottom: 18, border: `2px solid ${C.border}`, display: 'flex' }} />
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '40px 56px 0', fontSize: 22 }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -95,13 +125,16 @@ export default async function Image({ params }: { params: Promise<{ id: string }
                 <div key={i} style={{ flex: 1, background: i < lit ? (i === lit - 1 ? C.hot : C.accent) : C.input, opacity: i < lit ? 0.45 + (0.55 * (i + 1)) / lit : 1 }} />
               ))}
             </div>
+            {fresh && (
+              <span style={{ fontSize: 22, color: C.green, marginTop: 10 }}>NEW · nobody has bought yet · 0 BSV in the curve</span>
+            )}
             <span style={{ fontSize: 22, color: C.muted, marginTop: 8 }}>{grad ? 'graduated · still trading on the curve' : `${(p * 100).toFixed(1)}% of the curve sold · graduates at 100%`}</span>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', margin: 'auto 56px 44px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', fontSize: 26 }}>
-            <span style={{ color: C.accent }}>AMMO in the Arena &amp; Double-O Satoshi</span>
+            <span style={{ color: C.accent }}>{(c && GAME_ART[c.token_id]?.line) ?? 'AMMO in the Arena & Double-O Satoshi'}</span>
             <span style={{ color: C.hot, fontSize: 30, marginTop: 6 }}>TOKENBLASTER.LOL/LAUNCH</span>
           </div>
           <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
