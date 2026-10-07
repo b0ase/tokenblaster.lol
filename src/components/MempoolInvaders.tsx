@@ -24,7 +24,12 @@ import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { setFonts } from '@/lib/invaders/art';
 import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/invaders/brand';
-import { InvadersEngine, type Banner, type Hud, type Phase, type Result, type Toast } from '@/lib/invaders/engine';
+import { InvadersEngine, type Banner, type BoardRow, type Hud, type Phase, type Result, type Toast } from '@/lib/invaders/engine';
+import { INV_EVENTS, SHIP_COLOURS, validateInvCfg, type InvCfg } from '@/lib/invaders/mp';
+import { cleanRoomCode, type RaceInfo, type RacePlayer } from '@/lib/racemp/session';
+import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
+import { RaceLobby } from './racemp/RaceLobby';
+import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
 import { KIND_HEX, KIND_NAME, KIND_ORDER, KIND_POINTS, POWER_META, POWERS, type Power } from '@/lib/invaders/sim';
 
 /** LIVE token-blasting: every shot / purge / power-up is one tiny real tx (1 sat or 1 token to the house + network fee), paid from loaded ammo. */
@@ -140,6 +145,33 @@ export function MempoolInvaders() {
   const [lastTx, setLastTx] = useState<string | null>(null);
   const [payErr, setPayErr] = useState<string | null>(null);
   const [needAmmo, setNeedAmmo] = useState(false);
+  // ── Multiplayer: CO-OP / VERSUS rooms (lobby, quick match, private ?room=CODE) via src/lib/racemp ──
+  const xHandle = useMyHandle();
+  const [mpMode, setMpMode] = useState<InvCfg['mode']>('coop');
+  const [joinCode, setJoinCode] = useState('');
+  const [board, setBoard] = useState<{ rows: BoardRow[]; mode: InvCfg['mode']; team: number } | null>(null);
+  const pendingGo = useRef<RaceInfo<InvCfg> | null>(null);
+  const [goTick, setGoTick] = useState(0);
+  const room = useRaceRoom<InvCfg>({
+    game: 'invaders',
+    enabled: ready,
+    wallet: b.wallet?.client ?? null,
+    profile: { name: xHandle ?? 'PILOT', vehicle: 'ship', team: '', x: xHandle ?? undefined },
+    cfg: { mode: mpMode },
+    quickKey: (c) => c.mode,
+    sameCfg: (x, y) => x.mode === y.mode,
+    validateCfg: validateInvCfg,
+    events: INV_EVENTS,
+    onRemoteCfg: (c) => setMpMode(c.mode),
+    onGo: (race) => {
+      pendingGo.current = race;
+      setGoTick((t) => t + 1);
+    },
+  });
+  const mpOn = room.info !== null;
+  const meId = room.info?.id ?? null;
+  const meRow = room.ui.players.find((x) => x.id === meId) ?? null;
+  const locked = mpOn && !room.info?.quick && room.ui.leader !== meId && room.ui.players.length > 1;
   const payTok = payWith === 'token' && !!b.token && b.mode === 'tokens';
   const payRef = useRef({ paid: false, sats: 0, queued: 0, tok: false, tokens: 0 });
   useEffect(() => {
@@ -286,6 +318,7 @@ export function MempoolInvaders() {
         },
         onPerf: (p) => !life.dead && setPerf(p),
         onNoAmmo: () => !life.dead && setNeedAmmo(true),
+        onBoard: (rows, mode, team) => !life.dead && setBoard({ rows, mode, team }),
         onOver: (r) => {
           if (life.dead) return;
           setResult(r);
@@ -343,10 +376,34 @@ export function MempoolInvaders() {
     lootRef.current.end();
     setLastRun({});
     setResult(null);
+    setBoard(null);
     setRun({ paid: paid || live, txid, live });
     slowRef.current = { lives: 3, bombs: 1, shield: false };
     setSlow(slowRef.current);
     eng.begin();
+  };
+
+  // The room leader said GO: start as soon as this engine is idle at the title (or results) screen.
+  const mpLiveReady = useRef(false);
+  useEffect(() => {
+    const race = pendingGo.current;
+    const link = room.getLink();
+    const eng = engine.current;
+    if (!race || !link || !goTick || !eng) return;
+    if (phase !== 'menu' && phase !== 'over') return;
+    pendingGo.current = null;
+    eng.opts.mp = link;
+    eng.opts.me = { name: xHandle ?? 'PILOT', handle: xHandle };
+    const live = mpLiveReady.current;
+    void Promise.resolve().then(() => start(false, live));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goTick, phase]);
+  const mpBack = () => {
+    setResult(null);
+    setBoard(null);
+    room.endRace();
+    if (engine.current) engine.current.opts.mp = undefined;
+    engine.current?.toMenu();
   };
 
   const playing = phase === 'playing' || phase === 'paused';
@@ -568,6 +625,24 @@ export function MempoolInvaders() {
                 {needAmmo && <span className="ml-2 text-[10px] font-bold tracking-widest" style={{ color: DR.colour.signal }}>OUT OF AMMO</span>}
               </div>
             )}
+            {/* Multiplayer scoreboard */}
+            {board && board.rows.length > 1 && phase !== 'over' && (
+              <div className="pointer-events-none absolute right-2 top-[8.8rem] w-[min(46vw,230px)] bg-black/70 px-1.5 py-1 sm:right-3 sm:top-[11rem]" data-invaders-board={board.mode}>
+                <div className="flex items-baseline justify-between text-[9px] tracking-widest text-white/60" style={hudFont}>
+                  <span>{board.mode === 'coop' ? 'CO-OP' : 'VERSUS'}</span>
+                  {board.mode === 'coop' && <span style={{ color: DR.colour.amber }}>TEAM {board.team.toLocaleString()}</span>}
+                </div>
+                {board.rows.map((r) => (
+                  <div key={r.id} className="flex items-center gap-1 py-px text-[11px]" style={{ opacity: r.down ? 0.45 : 1, borderLeft: `3px solid ${r.colour}`, paddingLeft: 3 }} data-board-row={r.handle ?? r.name}>
+                    <PlayerBadge handle={r.handle} name={r.name} verified={r.verified} ring={r.colour} size={14} className={`min-w-0 flex-1 ${r.me ? 'text-white' : 'text-white/80'}`} />
+                    <span className="text-[9px] text-white/60">{r.down ? 'DOWN' : '♥'.repeat(Math.max(0, r.lives))}</span>
+                    <span className="w-14 text-right tabular-nums text-white" style={hudFont}>
+                      {r.score.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Loot + mode */}
             <div className="absolute right-2 top-[6.6rem] flex flex-col items-end gap-1 text-xs sm:right-3 sm:top-[8.6rem]">
               <span className="bg-black/60 px-2 py-0.5 text-[#ffd36a]">
@@ -701,6 +776,108 @@ export function MempoolInvaders() {
                   ⚡ LIVE · TOKEN-BLAST MODE · EVERY SHOT ON CHAIN
                 </button>
                 {liveOn && ammoPanel}
+                {room.available && (
+                  <div className="inset max-w-[34rem] bg-black/70 p-2" data-invaders-mp="menu">
+                    <p className="mb-1 text-[10px] tracking-widest text-dim">MULTIPLAYER · 2-4 SHIPS SIDE BY SIDE · YOUR X AVATAR OVER YOUR SHIP</p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                      {(['coop', 'versus'] as const).map((m) => (
+                        <button key={m} onClick={() => !locked && setMpMode(m)} disabled={locked} aria-pressed={mpMode === m} className={`btn px-2 py-0.5 disabled:opacity-60 ${mpMode === m ? 'btn-on' : ''}`} data-invaders-mode-pick={m}>
+                          {m === 'coop' ? 'CO-OP · SHARED WAVES' : 'VERSUS · SEND THEM INVADERS'}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[10px] text-dim">
+                      {mpMode === 'coop' ? 'Same waves and boss for everyone, one team score. Each ship has its own lives; a downed pilot returns next wave.' : 'Same waves, but your big kills (and every third) drop extra invaders into another pilot’s lane. Highest score wins.'}
+                    </p>
+                    {!mpOn && (
+                      <>
+                        <div className="mt-1.5">
+                          <IdentityPicker verified={Boolean(meId && room.verified[meId])} />
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                          <button onClick={room.joinQuick} className="btn btn-on px-3 py-1 text-sm" data-invaders-quick>
+                            QUICK MATCH
+                          </button>
+                          <button onClick={() => room.joinPrivate()} className="btn px-3 py-1 text-sm" data-invaders-private>
+                            NEW PRIVATE ROOM
+                          </button>
+                          <input value={joinCode} placeholder="ROOM CODE" maxLength={8} onChange={(e) => setJoinCode(cleanRoomCode(e.target.value))} className="w-24 border border-white/25 bg-black px-1.5 py-0.5 text-fg" aria-label="Room code" />
+                          <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
+                            JOIN
+                          </button>
+                        </div>
+                      </>
+                    )}
+                    {mpOn && room.info && (
+                      <div className="mt-1.5">
+                        <RaceLobby
+                          game="Mempool Invaders"
+                          aiLabel="OPEN SLOT: waiting for a pilot"
+                          circuit={mpMode === 'coop' ? 'CO-OP' : 'VERSUS'}
+                          mine={meId}
+                          code={room.info.code}
+                          quick={room.info.quick}
+                          status={room.ui.status}
+                          players={room.ui.players}
+                          leader={room.ui.leader}
+                          count={room.ui.count}
+                          full={room.ui.full}
+                          racingElsewhere={room.ui.players.some((x) => x.st === 'racing') && !meRow?.ready}
+                          colours={{ quick: '#7ae7ff', priv: '#ffd23f', ok: '#7dff9a', warn: '#ff2d2d', amber: '#ffb000' }}
+                          readyLabels={{ paid: 'READY · LIVE', free: 'READY · PRACTICE' }}
+                          teamColour={(x) => SHIP_COLOURS[Math.max(0, room.ui.players.indexOf(x as RacePlayer)) % SHIP_COLOURS.length]}
+                          detail={() => (mpMode === 'coop' ? 'CO-OP' : 'VERSUS')}
+                          onLeave={() => {
+                            pendingGo.current = null;
+                            room.leave();
+                            if (engine.current) engine.current.opts.mp = undefined;
+                          }}
+                          onStart={() => room.go()}
+                          verified={room.verified}
+                          controls={
+                            meRow?.ready ? (
+                              <>
+                                <span className="px-2 py-1 text-sm font-bold" style={{ background: '#7dff9a', color: '#000' }}>
+                                  READY {meRow.paid ? '· LIVE' : '· PRACTICE'}
+                                </span>
+                                <button onClick={() => room.setReady(false)} className="btn px-2 py-0.5 text-[11px]">
+                                  UNREADY
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    mpLiveReady.current = false;
+                                    gfs.enter();
+                                    room.setReady(true, false);
+                                  }}
+                                  className="btn-fire px-5 py-2 text-lg"
+                                  data-invaders-ready
+                                >
+                                  READY · PRACTICE
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    mpLiveReady.current = true;
+                                    gfs.enter();
+                                    room.setReady(true, true);
+                                  }}
+                                  disabled={actionsLeft < 1 || !hasWallet}
+                                  title="Every shot is a tiny real tx from your loaded ammo (set up under LIVE above)"
+                                  className="btn px-3 py-1 text-sm disabled:opacity-40"
+                                >
+                                  ⚡ READY · LIVE
+                                </button>
+                              </>
+                            )
+                          }
+                        />
+                      </div>
+                    )}
+                    <p className="mt-1 text-[10px] text-dim">Practice sends nothing. LIVE keeps the normal one-tx-per-shot path, paid from your own ammo.</p>
+                  </div>
+                )}
                 <div className="flex items-center gap-1 text-[10px] tracking-widest text-dim">
                   <span>QUALITY</span>
                   {(['auto', 'low', 'high'] as const).map((q) => (
@@ -744,6 +921,23 @@ export function MempoolInvaders() {
                   <Display size="clamp(40px,8vw,72px)" colour={DR.colour.paper}>
                     GAME OVER
                   </Display>
+                  {result.board && result.board.length > 1 && (
+                    <div className="w-full bg-white/5 p-1.5 text-left text-xs" data-invaders-results={result.mode}>
+                      <p className="mb-1 text-center text-[10px] tracking-widest text-white/70">
+                        {result.mode === 'versus' ? `WINNER ${result.board[0].handle ? `@${result.board[0].handle}` : result.board[0].name}` : `TEAM SCORE ${(result.team ?? 0).toLocaleString()}`}
+                      </p>
+                      {result.board.map((r, i) => (
+                        <div key={r.id} className="flex items-center gap-1 py-0.5" style={{ borderLeft: `3px solid ${r.colour}`, paddingLeft: 4 }}>
+                          <span className="w-4 text-white/50">{i + 1}</span>
+                          <PlayerBadge handle={r.handle} name={r.name} verified={r.verified} ring={r.colour} size={18} className={`min-w-0 flex-1 ${r.me ? 'text-white' : 'text-white/80'}`} />
+                          <span className="text-white/60">{r.kills} kills</span>
+                          <span className="w-16 text-right tabular-nums text-white" style={hudFont}>
+                            {r.score.toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex items-baseline gap-2" style={hudFont}>
                     <span className="text-5xl tabular-nums" style={{ color: DR.colour.amber, lineHeight: 0.9 }}>
                       {result.score.toLocaleString()}
@@ -768,8 +962,14 @@ export function MempoolInvaders() {
                   <p className="text-xs text-dim">Best: {Math.max(best, result.score).toLocaleString()}</p>
                   <LootLine haul={lastRun} />
                   <HighScores game="invaders" score={result.score} secs={result.secs} live={run.paid} txid={run.live ? lastTx : run.txid} meta={run.live ? { live: 1, tx: onChain } : run.paid ? { coinop: 1 } : undefined} />
-                  <CoinOpButtons co={co} start={(p) => start(p)} />
-                  {run.live && (
+                  {mpOn ? (
+                    <button onClick={mpBack} className="btn btn-on px-4 py-2" data-invaders-lobby>
+                      ◀ BACK TO THE LOBBY
+                    </button>
+                  ) : (
+                    <CoinOpButtons co={co} start={(p) => start(p)} />
+                  )}
+                  {run.live && !mpOn && (
                   <button onClick={() => start(true, true)} disabled={actionsLeft < 1} className="btn px-3 py-1 text-sm disabled:opacity-40">
                     ⚡ PLAY LIVE AGAIN · {actionsLeft.toLocaleString()} ACTIONS
                   </button>
