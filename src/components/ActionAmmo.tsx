@@ -131,7 +131,7 @@ export function ActionHud({ ap, className = '' }: { ap: ActionPay; className?: s
   if (!ap.live) return null;
   return (
     <span className={`pointer-events-none rounded-sm px-1.5 py-0.5 text-xs font-bold ${className}`} style={{ background: 'var(--accent-fill)', color: 'var(--on-accent)' }} data-testid="tx-hud">
-      LIVE · {ap.sent.toLocaleString()} txs{ap.needAmmo ? ' · OUT OF AMMO' : ''}
+      LIVE · {ap.sent.toLocaleString()} {ap.sent === 1 ? 'tx' : 'txs'}{ap.needAmmo ? ' · OUT OF AMMO' : ''}
     </span>
   );
 }
