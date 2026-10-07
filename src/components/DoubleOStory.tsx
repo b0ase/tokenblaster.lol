@@ -5,6 +5,7 @@
  * play. Portraits are drawn on a canvas as cartoon parodies (no likenesses).
  */
 import { useEffect, useRef, useState } from 'react';
+import { ensurePortraits, portraitFor } from '@/lib/visuals/portraits';
 import { SPEAKERS, type Line, type Speaker } from '@/lib/doubleo/story';
 
 /** A stylised cartoon head for a speaker, drawn once into a small canvas. */
@@ -184,7 +185,30 @@ function drawPortrait(c: HTMLCanvasElement, who: Speaker) {
 export function Portrait({ who, size = 96 }: { who: Speaker; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (ref.current) drawPortrait(ref.current, who);
+    const c = ref.current;
+    if (!c) return;
+    let dead = false;
+    drawPortrait(c, who); // the drawn cartoon shows instantly, then the 3D render replaces it
+    const paint = (img: CanvasImageSource, w: number, h: number) => {
+      const g = c.getContext('2d');
+      if (!g || dead) return;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      const k = Math.max(c.width / w, c.height / h);
+      g.drawImage(img, (c.width - w * k) / 2, 0, w * k, h * k);
+    };
+    if (who === 'kweg') {
+      const im = new Image();
+      im.onload = () => paint(im, im.naturalWidth, im.naturalHeight);
+      im.src = '/arcade/doubleo/kweg.webp';
+    } else {
+      void ensurePortraits().then(() => {
+        const r = portraitFor(who);
+        if (r) paint(r, r.width, r.height);
+      });
+    }
+    return () => {
+      dead = true;
+    };
   }, [who]);
   return <canvas ref={ref} width={size * 3} height={size * 3} className="shrink-0 rounded-sm border" style={{ borderColor: SPEAKERS[who].color, width: size, height: size, boxShadow: `0 0 18px ${SPEAKERS[who].color}55, 0 6px 18px #000` }} aria-label={SPEAKERS[who].name} role="img" />;
 }

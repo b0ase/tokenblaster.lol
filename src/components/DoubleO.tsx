@@ -569,6 +569,8 @@ export function DoubleO() {
       netTo: THREE.Vector3 | null; // co-op guests: where the host says this actor is
       netRy: number;
       hitByMe: number; // co-op guests: last time my coin landed on it (kill credit)
+      lodDt?: number;
+      lod?: number; // frame counter for distant-actor animation throttling
     };
     const actors: Actor[] = [];
 
@@ -1612,6 +1614,19 @@ export function DoubleO() {
       animActor(a, dt, now, speed, aiming);
     };
     const animActor = (a: Actor, dt: number, now: number, speed: number, aiming: boolean) => {
+      // LOD: far-away actors animate every 3rd frame (skinned meshes are the costly part), with the dt they missed.
+      if (!a.cast.boss) {
+        const far = Math.hypot(a.root.position.x - camera.position.x, a.root.position.z - camera.position.z) > 24;
+        if (far) {
+          a.lod = ((a.lod ?? 0) + 1) % 3;
+          if (a.lod) {
+            a.lodDt = (a.lodDt ?? 0) + dt;
+            return;
+          }
+          dt += a.lodDt ?? 0;
+          a.lodDt = 0;
+        }
+      }
       // Telegraph: eyes flare before a shot.
       if (a.rig) {
         const flare = a.aimAt ? 1 + Math.sin(now / 40) * 0.5 + 1 : 1;

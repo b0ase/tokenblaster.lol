@@ -99,6 +99,44 @@ const textTex = (text: string, fg: string, bg: string, w = 256, h = 64) =>
     c.fillText(text, w / 2, h / 2 + 2, w - 8);
   });
 
+/** Woven fabric: a fine cross-hatch (plus optional pinstripes), used as colour and bump so suits catch light like cloth. */
+const fabricTex = (key: string, base: string, stripe: string | null) =>
+  canvasTex(`fabric-${key}`, 128, 128, (c) => {
+    c.fillStyle = base;
+    c.fillRect(0, 0, 128, 128);
+    c.globalAlpha = 0.18;
+    c.fillStyle = '#000';
+    for (let i = 0; i < 128; i += 2) c.fillRect(i, 0, 1, 128);
+    c.fillStyle = '#fff';
+    for (let i = 0; i < 128; i += 2) c.fillRect(0, i, 128, 1);
+    c.globalAlpha = 1;
+    if (stripe) {
+      c.fillStyle = stripe;
+      for (let x = 6; x < 128; x += 16) c.fillRect(x, 0, 1.5, 128);
+    }
+  });
+/** Cloth and skin as proper PBR: bump from the weave, sheen on fabric, soft subsurface-ish skin, glossy shoes. */
+const cloth = (key: string, color: string, stripe: string | null = null, extra: Partial<THREE.MeshPhysicalMaterialParameters> = {}) => {
+  const t = fabricTex(key, '#ffffff', stripe);
+  return new THREE.MeshPhysicalMaterial({ color, map: t, bumpMap: t, bumpScale: 1.2, roughness: 0.78, metalness: 0, sheen: 0.6, sheenRoughness: 0.5, sheenColor: new THREE.Color(color).lerp(new THREE.Color('#ffffff'), 0.4), ...extra });
+};
+const skinMat = (color: string) => {
+  const t = canvasTex(`skin-${color}`, 128, 128, (c) => {
+    c.fillStyle = '#fff';
+    c.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 700; i++) {
+      c.fillStyle = `rgba(120,60,40,${Math.random() * 0.06})`;
+      c.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    const g = c.createRadialGradient(64, 70, 10, 64, 64, 90);
+    g.addColorStop(0, 'rgba(255,150,130,0.12)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, 128, 128);
+  });
+  return new THREE.MeshPhysicalMaterial({ color, map: t, roughness: 0.52, clearcoat: 0.15, clearcoatRoughness: 0.6, sheen: 0.4, sheenColor: new THREE.Color('#ffb59a'), sheenRoughness: 0.6 });
+};
+
 /** A floating name tag (bosses). */
 export function nameTag(text: string, color = '#ffd27a') {
   const t = textTex(text, color, 'rgba(8,6,4,0.8)', 512, 64);
@@ -118,10 +156,14 @@ export function signMesh(text: string, fg: string, bg: string) {
 /** Bevelled box: soft edges catch the light like real tailoring. */
 const rbox = (w: number, h: number, d: number, r = 0.04) => new RoundedBoxGeometry(w, h, d, 3, Math.min(r, w / 2.2, h / 2.2, d / 2.2));
 
+const limbGeo = new THREE.CapsuleGeometry(0.5, 1, 6, 16);
+
 function limb(w: number, h: number, d: number, mat: THREE.Material, pivotY: number, x: number) {
   const g = new THREE.Group();
   g.position.set(x, pivotY, 0);
-  const m = new THREE.Mesh(rbox(w, h, d, 0.07), mat);
+  // Rounded, slightly tapered limbs read far better than boxes in silhouette.
+  const m = new THREE.Mesh(limbGeo, mat);
+  m.scale.set(w, h / 2, d);
   m.position.y = -h / 2;
   g.add(m);
   return g;
@@ -335,15 +377,21 @@ export function buildRig(kind: Kind, agent?: string): Rig {
     partyboy: { suit: '#5a6a3a', legs: '#2a3a5a', skin: '#e8b898', shirt: '#7a8a5a' },
   };
   const p = agent ? { suit: '#0d0d10', legs: '#0d0d10', skin: '#e2b48e', shirt: '#f4f4f4' } : palette[kind];
-  const suit = kind === 'goon' && !agent ? new THREE.MeshStandardMaterial({ map: paperTex(), roughness: 0.9 }) : std(p.suit, kind === 'kingpin' ? { metalness: 0.45, roughness: 0.55 } : kind === 'bot' ? { metalness: 0.7, roughness: 0.35 } : {});
-  const legMat = std(p.legs, kind === 'bot' ? { metalness: 0.7, roughness: 0.4 } : {});
-  const skin = std(p.skin, kind !== 'bot' ? { roughness: 0.85 } : kind === 'bot' ? { metalness: 0.7, roughness: 0.35 } : {});
+  const stripe = kind === 'kingpin' ? '#d8b44a' : kind === 'custodian' ? '#9aa0a8' : agent ? '#2a2a34' : null;
+  const suit =
+    kind === 'goon' && !agent
+      ? new THREE.MeshStandardMaterial({ map: paperTex(), roughness: 0.9 })
+      : kind === 'bot'
+        ? std(p.suit, { metalness: 0.7, roughness: 0.35 })
+        : cloth(`suit-${kind}-${agent ? 'a' : ''}`, p.suit, stripe, kind === 'kingpin' ? { roughness: 0.55, sheen: 0.9 } : {});
+  const legMat = kind === 'bot' ? std(p.legs, { metalness: 0.7, roughness: 0.4 }) : cloth(`legs-${kind}`, p.legs, kind === 'custodian' || agent ? '#555b66' : null);
+  const skin = kind === 'bot' ? std(p.skin, { metalness: 0.7, roughness: 0.35 }) : skinMat(p.skin);
 
   // Legs, torso, arms.
   const legs = [limb(0.24, 0.85, 0.26, legMat, 0.88, -0.15), limb(0.24, 0.85, 0.26, legMat, 0.88, 0.15)];
   legs.forEach((l) => inner.add(l));
   for (const l of legs) {
-    const shoe = new THREE.Mesh(rbox(0.26, 0.12, 0.38, 0.05), std(kind === 'bot' ? '#202428' : '#0b0b0b', { roughness: 0.25, metalness: 0.2 }));
+    const shoe = new THREE.Mesh(rbox(0.26, 0.12, 0.38, 0.05), new THREE.MeshPhysicalMaterial({ color: kind === 'bot' ? '#202428' : '#0b0b0b', roughness: 0.3, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.12 }));
     shoe.position.set(0, -0.85, 0.06);
     l.add(shoe);
   }
@@ -362,6 +410,15 @@ export function buildRig(kind: Kind, agent?: string): Rig {
   }
   const arms = [limb(0.18, 0.7, 0.2, suit, 1.56, -0.42 - belly / 2), limb(0.18, 0.7, 0.2, suit, 1.56, 0.42 + belly / 2)];
   arms.forEach((a) => inner.add(a));
+  // Shoulders: round caps so the jacket line reads as tailoring, not a box.
+  if (kind !== 'bot') {
+    for (const a of arms) {
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.115, 18, 14), suit);
+      cap.scale.set(1, 0.9, 1.05);
+      cap.position.y = 0.02;
+      a.add(cap);
+    }
+  }
   // Hands.
   for (const a of arms) {
     const hand = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 12), skin);
