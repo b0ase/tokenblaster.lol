@@ -10,10 +10,13 @@ import { Gun, TOKEN_FEE } from './gun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
+import { setProofWallet } from './xproof';
 
 export function useBlaster() {
   const gun = useRef<Gun | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
+  // The hall of fame asks this wallet to sign for the player's X handle (src/lib/xproof.ts).
+  useEffect(() => setProofWallet(wallet?.client ?? null), [wallet]);
   const [ammo, setAmmo] = useState(0);
   const [token, setToken] = useState<Token | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);

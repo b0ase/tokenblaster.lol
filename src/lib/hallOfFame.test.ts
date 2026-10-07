@@ -31,7 +31,9 @@ test('overall ranking: one row per player per board, case-insensitive, top 10 on
 });
 
 test('a valid meta.x is an identity, anything else is just the name', () => {
-  assert.deepEqual(playerOf(row('Ann', 1, { x: '@Alice_1' })), { key: 'alice_1', name: '@Alice_1', handle: 'Alice_1' });
+  assert.deepEqual(playerOf(row('Ann', 1, { x: '@Alice_1' })), { key: 'alice_1', name: '@Alice_1', handle: 'Alice_1', verified: false });
+  assert.equal(playerOf(row('Ann', 1, { x: 'Alice_1', xv: 1 })).verified, true);
+  assert.equal(playerOf(row('Ann', 1, { xv: 1 })).verified, false); // a tick needs a handle
   assert.equal(playerOf(row('Ann', 1, { x: 'not a handle!' })).handle, null);
   assert.equal(playerOf(row('Ann', 1)).name, 'Ann');
 });

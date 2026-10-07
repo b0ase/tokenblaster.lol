@@ -26,6 +26,8 @@ const STATIC_GAMES = {
   potions: { title: 'Token Potions (Puzzling Potions)', tag: 'potions', sort: 'score' },
   'bsvgun-range': { title: 'BSVGun Range', tag: 'bsvgun', sort: 'score' },
   'bsvgun-versus': { title: 'BSVGun Versus', tag: 'bsvgun', sort: 'score' },
+  arena: { title: 'Arena (kills in one life)', tag: 'arena', sort: 'score' },
+  city: { title: 'Satoshi City', tag: 'city', sort: 'score' },
 } as const;
 
 type GameInfo = { title: string; tag: string; sort: 'score' };

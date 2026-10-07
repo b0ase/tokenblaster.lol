@@ -6,6 +6,9 @@
  * LIVE runs whose last tx checks out on chain get a ✓ linking to WhatsOnChain.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { cleanHandle } from '@/lib/identity';
+import { makeProof, type XProof } from '@/lib/xproof';
+import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
 import type { ScoreGame, ScorePeriod, ScoreRow, ScoreSort } from '@/lib/scores';
 
 const NAME_KEY = 'tb:scores:name';
@@ -69,7 +72,9 @@ function Table({ rows, err, sort, highlight }: { rows: ScoreRow[] | null; err: b
       {rows.map((r, i) => (
         <li key={r.id} className={`flex items-center gap-2 px-1 ${r.id === highlight ? 'bg-white/10 text-hot' : ''}`}>
           <span className="w-5 text-right text-dim">{i + 1}.</span>
-          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-fg">{r.name}</span>
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-fg">
+            {cleanHandle(r.meta?.x) ? <PlayerBadge handle={cleanHandle(r.meta?.x)} name={r.name} verified={r.meta?.xv === 1} size={16} /> : r.name}
+          </span>
           {r.mode === 'live' &&
             (r.verified && r.txid ? (
               <a href={`https://whatsonchain.com/tx/${r.txid}`} target="_blank" rel="noopener noreferrer" title="Verified on chain" className="text-[var(--ok)] hover:underline">
@@ -146,8 +151,9 @@ export function HighScores({
       /* storage blocked */
     }
   }, []);
+  const handle = useMyHandle();
   const submit = async () => {
-    const n = name.replace(/[^A-Za-z0-9 _.\-]/g, '').trim().slice(0, 16);
+    const n = (name.replace(/[^A-Za-z0-9 _.\-]/g, '').trim() || handle || '').slice(0, 16);
     if (!n) return setMsg('Enter a name (letters, numbers, space, _ . -).');
     try {
       localStorage.setItem(NAME_KEY, n);
@@ -157,10 +163,14 @@ export function HighScores({
     setState('sending');
     setMsg(null);
     try {
+      const sc = Math.max(0, Math.floor(score));
+      const sx = Math.round(secs * 10) / 10;
+      // With an X handle set: also sign the run with the connected wallet (earns the identity tick when it is the wallet bWalletX linked).
+      const xp: XProof | null = handle ? await makeProof(handle, 'score', game, `${sc}-${sx}`) : null;
       const r = await fetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ game, mode: live ? 'live' : 'practice', name: n, score: Math.max(0, Math.floor(score)), secs: Math.round(secs * 10) / 10, meta, txid: live ? (txid ?? null) : null }),
+        body: JSON.stringify({ game, mode: live ? 'live' : 'practice', name: n, score: sc, secs: sx, meta, txid: live ? (txid ?? null) : null, x: handle ?? undefined, xp: xp ?? undefined }),
       });
       const j = (await r.json()) as { ok?: boolean; id?: number; verified?: boolean; error?: string };
       if (!r.ok || !j.ok) throw new Error(j.error ?? 'Rejected');
@@ -195,6 +205,7 @@ export function HighScores({
           </button>
         </div>
       )}
+      {state !== 'sent' && <IdentityPicker compact />}
       {msg && <p className="text-xs text-accent">{msg}</p>}
       {live && !txid && state !== 'sent' && <p className="text-[10px] text-dim">No on-chain tx in this run, so it can’t be verified.</p>}
       {sorts.length > 1 && (

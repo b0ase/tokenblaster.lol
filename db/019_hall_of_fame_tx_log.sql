@@ -5,10 +5,10 @@
 -- LIVE transaction count is recorded server-side. This adds the smallest thing that can: a per-run counter that
 -- games report through the existing score route (or a sibling POST /api/txlog), never trusted beyond a cap.
 --
--- Recording API (to build after applying; not part of this migration):
---   POST /api/txlog { game, player, txs, txid }  -> tokenblaster_record_txs(game, player, txs, txid, verified, ip_hash, SCORES_SECRET)
---   `player` is meta.x (an X @handle) when the game has one, else the score name; txid is the run's last tx, checked
---   with verifyRunTx(txid, tag) exactly like /api/scores. The page reads tokenblaster_top_tx_players() (below);
+-- Recording API:
+--   POST /api/txlog { game, txs, txid, secs?, name?, x?, xp? } (built: src/app/api/txlog/route.ts) -> tokenblaster_record_txs(...).
+--   `player` is '@handle' when the game has one, else the score name; txid is the run's last tx, checked with
+--   verifyRunTx(txid, game) exactly like /api/scores. The page reads tokenblaster_top_tx_players() (below);
 --   until this migration is applied that call fails and /leaderboard shows "Not tracked yet".
 
 create table if not exists public.tokenblaster_tx_log (
@@ -18,6 +18,7 @@ create table if not exists public.tokenblaster_tx_log (
   txs        integer not null check (txs between 1 and 100000),
   txid       text check (txid is null or txid ~ '^[0-9a-f]{64}$'),
   verified   boolean not null default false,
+  idv        boolean not null default false, -- the player's X handle was proven with a bWalletX signature (checked by the server)
   ip_hash    text,
   created_at timestamptz not null default now()
 );
@@ -30,7 +31,7 @@ alter table public.tokenblaster_tx_log enable row level security;
 
 -- Called by the API with the same SCORES_SECRET as tokenblaster_submit_score (without it nothing is verified).
 create or replace function public.tokenblaster_record_txs(
-  p_game text, p_player text, p_txs integer, p_txid text default null, p_verified boolean default false, p_ip_hash text default null, p_secret text default null
+  p_game text, p_player text, p_txs integer, p_txid text default null, p_verified boolean default false, p_idv boolean default false, p_ip_hash text default null, p_secret text default null
 ) returns table (ok boolean, error text)
 language plpgsql security definer set search_path = public as $$
 declare clean text;
@@ -38,6 +39,7 @@ begin
   -- Only our server (holding SCORES_SECRET, see db/003) may mark a count verified.
   if p_verified and (p_secret is null or p_secret is distinct from (select value from public.tokenblaster_secrets where key = 'scores')) then
     p_verified := false;
+    p_idv := false;
   end if;
   clean := left(btrim(regexp_replace(coalesce(p_player, ''), '[^A-Za-z0-9 _.@\-]', '', 'g')), 16);
   if clean = '' then return query select false, 'bad player'; return; end if;
@@ -48,17 +50,17 @@ begin
   if p_ip_hash is not null and (select count(*) from public.tokenblaster_tx_log l where l.ip_hash = p_ip_hash and l.created_at > now() - interval '1 minute') >= 6 then
     return query select false, 'rate limited'; return;
   end if;
-  insert into public.tokenblaster_tx_log (game, player, txs, txid, verified, ip_hash)
-  values (p_game, clean, p_txs, p_txid, coalesce(p_verified, false) and p_txid is not null, p_ip_hash);
+  insert into public.tokenblaster_tx_log (game, player, txs, txid, verified, idv, ip_hash)
+  values (p_game, clean, p_txs, p_txid, coalesce(p_verified, false) and p_txid is not null, coalesce(p_idv, false) and left(clean, 1) = '@', p_ip_hash);
   return query select true, null::text;
 end $$;
 
 -- Only runs whose last tx was verified on chain count, so the board cannot be inflated by typing a number.
 create or replace function public.tokenblaster_top_tx_players(since timestamptz default null, max_rows integer default 10)
-returns table (player text, txs bigint, games bigint, last_txid text)
+returns table (player text, txs bigint, games bigint, last_txid text, idv boolean)
 language sql stable security definer set search_path = public as $$
   select min(l.player), sum(l.txs)::bigint, count(distinct l.game)::bigint,
-         (array_agg(l.txid order by l.created_at desc))[1]
+         (array_agg(l.txid order by l.created_at desc))[1], bool_or(l.idv)
   from public.tokenblaster_tx_log l
   where l.verified and (since is null or l.created_at >= since)
   group by lower(l.player)
@@ -66,7 +68,7 @@ language sql stable security definer set search_path = public as $$
   limit least(greatest(max_rows, 1), 50);
 $$;
 
-revoke all on function public.tokenblaster_record_txs(text, text, integer, text, boolean, text, text) from public;
+revoke all on function public.tokenblaster_record_txs(text, text, integer, text, boolean, boolean, text, text) from public;
 revoke all on function public.tokenblaster_top_tx_players(timestamptz, integer) from public;
-grant execute on function public.tokenblaster_record_txs(text, text, integer, text, boolean, text, text) to anon, authenticated;
+grant execute on function public.tokenblaster_record_txs(text, text, integer, text, boolean, boolean, text, text) to anon, authenticated;
 grant execute on function public.tokenblaster_top_tx_players(timestamp with time zone, integer) to anon, authenticated;

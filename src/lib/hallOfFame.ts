@@ -34,13 +34,13 @@ export type Cabinet = {
 export const CABINETS: Cabinet[] = [
   { id: 'doubleo', title: 'Double-O Satoshi', href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', tags: ['doubleo'], unit: 'rekt' },
   { id: 'bsvgun', title: 'BSVGun', href: '/arcade/bsvgun', img: '/arcade/bsvgun.jpg', tags: ['bsvgun'], unit: 'pts' },
-  { id: 'arena', title: 'Arena', href: '/arena', img: '/arcade/arena.jpg', tags: [], unit: 'pts' },
+  { id: 'arena', title: 'Arena', href: '/arena', img: '/arcade/arena.jpg', tags: ['arena'], unit: 'kills' },
   { id: 'frogger', title: 'Chain Frogger', href: '/arcade/frogger', img: '/arcade/frogger.jpg', tags: ['frogger'], unit: 'crossings' },
   { id: 'hopper', title: 'Block Hopper', href: '/arcade/hopper', img: '/arcade/hopper.jpg', tags: ['hopper'], unit: 'pts' },
   { id: 'invaders', title: 'Mempool Invaders', href: '/arcade/invaders', img: '/arcade/invaders.jpg', tags: ['invaders'], unit: 'pts' },
   { id: 'kweg', title: "Kweg's Expedition", href: '/arcade/kweg', img: '/arcade/kweg.jpg', tags: ['kweg'], unit: 'pts' },
   { id: 'snake', title: 'Token Snake', href: '/arcade/snake', img: '/arcade/snake.jpg', tags: ['snake'], unit: 'pts' },
-  { id: 'city', title: 'Satoshi City', href: '/arcade/city', img: '/arcade/city.jpg', tags: [], unit: 'pts' },
+  { id: 'city', title: 'Satoshi City', href: '/arcade/city', img: '/arcade/city.jpg', tags: ['city'], unit: 'pts' },
   { id: 'npgcards', title: 'Ninja Punk Girls: Card Battle', href: '/arcade/npg-cards', img: '/arcade/npg-cards.jpg', tags: ['npgcards'], unit: 'wins' },
   { id: 'npg', title: 'Ninja Punk Girls: Erobot Uprising', href: '/arcade/npg-runner', img: '/arcade/npg-runner.jpg', tags: ['npg'], unit: 'pts' },
   { id: 'rally', title: 'Token Rally', href: '/arcade/rally', img: '/arcade/rally.jpg', tags: ['rally'], unit: 'pts' },
@@ -58,12 +58,12 @@ export const unclaimedBoards = () => (Object.keys(SCORE_GAMES) as ScoreGame[]).f
 
 // ── Players ──
 
-export type Player = { key: string; name: string; handle: string | null };
+export type Player = { key: string; name: string; handle: string | null; /** the handle is proven by a bWalletX signature (meta.xv, set by the server only) */ verified: boolean };
 
 /** Scores carry a free-text name; an X identity exists only when a game sends meta.x (a valid handle). */
 export function playerOf(r: Pick<ScoreRow, 'name' | 'meta'>): Player {
   const handle = cleanHandle(r.meta?.x);
-  return { key: (handle ?? r.name).toLowerCase(), name: handle ? `@${handle}` : r.name, handle };
+  return { key: (handle ?? r.name).toLowerCase(), name: handle ? `@${handle}` : r.name, handle, verified: Boolean(handle) && r.meta?.xv === 1 };
 }
 
 // ── Arcade-wide ranking ──
@@ -100,7 +100,7 @@ export function overallRanking(boards: Record<string, ScoreRow[][]>): OverallRow
     }
     for (const [key, b] of bestHere) {
       const row = by.get(key) ?? { player: b.player, points: 0, wins: 0, games: 0, best: [] };
-      if (b.player.handle) row.player = b.player;
+      if (b.player.handle) row.player = { ...b.player, verified: b.player.verified || row.player.verified };
       row.points += b.points;
       row.wins += b.rank === 1 ? 1 : 0;
       row.games += 1;
@@ -229,12 +229,12 @@ export async function padCoins(): Promise<PadCoin[] | null> {
   }
 }
 
-export type TxPlayer = { name: string; txs: number; games: number; last_txid: string | null };
+export type TxPlayer = { name: string; txs: number; games: number; last_txid: string | null; idv: boolean };
 /** Most transactions put on chain by player. null = the database does not record it yet (db/019 not applied). */
 export async function topTxPlayers(period: ScorePeriod): Promise<TxPlayer[] | null> {
   try {
-    const rows = await rpc<{ player: string; txs: number; games: number; last_txid: string | null }[]>('tokenblaster_top_tx_players', { since: sinceOf(period), max_rows: 10 });
-    return rows.map((r) => ({ name: r.player, txs: Number(r.txs), games: Number(r.games), last_txid: r.last_txid }));
+    const rows = await rpc<{ player: string; txs: number; games: number; last_txid: string | null; idv: boolean }[]>('tokenblaster_top_tx_players', { since: sinceOf(period), max_rows: 10 });
+    return rows.map((r) => ({ name: r.player, txs: Number(r.txs), games: Number(r.games), last_txid: r.last_txid, idv: Boolean(r.idv) }));
   } catch {
     return null;
   }
