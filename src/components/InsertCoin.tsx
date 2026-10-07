@@ -101,7 +101,7 @@ export type CoinOp = ReturnType<typeof useCoinOp>;
 const txUrl = (txid: string) => `https://whatsonchain.com/tx/${txid}`;
 
 /** The coin slot: INSERT COIN button, CREDITS, and any plain-English result. */
-export function InsertCoin({ co }: { co: CoinOp }) {
+export function InsertCoin({ co, perCredit }: { co: CoinOp; perCredit?: string }) {
   const label = !co.enabled ? 'COIN SLOT CLOSED' : co.paying ? 'CHECK YOUR WALLET…' : co.sats ? `INSERT COIN · ${COIN_PENCE}p (${co.sats.toLocaleString('en-GB')} sats)` : co.rateErr ? 'PRICE UNAVAILABLE' : 'PRICING…';
   return (
     <div className="flex flex-col items-center gap-1" onKeyDown={(e) => e.stopPropagation()}>
@@ -115,7 +115,7 @@ export function InsertCoin({ co }: { co: CoinOp }) {
       <p className="text-xs font-bold tracking-[0.3em] text-hot">CREDITS: {co.credits}</p>
       {co.enabled ? (
         <p className="text-[10px] text-dim">
-          1 credit = 1 game, {LIVES_PER_CREDIT} lives. Paid to the house in one wallet approval, plus the network fee. No payouts.
+          {perCredit ?? `1 credit = 1 game, ${LIVES_PER_CREDIT} lives.`} Paid to the house in one wallet approval, plus the network fee. No payouts.
         </p>
       ) : (
         <p className="text-[10px] text-dim">Paid play is off here: no house address is set (NEXT_PUBLIC_TB_HOUSE_ADDRESS). Practice is free.</p>
@@ -134,3 +134,35 @@ export function InsertCoin({ co }: { co: CoinOp }) {
     </div>
   );
 }
+
+/** Title / game-over controls: INSERT COIN, PLAY (spends a credit), PRACTICE (free). */
+export function CoinOpButtons({
+  co,
+  start,
+  perCredit,
+  playLabel = '▶ PLAY · 1 CREDIT',
+  practiceLabel = '▶ PRACTICE · FREE',
+}: {
+  co: CoinOp;
+  start: (paid: boolean) => void;
+  perCredit?: string;
+  playLabel?: string;
+  practiceLabel?: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <InsertCoin co={co} perCredit={perCredit} />
+      <div className="flex flex-wrap justify-center gap-2">
+        <button onClick={() => start(true)} disabled={co.credits < 1} className="btn btn-on px-3 py-1 text-sm font-bold disabled:opacity-40">
+          {playLabel}
+        </button>
+        <button onClick={() => start(false)} className="btn px-3 py-1 text-sm">
+          {practiceLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The run's mode, for the canvas: credit game or free practice. */
+export const coinOpModeLabel = (paid: boolean, credits: number) => `${paid ? 'CREDIT GAME · 10p paid' : 'PRACTICE · free, nothing on chain'} · CREDITS: ${credits}`;

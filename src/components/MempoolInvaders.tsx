@@ -13,10 +13,9 @@ import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { useChainFeed } from '@/lib/useChainFeed';
-import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HighScores, useRunClock } from './HighScores';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
-import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
+import { CoinOpButtons, coinOpModeLabel, useCoinOp } from './InsertCoin';
 import { HoldButton } from './HoldButton';
 import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
@@ -58,8 +57,9 @@ type HUD = { score: number; lives: number; wave: number; left: number };
 export function MempoolInvaders() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const feed = useChainFeed();
-  const pp = usePaidPlay('Out of sats: load more to keep shooting.', 'invaders');
-  const payFor = pp.payFor;
+  // Coin-op: 10p buys a credit, a credit is one game of 3 lives (src/lib/coinop.ts). Practice is free.
+  const co = useCoinOp('Mempool Invaders', 'invaders');
+  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const feedRef = useRef(feed);
   useEffect(() => {
     feedRef.current = feed;
@@ -191,11 +191,9 @@ export function MempoolInvaders() {
       pl.x = Math.max(12, Math.min(W - 12, pl.x + mv * 2.8));
       if (cool > 0) cool--;
       if (keys.fire && cool === 0 && shots.length < 2 && lives > 0) {
-        if (payFor.current(['invaders', 'shot'])) {
-          shots.push({ x: pl.x, y: PY - 8, vy: -6 });
-          sfx('laser');
-          cool = 14;
-        } else cool = 20;
+        shots.push({ x: pl.x, y: PY - 8, vy: -6 });
+        sfx('laser');
+        cool = 14;
       }
 
       // Formation march: faster as it thins out and as waves go by.
@@ -471,7 +469,6 @@ export function MempoolInvaders() {
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       e.preventDefault();
       control.current?.key(k, down);
-      if (down && k === 'fire' && state !== 'play') control.current?.restart();
     };
     const kd = onKey(true);
     const ku = onKey(false);
@@ -482,7 +479,15 @@ export function MempoolInvaders() {
       window.removeEventListener('keydown', kd);
       window.removeEventListener('keyup', ku);
     };
-  }, [payFor]);
+  }, []);
+
+  /** Start a game: a credit game spends one credit (its coin's txid goes with the run), practice is free. */
+  const start = (paid: boolean) => {
+    const txid = paid ? co.consume() : null;
+    if (paid && !txid) return;
+    setRun({ paid, txid });
+    control.current?.restart();
+  };
 
   return (
     <section className="panel">
@@ -496,12 +501,16 @@ export function MempoolInvaders() {
           <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute right-2 top-1 text-xs text-dim">chain: {feed.status}</div>
-        <ModeBadge pp={pp} action="shot" actions="shots" />
+        {phase === 'play' && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+            <span className="border border-[var(--border-canvas)] bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-dim">{coinOpModeLabel(run.paid, co.credits)}</span>
+          </div>
+        )}
         {phase === 'ready' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 px-3 text-center">
             <p className="text-2xl font-bold text-hot">MEMPOOL INVADERS</p>
             <p className="text-xs text-dim">Every invader is a live transaction. ←/→ or A/D to move, SPACE / ↑ / W to fire. Shoot gold token invaders and catch the token they drop.</p>
-            <PlayButtons pp={pp} game="Mempool Invaders" action="shot" actions="shots" onStart={() => control.current?.restart()} />
+            <CoinOpButtons co={co} start={start} />
           </div>
         )}
         {phase === 'over' && (
@@ -511,8 +520,8 @@ export function MempoolInvaders() {
               Score {hud.score.toLocaleString()} · wave {hud.wave}. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
-            <HighScores game="invaders" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} />
-            <PlayButtons pp={pp} game="Mempool Invaders" action="shot" actions="shots" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
+            <HighScores game="invaders" score={hud.score} secs={runSecs} live={run.paid} txid={run.txid} meta={run.paid ? { coinop: 1 } : undefined} />
+            <CoinOpButtons co={co} start={start} />
           </div>
         )}
       </div>
@@ -548,7 +557,7 @@ export function MempoolInvaders() {
         </div>
       </div>
       <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
-      <PaidPanel pp={pp} game="Mempool Invaders" action="shot" actions="shots" />
+      {co.chooserEl}
     </section>
   );
 }
