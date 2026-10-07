@@ -17,12 +17,17 @@ import { Input, type Touch } from './input';
 import { newShip, noInput, SHIPS, stepShip, WEAPONS, type ShipSpec, type SimInput, type Weapon } from './sim';
 import { buildShip, Trail, type Rig } from './ships';
 import { FONTS } from './signs';
+import { SnapshotBuffer } from '@/lib/racemp/buffer';
+import type { RaceLink } from '@/lib/racemp/session';
 import { teamOfKind, TEAMS, type Team } from './teams';
 import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, TRACKS, type Frame, type Track, type TrackId } from './track';
 import { buildWorld, Particles, SpeedLines, type Quality, type World } from './world';
 
 export type Phase = 'loading' | 'menu' | 'countdown' | 'racing' | 'paused' | 'finished';
 export type Mode = 'race' | 'trial';
+/** Room config shared by the whole room (host picks). */
+export type BRaceCfg = { track: TrackId; diff: Difficulty };
+export type MpLink = RaceLink<BRaceCfg>;
 export type Difficulty = 'normal' | 'hardcore';
 export type Hud = {
   kmh: number;
@@ -90,6 +95,8 @@ export type Options = {
   take: (pred?: (f: FeedTx) => boolean) => FeedTx | null;
   cb: Callbacks;
   touchDevice: boolean;
+  /** Multiplayer link (src/lib/hyper/mp.ts), present when the player is in a room. */
+  mp?: MpLink;
 };
 
 const BEST_KEY = 'tokenblaster:bracer-laps';
@@ -122,8 +129,39 @@ type RivalRun = {
   done: boolean;
   v: number;
 };
-type Shot = { owner: 'me' | number; S: number; lat: number; v: number; life: number; mesh: THREE.Mesh };
-type Mine = { owner: 'me' | number; S: number; lat: number; t: number; mesh: THREE.Mesh };
+type Shot = { owner: 'me' | 'net' | number; S: number; lat: number; v: number; life: number; mesh: THREE.Mesh; key: string; tg: string | null };
+type Mine = { owner: 'me' | 'net' | number; S: number; lat: number; t: number; mesh: THREE.Mesh; key: string };
+type RemoteRun = {
+  id: string;
+  name: string;
+  team: Team;
+  spec: ShipSpec;
+  slot: number;
+  rig: Rig;
+  trail: Trail | null;
+  label: THREE.Sprite;
+  labelCanvas: HTMLCanvasElement;
+  labelTex: THREE.CanvasTexture;
+  buf: SnapshotBuffer;
+  S: number;
+  lat: number;
+  h: number;
+  vs: number;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  fl: number;
+  hp: number;
+  gone: boolean;
+  wasDead: boolean;
+  finT: number | null;
+  rkAt: number;
+  qkAt: number;
+};
+const HUMAN_SLOTS = [5, 6, 7, 4, 3, 2, 1, 0];
+const VCAP = 260;
+// Channels of a remote ship's snapshot: lateral, height, yaw, pitch, roll, shield energy.
+const CHANNELS: [number, number][] = [[-HALF_W - 2, HALF_W + 2], [-2, 80], [-3.2, 3.2], [-3.2, 3.2], [-7, 7], [0, 1]];
 type Ring = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; t: number; dur: number; max: number; active: boolean };
 
 const GRADE = {
@@ -267,6 +305,14 @@ export class HyperEngine {
   private showSpeed = 0;
   private scrapeAcc = 0;
   private autoWeapon: Weapon | null = null;
+  private remotes: RemoteRun[] = [];
+  private mySlot = 5;
+  private msid = 0;
+  private lastSend = 0;
+  private hitCool = 0;
+  private netShots = new Map<string, number>();
+  private netQk = 0;
+  private greenAtMs = 0;
   private visHandler = () => {
     if (document.hidden && this.phase === 'racing') this.pause(true);
   };
@@ -371,7 +417,7 @@ export class HyperEngine {
     this.buildPlayer();
     this.world.strobe(0);
     cb.onLoading('Reading the mempool', 0.8);
-    await this.makeRivals();
+    this.makeRivals();
     if (this.disposed) return;
     this.buildComposer();
     this.ro = new ResizeObserver(() => this.resize());
@@ -430,18 +476,17 @@ export class HyperEngine {
     return { main: sp.live ? `TX ${sp.tx!.slice(0, 5)}` : 'IDLE TX', meta: null };
   }
 
-  private async makeRivals() {
+  private makeRivals(count = COUNT, taken: number[] = [5]) {
     this.rivals = [];
-    if (this.opts.mode === 'trial') return;
+    if (this.opts.mode === 'trial' || count <= 0) return;
     const tr = this.tr;
-    const { rivals, live } = pickRivals(this.opts.take, COUNT, TRACKS[this.opts.track].seed * 31 + (Date.now() % 1000));
+    const { rivals, live } = pickRivals(this.opts.take, count, TRACKS[this.opts.track].seed * 31 + (Date.now() % 1000));
     this.liveRivals = live;
     rivals.sort((a, b) => b.skill - a.skill);
-    const mySlot = 5;
     let slot = 0;
     const total = this.laps * tr.len;
     for (const spec of rivals) {
-      if (slot === mySlot) slot++;
+      while (taken.includes(slot)) slot++;
       spec.slot = slot++;
       const team = teamOfKind(spec.kind);
       const hull = SHIPS[(spec.slot + 1) % 3];
@@ -575,8 +620,8 @@ export class HyperEngine {
   // ───────────── Control ─────────────
 
   private resetRace() {
-    const sh = newShip(this.opts.mode === 'trial' ? GRID_S(0) : GRID_S(5));
-    sh.lat = this.opts.mode === 'trial' ? 0 : 6;
+    const sh = newShip(this.opts.mode === 'trial' ? GRID_S(0) : GRID_S(this.mySlot));
+    sh.lat = this.opts.mode === 'trial' ? 0 : (this.mySlot % 2 ? 1 : -1) * 6;
     this.me = sh;
     this.raceT = 0;
     this.lapT = 0;
@@ -604,6 +649,9 @@ export class HyperEngine {
     for (const m of this.mines) this.scene.remove(m.mesh);
     this.shots = [];
     this.mines = [];
+    this.netShots.clear();
+    this.hitCool = 0;
+    for (const r of this.remotes) this.resetRemote(r);
     for (const r of this.rivals) {
       r.tc = 0;
       r.idx = 0;
@@ -620,12 +668,15 @@ export class HyperEngine {
 
   begin() {
     if (this.phase === 'loading') return;
+    this.setupMp();
     this.resetRace();
     this.countT = 0;
     this.lastCount = -1;
     this.setPhase('countdown');
   }
   pause(on: boolean) {
+    // A live room cannot be paused: everyone else is still racing.
+    if (this.opts.mp?.race) return;
     if (on && this.phase === 'racing') {
       this.setPhase('paused');
       this.clock.stop();
@@ -636,6 +687,7 @@ export class HyperEngine {
   }
   async toMenu() {
     this.opts.cb.onCount(null);
+    this.clearRemotes();
     await this.refreshRivals();
     this.resetRace();
     this.setPhase('menu');
@@ -643,7 +695,7 @@ export class HyperEngine {
   private async refreshRivals() {
     for (const r of this.rivals) this.removeRival(r);
     this.rivals = [];
-    await this.makeRivals();
+    this.makeRivals();
   }
   private removeRival(r: RivalRun) {
     this.scene.remove(r.rig.root);
@@ -653,6 +705,252 @@ export class HyperEngine {
     if (r.trail) {
       this.scene.remove(r.trail.mesh);
       r.trail.dispose();
+    }
+  }
+
+  // ───────────── Multiplayer ─────────────
+
+  private setupMp() {
+    const mp = this.opts.mp;
+    const race = mp?.race;
+    this.clearRemotes();
+    if (!mp || !race || this.opts.mode === 'trial') return;
+    mp.on = (ev, p) => this.onNet(ev, p);
+    const ids = race.ids;
+    this.mySlot = HUMAN_SLOTS[Math.max(0, ids.indexOf(mp.id))];
+    // The empty grid slots are filled by the usual live-chain rivals.
+    for (const r of this.rivals) this.removeRival(r);
+    this.rivals = [];
+    this.makeRivals(8 - ids.length, HUMAN_SLOTS.slice(0, ids.length));
+    ids.forEach((id, i) => {
+      const info = race.players[id];
+      if (id !== mp.id && info) this.addRemote(id, info, HUMAN_SLOTS[i]);
+    });
+  }
+
+  private addRemote(id: string, info: { name: string; vehicle: string; team: string }, slot: number) {
+    const spec = SHIPS.find((s) => s.id === info.vehicle) ?? SHIPS[1];
+    const team = TEAMS.find((t) => t.id === info.team) ?? TEAMS[0];
+    const name = String(info.name || 'PILOT').slice(0, 14);
+    const accent = team.accent === '#ffffff' || team.accent === '#f4efe2' || team.accent === '#f2f2ee' ? team.base : team.accent;
+    const rig = buildShip(spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent);
+    this.scene.add(rig.root);
+    const label = this.makeLabel();
+    rig.root.add(label.sprite);
+    const r: RemoteRun = {
+      id, name, team, spec, slot, rig, label: label.sprite, labelCanvas: label.canvas, labelTex: label.tex,
+      trail: this.opts.quality === 'low' ? null : new Trail(14, new THREE.Color(accent).multiplyScalar(2), 0.28),
+      buf: new SnapshotBuffer({ maxSpeed: VCAP, clamp: CHANNELS, frozenBit: 8 }), S: 0, lat: 0, h: 1.3, vs: 0, yaw: 0, pitch: 0, roll: 0, fl: 0, hp: 1, gone: false, wasDead: false, finT: null, rkAt: 0, qkAt: 0,
+    };
+    if (r.trail) this.scene.add(r.trail.mesh);
+    this.drawRemoteLabel(r);
+    this.resetRemote(r);
+    this.remotes.push(r);
+  }
+
+  private resetRemote(r: RemoteRun) {
+    r.S = GRID_S(r.slot);
+    r.lat = (r.slot % 2 ? 1 : -1) * 6;
+    r.h = 1.3;
+    r.vs = r.yaw = r.pitch = r.roll = r.fl = 0;
+    r.hp = 1;
+    r.buf.reset();
+    r.gone = false;
+    r.wasDead = false;
+    r.finT = null;
+    r.rig.root.visible = true;
+    if (r.trail) r.trail.mesh.visible = true;
+  }
+
+  private clearRemotes() {
+    for (const r of this.remotes) {
+      this.scene.remove(r.rig.root);
+      r.rig.dispose();
+      r.labelTex.dispose();
+      (r.label.material as THREE.Material).dispose();
+      if (r.trail) {
+        this.scene.remove(r.trail.mesh);
+        r.trail.dispose();
+      }
+    }
+    this.remotes = [];
+    this.mySlot = 5;
+    this.netShots.clear();
+  }
+
+  private drawRemoteLabel(r: RemoteRun) {
+    const c = r.labelCanvas;
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, c.width, c.height);
+    g.fillStyle = r.team.base;
+    g.fillRect(4, 4, c.width - 8, c.height - 8);
+    g.fillStyle = r.team.accent;
+    for (let i = 0; i < 7; i++) {
+      g.beginPath();
+      g.moveTo(8 + i * 54, 8);
+      g.lineTo(34 + i * 54, 8);
+      g.lineTo(60 + i * 54, 24);
+      g.lineTo(34 + i * 54, 40);
+      g.lineTo(8 + i * 54, 40);
+      g.lineTo(34 + i * 54, 24);
+      g.closePath();
+      g.fill();
+    }
+    g.strokeStyle = '#000';
+    g.lineWidth = 6;
+    g.strokeRect(3, 3, c.width - 6, c.height - 6);
+    g.fillStyle = r.team.trim === '#111111' || r.team.trim === '#101010' ? '#fff' : '#000';
+    g.font = `900 50px ${FONTS.display}`;
+    g.textBaseline = 'alphabetic';
+    g.fillText(r.name.toUpperCase(), 18, 90, c.width - 36);
+    r.labelTex.needsUpdate = true;
+  }
+
+  /** Gameplay messages from the room (the session already filtered by race). */
+  private onNet(ev: string, raw: unknown) {
+    const mp = this.opts.mp;
+    const d = raw as Record<string, unknown> | null;
+    if (!mp || !d || typeof d.i !== 'string') return;
+    const r = this.remotes.find((x) => x.id === d.i);
+    if (!r) return;
+    const now = performance.now();
+    const num = (v: unknown, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : null);
+    const me = this.me;
+    if (ev === 's') {
+      if (!r.buf.push(d, now)) return;
+      if (r.gone) {
+        r.gone = false;
+        this.toast(`${r.name} BACK`, 'info');
+      }
+      const fl = r.buf.cur?.fl ?? 0;
+      if (fl & 32 && r.finT === null) r.finT = this.raceT;
+      return;
+    }
+    if (ev === 'rk') {
+      const S = num(d.S, -200, 1e6);
+      const lat = num(d.lat, -HALF_W - 2, HALF_W + 2);
+      const v = num(d.v, 0, 520);
+      if (S === null || lat === null || v === null || typeof d.id !== 'string' || now - r.rkAt < 250 || Math.abs(S - r.S) > 160) return;
+      r.rkAt = now;
+      const key = `${r.id}:${d.id}`;
+      this.netShots.set(key, now);
+      if (this.netShots.size > 24) this.netShots.delete(this.netShots.keys().next().value as string);
+      this.spawnShot('net', S, lat, v, key, typeof d.tg === 'string' ? d.tg : null, Math.abs(S - me.S) > 300);
+    } else if (ev === 'mn') {
+      const S = num(d.S, -200, 1e6);
+      const lat = num(d.lat, -HALF_W - 2, HALF_W + 2);
+      if (S === null || lat === null || typeof d.id !== 'string' || Math.abs(S - r.S) > 120) return;
+      if (this.mines.filter((m) => m.key.startsWith(`${r.id}:`)).length >= 6) return;
+      this.spawnMine('net', S, lat, `${r.id}:${d.id}`, Math.abs(S - me.S) > 300);
+    } else if (ev === 'mb') {
+      const key = `${String(d.o)}:${String(d.id)}`;
+      const k = this.mines.findIndex((m) => m.key === key);
+      if (k < 0) return;
+      const m = this.mines[k];
+      this.explodeAt(m.S, m.lat);
+      this.scene.remove(m.mesh);
+      this.mines.splice(k, 1);
+      if (d.o === mp.id && d.v === 1) {
+        this.rivalHits++;
+        this.toast(`MINE GOT ${r.name}`, 'good');
+      }
+    } else if (ev === 'hit') {
+      const key = `${r.id}:${String(d.id)}`;
+      const k = this.shots.findIndex((s) => s.key === key);
+      if (k >= 0) {
+        this.explodeAt(this.shots[k].S, this.shots[k].lat, 0.7);
+        this.scene.remove(this.shots[k].mesh);
+        this.shots.splice(k, 1);
+      }
+      if (d.to === mp.id) {
+        // Loose validation: I saw this shooter fire this rocket a moment ago, and it is near me.
+        const at = this.netShots.get(key);
+        this.netShots.delete(key);
+        if (at !== undefined && now - at < 8000 && this.hitCool <= 0 && !this.dead && !this.finishedMe && Math.abs(r.S - me.S) < 900) {
+          this.hitCool = 0.5;
+          this.hitPlayer();
+          this.explodeAt(me.S, me.lat);
+          this.toast(`${r.name} HIT YOU`, 'bad');
+        }
+      }
+    } else if (ev === 'qk') {
+      const S = num(d.S, -200, 1e6);
+      if (S === null || now - r.qkAt < 4000 || Math.abs(S - r.S) > 160) return;
+      r.qkAt = now;
+      this.audio.fx('quake');
+      frameAt(this.tr, S, this.frame2);
+      this.spawnRing(this.v1.set(this.frame2.px, this.frame2.py, this.frame2.pz), this.frame2, '#ff7a2a', 120, 1.2);
+      if (Math.abs(me.S - S) < 650 && !this.dead && !this.finishedMe) {
+        if (me.shieldT > 0) {
+          me.shieldT = 0;
+          this.toast('SHIELD ABSORBED THE QUAKE', 'good');
+        } else {
+          me.stunT = Math.max(me.stunT, 1.8);
+          me.vs *= 0.75;
+          this.shake = 1;
+          this.toast(`${r.name} QUAKED YOU`, 'bad');
+          this.opts.cb.onFlash?.('quake');
+        }
+      }
+    } else if (ev === 'pad') {
+      const k = num(d.k, 0, 999);
+      if (k === null || !Number.isInteger(k) || k >= this.tr.weapons.length) return;
+      this.weaponCool[k] = this.time + 7;
+      this.world.weapons.setActive(k, false);
+      setTimeout(() => !this.disposed && this.world.weapons.setActive(k, true), 7000);
+    }
+  }
+
+  private sendState(now: number) {
+    const mp = this.opts.mp;
+    if (!mp?.race) return;
+    const n = mp.humans();
+    if (now - this.lastSend < (n <= 2 ? 66 : n <= 4 ? 80 : 110)) return;
+    this.lastSend = now;
+    const me = this.me;
+    const q = (x: number) => Math.round(x * 100) / 100;
+    const fl = (me.boostT > 0 ? 1 : 0) | (me.shieldT > 0 ? 2 : 0) | (me.stunT > 0 ? 4 : 0) | (this.dead ? 8 : 0) | (me.air ? 16 : 0) | (this.finishedMe ? 32 : 0);
+    mp.send('s', { i: mp.id, ts: Math.round(now), p: q(me.S), v: q(me.vs), l: Math.max(0, Math.floor(me.S / this.tr.len)), f: fl, a: [q(me.lat), q(me.h), q(me.yaw), q(me.pitch), q(me.rollVis), q(me.hp)] });
+  }
+
+  /** Play the other pilots back ~130 ms in the past (src/lib/racemp/buffer.ts), extrapolating briefly if late. */
+  private updateRemotes(dt: number, now: number) {
+    for (const r of this.remotes) {
+      if (!r.gone && this.phase !== 'menu' && this.greenAtMs > 0) {
+        const silent = r.buf.lastRecv > 0 ? now - r.buf.lastRecv > 4500 : now - this.greenAtMs > 9000;
+        if (silent) {
+          r.gone = true;
+          this.toast(`${r.name} DISCONNECTED`, 'bad');
+        }
+      }
+      r.rig.root.visible = !r.gone && !(r.fl & 8);
+      if (r.trail) r.trail.mesh.visible = r.rig.root.visible;
+      const st = r.buf.sample(now);
+      if (!st) continue;
+      const [lat, h, yaw, pitch, roll, hp] = st.a;
+      // Soften any correction (late packet, resync) instead of popping; teleports snap.
+      const k2 = Math.min(1, 18 * dt);
+      if (Math.abs(st.prog - r.S) > 80 || dt === 0) {
+        r.S = st.prog;
+        r.lat = lat;
+        r.h = h;
+      } else {
+        r.S += (st.prog - r.S) * k2;
+        r.lat += (lat - r.lat) * k2;
+        r.h += (h - r.h) * k2;
+      }
+      r.vs = st.v;
+      r.yaw = yaw;
+      r.pitch = pitch;
+      r.roll = roll;
+      r.hp = hp;
+      if (st.fl & 8 && !r.wasDead) {
+        r.wasDead = true;
+        this.explodeAt(r.S, r.lat, 2);
+        this.toast(`${r.name} DESTROYED`, 'info');
+      }
+      if (!(st.fl & 8)) r.wasDead = false;
+      r.fl = st.fl;
     }
   }
 
@@ -677,6 +975,8 @@ export class HyperEngine {
         this.audio.fx(n > 0 ? 'beep' : 'go');
       }
       if (this.countT >= 2.7) {
+        this.greenAtMs = performance.now();
+        this.opts.mp?.green(this.tr.tIdeal[this.tr.n - 1] * this.laps * 0.6);
         this.setPhase('racing');
         this.me.vs = 40;
         this.me.boostT = 1.2 + (inp.throttle > 0 ? 0.6 : 0);
@@ -684,6 +984,10 @@ export class HyperEngine {
       }
     }
     const racing = this.phase === 'racing' || this.phase === 'finished';
+    const nowMs = performance.now();
+    if (this.remotes.length) this.updateRemotes(dt, nowMs);
+    this.hitCool = Math.max(0, this.hitCool - dt);
+    if (this.phase === 'countdown' || racing) this.sendState(nowMs);
     if (racing && this.phase !== 'paused') this.stepRace(dt, inp, edges.fire);
     else if (this.phase === 'menu' || this.phase === 'countdown') this.idleBob(dt);
     this.placeAll(dt, false);
@@ -892,6 +1196,7 @@ export class HyperEngine {
       if (d < -len / 2) d += len;
       if (Math.abs(d) < 4.5 && Math.abs(me.lat - w.lat) < 4 && me.h < 6 && !me.weapon) {
         this.weaponCool[i] = this.time + 7;
+        if (this.opts.mp?.race) this.opts.mp.send('pad', { i: this.opts.mp.id, k: i });
         this.world.weapons.setActive(i, false);
         setTimeout(() => !this.disposed && this.world.weapons.setActive(i, true), 7000);
         const bag: Weapon[] = ['rocket', 'rocket', 'rocket', 'mine', 'mine', 'shield', 'turbo', 'turbo', 'quake'];
@@ -907,9 +1212,18 @@ export class HyperEngine {
   private fireWeapon(w: Weapon) {
     const me = this.me;
     me.weapon = null;
-    if (w === 'rocket') this.spawnShot('me', me.S + 5, me.lat, Math.max(me.vs, 100) + 150);
-    else if (w === 'mine') this.spawnMine('me', me.S - 8, me.lat);
-    else if (w === 'shield') {
+    const mp = this.opts.mp?.race ? this.opts.mp : null;
+    if (w === 'rocket') {
+      const sid = String(++this.msid);
+      const tg = this.pickTarget(me.S + 5)?.id ?? null;
+      const v = Math.max(me.vs, 100) + 150;
+      this.spawnShot('me', me.S + 5, me.lat, v, `${mp?.id ?? 'me'}:${sid}`, tg);
+      mp?.send('rk', { i: mp.id, id: sid, S: me.S + 5, lat: me.lat, v, tg });
+    } else if (w === 'mine') {
+      const mid = String(++this.msid);
+      this.spawnMine('me', me.S - 8, me.lat, `${mp?.id ?? 'me'}:${mid}`);
+      mp?.send('mn', { i: mp.id, id: mid, S: me.S - 8, lat: me.lat });
+    } else if (w === 'shield') {
       me.shieldT = 8;
       this.audio.fx('shield');
     } else if (w === 'turbo') {
@@ -926,22 +1240,23 @@ export class HyperEngine {
       for (const r of this.rivals) {
         if (Math.abs(r.S - me.S) < 650) this.stunRival(r, 1.8, true);
       }
+      mp?.send('qk', { i: mp.id, S: me.S });
     }
   }
 
-  private spawnShot(owner: 'me' | number, S: number, lat: number, v: number) {
+  private spawnShot(owner: 'me' | 'net' | number, S: number, lat: number, v: number, key = '', tg: string | null = null, quiet = false) {
     const mesh = new THREE.Mesh(this.shotGeo, this.shotMat);
     mesh.frustumCulled = false;
     this.scene.add(mesh);
-    this.shots.push({ owner, S, lat, v, life: 4, mesh });
-    this.audio.fx('rocket');
+    this.shots.push({ owner, S, lat, v, life: 4, mesh, key, tg });
+    if (!quiet) this.audio.fx('rocket');
   }
-  private spawnMine(owner: 'me' | number, S: number, lat: number) {
+  private spawnMine(owner: 'me' | 'net' | number, S: number, lat: number, key = '', quiet = false) {
     const mesh = new THREE.Mesh(this.mineGeo, this.mineMat);
     mesh.frustumCulled = false;
     this.scene.add(mesh);
-    this.mines.push({ owner, S, lat, t: 25, mesh });
-    this.audio.fx('mine');
+    this.mines.push({ owner, S, lat, t: 25, mesh, key });
+    if (!quiet) this.audio.fx('mine');
   }
 
   private stunRival(r: RivalRun, secs: number, quiet = false) {
@@ -1008,6 +1323,7 @@ export class HyperEngine {
 
   private stepWeapons(dt: number) {
     const me = this.me;
+    const mp = this.opts.mp?.race ? this.opts.mp : null;
     // Shots.
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
@@ -1018,13 +1334,14 @@ export class HyperEngine {
       // Home laterally.
       let tgt: { S: number; lat: number } | null = null;
       if (s.owner === 'me') {
-        let best = 800;
-        for (const r of this.rivals) {
-          const d = r.S - s.S;
-          if (d > -2 && d < best) {
-            best = d;
-            tgt = r;
-          }
+        tgt = this.pickTarget(s.S);
+      } else if (s.owner === 'net') {
+        // Someone else's rocket: fly it for show toward whoever it was aimed at. The shooter decides the hit.
+        if (s.tg && s.tg === mp?.id) {
+          if (Math.abs(me.S - s.S) < 500) tgt = me;
+        } else if (s.tg) {
+          const t = this.remotes.find((r) => r.id === s.tg && !r.gone);
+          if (t && Math.abs(t.S - s.S) < 500) tgt = t;
         }
       } else {
         const d = me.S - s.S;
@@ -1040,7 +1357,20 @@ export class HyperEngine {
             break;
           }
         }
-      } else if (Math.abs(me.S - s.S) < 6 && Math.abs(me.lat - s.lat) < 4.5 && me.h < 8) {
+        if (!hit && mp) {
+          for (const r of this.remotes) {
+            if (r.gone || r.fl & 8 || Math.abs(r.S - s.S) > 7 || Math.abs(r.lat - s.lat) > 5) continue;
+            // I decide the hit; the target checks it against the rocket it saw.
+            const sid = s.key.split(':')[1] ?? '';
+            mp.send('hit', { i: mp.id, to: r.id, id: sid });
+            this.explodeAt(r.S, r.lat);
+            this.rivalHits++;
+            this.toast(`HIT ${r.name}`, 'good');
+            hit = true;
+            break;
+          }
+        }
+      } else if (s.owner !== 'net' && Math.abs(me.S - s.S) < 6 && Math.abs(me.lat - s.lat) < 4.5 && me.h < 8) {
         this.hitPlayer();
         this.explodeAt(s.S, s.lat);
         hit = true;
@@ -1070,14 +1400,21 @@ export class HyperEngine {
           boom = true;
         }
       }
-      if (m.owner !== 'me' && Math.abs(me.S - m.S) < 3.5 && Math.abs(me.lat - m.lat) < 3.4 && me.h < 4) {
+      let byMe = false;
+      if (m.owner !== 'me' && !this.dead && !this.finishedMe && Math.abs(me.S - m.S) < 3.5 && Math.abs(me.lat - m.lat) < 3.4 && me.h < 4) {
         this.hitPlayer();
         boom = true;
+        byMe = true;
       }
       if (boom) {
         this.explodeAt(m.S, m.lat);
         this.scene.remove(m.mesh);
         this.mines.splice(i, 1);
+        // Tell the room the mine is gone (mine or not): the victim of a network mine is whoever drives into it.
+        if (mp && m.key) {
+          const [o, mid] = m.key.split(':');
+          if (m.owner === 'me' || byMe) mp.send('mb', { i: mp.id, id: mid, o, v: byMe ? 1 : 0 });
+        }
         continue;
       }
       this.placeOnTrack(m.mesh, m.S, m.lat, 1.3, 1);
@@ -1085,6 +1422,27 @@ export class HyperEngine {
       const pulse = 1 + Math.sin(this.time * 8) * 0.15;
       m.mesh.scale.setScalar(pulse);
     }
+  }
+
+  /** Nearest ship ahead (AI or human) for a rocket to chase. */
+  private pickTarget(S: number): { id: string | null; S: number; lat: number } | null {
+    let best = 800;
+    let out: { id: string | null; S: number; lat: number } | null = null;
+    for (const r of this.rivals) {
+      const d = r.S - S;
+      if (d > -2 && d < best) {
+        best = d;
+        out = { id: null, S: r.S, lat: r.lat };
+      }
+    }
+    for (const r of this.remotes) {
+      const d = r.S - S;
+      if (!r.gone && !(r.fl & 8) && d > -2 && d < best) {
+        best = d;
+        out = { id: r.id, S: r.S, lat: r.lat };
+      }
+    }
+    return out;
   }
   private tmpCol = new THREE.Color();
   /** Dev/test hook: steer to the centre line. */
@@ -1143,6 +1501,12 @@ export class HyperEngine {
       const t = (r.done ? this.raceT : this.raceT + left) - 0;
       return { name: this.labelText(r).main, sub: r.spec.detail, time: r.done ? Math.min(t, this.raceT + 0.01) : t, me: false, tx: r.spec.tx, color: r.team.base, logo: tokenMeta(r.spec.token ?? '')?.iconSrc ?? null };
     });
+    for (const r of this.remotes) {
+      const left = Math.max(0, this.laps * this.tr.len - r.S);
+      const t = r.gone ? 9999 : r.finT !== null ? r.finT : this.raceT + left / Math.max(60, r.vs);
+      board.push({ name: r.name.toUpperCase(), sub: `${r.team.name} (PILOT)`, time: t, me: false, tx: null, color: r.team.base, logo: null });
+    }
+    this.opts.mp?.finish(dnf ? null : total);
     board.push({ name: dnf ? 'YOU (DNF)' : 'YOU', sub: this.team.name, time: dnf ? 9999 : total, me: true, tx: null, color: this.team.base, logo: null });
     board.sort((a, b) => a.time - b.time);
     const pos = trial && !dnf ? 1 : board.findIndex((b) => b.me) + 1;
@@ -1221,6 +1585,27 @@ export class HyperEngine {
       r.label.position.y = 2.6 + lw * 0.12;
       (r.label.material as THREE.SpriteMaterial).opacity = Math.max(0, Math.min(1, (520 - d) / 200)) * (r.S > me.S - 5 || d < 160 ? 1 : 0.85);
       r.label.visible = d < 520 && d > 6;
+    }
+    for (const r of this.remotes) {
+      if (r.gone || r.fl & 8) continue;
+      const stun = r.fl & 4 ? Math.sin(this.time * 20) * 0.3 : 0;
+      this.placeShip(r.rig, r.S, r.lat, r.h + stun, r.yaw, r.pitch, r.roll, this.v3);
+      const th = Math.min(1, r.vs / r.spec.vmax);
+      r.rig.flame.scale.set(1, 1, 0.3 + th * 0.6 + (r.fl & 1 ? 0.9 : 0) + Math.random() * 0.1);
+      r.rig.shield.visible = (r.fl & 2) !== 0;
+      if (r.trail) {
+        const e = r.rig.engine;
+        this.v3.copy(e[0]).add(this.v4.copy(e[1])).multiplyScalar(0.5).applyQuaternion(r.rig.tilt.quaternion).applyQuaternion(r.rig.root.quaternion).add(r.rig.root.position);
+        this.v4.set(this.frame2.rx, this.frame2.ry, this.frame2.rz);
+        if (snap) r.trail.reset(this.v3);
+        r.trail.push(this.v3, this.v4, this.phase === 'racing' ? 0.5 + th : 0.1);
+      }
+      const d = r.rig.root.position.distanceTo(this.camera.position);
+      const lw = Math.max(4.5, Math.min(24, d * 0.05));
+      r.label.scale.set(lw, lw * 0.293, 1);
+      r.label.position.y = 2.6 + lw * 0.12;
+      (r.label.material as THREE.SpriteMaterial).opacity = Math.max(0, Math.min(1, (620 - d) / 200));
+      r.label.visible = d < 620 && d > 6;
     }
     void dt;
     void tr;
@@ -1368,6 +1753,7 @@ export class HyperEngine {
   private position() {
     let ahead = 0;
     for (const r of this.rivals) if (r.S > this.me.S + 0.5) ahead++;
+    for (const r of this.remotes) if (!r.gone && r.S > this.me.S + 0.5) ahead++;
     return 1 + ahead;
   }
   private emitHud() {
@@ -1382,7 +1768,7 @@ export class HyperEngine {
       lap: Math.max(1, lapNo),
       laps: this.laps,
       pos,
-      total: this.rivals.length + 1,
+      total: this.rivals.length + this.remotes.length + 1,
       lapTime: this.lapT,
       time: this.raceT,
       energy: me.energy,
@@ -1403,14 +1789,21 @@ export class HyperEngine {
       px: f.px + f.rx * me.lat,
       pz: f.pz + f.rz * me.lat,
       yaw: Math.atan2(f.tx, f.tz),
-      rivals: this.rivals.map((r) => {
-        const g = frameAt(this.tr, r.S, this.frame2);
-        return { x: g.px + g.rx * r.lat, z: g.pz + g.rz * r.lat, c: r.team.base === '#101015' ? r.team.accent : r.team.base };
-      }),
+      rivals: [
+        ...this.rivals.map((r) => {
+          const g = frameAt(this.tr, r.S, this.frame2);
+          return { x: g.px + g.rx * r.lat, z: g.pz + g.rz * r.lat, c: r.team.base === '#101015' ? r.team.accent : r.team.base };
+        }),
+        ...this.remotes.filter((r) => !r.gone && !(r.fl & 8)).map((r) => {
+          const g = frameAt(this.tr, r.S, this.frame2);
+          return { x: g.px + g.rx * r.lat, z: g.pz + g.rz * r.lat, c: '#ffffff' };
+        }),
+      ],
     });
   }
   private emitBoard() {
     const rows: { S: number; row: LiveRow }[] = this.rivals.map((r) => ({ S: r.S, row: { name: this.labelText(r).main, color: r.team.base, me: false, logo: tokenMeta(r.spec.token ?? '')?.iconSrc ?? null } }));
+    for (const r of this.remotes) if (!r.gone) rows.push({ S: r.S, row: { name: r.name.toUpperCase(), color: r.team.base, me: false, logo: null } });
     rows.push({ S: this.me.S, row: { name: 'YOU', color: this.team.base, me: true, logo: null } });
     rows.sort((a, b) => b.S - a.S);
     this.opts.cb.onBoard(rows.map((x) => x.row));
@@ -1466,6 +1859,8 @@ export class HyperEngine {
       this.renderer.setAnimationLoop(null);
       this.composer?.dispose();
       for (const r of this.rivals) this.removeRival(r);
+      this.clearRemotes();
+      if (this.opts.mp && this.opts.mp.on) this.opts.mp.on = null;
       this.playerRig?.dispose();
       this.trailL?.dispose();
       this.trailR?.dispose();

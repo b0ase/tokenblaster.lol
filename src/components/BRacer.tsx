@@ -15,17 +15,20 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { DR } from '@/lib/dr/tokens';
 import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
 import { LOGO_FAMILY, Logo } from './bracer-logo';
-import { fmt, HyperEngine, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
+import { fmt, HyperEngine, type BRaceCfg, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
 import { TRACK_LIST, type Track, type TrackId } from '@/lib/hyper/track';
 import type { Weapon } from '@/lib/hyper/sim';
 import type { ScoreGame } from '@/lib/scores';
+import { cleanRoomCode, type RaceInfo, type RaceLink } from '@/lib/racemp/session';
+import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
+import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
 
 type QualityPref = 'auto' | 'low' | 'high' | 'ultra';
 type RivalInfo = { name: string; detail: string; color: string; live: boolean; tx: string | null; team: string; kind: string };
 const PREFS = `tokenblaster:${GAME_SLUG}-prefs`;
+const NAME_KEY = `tokenblaster:${GAME_SLUG}-name`;
 const BEST = `tokenblaster:${GAME_SLUG}-best`;
-
 const isMobileish = () => {
   if (typeof window === 'undefined') return false;
   const coarse = window.matchMedia?.('(pointer: coarse)').matches;
@@ -113,6 +116,41 @@ export function BRacer() {
   const [perf, setPerf] = useState<{ fps: number; level: number } | null>(null);
   const [showBoard, setShowBoard] = useState(false);
   const [ready, setReady] = useState(false);
+  // Multiplayer (src/lib/racemp): rooms live in the hook; the race itself is the engine's.
+  const [pilot, setPilot] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const pendingGo = useRef<RaceInfo<BRaceCfg> | null>(null);
+  const [goTick, setGoTick] = useState(0);
+  const readyPaid = useRef(false);
+  const coRef = useRef<ReturnType<typeof useCoinOp> | null>(null);
+  const room = useRaceRoom<BRaceCfg>({
+    game: 'bracer',
+    enabled: ready,
+    profile: { name: pilot || 'PILOT', vehicle: shipId, team: teamId },
+    cfg: { track: trackId, diff: difficulty },
+    quickKey: (c) => c.track,
+    quickCfg: (c) => ({ ...c, diff: 'normal' }),
+    sameCfg: (a, b) => a.track === b.track && a.diff === b.diff,
+    validateCfg: (c) => {
+      const d = c as Partial<BRaceCfg> | null;
+      return d && d.track && TRACKS[d.track] && (d.diff === 'normal' || d.diff === 'hardcore') ? { track: d.track, diff: d.diff } : null;
+    },
+    events: ['s', 'rk', 'mn', 'mb', 'hit', 'qk', 'pad'],
+    onRemoteCfg: (c) => {
+      setTrackId(c.track);
+      setDifficulty(c.diff);
+    },
+    onGo: (race) => {
+      pendingGo.current = race;
+      setGoTick((t) => t + 1);
+    },
+  });
+  const getLink = useRef<() => RaceLink<BRaceCfg> | null>(() => null);
+  useEffect(() => {
+    getLink.current = room.getLink;
+  });
+  const mpOn = room.info !== null;
+  const effMode: Mode = mpOn ? 'race' : mode;
   const toastId = useRef(0);
   const weaponRef = useRef<Weapon | null>(null);
   const [hud] = useState(() => new HudDom());
@@ -124,6 +162,12 @@ export function BRacer() {
     void Promise.resolve().then(() => {
       setBest(readBest());
       setTouch(Boolean(window.matchMedia?.('(pointer: coarse)').matches));
+      try {
+        const n = localStorage.getItem(NAME_KEY) || `PILOT-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+        setPilot(n);
+      } catch {
+        setPilot('PILOT');
+      }
       try {
         const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; diff?: Difficulty; q?: QualityPref };
         if (p.track && TRACKS[p.track]) setTrackId(p.track);
@@ -138,6 +182,14 @@ export function BRacer() {
       setReady(true);
     });
   }, []);
+  useEffect(() => {
+    coRef.current = co;
+    try {
+      if (pilot) localStorage.setItem(NAME_KEY, pilot);
+    } catch {
+      /* storage blocked */
+    }
+  });
   useEffect(() => {
     if (!ready) return;
     try {
@@ -238,8 +290,9 @@ export function BRacer() {
       track: trackId,
       ship: shipId,
       team: teamId,
-      mode,
+      mode: effMode,
       difficulty,
+      mp: getLink.current() ?? undefined,
       quality: q,
       touchDevice: isMobileish() && Boolean(window.matchMedia?.('(pointer: coarse)').matches),
       take: (p) => takeRef.current(p),
@@ -305,7 +358,7 @@ export function BRacer() {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, trackId, shipId, teamId, mode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini]);
+  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini]);
 
   useEffect(() => {
     if (phase !== 'menu') return;
@@ -328,8 +381,47 @@ export function BRacer() {
   };
   const toMenu = () => {
     setResult(null);
+    room.endRace();
     void engine.current?.toMenu();
   };
+  // ── Multiplayer glue ──
+  const meId = room.info?.id ?? null;
+  const meRow = room.ui.players.find((p) => p.id === meId) ?? null;
+  // Quick rooms are per circuit (and always NORMAL); in a private room only the host picks.
+  const locked = mpOn && !room.info?.quick && room.ui.leader !== meId && room.ui.players.length > 1;
+  const pickTrack = (t: TrackId) => {
+    if (locked) return;
+    setTrackId(t);
+  };
+  const pickDiff = (d: Difficulty) => {
+    if (locked || (mpOn && room.info?.quick)) return;
+    setDifficulty(d);
+  };
+  const lobbyReady = (paid: boolean) => {
+    readyPaid.current = paid;
+    room.setReady(true, paid);
+  };
+  const joinQuick = () => {
+    setDifficulty('normal');
+    room.joinQuick();
+  };
+  // The leader said GO: start as soon as this engine is on the right circuit and idle at the title.
+  useEffect(() => {
+    const race = pendingGo.current;
+    const link = getLink.current();
+    const eng = engine.current;
+    if (!race || !link || !goTick) return;
+    if (race.cfg.track !== trackId) return void setTrackId(race.cfg.track);
+    if (race.cfg.diff !== difficulty) return void setDifficulty(race.cfg.diff);
+    if (!eng || eng.phase !== 'menu' || eng.opts.track !== race.cfg.track || eng.opts.difficulty !== race.cfg.diff || eng.opts.mode !== 'race') return;
+    pendingGo.current = null;
+    eng.opts.mp = link;
+    const txid = readyPaid.current ? coRef.current?.consume() ?? null : null;
+    readyPaid.current = false;
+    setRun({ paid: Boolean(txid), txid });
+    setResult(null);
+    eng.begin();
+  }, [goTick, phase, trackId, difficulty, effMode]);
   const hold = (k: 'left' | 'right' | 'brake' | 'boost' | 'airL' | 'airR' | 'fire' | 'roll') => ({
     onPointerDown: (e: React.PointerEvent) => {
       e.preventDefault();
@@ -586,14 +678,21 @@ export function BRacer() {
         )}
         {racing && (
           <div data-bracer-mode={run.paid ? 'paid' : 'practice'} className={`pointer-events-none absolute left-1/2 top-[4.4rem] -translate-x-1/2 border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest max-sm:hidden sm:top-1 sm:text-xs ${run.paid ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`}>
+            {mpOn ? 'ROOM · ' : ''}
             {run.paid ? 'PAID · 1 CREDIT' : 'PRACTICE'}
           </div>
         )}
         {racing && (
           <div className="absolute right-3 top-[9.5rem] flex gap-1 sm:top-[11.4rem]">
-            <button onClick={() => engine.current?.pause(phase !== 'paused')} className="btn px-2 py-1 text-xs" aria-label="Pause">
-              {phase === 'paused' ? '▶' : 'Ⅱ'}
-            </button>
+            {mpOn ? (
+              <button onClick={toMenu} className="btn px-2 py-1 text-xs" aria-label="Leave the race" data-bracer-leave>
+                LEAVE
+              </button>
+            ) : (
+              <button onClick={() => engine.current?.pause(phase !== 'paused')} className="btn px-2 py-1 text-xs" aria-label="Pause">
+                {phase === 'paused' ? '▶' : 'Ⅱ'}
+              </button>
+            )}
             <button onClick={fullscreen} className="btn px-2 py-1 text-xs" aria-label="Fullscreen">
               ⛶
             </button>
@@ -658,7 +757,7 @@ export function BRacer() {
                 <p className="mb-1 text-[10px] tracking-widest text-dim">01 / CIRCUIT</p>
                 <div className="grid grid-cols-3 gap-1.5">
                   {TRACK_LIST.map((t, i) => (
-                    <button key={t.id} onClick={() => setTrackId(t.id)} aria-pressed={t.id === trackId} className="relative overflow-hidden border-2 p-1.5 text-left" style={{ borderColor: t.id === trackId ? t.palette.a1 : '#333', background: t.id === trackId ? '#0c0c10' : '#07070a', ...(t.id === trackId ? halftone(t.palette.a2, 10, 0.3) : {}) }}>
+                    <button key={t.id} onClick={() => pickTrack(t.id)} disabled={locked} aria-pressed={t.id === trackId} className="relative overflow-hidden border-2 p-1.5 text-left" style={{ borderColor: t.id === trackId ? t.palette.a1 : '#333', background: t.id === trackId ? '#0c0c10' : '#07070a', ...(t.id === trackId ? halftone(t.palette.a2, 10, 0.3) : {}) }}>
                       <span className="block text-[9px] tracking-widest" style={{ color: t.palette.a1, fontFamily: DR.font.mono }}>
                         {t.code} · 0{i + 1}
                       </span>
@@ -684,7 +783,7 @@ export function BRacer() {
                   <p className="mb-1 text-[10px] tracking-widest text-dim">02 / MODE</p>
                   <div className="flex gap-1.5">
                     {(['race', 'trial'] as const).map((m) => (
-                      <button key={m} onClick={() => setMode(m)} aria-pressed={m === mode} className="flex-1 border-2 px-2 py-1.5 text-lg" style={{ ...hudFont, borderColor: m === mode ? DR.colour.amber : '#333', background: m === mode ? DR.colour.amber : '#07070a', color: m === mode ? '#000' : '#ddd' }}>
+                      <button key={m} onClick={() => setMode(m)} disabled={mpOn && m === 'trial'} aria-pressed={m === effMode} className="flex-1 border-2 px-2 py-1.5 text-lg" style={{ ...hudFont, borderColor: m === effMode ? DR.colour.amber : '#333', background: m === effMode ? DR.colour.amber : '#07070a', color: m === effMode ? '#000' : '#ddd', opacity: mpOn && m === 'trial' ? 0.35 : 1 }}>
                         {m === 'race' ? 'RACE · 3 LAPS' : 'TIME TRIAL'}
                       </button>
                     ))}
@@ -692,7 +791,7 @@ export function BRacer() {
                   <p className="mb-1 mt-2 text-[10px] tracking-widest text-dim">02b / DIFFICULTY</p>
                   <div className="flex gap-1.5">
                     {(['normal', 'hardcore'] as const).map((d) => (
-                      <button key={d} onClick={() => setDifficulty(d)} aria-pressed={d === difficulty} className="flex-1 border-2 px-2 py-1 text-left" style={{ ...hudFont, borderColor: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : DR.colour.acid) : '#333', background: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : '#10200a') : '#07070a', color: d === difficulty && d === 'hardcore' ? '#fff' : '#ddd' }}>
+                      <button key={d} onClick={() => pickDiff(d)} disabled={locked || (mpOn && room.info?.quick === true)} aria-pressed={d === difficulty} className="flex-1 border-2 px-2 py-1 text-left" style={{ ...hudFont, borderColor: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : DR.colour.acid) : '#333', background: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : '#10200a') : '#07070a', color: d === difficulty && d === 'hardcore' ? '#fff' : '#ddd' }}>
                         <span className="block text-base leading-none">{d === 'normal' ? 'NORMAL' : 'HARDCORE'}</span>
                         <span className="block text-[9px] leading-tight opacity-80" style={{ fontFamily: DR.font.mono, fontStyle: 'normal', textTransform: 'none' }}>
                           {d === 'normal' ? 'shield + pit lane' : '2.5x damage, no pit, head-on = boom'}
@@ -746,6 +845,75 @@ export function BRacer() {
                 </p>
               </div>
 
+              {room.available && !mpOn && (
+                <div className="inset bg-black/60 p-2" data-bracer-mp="menu">
+                  <p className="mb-1 text-[10px] tracking-widest text-dim">05 / MULTIPLAYER · UP TO 8 PILOTS</p>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <label className="text-dim" htmlFor="bracer-pilot">
+                      PILOT
+                    </label>
+                    <input id="bracer-pilot" value={pilot} maxLength={14} onChange={(e) => setPilot(e.target.value.replace(/[^\w .·-]/g, '').toUpperCase())} className="w-32 border border-white/25 bg-black px-1.5 py-0.5 text-fg" />
+                    <button onClick={joinQuick} className="btn btn-on px-3 py-1 text-sm" data-bracer-quick>
+                      QUICK RACE · {def.name}
+                    </button>
+                    <button onClick={() => room.joinPrivate()} className="btn px-3 py-1 text-sm" data-bracer-private>
+                      NEW PRIVATE ROOM
+                    </button>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <input value={joinCode} placeholder="ROOM CODE" maxLength={8} onChange={(e) => setJoinCode(cleanRoomCode(e.target.value))} className="w-28 border border-white/25 bg-black px-1.5 py-0.5 text-fg" aria-label="Room code" />
+                    <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
+                      JOIN
+                    </button>
+                    <span className="text-dim">Empty slots are filled by live-chain AI rivals. Each pilot pays their own credit; practice is free.</span>
+                  </div>
+                </div>
+              )}
+              {mpOn && room.info && (
+                <RaceLobby
+                  game="bRacer"
+                  aiLabel="AI RIVAL: a live chain transaction fills this slot"
+                  circuit={def.name}
+                  mine={meId}
+                  code={room.info.code}
+                  quick={room.info.quick}
+                  status={room.ui.status}
+                  players={room.ui.players}
+                  leader={room.ui.leader}
+                  count={room.ui.count}
+                  full={room.ui.full}
+                  racingElsewhere={room.ui.players.some((p) => p.st === 'racing') && !meRow?.ready}
+                  colours={{ quick: DR.colour.cyan, priv: DR.colour.amber, ok: DR.colour.acid, warn: DR.colour.signal, amber: DR.colour.amber }}
+                  titleStyle={hudFont}
+                  teamColour={(x) => (TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).base}
+                  detail={(x) => `${SHIPS.find((sp) => sp.id === x.vehicle)?.name ?? x.vehicle} · ${(TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).name}`}
+                  bar={
+                    <div className="mt-1.5 w-[min(90%,22rem)]">
+                      <ChevronBar n={22} h={7} colour={room.ui.count !== null ? DR.colour.amber : '#333'} />
+                    </div>
+                  }
+                  onLeave={() => {
+                    pendingGo.current = null;
+                    room.leave();
+                    if (engine.current) engine.current.opts.mp = undefined;
+                  }}
+                  onStart={() => room.go()}
+                  controls={
+                    meRow?.ready ? (
+                      <>
+                        <span className="px-2 py-1 text-sm font-bold" style={{ background: DR.colour.acid, color: '#000' }}>
+                          READY {meRow.paid ? '· CREDIT' : '· PRACTICE'}
+                        </span>
+                        <button onClick={() => room.setReady(false)} className="btn px-2 py-0.5 text-[11px]">
+                          UNREADY
+                        </button>
+                      </>
+                    ) : (
+                      <CoinOpButtons co={co} start={lobbyReady} perCredit="1 credit = 1 race." playLabel="READY" practiceLabel="READY · PRACTICE" />
+                    )
+                  }
+                />
+              )}
               <div className="inset bg-black/60 p-2">
                 <p className="mb-1 text-[10px] tracking-widest text-dim">ON THE GRID · {rivals.filter((r) => r.live).length} LIVE TXS{rivals.some((r) => !r.live) ? ` + ${rivals.filter((r) => !r.live).length} IDLE` : ''}</p>
                 <div className="grid max-h-20 grid-cols-1 gap-x-3 overflow-y-auto text-[11px] sm:grid-cols-2">
@@ -764,7 +932,7 @@ export function BRacer() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" practiceLabel="▶ RACE · PRACTICE" onPress={enterFs} />
+                {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" practiceLabel="▶ RACE · PRACTICE" onPress={enterFs} />}
                 {bestTime ? <span className="text-sm" style={{ color: DR.colour.amber }}>BEST {fmt(bestTime)}</span> : null}
               </div>
               <details className="text-[11px] text-dim">
@@ -854,6 +1022,7 @@ export function BRacer() {
                   <Barcode seed={`${result.score}${result.total}`} w={110} h={22} />
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-center">
+                  {mpOn && <RaceStandings rows={room.ui.standings} final={room.ui.final} teamColour={(t) => (TEAMS.find((x) => x.id === t) ?? TEAMS[0]).base} fmt={fmt} />}
                   {result.mode === 'race' && (
                     <div className="inset w-full bg-black/70 p-2 text-left text-xs sm:max-w-sm">
                       <p className="mb-1 text-center font-bold tracking-widest text-dim">THE FIELD (LIVE TXS)</p>
@@ -884,9 +1053,9 @@ export function BRacer() {
                   )}
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
-                  <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" onPress={enterFs} />
-                  <button onClick={toMenu} className="btn">
-                    TITLE / NEW RIVALS
+                  {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" onPress={enterFs} />}
+                  <button onClick={toMenu} className={mpOn ? 'btn-fire px-5 py-2' : 'btn'}>
+                    {mpOn ? 'BACK TO THE LOBBY' : 'TITLE / NEW RIVALS'}
                   </button>
                 </div>
               </div>
