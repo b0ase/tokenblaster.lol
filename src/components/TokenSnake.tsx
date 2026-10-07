@@ -5,18 +5,19 @@
  * network becomes a bite (colour by kind); token transfers are token food wearing their icon, worth
  * more and collected as loot; TokenBlaster blasts are golden food. Speed ramps as you grow.
  *
- * PAID mode: every turn is a real transaction (1 sat to the house + network fee).
+ * Coin-op: INSERT COIN (10p) buys a credit; a credit is one game of 3 lives, the house keeps the coin
+ * (src/lib/coinop.ts). PRACTICE is free and puts nothing on chain.
  */
 import { useEffect, useRef, useState } from 'react';
 import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { lootFrom, useLoot, type Haul, type Loot } from '@/lib/loot';
 import { drawLoot, refreshLoot } from '@/lib/lootCanvas';
 import { useChainFeed } from '@/lib/useChainFeed';
-import { usePaidPlay } from '@/lib/usePaidPlay';
 import { HighScores, useRunClock } from './HighScores';
 import { HoldButton } from './HoldButton';
 import { LootHud, LootLine, LootPanel } from './LootPanel';
-import { ModeBadge, PaidPanel, PlayButtons } from './PaidPanel';
+import { InsertCoin, useCoinOp, type CoinOp } from './InsertCoin';
+import { LIVES_PER_CREDIT } from '@/lib/coinop';
 import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
 
@@ -38,8 +39,9 @@ type HUD = { score: number; length: number; speed: number };
 export function TokenSnake() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const feed = useChainFeed();
-  const pp = usePaidPlay('Out of sats: load more to keep turning.', 'snake');
-  const payFor = pp.payFor;
+  const co = useCoinOp('Token Snake', 'snake');
+  const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
+  const [lives, setLives] = useState(LIVES_PER_CREDIT);
   const feedRef = useRef(feed);
   useEffect(() => {
     feedRef.current = feed;
@@ -76,6 +78,7 @@ export function TokenSnake() {
     let chainN = 0;
     let popups: { x: number; y: number; t: number; text: string; color: string }[] = [];
     let deadFlash = 0;
+    let livesLeft = LIVES_PER_CREDIT;
 
     const free = (x: number, y: number) => !snake.some((s) => s.x === x && s.y === y) && !foods.some((f) => f.x === x && f.y === y);
     const spot = () => {
@@ -114,7 +117,22 @@ export function TokenSnake() {
     };
     reset();
 
+    const respawn = () => {
+      snake = [3, 2, 1, 0].map((x) => ({ x: x + 3, y: Math.floor(N / 2) }));
+      dir = 'right';
+      turns = [];
+      grow = 0;
+      deadFlash = 30;
+      tickAt = 0;
+    };
+
     const over = () => {
+      livesLeft--;
+      setLives(livesLeft);
+      if (livesLeft > 0) {
+        sfx('rekt');
+        return respawn(); // lose a life, keep the score
+      }
       sfx('rekt');
       sfx('gameover');
       state = 'over';
@@ -252,7 +270,6 @@ export function TokenSnake() {
     const turn = (d: Dir) => {
       const lastDir = turns.length ? turns[turns.length - 1] : dir;
       if (d === lastDir || d === OPP[lastDir] || turns.length >= 2) return;
-      if (!payFor.current(['snake', 'turn'])) return; // out of sats: the turn is refused
       turns.push(d);
     };
 
@@ -261,6 +278,8 @@ export function TokenSnake() {
         lootRef.current.end();
         setLastRun({});
         reset();
+        livesLeft = LIVES_PER_CREDIT;
+        setLives(livesLeft);
         tickAt = 0;
         state = 'play';
         setPhase('play');
@@ -268,10 +287,7 @@ export function TokenSnake() {
       },
       key: (k, down) => {
         if (!down) return;
-        if (state !== 'play') {
-          if (k === 'start') control.current?.restart();
-          return;
-        }
+        if (state !== 'play') return; // start from the title buttons (coin or practice)
         if (k in VEC) turn(k as Dir);
       },
     };
@@ -307,7 +323,15 @@ export function TokenSnake() {
       canvas.removeEventListener('touchstart', ts);
       canvas.removeEventListener('touchmove', tm);
     };
-  }, [payFor]);
+  }, []);
+
+  /** Start a game: a credit game spends one credit (its coin's txid goes with the run), practice is free. */
+  const start = (paid: boolean) => {
+    const txid = paid ? co.consume() : null;
+    if (paid && !txid) return;
+    setRun({ paid, txid });
+    control.current?.restart();
+  };
 
   return (
     <section className="panel">
@@ -318,15 +342,22 @@ export function TokenSnake() {
           <span>SCORE {hud.score.toLocaleString()}</span>
           <span>LEN {hud.length}</span>
           <span>×{hud.speed}</span>
+          {phase === 'play' && <span>{'♥'.repeat(Math.max(0, lives))}</span>}
           <LootHud haul={loot.run} max={3} />
         </div>
         <div className="pointer-events-none absolute right-2 top-1 text-xs text-dim">chain: {feed.status}</div>
-        <ModeBadge pp={pp} action="turn" actions="turns" />
+        {phase === 'play' && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-1 flex justify-center">
+            <span className="border border-[var(--border-canvas)] bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-dim">
+              {run.paid ? 'CREDIT GAME · 10p paid' : 'PRACTICE · free, nothing on chain'} · CREDITS: {co.credits}
+            </span>
+          </div>
+        )}
         {phase === 'ready' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/50 px-3 text-center">
             <p className="text-2xl font-bold text-hot">TOKEN SNAKE</p>
             <p className="text-xs text-dim">Eat the live chain. Arrows / WASD or swipe to turn. Token food is collected as loot; gold blasts are worth the most.</p>
-            <PlayButtons pp={pp} game="Token Snake" action="turn" actions="turns" onStart={() => control.current?.restart()} />
+            <TitleButtons co={co} start={start} />
           </div>
         )}
         {phase === 'over' && (
@@ -336,8 +367,8 @@ export function TokenSnake() {
               Score {hud.score.toLocaleString()} · length {hud.length}. Best: {Math.max(best, hud.score).toLocaleString()}.
             </p>
             <LootLine haul={lastRun} />
-            <HighScores game="snake" score={hud.score} secs={runSecs} live={pp.paid} txid={pp.lastTx} />
-            <PlayButtons pp={pp} game="Token Snake" action="turn" actions="turns" onStart={() => control.current?.restart()} practiceLabel="▶ AGAIN · PRACTICE" liveLabel="▶ AGAIN · LIVE" />
+            <HighScores game="snake" score={hud.score} secs={runSecs} live={run.paid} txid={run.txid} meta={run.paid ? { coinop: 1 } : undefined} />
+            <TitleButtons co={co} start={start} />
           </div>
         )}
       </div>
@@ -376,7 +407,24 @@ export function TokenSnake() {
         </div>
       </div>
       <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
-      <PaidPanel pp={pp} game="Token Snake" action="turn" actions="turns" />
+      {co.chooserEl}
     </section>
+  );
+}
+
+/** Title / game-over controls: INSERT COIN, PLAY (spends a credit), PRACTICE (free). */
+function TitleButtons({ co, start }: { co: CoinOp; start: (paid: boolean) => void }) {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <InsertCoin co={co} />
+      <div className="flex flex-wrap justify-center gap-2">
+        <button onClick={() => start(true)} disabled={co.credits < 1} className="btn btn-on px-3 py-1 text-sm font-bold disabled:opacity-40">
+          ▶ PLAY · 1 CREDIT
+        </button>
+        <button onClick={() => start(false)} className="btn px-3 py-1 text-sm">
+          ▶ PRACTICE · FREE
+        </button>
+      </div>
+    </div>
   );
 }
