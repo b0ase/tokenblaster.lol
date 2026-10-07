@@ -16,4 +16,9 @@ To rebuild (outside this repo; the games use their own npm-era tooling, run here
 4. `pnpm exec assetpack`, then `pnpm exec vite build --base ./` (bubbo) / `pnpm exec vite build` (potions; its config already has `base: './'`).
 5. Copy `dist/` over the matching `public/arcade/<slug>/` (keep `LICENSE`, `CREDITS.md`, `OFL.txt`).
 
-The page side is `src/components/PixiOpenGame.tsx`: it owns the coin slot and score board and talks to the game over same-origin postMessage (`tb: 'start'` in; `tb: 'ready' | 'gameover' | 'menu'` out).
+The page side is `src/components/PixiOpenGame.tsx`: it owns the coin slot and score board and talks to the game over same-origin postMessage (`tb: 'start'` in; `tb: 'ready' | 'gameover' | 'menu' | 'action'` out).
+
+`{ tb: 'action', a }` (LIVE blasting, one tiny tx per action) is not in the .patch files yet: it was added straight to the
+built bundles (7 Oct 2026). On a rebuild, add the same calls to the source: Coin Pop `CannonSystem._fire()` right after
+`this._shotProjectiles++` -> `tbPost({ tb: 'action', a: 'shot' })`; Token Potions `Match3Actions.swapPieces()` right after
+`const valid = this.validateMove(...)` -> `if (valid) tbPost({ tb: 'action', a: 'swap' })` (and widen `TbOut` in tb.ts).
