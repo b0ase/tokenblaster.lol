@@ -18,16 +18,18 @@ const manifest = {
   ],
   metanet: {
     groupPermissions: {
-      description: 'TokenBlaster turns the tokens in your wallet into ammo. You choose which token and how much; every bullet is a real transaction.',
+      description: 'TokenBlaster: 10p-a-go arcade games, and guns that fire the tokens in your wallet. You choose what to play and what to load; every coin and bullet is a real transaction.',
       basketAccess: [
         {
           basket: 'bsv21',
           description: 'See the tokens in your wallet, so you can pick one to load as ammunition',
         },
       ],
+      // One 10p arcade coin is ~690,000 sats at £14.5/BSV, so the old 0.01 BSV/month ran out after one coin
+      // and every later coin prompted again. 0.15 BSV (about £2 a month) covers ~20 games plus fees.
       spendingAuthorization: {
-        amount: 1_000_000,
-        description: 'Spend up to 0.01 BSV a month on network fees, to load your gun and fire shots, without asking each time',
+        amount: 15_000_000,
+        description: 'Spend up to 0.15 BSV a month (about £2) without asking each time: 10p arcade coins, loading your gun and shot fees. You still press PLAY for every coin.',
       },
     },
   },
