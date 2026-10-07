@@ -77,6 +77,7 @@ export function SectionHead({ n, children, right }: { n?: string; children: Reac
 
 const FOOT: [string, string][] = [
   ['/arcade', 'Arcade'],
+  ['/leaderboard', 'Leaderboard'],
   ['/arena', 'Arena'],
   ['/arcade/bsvgun', 'BSVGun'],
   ['/arcade/bracer', 'bRacer'],
