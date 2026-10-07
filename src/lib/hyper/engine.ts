@@ -321,7 +321,7 @@ export class HyperEngine {
     this.fxLevel = q === 'ultra' ? 3 : hi ? 2 : 1;
     // Fonts used by canvas art (best effort).
     try {
-      await Promise.race([document.fonts.load(`900 40px ${FONTS.display}`), new Promise((r) => setTimeout(r, 1200))]);
+      await Promise.race([Promise.all([document.fonts.load(`900 40px ${FONTS.display}`), document.fonts.load(`400 40px ${FONTS.logo}`)]), new Promise((r) => setTimeout(r, 1500))]);
     } catch {
       /* fine */
     }

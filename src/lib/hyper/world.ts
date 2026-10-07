@@ -1,8 +1,7 @@
 /** bRacer world: procedural sky, glossy track, tunnels, megastructure city, signage, pads, speed lines, particles. */
 import * as THREE from 'three';
 import { rng } from '@/lib/rally/noise';
-import { drawSign, FONTS, SIGN_COUNT } from './signs';
-import { GAME_B, GAME_REST } from './brand';
+import { drawLogo, drawSign, SIGN_COUNT } from './signs';
 import { frameAt, HALF_W, newFrame, STEP, surfaceH, type Track } from './track';
 
 export type Quality = 'low' | 'high' | 'ultra';
@@ -494,11 +493,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     g.fillRect(0, 0, 1024, 26);
     g.fillStyle = p.a1;
     g.fillRect(0, 230, 1024, 26);
-    g.font = `900 210px ${FONTS.display}`;
-    g.fillStyle = p.a2;
-    g.fillText(GAME_B, 90, 205);
-    g.fillStyle = '#fff';
-    g.fillText(GAME_REST, 190, 205);
+    drawLogo(g, 70, 200, 150, p.a2, '#fff', '#000');
   }
   const bannerTex = own(texOf(bannerC, true, false));
   const bannerMat = own(new THREE.MeshBasicMaterial({ map: bannerTex, color: col('#ffffff', 1.6), side: THREE.DoubleSide }));
