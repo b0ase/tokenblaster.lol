@@ -1,3 +1,4 @@
+import { RALLY_CARD, shareImages } from '@/lib/og';
 import Link from 'next/link';
 import { HighScoresPanel } from '@/components/HighScores';
 import { TokenRally } from '@/components/TokenRally';
@@ -6,8 +7,8 @@ const description = 'A 3D rally game where the rivals are live BSV transactions:
 export const metadata = {
   title: 'Token Rally · TokenBlaster.lol',
   description,
-  openGraph: { title: 'Token Rally', description, url: '/arcade/rally' },
-  twitter: { card: 'summary_large_image', title: 'Token Rally', description },
+  openGraph: { title: 'Token Rally', description, url: '/arcade/rally', images: shareImages(RALLY_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'Token Rally', description, images: shareImages(RALLY_CARD).twitter },
 };
 
 export default function RallyPage() {
