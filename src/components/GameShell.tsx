@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
+import { FullscreenButton, LeaderboardButton, SoundButton, WalletBar, menuRowClass, roundBtn } from '@/components/walletbar/WalletBar';
+import { BackIcon } from '@/components/walletbar/icons';
+import { SiteLogo } from '@/components/SiteNav';
 import { GameShellContext, canElementFullscreen, isMobileish, readAutoFullscreen, writeAutoFullscreen, type GameShellApi } from '@/lib/useGameFullscreen';
 
 /** Buttons that start a run: pressing one (a user gesture) is when we ask for true fullscreen. */
 const START_RE = /\b(start|play|insert coin|coin|race|go|launch|deal|fight|practice|new game|continue|retry|again|mission|deploy|enter|run|drive|begin|resume)\b/i;
 
-const mutedNow = () => getAudioPrefs().muted;
 const autoSubs = new Set<() => void>();
 const subAuto = (l: () => void) => (autoSubs.add(l), () => void autoSubs.delete(l));
 const subNothing = () => () => undefined;
@@ -28,7 +29,6 @@ export function GameShell({ title, back = '/arcade', backLabel = 'ARCADE', below
   const [fs, setFs] = useState(false);
   const auto = useSyncExternalStore(subAuto, readAutoFullscreen, () => true);
   const canFs = useSyncExternalStore(subNothing, canElementFullscreen, () => true);
-  const muted = useSyncExternalStore(subscribeAudio, mutedNow, () => false);
 
   useEffect(() => {
     const el = root.current;
@@ -94,34 +94,44 @@ export function GameShell({ title, back = '/arcade', backLabel = 'ARCADE', below
     for (const l of autoSubs) l();
   };
 
-  const bar = 'dr-code flex h-7 items-center justify-center border-2 border-[var(--border)] bg-[var(--panel)] px-2 !text-[11px] leading-none transition-colors hover:border-[var(--hot)] hover:!text-[var(--accent)] sm:!text-[12px]';
-
   return (
     <GameShellContext.Provider value={api}>
       <div data-game-shell className="gs-shell">
         <div ref={root} className="gs-root">
+          {/* Owner, 8 Oct 2026: the game bar is drawn to bWalletX's side-panel header too (components/walletbar). */}
           <header data-gs-bar className="gs-bar">
-            <Link href={back} className={`${bar} shrink-0 !text-[var(--hot)]`} aria-label={`Back to ${backLabel.toLowerCase()}`}>
-              &lt; {backLabel}
-            </Link>
-            <h1 className="dr-display min-w-0 flex-1 truncate text-[15px] font-black italic uppercase leading-none text-hot sm:text-[19px]">
-              {title}
-              <span className="blink">_</span>
-            </h1>
-            <button type="button" onClick={toggleMute} aria-pressed={muted} aria-label={muted ? 'Unmute game sound' : 'Mute game sound'} className={`${bar} w-9`}>
-              {muted ? '🔇' : '🔊'}
-            </button>
-            {canFs && (
-              <label className={`${bar} cursor-pointer gap-1 max-[420px]:hidden`} title="Go fullscreen automatically when you press START">
-                <input type="checkbox" checked={auto} onChange={flipAuto} className="h-3 w-3 accent-[var(--accent)]" />
-                AUTO
-              </label>
-            )}
-            {canFs && (
-              <button type="button" onClick={() => (fs ? exit() : enter())} aria-pressed={fs} className={`${bar} !border-[var(--hot)] !text-[var(--hot)]`}>
-                {fs ? 'EXIT FS' : 'FULLSCREEN'}
-              </button>
-            )}
+            <WalletBar
+              sticky={false}
+              label="Game"
+              logo={<SiteLogo />}
+              title={title}
+              tools={
+                <>
+                  <Link href={back} className={roundBtn} aria-label={`Back to ${backLabel.toLowerCase()}`} title={`Back to ${backLabel.toLowerCase()}`}>
+                    <BackIcon size={16} />
+                  </Link>
+                  <LeaderboardButton />
+                  <SoundButton />
+                  {canFs && <FullscreenButton on={fs} onToggle={() => (fs ? exit() : enter())} />}
+                </>
+              }
+              menu={
+                <>
+                  <Link href={back} role="menuitem" className={menuRowClass}>
+                    &lt; {backLabel}
+                  </Link>
+                  {canFs && (
+                    <label className={`${menuRowClass} cursor-pointer`} title="Go fullscreen automatically when you press START">
+                      <input type="checkbox" checked={auto} onChange={flipAuto} className="h-3.5 w-3.5 accent-[#F5B800]" />
+                      Auto fullscreen on START
+                    </label>
+                  )}
+                  <Link href="/arcade" role="menuitem" className={menuRowClass}>
+                    All games
+                  </Link>
+                </>
+              }
+            />
           </header>
           <div className="gs-stage">{children}</div>
         </div>

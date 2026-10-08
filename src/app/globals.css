@@ -744,7 +744,8 @@ body:has([data-game-shell]) > footer {
   display: none;
 }
 .gs-root {
-  --gs-bar: calc(40px + env(safe-area-inset-top));
+  /* Bar drawn to bWalletX's side panel (components/walletbar): 28px strip + 56px row from sm, 56px row below. */
+  --gs-bar: calc(56px + env(safe-area-inset-top));
   --gs-h: calc(100dvh - var(--gs-bar));
   display: flex;
   flex-direction: column;
@@ -761,13 +762,22 @@ body:has([data-game-shell]) > footer {
   position: sticky;
   top: 0;
   z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 6px;
   height: var(--gs-bar);
-  padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
-  background: var(--bg);
-  border-bottom: 2px solid var(--hot);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  background: #000;
+}
+@media (min-width: 640px) {
+  .gs-root {
+    --gs-bar: calc(84px + env(safe-area-inset-top));
+  }
+}
+/* Fullscreen (no side panel beside it) and short landscape phones: the 56px tool row only. */
+.gs-root:fullscreen,
+.gs-root:fullscreen .gs-bar {
+  --gs-bar: 56px;
+}
+.gs-root:fullscreen .wb-strip {
+  display: none !important;
 }
 .gs-stage {
   flex: 1 0 auto;
@@ -813,6 +823,9 @@ body:has([data-game-shell]) > footer {
 }
 @media (orientation: landscape) and (max-height: 500px) {
   .gs-root {
-    --gs-bar: calc(32px + env(safe-area-inset-top));
+    --gs-bar: calc(56px + env(safe-area-inset-top));
+  }
+  .gs-root .wb-strip {
+    display: none !important;
   }
 }
