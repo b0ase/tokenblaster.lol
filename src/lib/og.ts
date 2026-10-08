@@ -39,11 +39,11 @@ export const MULTIPLAYER_CARD = card(
 );
 
 export const RALLY_CARD = card(
-  'rally-v1.jpg',
-  'TOKEN RALLY poster: a blue rally car and a pink rival tearing down a forest gravel stage. Every litre of fuel is a BSV tx, rivals are live mainnet transactions.',
+  'rally-v2.jpg',
+  'TOKEN RALLY poster in a dirt-scratched, forward-slanted title: a blue rally car, spotlights blazing, drifting through forest dust on a gravel stage. Every litre of fuel is a BSV tx, rivals are live mainnet transactions.',
 );
 
 export const CITY_CARD = card(
-  'city-v1.jpg',
-  'SATOSHI CITY poster: a rainy neon night plaza with a gold B monument, glowing cyan rings and parked supercars. Every car is a live BSV tx.',
+  'city-v2.jpg',
+  'SATOSHI CITY poster: a low wide shot of a rainy neon night plaza, the gold B monument beside the title and a red supercar on the wet street. Every car is a live BSV tx.',
 );

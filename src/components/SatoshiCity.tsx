@@ -809,14 +809,17 @@ export function SatoshiCity() {
           return true;
         },
         action: () => action(),
+        hidePlayer: (hidden = true) => (player.visible = !hidden),
+        where: () => [ped.x, ped.z, ...squareCentre()],
         // Screenshot rig: freeze the clock at dayT, put the player at (x, z) and aim the camera.
-        pose: (d: number, x: number, z: number, yaw: number, pitch = 0.32, dist = 6) => {
+        // `extra` can set the in-car look offset (lookYaw/lookPitch; lastMouse in the future stops it easing back).
+        pose: (d: number, x: number, z: number, yaw: number, pitch = 0.32, dist = 6, extra: Partial<typeof look> = {}) => {
           dayT = d;
           freezeDay = true;
           slowFor = -1e9;
           ped.x = x;
           ped.z = z;
-          Object.assign(look, { yaw, pitch, dist });
+          Object.assign(look, { yaw, pitch, dist }, extra);
         },
       };
     control.current = {
