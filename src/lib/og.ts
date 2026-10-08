@@ -37,3 +37,13 @@ export const MULTIPLAYER_CARD = card(
   'multiplayer-dr-v1.jpg',
   'BLAST YOUR GROUP CHAT poster: tilted TokenBlaster screenshots of Arena, bRacer, Double-O Satoshi and Token Snake with X avatars and verified ticks floating over the players.',
 );
+
+export const RALLY_CARD = card(
+  'rally-v1.jpg',
+  'TOKEN RALLY poster: a blue rally car and a pink rival tearing down a forest gravel stage. Every litre of fuel is a BSV tx, rivals are live mainnet transactions.',
+);
+
+export const CITY_CARD = card(
+  'city-v1.jpg',
+  'SATOSHI CITY poster: a rainy neon night plaza with a gold B monument, glowing cyan rings and parked supercars. Every car is a live BSV tx.',
+);

@@ -1,3 +1,4 @@
+import { CITY_CARD, shareImages } from '@/lib/og';
 import Link from 'next/link';
 import { SatoshiCity } from '@/components/SatoshiCity';
 
@@ -5,8 +6,8 @@ const description = 'An open-world island city where every car on the road is a 
 export const metadata = {
   title: 'Satoshi City · TokenBlaster.lol',
   description,
-  openGraph: { title: 'Satoshi City', description, url: '/arcade/city' },
-  twitter: { card: 'summary_large_image', title: 'Satoshi City', description },
+  openGraph: { title: 'Satoshi City', description, url: '/arcade/city', images: shareImages(CITY_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'Satoshi City', description, images: shareImages(CITY_CARD).twitter },
 };
 
 export default function CityPage() {
