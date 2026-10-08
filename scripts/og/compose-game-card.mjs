@@ -1,7 +1,8 @@
 // DR/WipEout share card (1200x630) from a real in-game frame.
-// Usage: node scripts/og/compose-game-card.mjs <rally|city> <frame.png> <out.jpg> [--side=left|right] [--font=dirt] [--zoom=1.1] [--fx=0.5] [--fy=0.5]
+// Usage: node scripts/og/compose-game-card.mjs <rally|city> <frame.png> <out.jpg> [--side=left|right] [--font=<key>] [--zoom=1.1] [--fx=0.5] [--fy=0.5]
 // Frames are captured from `pnpm dev` with the HUD hidden (kept in .private/og-drafts, never committed).
-// Rally titles use a bundled OFL font (scripts/og/fonts) with skew, speed streaks, grunge and misregistration.
+// Titles are glyph outlines from bundled OFL fonts (scripts/og/fonts), drawn as SVG paths:
+//   rally: bold italic rally face, light edge wear, two speed streaks;  city: neon-tube glow.
 import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
 import opentype from 'opentype.js';
@@ -12,26 +13,47 @@ const opt = Object.fromEntries(args.filter((a) => a.startsWith('--')).map((a) =>
 const W = 1200, H = 630;
 const RED = '#ff2a2a', INK = '#0a0a0c', WHITE = '#ffffff';
 const FONTS = {
-  dirt: { file: 'RubikDirt-Regular.ttf', family: 'Rubik Dirt' },
+  russo: 'RussoOne-Regular.ttf',
+  saira: 'SairaCondensed-ExtraBold.ttf',
+  michroma: 'Michroma-Regular.ttf',
+  monoton: 'Monoton-Regular.ttf',
 };
 
 const CARDS = {
-  rally: { title: ['TOKEN', 'RALLY'], accent: '#ffb000', tag: 'EVERY LITRE OF FUEL IS A BSV TX', sub: 'LIVE · MULTIPLAYER', code: 'TB-RLY/02 · STAGE 1 MAINNET PINES', extra: 'RIVALS = LIVE MAINNET TXS', grunge: true },
-  city: { title: ['SATOSHI', 'CITY'], accent: '#22e6ff', tag: 'EVERY CAR IS A LIVE BSV TX', sub: 'OPEN WORLD · LIVE CHAIN', code: 'TB-CTY/02 · NIGHT SHIFT', extra: 'STEAL · DELIVER · RACE THE MEMPOOL', grunge: false },
+  rally: { title: ['TOKEN', 'RALLY'], font: 'russo', style: 'rally', accent: '#ffb000', tag: 'EVERY LITRE OF FUEL IS A BSV TX', sub: 'LIVE · MULTIPLAYER', code: 'TB-RLY/03 · STAGE 1 MAINNET PINES', extra: 'RIVALS = LIVE MAINNET TXS' },
+  city: { title: ['SATOSHI', 'CITY'], font: 'monoton', style: 'neon', accent: '#22e6ff', tag: 'EVERY CAR IS A LIVE BSV TX', sub: 'OPEN WORLD · LIVE CHAIN', code: 'TB-CTY/03 · NIGHT SHIFT', extra: 'STEAL · DELIVER · RACE THE MEMPOOL' },
 };
 const c = CARDS[game];
 if (!c || !frame || !out) throw new Error('usage: compose-game-card.mjs <rally|city> <frame.png> <out.jpg> [--side=..] [--font=..] [--zoom=..] [--fx=..] [--fy=..]');
 const left = (opt.side ?? 'left') === 'left';
 const tx = left ? 54 : W - 54;
 const anchor = left ? 'start' : 'end';
+const fontKey = opt.font ?? c.font;
+const font = opentype.parse(readFileSync(new URL(`./fonts/${FONTS[fontKey]}`, import.meta.url)).buffer);
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const COND = "Impact, 'Haettenschweiler', 'Arial Narrow Bold', sans-serif";
 const MONO = "Menlo, 'Courier New', monospace";
 
-// Seeded PRNG so the grunge is identical on every run.
-let seed = 1337;
-const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+/** Glyph-by-glyph outline (no GSUB shaping; some fonts' tables trip opentype.js). Returns path data + width. */
+function outline(text, size, track = 0.02) {
+  const p = new opentype.Path();
+  let x = 0;
+  for (const ch of text) {
+    const g = font.charToGlyph(ch);
+    p.extend(g.getPath(x, 0, size));
+    x += (g.advanceWidth / font.unitsPerEm) * size + size * track;
+  }
+  const bb = p.getBoundingBox();
+  return { d: p.toPathData(2), w: bb.x2 - bb.x1, x1: bb.x1, top: bb.y1, h: bb.y2 - bb.y1 };
+}
+
+/** Fit a line of text to a max width; returns outline at the chosen size. */
+function fit(text, size, maxW, track) {
+  let o = outline(text, size, track);
+  if (o.w > maxW) o = outline(text, (size * maxW) / o.w, track);
+  return o;
+}
 
 const hazard = (x, y, w, h, a = c.accent) => {
   let s = `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${INK}"/>`;
@@ -39,9 +61,62 @@ const hazard = (x, y, w, h, a = c.accent) => {
   return `<g clip-path="url(#hz${x}${y})"><clipPath id="hz${x}${y}"><rect x="${x}" y="${y}" width="${w}" height="${h}"/></clipPath>${s}</g>`;
 };
 
-function chrome(withTitle) {
+/** Rally: heavy italic (skewed) face, white / red, light edge wear, two speed streaks trailing behind. */
+function rallyTitle() {
   const [t1, t2] = c.title;
-  const ts = 160;
+  const maxW = 610;
+  const a = fit(t1, 150, maxW, 0.01), b = fit(t2, 150, maxW, 0.01);
+  const lines = [[a, WHITE, 168], [b, RED, 318]];
+  let s = `<defs>
+    <filter id="wear" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="2" seed="7" result="n"/>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -14 12.4" result="m"/>
+      <feComposite in="SourceGraphic" in2="m" operator="in"/>
+    </filter>
+    <filter id="shade" x="-10%" y="-10%" width="120%" height="140%"><feGaussianBlur stdDeviation="5"/></filter>
+  </defs>`;
+  for (const [o, fill, base] of lines) {
+    const x = left ? tx - o.x1 : tx - o.w - o.x1;
+    const g = `transform="translate(${x},${base}) skewX(-14)"`;
+    // speed streaks: two tapered bars trailing behind the word
+    const sx = left ? -60 : -40, sw = o.w * 0.75;
+    const streak = (y, hh, op) =>
+      `<polygon points="${sx - 140},${y} ${sx + sw},${y - hh / 2} ${sx + sw},${y + hh / 2}" fill="${fill}" opacity="${op}"/>`;
+    s += `<g ${g}>
+      ${streak(-o.h * 0.62, 10, 0.55)}${streak(-o.h * 0.3, 5, 0.4)}
+      <path d="${o.d}" fill="${INK}" opacity="0.65" filter="url(#shade)" transform="translate(4,7)"/>
+      <path d="${o.d}" fill="${fill}" filter="url(#wear)"/>
+    </g>`;
+  }
+  return s;
+}
+
+/** City: neon tubes — coloured outer glow, saturated tube, white-hot core, a couple of flicker gaps. */
+function neonTitle() {
+  const [t1, t2] = c.title;
+  const maxW = 540;
+  const mono = fontKey === 'monoton';
+  const a = fit(t1, mono ? 120 : 96, maxW, mono ? 0 : 0.04), b = fit(t2, mono ? 120 : 96, maxW, mono ? 0 : 0.04);
+  const lines = [[a, '#ff3df0', 175], [b, '#22e6ff', 175 + a.h + 46]];
+  let s = `<defs>
+    <filter id="glowW" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="glowN" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="4"/></filter>
+  </defs>`;
+  for (const [o, col, base] of lines) {
+    const x = left ? tx - o.x1 : tx - o.w - o.x1;
+    const tube = mono ? 0 : 5;
+    const gaps = 'stroke-dasharray="380 9 140 7 900"';
+    s += `<g transform="translate(${x},${base})">
+      <path d="${o.d}" fill="${mono ? col : 'none'}" stroke="${col}" stroke-width="${tube + 10}" opacity="0.75" filter="url(#glowW)"/>
+      <path d="${o.d}" fill="${mono ? col : 'none'}" stroke="${col}" stroke-width="${tube + 4}" opacity="0.9" filter="url(#glowN)"/>
+      ${mono ? `<path d="${o.d}" fill="${WHITE}" opacity="0.92"/>` : `<path d="${o.d}" fill="none" stroke="${col}" stroke-width="${tube}" stroke-linejoin="round" ${gaps}/>
+      <path d="${o.d}" fill="none" stroke="${WHITE}" stroke-width="${tube * 0.38}" stroke-linejoin="round" ${gaps}/>`}
+    </g>`;
+  }
+  return s;
+}
+
+function chrome() {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
   <defs>
     <linearGradient id="fade" x1="${left ? 0 : 1}" y1="0" x2="${left ? 1 : 0}" y2="0">
@@ -57,12 +132,7 @@ function chrome(withTitle) {
     <rect x="${left ? 194 : W - 206}" y="16" width="12" height="${H - 76}" fill="${WHITE}" opacity="0.85"/>
   </g>
   <text x="${tx}" y="46" text-anchor="${anchor}" font-family="${MONO}" font-size="17" font-weight="700" fill="${c.accent}" letter-spacing="3">${esc(c.code)}</text>
-  ${withTitle ? `<g font-family="${COND}" font-size="${ts}" text-anchor="${anchor}" letter-spacing="2">
-    <text x="${tx + (left ? 6 : -6)}" y="${200 + 6}" fill="${RED}">${t1}</text>
-    <text x="${tx}" y="200" fill="${WHITE}">${t1}</text>
-    <text x="${tx + (left ? 6 : -6)}" y="${200 + ts * 0.92 + 6}" fill="${INK}">${t2}</text>
-    <text x="${tx}" y="${200 + ts * 0.92}" fill="${RED}">${t2}</text>
-  </g>` : ''}
+  ${c.style === 'rally' ? rallyTitle() : neonTitle()}
   <g transform="translate(${left ? 54 : W - 54 - 560}, 424)">
     <rect width="560" height="50" fill="${WHITE}"/>
     <rect width="14" height="50" fill="${RED}"/>
@@ -77,88 +147,6 @@ function chrome(withTitle) {
 </svg>`;
 }
 
-/** One word of the rally title as an RGBA buffer in the given colour (glyph outlines from the bundled font). */
-const fontCache = {};
-async function word(text, colour, size, font) {
-  fontCache[font.file] ??= opentype.parse(readFileSync(new URL(`./fonts/${font.file}`, import.meta.url)).buffer);
-  const f = fontCache[font.file];
-  // Glyph by glyph (no shaping: Rubik Dirt's GSUB tables trip opentype.js).
-  const path = new opentype.Path();
-  let x = 0;
-  for (const ch of text) {
-    const g = f.charToGlyph(ch);
-    path.extend(g.getPath(x, size, size));
-    x += (g.advanceWidth / f.unitsPerEm) * size * 1.02;
-  }
-  const bb = path.getBoundingBox();
-  const w = Math.ceil(bb.x2 - bb.x1) + 4, h = Math.ceil(bb.y2 - bb.y1) + 4;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><g transform="translate(${2 - bb.x1},${2 - bb.y1})"><path d="${path.toPathData(2)}" fill="${colour}"/></g></svg>`;
-  return sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-}
-
-/** Grunge mask: blotches + scratches, white = keep. */
-async function grungeMask(w, h) {
-  const n = Buffer.alloc(w * h, 255);
-  // blotches
-  for (let k = 0; k < (w * h) / 700; k++) {
-    const x0 = rnd() * w, y0 = rnd() * h, r = 1 + rnd() * rnd() * 7;
-    for (let y = Math.max(0, y0 - r) | 0; y < Math.min(h, y0 + r); y++)
-      for (let x = Math.max(0, x0 - r) | 0; x < Math.min(w, x0 + r); x++) if ((x - x0) ** 2 + (y - y0) ** 2 < r * r) n[y * w + x] = 0;
-  }
-  // scratches (long thin diagonal-ish gouges)
-  for (let k = 0; k < 26; k++) {
-    let x = rnd() * w, y = rnd() * h;
-    const a = -0.35 + rnd() * 0.25, len = 40 + rnd() * 220;
-    for (let t = 0; t < len; t++) {
-      x += Math.cos(a); y += Math.sin(a) + (rnd() - 0.5) * 0.6;
-      const xi = x | 0, yi = y | 0;
-      if (xi >= 0 && xi < w && yi >= 0 && yi < h) { n[yi * w + xi] = 0; if (yi + 1 < h) n[(yi + 1) * w + xi] = 0; }
-    }
-  }
-  const rgba = Buffer.alloc(w * h * 4, 255);
-  for (let i = 0; i < w * h; i++) rgba[i * 4 + 3] = n[i];
-  return sharp(rgba, { raw: { width: w, height: h, channels: 4 } }).blur(0.6).png().toBuffer();
-}
-
-async function grungeTitle() {
-  const font = FONTS[opt.font ?? 'dirt'];
-  const size = 132;
-  const SKEW = -0.26; // forward lean
-  const lines = [];
-  for (const [i, t] of c.title.entries()) {
-    const colour = i === 0 ? WHITE : RED;
-    const fg = await word(t, colour, size, font);
-    const w = fg.info.width + 160, h = fg.info.height + 20;
-    const pad = (buf, info) => sharp(buf, { raw: info }).extend({ left: 80, right: 80, top: 10, bottom: 10, background: { r: 0, g: 0, b: 0, alpha: 0 } }).raw().toBuffer();
-    const skew = async (buf) =>
-      sharp(buf, { raw: { width: w, height: h, channels: 4 } }).affine([[1, SKEW], [0, 1]], { background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
-    const base = await pad(fg.data, fg.info);
-    const mis = await pad((await word(t, i === 0 ? c.accent : '#1fd5ff', size, font)).data, fg.info);
-    const shadow = await pad((await word(t, INK, size, font)).data, fg.info);
-    // grunge eats the face of the letters
-    const mask = await grungeMask(w, h);
-    const face = await sharp(base, { raw: { width: w, height: h, channels: 4 } }).composite([{ input: mask, blend: 'dest-in' }]).raw().toBuffer();
-    // speed streaks: smear trailing to the left
-    const kw = 121, kernel = Array.from({ length: kw }, (_, j) => (j > kw / 2 ? (1 - (j - kw / 2) / (kw / 2)) : 0));
-    const ksum = kernel.reduce((a, b) => a + b, 0);
-    const streak = await sharp(await pad((await word(t, i === 0 ? WHITE : RED, size, font)).data, fg.info), { raw: { width: w, height: h, channels: 4 } })
-      .convolve({ width: kw, height: 3, kernel: [...Array(kw).fill(0), ...kernel.map((k) => k / ksum), ...Array(kw).fill(0)], scale: 1 })
-      .raw().toBuffer();
-    const sk = await Promise.all([streak, shadow, mis, face].map(skew));
-    const layered = await sharp({ create: { width: (await sharp(sk[0]).metadata()).width, height: h, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
-      .composite([
-        { input: await sharp(sk[0]).linear([1, 1, 1, 0.5], [0, 0, 0, 0]).png().toBuffer(), left: -46, top: 4 },
-        { input: await sharp(sk[0]).linear([1, 1, 1, 0.22], [0, 0, 0, 0]).png().toBuffer(), left: -110, top: 6 },
-        { input: sk[1], left: 9, top: 8 },
-        { input: sk[2], left: -5, top: -3 },
-        { input: sk[3], left: 0, top: 0 },
-      ])
-      .png().toBuffer();
-    lines.push(layered);
-  }
-  return lines;
-}
-
 const zoom = +(opt.zoom ?? 1);
 const meta = await sharp(frame).metadata();
 const scale = Math.max(W / meta.width, H / meta.height) * zoom;
@@ -171,12 +159,5 @@ const base = await sharp(frame)
   .linear(1.08, -6)
   .toBuffer();
 
-const layers = [{ input: Buffer.from(chrome(!c.grunge)) }];
-if (c.grunge) {
-  const [l1, l2] = await grungeTitle();
-  const m1 = await sharp(l1).metadata(), m2 = await sharp(l2).metadata();
-  const x1 = left ? 20 : W - m1.width + 20, x2 = left ? 0 : W - m2.width + 40;
-  layers.push({ input: l1, left: Math.max(0, x1), top: 52 }, { input: l2, left: Math.max(0, x2), top: 52 + 150 });
-}
-await sharp(base).composite(layers)[out.endsWith('.png') ? 'png' : 'jpeg']({ quality: 82, mozjpeg: true }).toFile(out);
+await sharp(base).composite([{ input: Buffer.from(chrome()) }])[out.endsWith('.png') ? 'png' : 'jpeg']({ quality: 82, mozjpeg: true }).toFile(out);
 console.log('wrote', out);
