@@ -130,7 +130,7 @@ export function SatStack2048() {
 
   const top = bestTile(tiles);
   return (
-    <section className="panel">
+    <section className="panel game-root">
       <GameAudio track="snake" />
       <style>{`
         @keyframes s48pop { 0% { transform: scale(0); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
@@ -161,8 +161,8 @@ export function SatStack2048() {
       </div>
       <div
         ref={boardRef}
-        className="relative mx-auto w-full max-w-[480px] select-none overflow-hidden border border-[var(--border-canvas)] bg-[#150a09]"
-        style={{ aspectRatio: '1 / 1', touchAction: 'none', borderRadius: 6, containerType: 'inline-size' }}
+        className="game-stage-fit relative mx-auto w-full max-w-[480px] select-none overflow-hidden border border-[var(--border-canvas)] bg-[#150a09]"
+        style={{ aspectRatio: '1 / 1', touchAction: 'none', borderRadius: 6, containerType: 'inline-size', ['--ar' as string]: 1 }}
       >
         {Array.from({ length: SIZE * SIZE }, (_, i) => (
           <div key={i} className="absolute" style={{ width: '25%', height: '25%', left: `${(i % SIZE) * 25}%`, top: `${Math.floor(i / SIZE) * 25}%` }}>

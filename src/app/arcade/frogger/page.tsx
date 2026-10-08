@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { GameShell } from '@/components/GameShell';
 
 const FROGGER_CARD = { url: '/arcade/frogger.jpg', width: 1200, height: 630, alt: 'Chain Frogger on TokenBlaster.lol: cross a 3D city avenue where every vehicle is a live BSV transaction' };
 import { HighScoresPanel } from '@/components/HighScores';
@@ -15,20 +15,16 @@ export const metadata = {
 
 export default function FroggerPage() {
   return (
-    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-2.5">
-      <header className="panel">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h1 className="text-2xl font-bold text-hot">
-            Chain Frogger<span className="blink">_</span>
-          </h1>
-          <Link href="/arcade" className="text-dim hover:text-hot">
-            &lt; Arcade
-          </Link>
-        </div>
-        <p className="mt-1 text-dim">Every car is a real BSV transaction, live from mainnet. Lanes are what each one carries; token transfers show their token.</p>
-      </header>
-      <Frogger />
-      <HighScoresPanel games={['frogger']} label="CROSSINGS" />
-    </main>
+    <GameShell
+      title="Chain Frogger"
+      below={
+        <>
+          <p className="panel text-dim">Every car is a real BSV transaction, live from mainnet. Lanes are what each one carries; token transfers show their token.</p>
+        <HighScoresPanel games={['frogger']} label="CROSSINGS" />
+        </>
+      }
+    >
+        <Frogger />
+    </GameShell>
   );
 }

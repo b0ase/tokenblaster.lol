@@ -2894,10 +2894,10 @@ export function DoubleO() {
   );
 
   return (
-    <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel'}>
+    <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel game-root'}>
       <GameAudio track="doubleo" />
-      <div className={playing ? 'relative min-h-0 flex-1' : 'relative'}>
-        <div ref={mount} className={`touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[80vh] min-h-[36rem] w-full'}`} />
+      <div className={playing ? 'relative min-h-0 flex-1' : 'game-stage relative'}>
+        <div ref={mount} className={`game-fill touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[80vh] min-h-[36rem] w-full'}`} />
 
         {playing && (
           <>

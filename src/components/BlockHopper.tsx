@@ -430,7 +430,7 @@ export function BlockHopper() {
   const accent = DR.colour.signal;
 
   return (
-    <section className={`panel ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+    <section className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
       <GameAudio track="hopper" />
       <div className="panel-header">
         <span className="panel-title">{GAME_NAME}</span>
@@ -446,7 +446,7 @@ export function BlockHopper() {
           )}
         </span>
       </div>
-      <div className="relative" style={{ height: 'min(84vh, 820px)', minHeight: 460 }}>
+      <div className="game-stage relative" style={{ height: 'min(84vh, 820px)', minHeight: 460 }}>
         <div ref={wrap} className={`select-none overflow-hidden bg-black ${playing ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={playing ? { height: '100dvh' } : undefined}>
           <div ref={mount} className="absolute inset-0 touch-none" />
 

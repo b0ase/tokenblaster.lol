@@ -1297,9 +1297,9 @@ export function KwegExpedition() {
   };
 
   return (
-    <section className="panel">
+    <section className="panel game-root">
       <GameAudio track="kweg" />
-      <div className="relative mx-auto w-full max-w-[960px] overflow-hidden rounded border border-[var(--border-canvas)] bg-[#fff2d6]" style={{ aspectRatio: '16 / 9', touchAction: 'none' }}>
+      <div className="game-stage-fit relative mx-auto w-full max-w-[960px] overflow-hidden rounded border border-[var(--border-canvas)] bg-[#fff2d6]" style={{ aspectRatio: '16 / 9', touchAction: 'none', ['--ar' as string]: 16 / 9 }}>
         <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" />
         <div className="pointer-events-none absolute bottom-[12%] left-2 flex flex-wrap items-center gap-2 rounded bg-white/80 px-2 py-0.5 font-sans text-[11px] font-bold text-[#1d1d2b] sm:text-xs">
           <span>SCORE {hud.score.toLocaleString()}</span>

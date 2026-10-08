@@ -478,7 +478,7 @@ export function MempoolInvaders() {
   );
 
   return (
-    <section className={`panel ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+    <section className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
       <GameAudio track="invaders" />
       <div className="panel-header">
         <span className="panel-title">{GAME_NAME}</span>
@@ -494,7 +494,7 @@ export function MempoolInvaders() {
           )}
         </span>
       </div>
-      <div className="relative" style={{ height: 'min(80vh, 820px)', minHeight: 460 }}>
+      <div className="game-stage relative" style={{ height: 'min(80vh, 820px)', minHeight: 460 }}>
         <div ref={wrap} className={`select-none overflow-hidden bg-black ${cover ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={cover ? { height: '100dvh' } : undefined}>
           <div ref={mount} data-invaders-canvas className="absolute inset-0 touch-none" />
           {flash && (

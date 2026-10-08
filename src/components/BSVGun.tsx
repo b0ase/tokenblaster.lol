@@ -86,7 +86,7 @@ export function BSVGun() {
   const pct = target ? Math.min(100, (sent / target) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="game-root flex flex-col gap-3">
       <GameAudio track="gun" />
       <div className="flex flex-wrap gap-2">
         <button onClick={() => setTab('range')} className={`btn px-4 py-2 text-lg ${tab === 'range' ? 'btn-on' : ''}`}>
@@ -97,7 +97,7 @@ export function BSVGun() {
         </button>
         <span className="self-center text-sm text-dim">{tab === 'range' ? 'Shoot the live chain: practice is free, LIVE is one real transaction per shot.' : 'Mass blaster: tens of thousands of real transactions in parallel lanes.'}</span>
       </div>
-      <section className="panel overflow-hidden p-0">
+      <section className="game-stage panel overflow-hidden p-0">
         <BSVGunRange b={b} mode={tab} blast={{ active: tab === 'blast' && firing, tps, sent, target }} />
       </section>
       <section className="panel">

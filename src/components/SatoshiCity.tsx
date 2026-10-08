@@ -1884,7 +1884,7 @@ export function SatoshiCity() {
   const mmss = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 
   return (
-    <section className="panel">
+    <section className="panel game-root">
       <GameAudio track="city" />
       <div className="panel-header">
         <span className="panel-title">Satoshi City</span>
@@ -1908,8 +1908,8 @@ export function SatoshiCity() {
           )}
         </span>
       </div>
-      <div ref={stage} className={`relative select-none ${gfs.fs ? 'h-screen w-screen bg-black text-[1.15em]' : ''}`}>
-        <div ref={mount} className={`w-full touch-none overflow-hidden ${gfs.fs ? 'h-full' : 'inset h-[calc(100vh-220px)] min-h-[420px]'}`} />
+      <div ref={stage} className={`game-stage relative select-none ${gfs.fs ? 'h-screen w-screen bg-black text-[1.15em]' : ''}`}>
+        <div ref={mount} className={`game-fill w-full touch-none overflow-hidden ${gfs.fs ? 'h-full' : 'inset h-[calc(100vh-220px)] min-h-[420px]'}`} />
         <button
           onClick={gfs.toggle}
           className="btn btn-on absolute right-[190px] top-3 z-20 px-3 py-1.5 text-xs font-black tracking-widest max-sm:right-[140px]"

@@ -1452,7 +1452,7 @@ export function Frogger3D() {
   const meta = killer?.token ? tokenMeta(killer.token) : null;
   const killerMeta = meta;
   return (
-    <section className="panel">
+    <section className="panel game-root">
       <GameAudio track="frogger" />
       <div className="panel-header">
         <span className="panel-title">Chain Frogger</span>
@@ -1468,8 +1468,8 @@ export function Frogger3D() {
           )}
         </span>
       </div>
-      <div className="relative">
-        <div ref={mount} className="inset h-[72vh] min-h-96 w-full touch-none overflow-hidden" />
+      <div className="game-stage relative">
+        <div ref={mount} className="game-fill inset h-[72vh] min-h-96 w-full touch-none overflow-hidden" />
         <div className="pointer-events-none absolute right-3 top-3 text-right font-bold text-hot drop-shadow">
           <div className="text-2xl">{clock}</div>
           <div className="text-sm">{'♥'.repeat(Math.max(0, lives))}</div>

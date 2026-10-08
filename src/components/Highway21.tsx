@@ -213,9 +213,9 @@ export function Highway21() {
   };
 
   return (
-    <section className="panel">
+    <section className="panel game-root">
       <GameAudio track="hopper" />
-      <div className="relative mx-auto w-full max-w-[900px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}`, touchAction: 'none' }}>
+      <div className="game-stage-fit relative mx-auto w-full max-w-[900px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}`, touchAction: 'none', ['--ar' as string]: W / H }}>
         <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" />
         {phase === 'play' && (
           <>

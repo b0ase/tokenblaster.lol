@@ -82,7 +82,7 @@ export function SoundToggle({ className = '' }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const list = open ? getPlaylist() : [];
   return (
-    <span className={`relative inline-flex items-center gap-1 ${className}`}>
+    <span className={`${/\b(fixed|absolute)\b/.test(className) ? '' : 'relative '}inline-flex items-center gap-1 ${className}`}>
       <NowPlayingBanner song={p.muted ? null : now} />
       {now && !p.muted && (
         <>

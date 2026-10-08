@@ -491,7 +491,7 @@ export function TokenSnake() {
   const bestShown = Math.max(best, result?.score ?? 0);
 
   return (
-    <section className={`panel ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+    <section className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
       <GameAudio track="snake" />
       <div className="panel-header">
         <span className="panel-title">TOKEN SNAKE</span>
@@ -507,7 +507,7 @@ export function TokenSnake() {
           )}
         </span>
       </div>
-      <div className="relative mx-auto w-full" style={{ aspectRatio: touch ? '4 / 5' : '16 / 9', maxHeight: '84vh' }}>
+      <div className="game-stage relative mx-auto w-full" style={{ aspectRatio: touch ? '4 / 5' : '16 / 9', maxHeight: '84vh' }}>
       <div ref={wrap} className={`select-none overflow-hidden bg-black ${gfs.cover ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={{ touchAction: 'none', ...(gfs.cover ? { height: '100dvh' } : null) }}>
         <div ref={mount} className="absolute inset-0 touch-none" />
 

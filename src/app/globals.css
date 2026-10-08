@@ -737,3 +737,82 @@ main > header.panel:first-child h1 .blink {
     transition: none;
   }
 }
+
+/* ---------- GameShell: fullscreen-first game pages (components/GameShell.tsx) ---------- */
+body:has([data-game-shell]) > nav[aria-label="Site"],
+body:has([data-game-shell]) > footer {
+  display: none;
+}
+.gs-root {
+  --gs-bar: calc(40px + env(safe-area-inset-top));
+  --gs-h: calc(100dvh - var(--gs-bar));
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: #000;
+}
+.gs-root:fullscreen {
+  --gs-h: calc(100vh - var(--gs-bar));
+  overflow-y: auto;
+  width: 100vw;
+  height: 100vh;
+}
+.gs-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--gs-bar);
+  padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+  background: var(--bg);
+  border-bottom: 2px solid var(--hot);
+}
+.gs-stage {
+  flex: 1 0 auto;
+  min-height: var(--gs-h);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+/* The game's own panel becomes a bare column; its play area comes first and fills the stage. */
+.gs-stage .game-root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 8px 8px;
+  border: 0;
+  background: transparent;
+}
+.gs-stage .game-stage {
+  order: -1;
+  width: calc(100% + 16px) !important;
+  max-width: none !important;
+  height: var(--gs-h) !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  aspect-ratio: auto !important;
+  margin: 0 -8px !important;
+}
+.gs-stage .game-stage-fit {
+  order: -1;
+  width: min(100%, calc(var(--gs-h) * var(--ar, 1.7778))) !important;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: var(--gs-h) !important;
+  aspect-ratio: var(--ar, 1.7778) !important;
+  margin: 0 auto !important;
+}
+.gs-stage .game-fill {
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  aspect-ratio: auto !important;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  .gs-root {
+    --gs-bar: calc(32px + env(safe-area-inset-top));
+  }
+}

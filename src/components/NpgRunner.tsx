@@ -205,9 +205,9 @@ export function NpgRunner() {
   const done = phase === 'over' || phase === 'win';
 
   return (
-    <section className="panel">
+    <section className="panel game-root">
       <SoundToggle className="fixed bottom-3 right-3 z-[60]" />
-      <div className="relative mx-auto w-full max-w-[960px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}` }}>
+      <div className="game-stage-fit relative mx-auto w-full max-w-[960px] overflow-hidden border border-[var(--border-canvas)] bg-canvas" style={{ aspectRatio: `${W} / ${H}`, ['--ar' as string]: W / H }}>
         <canvas ref={canvasRef} width={W} height={H} className="block h-full w-full" />
         <ActionHud ap={ap} className="absolute right-2 top-2 z-10" />
         <div className="pointer-events-none absolute bottom-1 left-2">

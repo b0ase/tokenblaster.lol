@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { GameShell } from '@/components/GameShell';
 import { HighScoresPanel } from '@/components/HighScores';
 import { Highway21 } from '@/components/Highway21';
 
@@ -12,20 +12,16 @@ export const metadata = {
 
 export default function Highway21Page() {
   return (
-    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-2.5">
-      <header className="panel">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h1 className="text-2xl font-bold text-hot">
-            Highway 21M<span className="blink">_</span>
-          </h1>
-          <Link href="/arcade" className="text-dim hover:text-hot">
-            &lt; Arcade
-          </Link>
-        </div>
-        <p className="mt-1 text-dim">Floor it down a sunset highway: beat each checkpoint, pass the traffic (live transaction kinds), read the billboards (live token moves).</p>
-      </header>
-      <Highway21 />
-      <HighScoresPanel games={['highway21']} />
-    </main>
+    <GameShell
+      title="Highway 21M"
+      below={
+        <>
+          <p className="panel text-dim">Floor it down a sunset highway: beat each checkpoint, pass the traffic (live transaction kinds), read the billboards (live token moves).</p>
+        <HighScoresPanel games={['highway21']} />
+        </>
+      }
+    >
+        <Highway21 />
+    </GameShell>
   );
 }

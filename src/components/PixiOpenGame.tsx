@@ -77,8 +77,8 @@ export function PixiOpenGame({ slug, title, game, tag, blurb }: { slug: string; 
 
   const covered = phase !== 'play';
   return (
-    <section className="panel flex flex-col items-center gap-2">
-      <div className="relative h-[min(80vh,880px)] w-full max-w-[480px] overflow-hidden border border-line bg-black">
+    <section className="panel game-root flex flex-col items-center gap-2">
+      <div style={{ ['--ar' as string]: 0.6 }} className="game-stage-fit relative h-[min(80vh,880px)] w-full max-w-[480px] overflow-hidden border border-line bg-black">
         <iframe
           key={attempt}
           ref={frame}

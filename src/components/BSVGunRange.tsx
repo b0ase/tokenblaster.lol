@@ -378,7 +378,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   );
 
   return (
-    <div className="bg-stage relative w-full">
+    <div className="bg-stage game-fill relative w-full">
     <div ref={wrap} className={`select-none overflow-hidden bg-black ${gfs.cover ? 'fixed inset-0 z-[90]' : 'absolute inset-0'} ${drFontClass}`} style={{ height: gfs.cover ? '100dvh' : undefined, fontFamily: DR.font.mono, border: gfs.cover ? undefined : `2px solid ${DR.colour.signal}` }}>
       <style>{`
         .bg-pop{position:absolute;transform:translate(-50%,-50%);font-family:${DR.font.display};font-weight:900;font-style:italic;text-transform:uppercase;white-space:nowrap;text-shadow:0 0 8px currentColor,0 2px 0 #000;animation:bgpop .95s ease-out forwards;pointer-events:none}

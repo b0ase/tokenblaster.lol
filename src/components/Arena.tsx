@@ -1893,7 +1893,7 @@ export function Arena() {
   });
 
   return (
-    <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel'}>
+    <section className={playing ? 'fixed inset-0 z-40 flex flex-col bg-bg' : 'panel game-root'}>
       <GameAudio track="arena" />
       {!playing && (
         <div className="panel-header">
@@ -1910,8 +1910,8 @@ export function Arena() {
         </div>
       )}
 
-      <div className={playing ? 'relative min-h-0 flex-1' : 'relative'}>
-        <div ref={mount} className={`touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[78vh] min-h-[34rem] w-full'}`} />
+      <div className={playing ? 'relative min-h-0 flex-1' : 'game-stage relative'}>
+        <div ref={mount} className={`game-fill touch-none select-none overflow-hidden ${playing ? 'h-full w-full' : 'inset h-[78vh] min-h-[34rem] w-full'}`} />
         <div className="pointer-events-none absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2">
           <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-hot/80" />
           <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-hot/80" />

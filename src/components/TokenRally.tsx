@@ -26,6 +26,7 @@ import { STAGE_LIST, type StageId } from '@/lib/rally/stages';
 import type { Track } from '@/lib/rally/track';
 import type { ScoreGame } from '@/lib/scores';
 import { reportTxs } from '@/lib/txlog';
+import { useGameShell } from '@/lib/useGameFullscreen';
 
 type QualityPref = 'auto' | 'low' | 'high' | 'ultra';
 type RivalInfo = { name: string; detail: string; color: string; live: boolean; tx: string | null; skill: number; kind: string };
@@ -107,6 +108,7 @@ const readBest = (): Record<string, number> => {
 };
 
 export function TokenRally() {
+  const shell = useGameShell();
   const mount = useRef<HTMLDivElement>(null);
   const feed = useChainFeed();
   const takeRef = useRef(feed.take);
@@ -548,6 +550,7 @@ export function TokenRally() {
   });
 
   const fullscreen = () => {
+    if (shell) return shell.isFs() ? shell.exit() : shell.enter();
     const root = mount.current?.parentElement;
     if (!root) return;
     if (document.fullscreenElement) void document.exitFullscreen();
@@ -563,7 +566,7 @@ export function TokenRally() {
   const scoreGame = `rally-${stageId}` as ScoreGame;
 
   return (
-    <section className="panel">
+    <section className="panel game-root">
       <GameAudio track="city" />
       <div className="panel-header">
         <span className="panel-title">Token Rally</span>
@@ -579,7 +582,7 @@ export function TokenRally() {
           )}
         </span>
       </div>
-      <div className="relative select-none overflow-hidden bg-black" style={{ height: 'min(78vh, 780px)', minHeight: 420 }}>
+      <div className="game-stage relative select-none overflow-hidden bg-black" style={{ height: 'min(78vh, 780px)', minHeight: 420 }}>
         <div ref={mount} className="absolute inset-0 touch-none" />
 
         {/* ── HUD ── */}

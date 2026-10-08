@@ -594,7 +594,7 @@ export function BRacer() {
   const accent2 = def.palette.a2;
 
   return (
-    <section className={`panel ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+    <section className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
       <GameAudio track={def.music} />
       <div className="panel-header">
         <span className="panel-title">{GAME_NAME}</span>
@@ -610,7 +610,7 @@ export function BRacer() {
           )}
         </span>
       </div>
-      <div className="relative" style={{ height: 'min(80vh, 800px)', minHeight: 440 }}>
+      <div className="game-stage relative" style={{ height: 'min(80vh, 800px)', minHeight: 440 }}>
       <div ref={wrap} className={`select-none overflow-hidden bg-black ${cover || fs ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={cover || fs ? { height: '100dvh' } : undefined}>
         <div ref={mount} className="absolute inset-0 touch-none" />
         {flash && <div className="pointer-events-none absolute inset-0" style={{ background: flash === 'hit' ? 'rgba(232,38,29,0.28)' : flash === 'quake' ? 'rgba(255,184,0,0.2)' : flash === 'pit' ? 'rgba(24,255,122,0.1)' : 'rgba(39,230,255,0.14)' }} />}

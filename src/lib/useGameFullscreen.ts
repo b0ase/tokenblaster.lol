@@ -1,6 +1,30 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type RefObject } from 'react';
+
+/** Per-viewer preference: go true fullscreen when START / INSERT COIN / PLAY is pressed. Default ON. */
+const AUTO_FS_KEY = 'tb-auto-fullscreen';
+export const readAutoFullscreen = () => {
+  try {
+    return localStorage.getItem(AUTO_FS_KEY) !== '0';
+  } catch {
+    return true;
+  }
+};
+export const writeAutoFullscreen = (on: boolean) => {
+  try {
+    localStorage.setItem(AUTO_FS_KEY, on ? '1' : '0');
+  } catch {
+    /* storage blocked: the default (ON) applies */
+  }
+};
+/** iPhone Safari has no element fullscreen; there the immersive full-viewport layout is the fullscreen. */
+export const canElementFullscreen = () => typeof document !== 'undefined' && Boolean(document.fullscreenEnabled && document.documentElement.requestFullscreen);
+
+/** Provided by <GameShell>: games inside it go fullscreen on the shell (bar + stage), not their own wrapper. */
+export type GameShellApi = { enter: () => void; exit: () => void; isFs: () => boolean; root: RefObject<HTMLElement | null> };
+export const GameShellContext = createContext<GameShellApi | null>(null);
+export const useGameShell = () => useContext(GameShellContext);
 
 /** Phones, tablets and low-power devices: the ones where we also ask for a landscape lock. */
 export const isMobileish = () => {
@@ -27,6 +51,11 @@ type Opts = {
  * Never throws if the browser refuses; the fixed full-viewport wrapper still covers the page.
  */
 export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing, ended, payFailed, onLeftWhilePlaying }: Opts) {
+  const shell = useGameShell();
+  const shellRef = useRef(shell);
+  useEffect(() => {
+    shellRef.current = shell;
+  });
   const [fs, setFs] = useState(false);
   const pending = useRef(false);
   const playingRef = useRef(playing);
@@ -38,6 +67,7 @@ export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing
 
   const exit = useCallback(() => {
     pending.current = false;
+    if (shellRef.current) return shellRef.current.exit();
     try {
       if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
       (screen.orientation as ScreenOrientation & { unlock?: () => void })?.unlock?.();
@@ -48,8 +78,9 @@ export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing
 
   /** Call from inside a click handler (the user gesture). */
   const enter = useCallback(() => {
-    const el = wrap.current;
     pending.current = true;
+    if (shellRef.current) return shellRef.current.enter();
+    const el = wrap.current;
     if (!el || document.fullscreenElement || !el.requestFullscreen) return;
     try {
       void el
@@ -70,7 +101,8 @@ export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing
 
   useEffect(() => {
     const on = () => {
-      const now = Boolean(document.fullscreenElement) && document.fullscreenElement === wrap.current;
+      const target = shellRef.current?.root.current ?? wrap.current;
+      const now = Boolean(document.fullscreenElement) && document.fullscreenElement === target;
       setFs(now);
       if (!now && playingRef.current) leftCb.current?.();
     };
@@ -81,8 +113,9 @@ export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing
   useEffect(() => {
     if (playing) pending.current = false;
   }, [playing]);
+  // Inside a GameShell the player chose fullscreen for the session: the game-over screen stays fullscreen.
   useEffect(() => {
-    if (ended) exit();
+    if (ended && !shellRef.current) exit();
   }, [ended, exit]);
   useEffect(() => {
     if (payFailed && pending.current && !playing) exit();
@@ -90,7 +123,7 @@ export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing
   // Leave fullscreen if the game unmounts mid-run.
   useEffect(
     () => () => {
-      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      if (!shellRef.current && document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
     },
     [],
   );
