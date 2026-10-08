@@ -11,12 +11,16 @@ import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
 import { setProofWallet } from './xproof';
+import { setBarWallet } from './walletBar';
 
 export function useBlaster() {
   const gun = useRef<Gun | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   // The hall of fame asks this wallet to sign for the player's X handle (src/lib/xproof.ts).
   useEffect(() => setProofWallet(wallet?.client ?? null), [wallet]);
+  // The top bar's wallet chip shows the connected wallet (src/lib/walletBar.ts). Only set, never cleared here:
+  // a page mounting with no wallet yet must not wipe one the chip connected.
+  useEffect(() => { if (wallet) setBarWallet({ id: wallet.id, name: wallet.name }); }, [wallet]);
   const [ammo, setAmmo] = useState(0);
   const [token, setToken] = useState<Token | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);
