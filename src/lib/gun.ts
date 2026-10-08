@@ -52,12 +52,29 @@ const write = (s: Saved) => {
   }
 };
 
+/**
+ * Tell bWalletX what the gun spent, so its side panel can show a live "gun session" meter
+ * (bwallet:session-spend v1, bwalletX docs/LIVE-BALANCE.md). Display only: it can never move
+ * funds, and a wallet that doesn't know the message just ignores it.
+ */
+const reportToWallet = (sats: number, left: number) => {
+  if (typeof window === 'undefined') return;
+  const msg = { type: 'bwallet:session-spend', v: 1, session: 'gun', sats, left, label: 'TokenBlaster gun' };
+  try {
+    window.postMessage(msg, window.location.origin);
+    if (window.parent !== window) window.parent.postMessage(msg, '*');
+  } catch {
+    /* the wallet just won't show a meter */
+  }
+};
+
 export class Gun {
   private key: PrivateKey;
   private coin: { tx: Transaction; vout: number } | null = null;
   private tok: TokCoin | null = null; // the token UTXO the gun is firing from
   private spentTok = new Set<string>(); // token outpoints we have spent (the indexer may lag)
   private arc = new ARC(ARC_URL);
+  private lastReported: number | null = null; // sats left when we last told the wallet
 
   constructor() {
     const s = typeof window !== 'undefined' ? read() : null;
@@ -112,7 +129,10 @@ export class Gun {
       tx: this.coin?.tx.toHex(),
       vout: this.coin?.vout,
       tok: this.tok && this.tok.amt > BigInt(0) ? { id: this.tok.id, tx: this.tok.tx.toHex(), vout: this.tok.vout, amt: this.tok.amt.toString() } : undefined,
-    });
+    });    const left = this.sats;
+    const prev = this.lastReported;
+    this.lastReported = left;
+    if (prev !== null && left !== prev) reportToWallet(Math.max(0, prev - left), left);
   }
 
   /** Everything at the gun's address, including coins the gun is not tracking. */
