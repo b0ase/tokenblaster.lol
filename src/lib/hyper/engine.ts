@@ -375,7 +375,7 @@ export class HyperEngine {
     this.dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr);
     renderer.setPixelRatio(this.dpr);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.85;
+    renderer.toneMappingExposure = 0.92;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
     this.el.appendChild(renderer.domElement);
@@ -406,7 +406,7 @@ export class HyperEngine {
     this.scene.add(sky);
     this.scene.add(this.world.group);
     this.scene.fog = new THREE.FogExp2(new THREE.Color(def.palette.fog), def.palette.fogDensity);
-    this.scene.add(new THREE.HemisphereLight('#aab4ff', def.palette.fog, 1.1));
+    this.scene.add(new THREE.HemisphereLight('#aab4ff', def.palette.fog, 1.45));
     this.moon = new THREE.DirectionalLight(def.palette.sun, 2.4);
     this.moon.position.set(-0.5, 0.7, 0.8).multiplyScalar(100);
     this.scene.add(this.moon);

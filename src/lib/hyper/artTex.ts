@@ -63,7 +63,7 @@ export function deckTextures(p: P, S: number, withNormal: boolean) {
   const gh = h.getContext('2d')!;
   const R = rng(5);
   const k = S / 512;
-  g.fillStyle = '#1a1f2b';
+  g.fillStyle = '#2a3140';
   g.fillRect(0, 0, S, S);
   ge.fillStyle = '#000';
   ge.fillRect(0, 0, S, S);

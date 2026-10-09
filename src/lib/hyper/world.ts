@@ -204,12 +204,14 @@ const WINDOW_MAT = (tint: number) => {
           vec2 id = floor(cell); vec2 fr = fract(cell);
           float win = step(0.18, fr.x) * step(fr.x, 0.82) * step(0.3, fr.y) * step(fr.y, 0.78);
           float hh = wh(id + vSeed * 17.0);
-          float lit = step(0.52, hh);
+          float lit = step(0.4, hh);
           vec3 wc = mix(vec3(1.0, 0.82, 0.55), vColor.rgb * 2.4, step(0.6, wh(id.yx + 3.0 + vSeed)));
-          totalEmissiveRadiance += wc * win * lit * sideF * (0.8 + 1.1 * wh(id + 7.0));
+          totalEmissiveRadiance += wc * win * lit * sideF * (1.3 + 1.6 * wh(id + 7.0));
+          // DR-palette neon corner strips on every few columns.
+          totalEmissiveRadiance += vColor.rgb * 2.2 * sideF * step(0.965, fract(uvw.x * 0.031 + vSeed)) * step(0.5, wh(vec2(vSeed, 1.0)));
           // Roof-edge neon band every so often.
           float band = step(0.93, fract(vWp.y * 0.012 + vSeed)) * sideF;
-          totalEmissiveRadiance += vColor.rgb * 1.8 * band;
+          totalEmissiveRadiance += vColor.rgb * 2.8 * band;
         }`,
       );
   };
@@ -271,7 +273,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   const tt = deckTextures(p, TS, hi);
   own(tt.map); own(tt.emissive); own(tt.rough);
   if (tt.normal) own(tt.normal);
-  const topMat = own(new THREE.MeshStandardMaterial({ map: tt.map, emissiveMap: tt.emissive, emissive: '#ffffff', emissiveIntensity: 1.25, roughnessMap: tt.rough, roughness: 1, metalness: 0.62, normalMap: tt.normal, normalScale: new THREE.Vector2(0.7, 0.7), envMapIntensity: 1.15, side: THREE.DoubleSide }));
+  const topMat = own(new THREE.MeshStandardMaterial({ map: tt.map, emissiveMap: tt.emissive, emissive: '#ffffff', emissiveIntensity: 1.5, roughnessMap: tt.rough, roughness: 0.85, metalness: 0.5, normalMap: tt.normal, normalScale: new THREE.Vector2(0.7, 0.7), envMapIntensity: 1.7, side: THREE.DoubleSide }));
   const LS = 24;
   const topProf: Prof = [];
   for (let j = 0; j <= LS; j++) topProf.push([-HALF_W + (2 * HALF_W * j) / LS, 0]);
@@ -395,7 +397,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   // Tunnels: octagonal plated shell, chunky ribs, ceiling light strips, strobing light rings, hazard portals.
   const tunnelRanges: [number, number][] = tr.def.tunnels.map(([a, b]) => [a * tr.len, b * tr.len]);
   const tunnelMat = own(new THREE.MeshStandardMaterial({ map: pt.map, emissiveMap: pt.map, roughnessMap: pt.rough, normalMap: pt.normal, color: '#c8d0e0', metalness: 0.55, roughness: 1, emissive: col('#ffffff').lerp(col(p.a1), 0.35), emissiveIntensity: 0.55, envMapIntensity: 0.35, side: THREE.DoubleSide }));
-  const ribMat = own(new THREE.MeshStandardMaterial({ map: pt.map, emissiveMap: pt.map, roughnessMap: pt.rough, color: '#9aa2b4', metalness: 0.8, roughness: 1, emissive: '#ffffff', emissiveIntensity: 0.18, envMapIntensity: 0.5 }));
+  const ribMat = own(new THREE.MeshStandardMaterial({ map: pt.map, emissiveMap: pt.map, roughnessMap: pt.rough, color: '#dfe4ee', metalness: 0.6, roughness: 1, emissive: col('#ffffff').lerp(col(p.a2), 0.5), emissiveIntensity: 0.4, envMapIntensity: 0.6 }));
   const tLight = own(new THREE.MeshBasicMaterial({ map: stripT, color: col('#ffffff', 2.6) }));
   const tLightC = own(new THREE.MeshBasicMaterial({ map: stripT, color: col(p.a1, 3.2) }));
   const ribs = new Bucketed(200);
@@ -418,6 +420,8 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   }
   const inner = TUNNEL.slice(1, -1);
   if (ribs.size) ribs.build(group, own(ribGeo(inner, 0.75, 1.5, 1.3)), ribMat, hi ? 500 : 260);
+  // Emissive rib edges: thin bright lips on both faces of every rib.
+  if (ribs.size) ribs.build(group, own(ribGeo(inner, 1.55, 0.18, 1.5)), own(new THREE.MeshBasicMaterial({ color: col(p.a1, 1.8) })), hi ? 500 : 260);
   const ringGeo = own(ribGeo(inner, 1.6, 0.22, 0.5));
   const ringMat = own(new THREE.MeshBasicMaterial({ color: '#ffffff' }));
   const rings = new THREE.InstancedMesh(ringGeo, ringMat, Math.max(1, ringData.length));
@@ -715,19 +719,34 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   bGeo.translate(0, 0.5, 0);
   own(bGeo);
   const canyon = scenery === 'canyon';
-  const rockGeo = own(new THREE.CylinderGeometry(0.5, 0.62, 1, 7, 6).toNonIndexed());
+  // Mesas: stepped strata ledges with a noisy outline (flat-shaded for crisp rock faces).
+  const rockBase = new THREE.CylinderGeometry(0.5, 0.62, 1, 11, 9);
+  {
+    const ps = rockBase.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < ps.count; i++) {
+      const x = ps.getX(i);
+      const y = ps.getY(i);
+      const z = ps.getZ(i);
+      const a = Math.atan2(z, x);
+      const layer = Math.round((y + 0.5) * 9);
+      const k = 1 + 0.16 * Math.sin(a * 3 + layer * 1.7) + 0.08 * Math.sin(a * 7 - layer) - (layer % 3 === 0 ? 0.07 : 0);
+      ps.setXYZ(i, x * k, y, z * k);
+    }
+  }
+  const rockGeo = own(rockBase.toNonIndexed());
+  rockBase.dispose();
   rockGeo.translate(0, 0.5, 0);
   rockGeo.computeVertexNormals();
-  const variants = (canyon ? [ROCK_MAT(p.sun), ROCK_MAT(p.horizon), WINDOW_MAT(0.5)] : [WINDOW_MAT(0), WINDOW_MAT(0.5), WINDOW_MAT(1)]).map((m) => own(m));
+  const variants = (canyon ? [WINDOW_MAT(0), ROCK_MAT(p.sun), WINDOW_MAT(1)] : [WINDOW_MAT(0), WINDOW_MAT(0.5), WINDOW_MAT(1)]).map((m) => own(m));
   const groups: typeof buildings[] = [[], [], []];
   buildings.forEach((b, i) => groups[i % 3].push(b));
   const tints = [col(p.a1, 0.9), col(p.a2, 0.9), col('#ffcf8a', 0.9), col(p.glow, 0.9)];
   groups.forEach((list, vi) => {
     if (!list.length) return;
-    const im = new THREE.InstancedMesh(canyon && vi < 2 ? rockGeo : bGeo, variants[vi], list.length);
+    const im = new THREE.InstancedMesh(canyon && vi === 1 ? rockGeo : bGeo, variants[vi], list.length);
     const m = new THREE.Matrix4();
     list.forEach((b, i) => {
-      const rk = canyon && vi < 2;
+      const rk = canyon && vi === 1;
       m.compose(new THREE.Vector3(b.x, 0, b.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rk ? b.tint * 6.28 : 0), new THREE.Vector3(b.w * (rk ? 1.6 : 1), rk ? b.h * 0.8 : b.h, b.d * (rk ? 1.6 : 1)));
       im.setMatrixAt(i, m);
       im.setColorAt(i, tints[Math.floor(b.tint * 4) % 4]);
