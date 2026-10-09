@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three';
 import { rng } from '@/lib/rally/noise';
-import type { Music } from '@/lib/content/schema';
+import type { Music, Scenery } from '@/lib/content/schema';
 
 export const STEP = 2.5;
 export const HALF_W = 17;
@@ -60,6 +60,8 @@ export type TrackDef = {
   palette: Palette;
   signs: string[];
   music: Music;
+  /** Backdrop family (content pack theme.scenery). */
+  scenery: Scenery;
   par?: { lapSeconds?: number; raceSeconds?: number };
 };
 

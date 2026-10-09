@@ -41,6 +41,7 @@ export function trackDefFromPack(slug: string, p: TrackPack): TrackDef {
     palette: p.theme.palette,
     signs: p.theme.signs ?? [],
     music: p.theme.music ?? 'bracer',
+    scenery: p.theme.scenery ?? 'megacity',
     par: p.par,
   };
 }

@@ -101,7 +101,8 @@
       "sun": "#b8fff0",
       "fogDensity": 0.00105
     },
-    "music": "bracer"
+    "music": "bracer",
+    "scenery": "megacity"
   },
   "par": {
     "lapSeconds": 51

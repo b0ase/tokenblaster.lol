@@ -13,6 +13,9 @@ export type Licence = (typeof LICENCES)[number];
 /** Soundtracks a track may pick (existing in-site stations, see src/lib/sfx.ts). */
 export const MUSIC = ['bracer', 'city', 'arena', 'doubleo', 'gun', 'hopper', 'invaders', 'snake', 'frogger'] as const;
 export type Music = (typeof MUSIC)[number];
+/** Backdrop family for a track's environment art (optional; default megacity). */
+export const SCENERY = ['megacity', 'canyon', 'orbital'] as const;
+export type Scenery = (typeof SCENERY)[number];
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 
@@ -100,7 +103,7 @@ export type TrackPack = {
     pickups?: number[];
     pit: [number, number];
   };
-  theme: { palette: Palette; signs?: string[]; music?: Music };
+  theme: { palette: Palette; signs?: string[]; music?: Music; scenery?: Scenery };
   par?: { lapSeconds?: number; raceSeconds?: number };
 };
 
@@ -281,7 +284,7 @@ export function validateTrackPack(json: unknown, file = 'track.json'): Result<Tr
     if (pit && pit[1] - pit[0] > LIMITS.pitLen[1]) v.err('features.pit', `may span at most ${LIMITS.pitLen[1]} of the lap`);
   }
   // Theme.
-  const T = v.obj(o.theme, 'theme', ['palette', 'signs', 'music']);
+  const T = v.obj(o.theme, 'theme', ['palette', 'signs', 'music', 'scenery']);
   if (T) {
     const P = v.obj(T.palette, 'theme.palette', ['zenith', 'horizon', 'glow', 'fog', 'a1', 'a2', 'sun', 'fogDensity']);
     if (P) {
@@ -290,6 +293,7 @@ export function validateTrackPack(json: unknown, file = 'track.json'): Result<Tr
     }
     v.arr(T.signs, 'theme.signs', LIMITS.signs).forEach((s, i) => v.str(s, `theme.signs[${i}]`, LIMITS.signText, false, /^[A-Za-z0-9 $!?.,:/&#'-]+$/, 'may use letters, digits, spaces and $!?.,:/&#\'- only'));
     if (T.music !== undefined && !MUSIC.includes(T.music as Music)) v.err('theme.music', `must be one of ${MUSIC.join(', ')}`);
+    if (T.scenery !== undefined && !SCENERY.includes(T.scenery as Scenery)) v.err('theme.scenery', `must be one of ${SCENERY.join(', ')}`);
   }
   if (o.par !== undefined) {
     const P = v.obj(o.par, 'par', ['lapSeconds', 'raceSeconds']);

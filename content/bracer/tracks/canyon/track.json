@@ -77,7 +77,8 @@
       "sun": "#ffb5e8",
       "fogDensity": 0.00115
     },
-    "music": "bracer"
+    "music": "bracer",
+    "scenery": "canyon"
   },
   "par": {
     "lapSeconds": 34

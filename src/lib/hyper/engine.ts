@@ -445,6 +445,13 @@ export class HyperEngine {
     renderer.setAnimationLoop(() => this.loop());
     this.audio.start();
     this.setPhase('menu');
+    // Dev-only art-review hook: ?shot puts the chase camera anywhere on the lap (window.__bracerShot(0.45)).
+    if (process.env.NODE_ENV !== 'production' && new URLSearchParams(location.search).has('shot')) {
+      (window as unknown as { __bracerShot?: (f: number) => void }).__bracerShot = (fr: number) => {
+        this.me.S = fr * this.tr.len;
+        this.shotCam = true;
+      };
+    }
     cb.onLoading('Ready', 1);
   }
 
@@ -1709,7 +1716,7 @@ export class HyperEngine {
     const hsC = surfaceH(tr.pipe[f.i], this.camLat);
     this.v4.set(f.px + f.rx * this.camLat + f.ux * (hsC + this.camH), f.py + f.ry * this.camLat + f.uy * (hsC + this.camH), f.pz + f.rz * this.camLat + f.uz * (hsC + this.camH));
     void hs;
-    if (this.phase === 'menu') {
+    if (this.phase === 'menu' && !this.shotCam) {
       // Showcase orbit around the grid ship.
       const a = this.menuAng;
       this.v1.set(f.rx, f.ry, f.rz);
@@ -1756,6 +1763,7 @@ export class HyperEngine {
     return this.travelled;
   }
   private travelled = 0;
+  private shotCam = false;
 
   // ───────────── FX ─────────────
 

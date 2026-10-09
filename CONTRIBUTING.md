@@ -16,7 +16,7 @@ Thanks for helping. Code PRs are welcome anywhere. The easiest way in is a **con
      control-point index (`at`), plus `corkscrews`, `tunnels`, `halfPipes`, `jumps`, `boostPads` (with a `lane`
      offset), `pickups` (weapon pads) and the `pit` lane.
    - `theme`: a `palette` of hex colours (the sky, fog and neon are built from it), up to 4 `signs` (short text
-     for the trackside boards) and a `music` station.
+     for the trackside boards), a `music` station and an optional `scenery` backdrop (`megacity` default, `canyon`, `orbital`).
    - `par`: optional par lap time in seconds.
 3. Run `pnpm dev` and open `http://localhost:3000/arcade/bracer?track=<your-slug>`. Race it in PRACTICE.
 4. Run `pnpm content:check` until it passes (it runs `pnpm content:index` for you on `pnpm dev`; commit the

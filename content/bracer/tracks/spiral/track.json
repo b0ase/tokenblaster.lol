@@ -93,7 +93,8 @@
       "sun": "#ffd27a",
       "fogDensity": 0.00125
     },
-    "music": "bracer"
+    "music": "bracer",
+    "scenery": "orbital"
   },
   "par": {
     "lapSeconds": 47
