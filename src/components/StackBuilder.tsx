@@ -14,13 +14,15 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
  * The four hair cards were made in Anything.world from the 2D hair cards.
  */
 const BASE = '/arena/models/npg/stack/chibi_base.glb';
-const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: Fit }[] = [
+// handBuilt hair (scripts/npg-handmodel): true size, origin at the card face centre, placed at the face anchor.
+const HAIR: { id: string; name: string; url: string | null; turn: number; fit?: Fit; handBuilt?: boolean }[] = [
   { id: 'base', name: 'Base hair (chibi)', url: null, turn: 0 },
   { id: 'miyuki', name: 'Miyuki hair', url: '/arena/models/npg/stack/E001MiyukiHair.glb', turn: 0 },
   // fit: the owner's hand-fitted slider values (copy JSON in the builder).
   { id: 'yamarashii', name: 'Yamarashii hair', url: '/arena/models/npg/stack/E002YamarashiiHair.glb', turn: Math.PI, fit: { scale: 1, y: 0.29, z: -0.06, turn: 3.138 } },
   { id: 'hikaru', name: 'Hikaru hair', url: '/arena/models/npg/stack/E003HikaruHair.glb', turn: 0 },
   { id: 'nao', name: 'Nao hair', url: '/arena/models/npg/stack/E011NaoHair.glb', turn: Math.PI },
+  { id: 'mohawk_hand', name: 'Mohawk (hand-built)', url: '/arena/models/npg/stack/hand/10_017_mohawk_hair.glb', turn: 0, handBuilt: true },
 ];
 // Rigid parts: Tripo image-to-3D (older) and hand-built (scripts/npg-handmodel). The list lives in parts.json
 // so new batches show up without code changes.
@@ -210,6 +212,17 @@ export function StackBuilder() {
     let faceSign = 1; // which way the face points along the head bone's Z (from where the mask sits)
     const place = () => {
       if (!current || !slot) return;
+      if (current.userData.handBuilt) {
+        if (!faceAnchor || !base || !head) return;
+        const f = fitNow;
+        const local = new THREE.Matrix4().compose(
+          faceAnchor.clone().add(new THREE.Vector3(f.x ?? 0, f.y, f.z)),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(f.pitch ?? 0, f.turn, f.roll ?? 0, 'XZY')),
+          new THREE.Vector3(f.scale, f.scale, f.scale),
+        );
+        head.matrixWorld.clone().invert().multiply(base.matrixWorld).multiply(local).decompose(current.position, current.quaternion, current.scale);
+        return;
+      }
       // Hair sits like hair: scaled to the head's width, its top on top of the head and its front
       // edge on the hairline. (Centring boxes pushed cards with long tails up and forward.)
       current.rotation.set((fitNow.pitch ?? 0) * faceSign, ((current.userData.turn as number) ?? 0) + fitNow.turn, (fitNow.roll ?? 0) * faceSign, 'XZY'); // per-card facing + manual turn
@@ -240,6 +253,7 @@ export function StackBuilder() {
         part.updateMatrixWorld(true);
         part.userData.raw = new THREE.Box3().setFromObject(part, true);
         part.userData.turn = def.turn;
+        part.userData.handBuilt = !!def.handBuilt;
         cache.set(id, part);
       }
       current = part;

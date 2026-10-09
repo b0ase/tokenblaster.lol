@@ -54,10 +54,18 @@ def build(m):
     nt = m.node_tree; N = nt.nodes; L = nt.links
     bsdf = N["Principled BSDF"]
     base = tuple(bsdf.inputs["Base Color"].default_value)
-    if bsdf.inputs["Base Color"].is_linked:   # already textured (shouldn't happen) - keep
-        return
+    if bsdf.inputs["Base Color"].is_linked:
+        # glTF import multiplies the factor colour by the vertex colour (hair carries data there):
+        # take the factor colour back and drop the link; a real texture is kept as is.
+        src = bsdf.inputs["Base Color"].links[0].from_node
+        if src.type != "MIX":
+            return
+        for i in (6, 7):
+            if not src.inputs[i].is_linked:
+                base = tuple(src.inputs[i].default_value)
+        L.remove(bsdf.inputs["Base Color"].links[0])
     name = m.name.lower()
-    style = "wood" if "wood" in name else "metal" if any(k in name for k in METAL) else \
+    style = "hair" if "hair" in name else "wood" if "wood" in name else "metal" if any(k in name for k in METAL) else \
         "matte" if any(k in name for k in MATTE) else "paint"
     lum = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2]
     dark = lum < 0.03
@@ -138,6 +146,31 @@ def build(m):
         col = mix(mul(thr(brushed, 0.55, 0.75), 0.25), col, shade(base, 1.4, 0.6))
         col = mix(bevmask(0.004, 0.9, 0.975), col, (0.97, 0.98, 1.0, 1))              # edge highlight
         col = mix(mul(thr(tex(35, 2), 0.70, 0.71), 0.7), col, shade(base, 0.35))      # scratches
+    elif style == "hair":
+        # anime hair: vertex colour "Color" = (t root->tip, across-lock 0..1, lock random) from the
+        # build script. Dark roots, lit faces lighter, a bright highlight streak along each lock,
+        # hot red rim inside the edges, darker undersides.
+        at = node("ShaderNodeAttribute", attribute_name="Color")
+        sx = node("ShaderNodeSeparateColor"); L.new(at.outputs["Color"], sx.inputs[0])
+        t_, u_, r_ = sx.outputs[0], sx.outputs[1], sx.outputs[2]
+        col = mix(thr(t_, 0.02, 0.5), shade(base, 0.42, 1.15), col)
+        col = mix(mul(lit, 0.35), col, shade(base, 1.22, 1.0))
+        dn = node("ShaderNodeSeparateXYZ"); L.new(geo.outputs["Normal"], dn.inputs[0])
+        under = node("ShaderNodeMath", operation="LESS_THAN"); L.new(dn.outputs["Z"], under.inputs[0]); under.inputs[1].default_value = -0.25
+        col = mix(mul(under.outputs[0], 0.45), col, shade(base, 0.55, 1.1))
+        # streak: across-lock band offset per lock, broken along the length
+        off = node("ShaderNodeMath", operation="MULTIPLY_ADD"); L.new(r_, off.inputs[0]); off.inputs[1].default_value = 0.3; off.inputs[2].default_value = 0.3
+        dd = node("ShaderNodeMath", operation="SUBTRACT"); L.new(u_, dd.inputs[0]); L.new(off.outputs[0], dd.inputs[1])
+        ab = node("ShaderNodeMath", operation="ABSOLUTE"); L.new(dd.outputs[0], ab.inputs[0])
+        bi = node("ShaderNodeMath", operation="SUBTRACT"); bi.inputs[0].default_value = 1.0
+        L.new(thr(ab.outputs[0], 0.06, 0.1), bi.inputs[1]); band = bi.outputs[0]
+        si = node("ShaderNodeMath", operation="SUBTRACT"); si.inputs[0].default_value = 1.0
+        L.new(thr(t_, 0.62, 0.8), si.inputs[1])
+        span = mul(thr(t_, 0.18, 0.3), si.outputs[0])
+        col = mix(mul(band, span), col, (1.0, 0.72, 0.88, 1))
+        col = mix(bevmask(0.01, 0.9, 0.98), col, (1.0, 0.08, 0.2, 1))   # hot red inner rim
+        col = mix(mul(thr(tex(30, 2), 0.72, 0.74), lit), col, (1, 1, 1, 1))   # white specular ticks
+        col = mix(mul(mul(bevmask(0.003, 0.9, 0.97), lit), thr(tex(25), 0.35, 0.5)), col, (1.0, 0.9, 0.95, 1))
     elif style == "matte":
         col = mix(thr(tex(45, 5), 0.3, 0.75), shade(base, 0.8), shade(base, 1.15))
         col = mix(mul(lit, 0.25), col, shade(base, 1.4))

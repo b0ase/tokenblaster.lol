@@ -163,3 +163,8 @@ Card art note: **Medical** = heart patch, **Payne Patch** = red-cross patch. The
 - Stopgap clips made in code: `src/lib/chibiAnims.ts` (idle, walk, run). Rotations are written in the character's own axes and converted to each bone's axes in code.
 - She's in the arena as `chibi`: 2 roam the maze, and she roams from the first corridor with `?showcase`.
 - Mixamo clips downloaded by the owner and waiting in `~/Downloads`: `Walking.fbx`, `Walking (1).fbx` (different files, not duplicates) and `Zombie Idle.fbx`. Still to do: convert FBX to GLB (the `fbx2gltf` npm package has no binary, so use Blender or three's FBXLoader), retarget the `mixamorig:*` bones to the chibi's bones, and add run, shoot, hit and death clips.
+
+## Hand-built hair test: Mohawk (10_017), 2026-10-09
+
+`scripts/npg-handmodel/hair_mohawk.py` builds the hair from lens-section lofted locks (cubic Bezier centrelines, sharp side edges, pointed tips), with roots ray-cast onto the real chibi head, plus a scalp strip. Front blade tips come straight off the card. It writes a per-vertex `Color` (t along the lock, across-lock, lock random) that the new `hair` style in `card_bake.py` reads, for dark roots, a pale streak along each lock, a hot-red rim, white ticks and ink. card_bake now also strips the glTF importer's vertex-colour multiply. 2.5k tris, 1 material, 1024 atlas. It's in the Stack Builder hair row as "Mohawk (hand-built)" (handBuilt hair = face-anchor placement).
+Strict review: 6.5/10, not yet at Anything.world level. The front reads as the card. Still to fix: the base pinches like a tulip bud, the side ridge is separate shards rather than one swept mass, and the scalp strip shows at the back.
