@@ -1,5 +1,7 @@
 # NPG 3D part cards
 
+> **Read [npg-3d-lessons.md](npg-3d-lessons.md) first:** it covers what works, what doesn't, and the owner's rules.
+
 Turning the Ninja Punk Girls 2D part cards into 3D parts that stack on one rigged chibi base,
 the same way the 2D cards stack on a shared canvas. Status as of 2026-10-04.
 
