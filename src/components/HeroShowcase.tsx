@@ -18,11 +18,11 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
  * is the 1280x720 variant a <source media> hands to phones and small windows; <game>.jpg is the 1920x1080 poster.
  */
 const SLIDES = [
-  { href: '/arcade/bracer', img: '/arcade/bracer.jpg', vid: '/hero/bracer', title: 'bRacer', tag: 'Anti-gravity racer', kana: '反重力レース' },
+  { href: '/arcade/bracer', img: '/arcade/bracer.jpg', vid: '/hero/bracer-v2', title: 'bRacer', tag: 'Anti-gravity racer', kana: '反重力レース' },
   { href: '/arena', img: '/arcade/arena.jpg', vid: '/hero/arena', title: 'Arena', tag: 'Hell-forge shooter', kana: 'アリーナ' },
   { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', vid: '/hero/doubleo', title: 'Double-O Satoshi', tag: 'Spy shooter', kana: 'スパイ作戦' },
   { href: '/arcade/rally', img: '/arcade/rally.jpg', vid: '/hero/rally', title: 'Token Rally', tag: '3D rally', kana: 'ラリー' },
-  { href: '/arcade/city', img: '/arcade/city.jpg', vid: '/hero/city', title: 'Satoshi City', tag: 'Open-world city', kana: 'サトシ市' },
+  { href: '/arcade/city', img: '/arcade/city.jpg', vid: '/hero/city-v2', title: 'Satoshi City', tag: 'Open-world city', kana: 'サトシ市' },
 ] as const;
 
 const KB = [
