@@ -5,6 +5,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { chibiClips } from '@/lib/chibiAnims';
 import type { CardBox } from '@/lib/npgLiveCards';
+
+// Skeletal animation is OFF for now: the Tripo meshes are hundreds of loose fragments and any bone motion tears or smears
+// them (owner, 2026-10-12: "still a mess"). Until each girl has a clean single-surface mesh she moves as one solid piece:
+// a breathing bob and sway at idle, a lunge-and-spin for the attack.
+const SKIN = false;
 import { mocap } from '@/lib/npgMocap';
 
 /**
@@ -105,7 +110,7 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
       // Real mocap when we have it (sword stance + sword slash), the code-made clips otherwise.
       const ic = mocap(mc, 'Sword_Idle') ?? mocap(mc, 'Idle_Loop') ?? coded.find((a) => a.name.startsWith('idle'));
       const ac = mocap(mc, 'Sword_Attack') ?? coded.find((a) => a.name.startsWith('attack'));
-      if (ic) (idle = mixer.clipAction(ic)).play();
+      if (ic && SKIN) (idle = mixer.clipAction(ic)).play();
       if (ac) {
         attack = mixer.clipAction(ac);
         attack.setLoop(THREE.LoopOnce, 1);
@@ -115,11 +120,16 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
         attack?.fadeOut(0.15);
         idle?.reset().fadeIn(0.15).play();
       });
-      setRigged(Boolean(ac));
+      setRigged(SKIN ? Boolean(ac) : true);
       setReady(true);
     });
 
+    let lunge = -1; // seconds into the whole-body attack (-1 = idle)
     swing.current = () => {
+      if (!SKIN) {
+        if (lunge < 0) lunge = 0;
+        return;
+      }
       if (!attack || !idle || attack.isRunning()) return;
       idle.fadeOut(0.08);
       attack.reset().setEffectiveWeight(1).fadeIn(0.08).play();
@@ -154,9 +164,25 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.05);
-      mixer?.update(dt);
+      if (SKIN) mixer?.update(dt);
       if (dragX === null) yaw *= 0.92; // ease back to facing out of the card
-      root.rotation.y = yaw;
+      const t = clock.elapsedTime;
+      // solid-body motion: breathe + sway; the attack is a quick lunge with a full spin, then settle
+      let spin = 0;
+      let fwd = 0;
+      let hop = 0;
+      if (lunge >= 0) {
+        lunge += dt;
+        const k = Math.min(1, lunge / 0.55);
+        const e = 1 - Math.pow(1 - k, 3);
+        spin = e * Math.PI * 2;
+        fwd = Math.sin(k * Math.PI) * 0.08;
+        hop = Math.sin(k * Math.PI) * 0.03;
+        if (k >= 1) lunge = -1;
+      }
+      root.rotation.y = yaw + spin;
+      root.rotation.z = Math.sin(t * 1.3) * 0.02;
+      root.position.set(0, Math.sin(t * 2.2) * 0.004 + hop, fwd);
       renderer.render(scene, camera);
     };
     tick();
