@@ -20,6 +20,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { chibiClips } from '@/lib/chibiAnims';
+import { GIRL_KEY, NPG_GIRLS, girlUrl } from '@/lib/npgGirls';
 import { tokenMeta } from '@/lib/tokenMeta';
 import { useChainFeed } from '@/lib/useChainFeed';
 import {
@@ -86,7 +87,7 @@ type Hud = {
   feedNote: string;
 };
 const HUD0: Hud = { score: 0, best: 0, driving: false, speed: 0, health: 100, mission: null, prompt: '', clock: '', drift: 0, locked: false, carLabel: '', feedNote: '' };
-type Control = { cine: (s: Shot | null) => void; setQuality: (q: CityQuality) => void; key: (k: keyof Input, down: boolean) => void; action: (a: 'f' | 'horn' | 'skip' | 'tx') => void; start: () => void };
+type Control = { setGirl: (slug: string) => void; cine: (s: Shot | null) => void; setQuality: (q: CityQuality) => void; key: (k: keyof Input, down: boolean) => void; action: (a: 'f' | 'horn' | 'skip' | 'tx') => void; start: () => void };
 type Input = { up: boolean; down: boolean; left: boolean; right: boolean; sprint: boolean; jump: boolean };
 
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
@@ -298,32 +299,47 @@ export function SatoshiCity() {
     const weights = { idle: 1, walk: 0, run: 0 };
     const loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
-    loader.load('/arena/models/npg/stack/chibi_base.glb', (gl) => {
-      if (disposed) return;
-      const clips = chibiClips(gl.scene);
-      const model = cloneSkinned(gl.scene);
-      model.updateMatrixWorld(true);
-      const b = new THREE.Box3().setFromObject(model, true);
-      const s = 1.6 / Math.max(0.01, b.max.y - b.min.y);
-      model.scale.multiplyScalar(s);
-      model.position.y = -b.min.y * s;
-      model.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) {
-          o.castShadow = true;
-          o.frustumCulled = false;
+    // The player character: the chibi doll or any NPG girl on its rig (picked on the title screen, remembered).
+    let loadSeq = 0;
+    const loadCharacter = (slug: string) => {
+      const seq = ++loadSeq;
+      loader.load(girlUrl(slug), (gl) => {
+        if (disposed || seq !== loadSeq) return;
+        const clips = chibiClips(gl.scene, { armsDown: slug === 'doll' });
+        const model = slug === 'doll' ? cloneSkinned(gl.scene) : gl.scene;
+        model.updateMatrixWorld(true);
+        const b = new THREE.Box3().setFromObject(model, true);
+        const s = 1.6 / Math.max(0.01, b.max.y - b.min.y);
+        model.scale.multiplyScalar(s);
+        model.position.y = -b.min.y * s;
+        model.traverse((o) => {
+          if ((o as THREE.Mesh).isMesh) {
+            o.castShadow = true;
+            o.frustumCulled = false;
+          }
+        });
+        mixer?.stopAllAction();
+        player.clear();
+        player.add(model);
+        mixer = new THREE.AnimationMixer(model);
+        for (const name of ['idle', 'walk', 'run'] as const) {
+          const c = clips.find((x) => x.name === name);
+          if (!c) continue;
+          const a = mixer.clipAction(c);
+          a.play();
+          a.setEffectiveWeight(name === 'idle' ? 1 : 0);
+          acts[name] = a;
         }
       });
-      player.add(model);
-      mixer = new THREE.AnimationMixer(model);
-      for (const name of ['idle', 'walk', 'run'] as const) {
-        const c = clips.find((x) => x.name === name);
-        if (!c) continue;
-        const a = mixer.clipAction(c);
-        a.play();
-        a.setEffectiveWeight(name === 'idle' ? 1 : 0);
-        acts[name] = a;
-      }
-    });
+    };
+    let initialGirl = 'doll';
+    try {
+      initialGirl = localStorage.getItem(GIRL_KEY) ?? 'doll';
+    } catch {
+      /* storage blocked */
+    }
+    if (!NPG_GIRLS.some((g) => g.slug === initialGirl)) initialGirl = 'doll';
+    loadCharacter(initialGirl);
 
     // ── Game state ──
     const [sqx, sqz] = squareCentre();
@@ -841,6 +857,14 @@ export function SatoshiCity() {
         },
       };
     control.current = {
+      setGirl: (slug) => {
+        try {
+          localStorage.setItem(GIRL_KEY, slug);
+        } catch {
+          /* storage blocked */
+        }
+        loadCharacter(slug);
+      },
       // Cutscene camera: freeze the clock and frame a shot around Genesis Square; null hands control back.
       cine: (s) => {
         if (!s) {
@@ -2132,6 +2156,27 @@ export function SatoshiCity() {
               <span className="text-fg">G</span>
               <span>fullscreen (Esc leaves)</span>
             </div>
+            <label className="flex items-center gap-2 bg-black/70 px-3 py-1.5 text-sm text-fg">
+              <span className="text-dim">Play as</span>
+              <select
+                defaultValue={(() => {
+                  try {
+                    return localStorage.getItem(GIRL_KEY) ?? 'doll';
+                  } catch {
+                    return 'doll';
+                  }
+                })()}
+                onChange={(e) => control.current?.setGirl(e.target.value)}
+                className="bg-black px-2 py-1 text-fg outline outline-1 outline-white/30 focus-visible:outline-2 focus-visible:outline-hot"
+              >
+                {NPG_GIRLS.map((g) => (
+                  <option key={g.slug} value={g.slug}>
+                    {g.name}
+                    {g.slug === 'doll' ? '' : ` · ${g.team}`}
+                  </option>
+                ))}
+              </select>
+            </label>
             <CoinOpButtons
               co={co}
               playLabel="ENTER THE CITY"

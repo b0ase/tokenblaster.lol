@@ -90,3 +90,12 @@ Method details are in [npg-3d-parts.md](npg-3d-parts.md).
   25 credits).
 - **Lesson:** for "the character on the card", generate the whole girl from her composited stack. Don't assemble her part by
   part on the generic doll.
+
+### 2026-10-12: cutting parts out of a whole Tripo girl (projection mask): FAILS
+- **Method:** the part card's alpha was used as a stencil on Phi-Phi's Tripo model (front-visible faces plus colour match), then
+  holes were filled. Tried on the 09_001 helmet, 24_003 Red Bunches and 07_003 Red Axe.
+- **Result:** all three unusable. The helmet comes out as torn shreds, because Tripo fuses it into the head as one painted
+  surface. The bunches are about 1 cm ribbon shells, and the axe is a ragged, paper-thin decal.
+- **Lesson:** a whole-girl Tripo model only has real depth in the body. Accessories are fused, shell-thin or hidden, and
+  selecting more carefully can't add geometry that isn't there. For parts, stay with hand-built + card_bake (rigid parts) and
+  Anything.world (hair).
