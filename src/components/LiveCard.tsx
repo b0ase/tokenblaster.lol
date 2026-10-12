@@ -96,6 +96,15 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
     new GLTFLoader().load(hasRig ? `${base}-rigged.glb` : `${base}.glb`, async (g) => {
       if (disposed) return;
       const model = g.scene;
+      // skinned girls: measure her as posed by the skeleton, not the raw (bind-space) vertices
+      model.updateMatrixWorld(true);
+      model.traverse((o) => {
+        const sm = o as THREE.SkinnedMesh;
+        if (sm.isSkinnedMesh) {
+          sm.skeleton.update();
+          sm.computeBoundingBox();
+        }
+      });
       const mb = new THREE.Box3().setFromObject(model);
       const h = mb.max.y - mb.min.y;
       model.position.set(-(mb.min.x + mb.max.x) / 2, -mb.min.y, -(mb.min.z + mb.max.z) / 2);

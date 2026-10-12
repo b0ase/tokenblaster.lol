@@ -14,8 +14,9 @@ const HIPS_REST: Record<string, THREE.Vector3> = {
   miyuki: new THREE.Vector3(0.0019, 0.2236, 0.044),
 };
 
-export const IDLE = 'Sword_Idle';
-export const ATTACKS = ['Sword_Attack', 'Sword_Regular_Combo', 'Sword_Heavy_Combo', 'Sword_Dash', 'Punch_Jab', 'Punch_Cross', 'Melee_Hook'];
+export const IDLE = 'Idle_Loop';
+// front-facing moves only: the combos turn her away from the card
+export const ATTACKS = ['Sword_Attack', 'Punch_Jab', 'Sword_Regular_A', 'Punch_Cross', 'Sword_Regular_B', 'Melee_Hook'];
 
 let lib: Promise<THREE.AnimationClip[]> | null = null;
 const library = () =>
@@ -38,9 +39,18 @@ export async function rigClips(model: THREE.Object3D, slug: string): Promise<THR
     const tracks = c.tracks.flatMap((t) => {
       const dot = t.name.lastIndexOf('.');
       const bone = names.get(key(t.name.slice(0, dot)));
-      if (!bone) return [];
+      // chibi heads are huge: the mocap's head/neck nods read as a broken neck, so the head rides on the spine
+      if (!bone || /^(Neck|Head)$/.test(key(t.name.slice(0, dot)))) return [];
       const k = t.clone();
       k.name = `${bone}${t.name.slice(dot)}`;
+      // every bone rests at identity, so halving the spine's rotation keeps the big head over her body
+      if (/^(Spine\d?|Hips)$/.test(key(t.name.slice(0, dot))) && t.name.endsWith('.quaternion')) {
+        const v = k.values;
+        const q = new THREE.Quaternion();
+        for (let i = 0; i < v.length; i += 4) {
+          q.fromArray(v, i).slerp(new THREE.Quaternion(), 0.6).toArray(v, i);
+        }
+      }
       if (t.name.endsWith('.position')) {
         const v = k.values;
         for (let i = 0; i < v.length; i += 3) {
