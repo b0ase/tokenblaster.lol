@@ -99,3 +99,14 @@ Method details are in [npg-3d-parts.md](npg-3d-parts.md).
 - **Lesson:** a whole-girl Tripo model only has real depth in the body. Accessories are fused, shell-thin or hidden, and
   selecting more carefully can't add geometry that isn't there. For parts, stay with hand-built + card_bake (rigid parts) and
   Anything.world (hair).
+
+### 2026-10-12: animating the Tripo girls (all rejected: "a mess", "hopelessly messy", "garbage")
+- **Auto-rig, landmark skeleton:** tears at the armpits and chest.
+- **The doll's 84-bone rig with copied weights:** better torsos, but slabs by the hips.
+- **Rigid per-fragment weights:** still messy in motion.
+- **Quaternius mocap on top:** much worse.
+- **Voxel remesh plus bake:** stopped the tearing, but welded the arms and legs, so the body smears.
+- **Owner verdict on all of it:** not acceptable.
+- **Lesson:** don't keep iterating automatic rigging of Tripo HD meshes. The cards use solid-body motion (no deformation), which looks
+  clean. Real limb animation needs properly built characters: Tripo's own rig (built for its mesh), or artist retopology plus
+  skinning.
