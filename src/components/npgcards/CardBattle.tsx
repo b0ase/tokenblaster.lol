@@ -68,6 +68,10 @@ type Props = {
   nameTag?: (name: string, mine: boolean) => ReactNode;
   /** The name to use when the player hasn't typed one (e.g. their @handle). */
   defaultName?: string;
+  /** Battle backdrops (landscape images); one is picked per match, drawn darkened behind the table. */
+  backdrops?: string[];
+  /** Drawn behind the main menu (e.g. a muted looping video). */
+  menuBg?: ReactNode;
 };
 type Screen = 'menu' | 'deck' | 'battle' | 'lobby';
 type Vs = { kind: 'ai'; level: Difficulty } | { kind: 'pvp'; room: string };
@@ -428,7 +432,7 @@ function DeckBuilder({ pool, deck, setDeck, onDone }: { pool: CardInfo[]; deck: 
 
 // ---------------------------------------------------------------- main
 
-export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey, net, roomPrefix = 'npgcards-', payPlay, beforeStartAI, sfx, renderGameOver, badge, menuExtra, onScreen, heroArt, nameTag, defaultName = '' }: Props) {
+export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey, net, roomPrefix = 'npgcards-', payPlay, beforeStartAI, sfx, renderGameOver, badge, menuExtra, onScreen, heroArt, nameTag, defaultName = '', backdrops, menuBg }: Props) {
   const cards = useMemo(() => Object.fromEntries(pool.map((c) => [c.id, c])), [pool]);
   const allHeroes = useMemo(() => [...ownedHeroes, ...heroes], [ownedHeroes, heroes]);
   const play = useCallback((n: SoundName) => (sfx ?? blip)(n), [sfx]);
@@ -476,6 +480,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
   const [fx, setFx] = useState<Fx[]>([]);
   const [anim, setAnim] = useState<Record<string, string>>({});
   // bumped when a side's hero (or one of her fighters) attacks or uses her power: the live hero art swings
+  const [backdrop, setBackdrop] = useState<string | null>(null);
   const [swing, setSwing] = useState<[number, number]>([0, 0]);
   const [log, setLog] = useState<string[]>([]);
   const [result, setResult] = useState<GameResult | null>(null);
@@ -612,6 +617,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
     (g: Game, side: 0 | 1) => {
       sideRef.current = side;
       setMySide(side);
+      if (backdrops?.length) setBackdrop(backdrops[Math.floor(Math.random() * backdrops.length)]);
       commit(g);
       setSel(null);
       setFx([]);
@@ -623,7 +629,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
       setScreen('battle');
       play('turn');
     },
-    [commit, play, setScreen],
+    [commit, play, setScreen, backdrops],
   );
 
   const startAI = (level: Difficulty) => {
@@ -901,7 +907,8 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
 
   if (screen === 'menu' || (screen === 'lobby' && !game))
     return shell(
-      <div className="rounded-xl border border-zinc-800 bg-black/70 p-3 sm:p-4">
+      <div className="relative isolate overflow-hidden rounded-xl border border-zinc-800 bg-black/70 p-3 sm:p-4">
+        {menuBg}
         {screen === 'lobby' ? (
           <Lobby room={room ?? ''} status={net ? netStatus : 'off'} peers={peers.length} hero={hero} onLeave={leave} />
         ) : (
@@ -1064,7 +1071,9 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
   };
 
   return shell(
-    <div data-npgc-seq={game.seq} data-npgc-turn={game.turn} data-npgc-side={mySide} className={`relative overflow-hidden rounded-xl border border-zinc-800 bg-[radial-gradient(ellipse_at_center,#3b0764_0%,#09090b_70%)] p-2 sm:p-3 ${badge ? 'pb-10 sm:pb-10' : ''}`}>
+    <div data-npgc-seq={game.seq} data-npgc-turn={game.turn} data-npgc-side={mySide} className={`relative overflow-hidden rounded-xl border border-zinc-800 bg-[radial-gradient(ellipse_at_center,#3b0764_0%,#09090b_70%)] p-2 sm:p-3 ${badge ? 'pb-10 sm:pb-10' : ''}`}
+      style={backdrop ? { backgroundImage: `linear-gradient(rgba(9,9,11,.62),rgba(9,9,11,.86)), url(${backdrop})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+    >
       {badge}
       {/* top bar */}
       <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-zinc-400">

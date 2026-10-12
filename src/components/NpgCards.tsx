@@ -33,6 +33,13 @@ const CardBattle = dynamic(() => import('./npgcards/CardBattle'), { ssr: false, 
 const SOUND: Record<SoundName, SfxName> = { play: 'stamp', attack: 'shot', hit: 'hit', die: 'explosion', power: 'level', turn: 'click', win: 'level', lose: 'gameover', click: 'click', draw: 'pickup' };
 const PER_CREDIT = '1 credit = 1 match vs the AI.';
 
+/** NPG card backgrounds (layer 29), cropped landscape, one per match. */
+const BACKDROPS = ['neon-street', 'dojo', 'dungeon', 'bar'].map((n) => `/npg/bg/${n}.webp`);
+/** The NPG hero loop, muted, behind the menu. */
+const MENU_BG = (
+  <video className="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover opacity-25" src="/npg/bg/hero-loop.mp4" poster="/npg/bg/hero-loop-poster.webp" autoPlay muted loop playsInline preload="metadata" aria-hidden />
+);
+
 /** The canonical live 3D cards as heroes (id '3d-<slug>'; stats as printed on each card). */
 const LIVE_HEROES: HeroInfo[] = LIVE_CARDS.map((c) => makeHero(`3d-${c.slug}`, c.name, `${liveCardBase(c.slug)}-card-frame.webp`, c.stats));
 
@@ -135,6 +142,8 @@ export function NpgCards() {
         renderGameOver={over}
         menuExtra={slot}
         heroArt={heroArt}
+        backdrops={BACKDROPS}
+        menuBg={MENU_BG}
         nameTag={nameTag}
         defaultName={handle ? `@${handle}` : ''}
         badge={
