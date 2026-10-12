@@ -12,7 +12,7 @@ import type { CardBox } from '@/lib/npgLiveCards';
 const SKIN = false;
 import { mocap } from '@/lib/npgMocap';
 import { mixamoRig, type MixamoRig } from '@/lib/mixamoPose';
-import { rigClip, RIG_CLIPS } from '@/lib/npgRigMocap';
+import { rigClips, IDLE, ATTACKS } from '@/lib/npgRigMocap';
 
 /**
  * A live NPG card: the card's background, the rigged 3D girl in a transparent canvas, then the card's frame (name, QR,
@@ -88,8 +88,12 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
     let mix: MixamoRig | null = null;
     // ...driven by real motion capture when it loads
     let mo = false;
+    let moIdle: THREE.AnimationAction | null = null;
+    let moActs: THREE.AnimationAction[] = [];
+    let moCur: THREE.AnimationAction | null = null;
+    let moN = 0;
 
-    new GLTFLoader().load(hasRig ? `${base}-rig.glb` : `${base}.glb`, async (g) => {
+    new GLTFLoader().load(hasRig ? `${base}-rigged.glb` : `${base}.glb`, async (g) => {
       if (disposed) return;
       const model = g.scene;
       const mb = new THREE.Box3().setFromObject(model);
@@ -110,9 +114,26 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
       });
       mix = hasRig ? mixamoRig(model) : null;
       if (hasRig)
-        rigClip(model, RIG_CLIPS.walk).then((c) => {
-          if (disposed || !c || !mixer) return;
-          mixer.clipAction(c).play();
+        rigClips(model, base.split('/').pop() ?? '').then((clips) => {
+          const m = mixer;
+          const idleClip = clips.find((c) => c.name === IDLE);
+          if (disposed || !m || !idleClip) return;
+          moIdle = m.clipAction(idleClip);
+          moIdle.play();
+          moActs = ATTACKS.flatMap((n) => {
+            const c = clips.find((k) => k.name === n);
+            if (!c) return [];
+            const a = m.clipAction(c);
+            a.setLoop(THREE.LoopOnce, 1);
+            a.clampWhenFinished = true;
+            return [a];
+          });
+          m.addEventListener('finished', (e) => {
+            if (e.action !== moCur) return;
+            moIdle?.reset().play();
+            moCur?.crossFadeTo(moIdle!, 0.25, false);
+            moCur = null;
+          });
           mo = true;
         });
       mixer = new THREE.AnimationMixer(model);
@@ -142,6 +163,14 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
 
     let lunge = -1; // seconds into the whole-body attack (-1 = idle)
     swing.current = () => {
+      if (mo) {
+        if (moCur || !moIdle || !moActs.length) return;
+        const a = moActs[moN++ % moActs.length];
+        a.reset().play();
+        moIdle.crossFadeTo(a, 0.12, false);
+        moCur = a;
+        return;
+      }
       if (!SKIN || mix) {
         if (lunge < 0) lunge = 0;
         return;
@@ -188,7 +217,7 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
       let fwd = 0;
       let hop = 0;
       if (mo) mixer?.update(dt);
-      if (lunge >= 0) {
+      if (!mo && lunge >= 0) {
         lunge += dt;
         const k = Math.min(1, lunge / (mix ? 0.8 : 0.55));
         const e = 1 - Math.pow(1 - k, 3);
@@ -198,7 +227,6 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
         mix?.pose(t, k);
         if (k >= 1) lunge = -1;
       } else if (!mo) mix?.pose(t, -1);
-      if (mo) root.position.set(0, 0, 0);
       root.rotation.y = yaw + spin;
       root.rotation.z = mix ? 0 : Math.sin(t * 1.3) * 0.02;
       root.position.set(0, Math.sin(t * 2.2) * 0.004 + hop, fwd);
