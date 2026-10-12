@@ -18,6 +18,7 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
   const wrap = useRef<HTMLDivElement>(null);
   const swing = useRef<() => void>(() => {});
   const [ready, setReady] = useState(false);
+  const [rigged, setRigged] = useState(false);
 
   useEffect(() => {
     const el = wrap.current;
@@ -79,6 +80,7 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
         attack?.fadeOut(0.15);
         idle?.reset().fadeIn(0.15).play();
       });
+      setRigged(Boolean(ac));
       setReady(true);
     });
 
@@ -161,7 +163,7 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={`${base}-card-frame.webp`} alt="" className="pointer-events-none absolute inset-0 h-full w-full" draggable={false} />
       </div>
-      <p className="text-sm text-dim">{ready ? 'Click or press Space to swing · drag to turn her' : `Loading ${name}…`}</p>
+      <p className="text-sm text-dim">{ready ? (rigged ? 'Click or press Space to swing · drag to turn her' : 'Drag to turn her · not rigged yet') : `Loading ${name}…`}</p>
     </div>
   );
 }
