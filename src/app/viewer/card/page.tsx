@@ -23,8 +23,8 @@ export default function LiveCardPage() {
         </p>
       </header>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {LIVE_CARDS.map((c) => (
-          <LiveCard key={c.slug} base={liveCardBase(c.slug)} name={c.name} box={c.box} />
+        {[...LIVE_CARDS].sort((a, b) => Number(Boolean(b.rig)) - Number(Boolean(a.rig))).map((c) => (
+          <LiveCard key={c.slug} base={liveCardBase(c.slug)} name={c.name} box={c.box} rig={c.rig} />
         ))}
       </div>
     </main>
