@@ -12,6 +12,7 @@ import type { CardBox } from '@/lib/npgLiveCards';
 const SKIN = false;
 import { mocap } from '@/lib/npgMocap';
 import { mixamoRig, type MixamoRig } from '@/lib/mixamoPose';
+import { rigClip, RIG_CLIPS } from '@/lib/npgRigMocap';
 
 /**
  * A live NPG card: the card's background, the rigged 3D girl in a transparent canvas, then the card's frame (name, QR,
@@ -85,6 +86,8 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
     let attack: THREE.AnimationAction | null = null;
     // Tripo's own clean Mixamo rig (owner-rigged in Tripo): real bone animation, no tearing
     let mix: MixamoRig | null = null;
+    // ...driven by real motion capture when it loads
+    let mo = false;
 
     new GLTFLoader().load(hasRig ? `${base}-rig.glb` : `${base}.glb`, async (g) => {
       if (disposed) return;
@@ -106,6 +109,12 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
         if (o.name.startsWith('Icosphere')) o.visible = false; // Tripo's rig-preview marker
       });
       mix = hasRig ? mixamoRig(model) : null;
+      if (hasRig)
+        rigClip(model, RIG_CLIPS.walk).then((c) => {
+          if (disposed || !c || !mixer) return;
+          mixer.clipAction(c).play();
+          mo = true;
+        });
       mixer = new THREE.AnimationMixer(model);
       // Girls on the chibi doll's 84-bone rig share the code-made chibi clips (rest pose already arms-down);
       // older exports carry their own baked idle/attack.
@@ -178,6 +187,7 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
       let spin = 0;
       let fwd = 0;
       let hop = 0;
+      if (mo) mixer?.update(dt);
       if (lunge >= 0) {
         lunge += dt;
         const k = Math.min(1, lunge / (mix ? 0.8 : 0.55));
@@ -187,7 +197,8 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
         hop = Math.sin(k * Math.PI) * 0.03;
         mix?.pose(t, k);
         if (k >= 1) lunge = -1;
-      } else mix?.pose(t, -1);
+      } else if (!mo) mix?.pose(t, -1);
+      if (mo) root.position.set(0, 0, 0);
       root.rotation.y = yaw + spin;
       root.rotation.z = mix ? 0 : Math.sin(t * 1.3) * 0.02;
       root.position.set(0, Math.sin(t * 2.2) * 0.004 + hop, fwd);
