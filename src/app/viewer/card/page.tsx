@@ -20,6 +20,12 @@ const CARDS: { slug: string; name: string; box: CardBox }[] = [
   { slug: 'nao', name: 'Nao', box: [46, 380, 916, 1171] },
   { slug: 'aika', name: 'Aika', box: [243, 341, 906, 1163] },
   { slug: 'doctor', name: 'Doctor', box: [249, 389, 706, 1161] },
+  // Generic Erobots: the five bot bodies in the sample Erobot outfit (the game's grunts)
+  { slug: 'bot', name: 'Bot', box: [262, 449, 681, 1158] },
+  { slug: 'tech', name: 'Tech', box: [262, 450, 680, 1155] },
+  { slug: 'graf-bot', name: 'Graf-Bot', box: [262, 438, 680, 1155] },
+  { slug: 'frog-bot', name: 'Frog-Bot', box: [262, 450, 680, 1155] },
+  { slug: 'stripey-bot', name: 'Stripey-Bot', box: [262, 449, 680, 1154] },
 ];
 
 export default function LiveCardPage() {
