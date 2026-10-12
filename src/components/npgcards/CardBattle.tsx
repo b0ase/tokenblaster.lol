@@ -61,6 +61,13 @@ type Props = {
   /** Extra controls on the main menu (e.g. a LIVE mode panel). */
   menuExtra?: ReactNode;
   onScreen?: (s: Screen) => void;
+  /** Site art for a hero (e.g. a live 3D card). live=false: a static thumbnail for the picker; live=true: the animated
+   *  portrait (battle, selected hero), swinging whenever `swing` changes. Return null for the plain image. */
+  heroArt?: (h: HeroInfo, o: { live: boolean; swing: number }) => ReactNode | null;
+  /** How a player's name is shown (e.g. an X handle badge). */
+  nameTag?: (name: string, mine: boolean) => ReactNode;
+  /** The name to use when the player hasn't typed one (e.g. their @handle). */
+  defaultName?: string;
 };
 type Screen = 'menu' | 'deck' | 'battle' | 'lobby';
 type Vs = { kind: 'ai'; level: Difficulty } | { kind: 'pvp'; room: string };
@@ -197,10 +204,12 @@ function CardBack({ className = '' }: { className?: string }) {
   return <div className={`aspect-[2/3] rounded-md border border-black bg-[repeating-linear-gradient(45deg,#db2777_0_6px,#111_6px_12px)] shadow ${className}`} />;
 }
 
-function HeroPortrait({ h, hp, size = 'md' }: { h: HeroInfo; hp?: number; size?: 'md' | 'lg' }) {
+function HeroPortrait({ h, hp, size = 'md', art }: { h: HeroInfo; hp?: number; size?: 'md' | 'lg'; art?: ReactNode }) {
+  const box = art ? (size === 'lg' ? 'h-36 w-24' : 'h-24 w-16 sm:h-36 sm:w-24') : size === 'lg' ? 'h-28 w-20' : 'h-16 w-12 sm:h-20 sm:w-14';
   return (
-    <div className={`relative shrink-0 overflow-hidden rounded-lg border-2 border-fuchsia-500 bg-zinc-900 ${size === 'lg' ? 'h-28 w-20' : 'h-16 w-12 sm:h-20 sm:w-14'}`}>
-      {h.img && (
+    <div className={`relative shrink-0 overflow-hidden rounded-lg border-2 border-fuchsia-500 bg-zinc-900 ${box}`}>
+      {art}
+      {!art && h.img && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={h.img} alt={h.name} draggable={false} className="h-full w-full object-cover object-top" />
       )}
@@ -419,7 +428,7 @@ function DeckBuilder({ pool, deck, setDeck, onDone }: { pool: CardInfo[]; deck: 
 
 // ---------------------------------------------------------------- main
 
-export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey, net, roomPrefix = 'npgcards-', payPlay, beforeStartAI, sfx, renderGameOver, badge, menuExtra, onScreen }: Props) {
+export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey, net, roomPrefix = 'npgcards-', payPlay, beforeStartAI, sfx, renderGameOver, badge, menuExtra, onScreen, heroArt, nameTag, defaultName = '' }: Props) {
   const cards = useMemo(() => Object.fromEntries(pool.map((c) => [c.id, c])), [pool]);
   const allHeroes = useMemo(() => [...ownedHeroes, ...heroes], [ownedHeroes, heroes]);
   const play = useCallback((n: SoundName) => (sfx ?? blip)(n), [sfx]);
@@ -466,6 +475,8 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
   const [sel, setSel] = useState<{ kind: 'hand'; card: string } | { kind: 'unit'; uid: number } | null>(null);
   const [fx, setFx] = useState<Fx[]>([]);
   const [anim, setAnim] = useState<Record<string, string>>({});
+  // bumped when a side's hero (or one of her fighters) attacks or uses her power: the live hero art swings
+  const [swing, setSwing] = useState<[number, number]>([0, 0]);
   const [log, setLog] = useState<string[]>([]);
   const [result, setResult] = useState<GameResult | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -513,7 +524,9 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
       const newAnim: Record<string, string> = {};
       const lines: string[] = [];
       const sounds = new Set<SoundName>();
+      const swung = new Set<0 | 1>();
       for (const e of ev) {
+        if (e.k === 'attack' || e.k === 'power') swung.add(e.p);
         const line = describe(e.k === 'attack' ? before : after, e, me);
         if (line) lines.push(line);
         const key = (p: 0 | 1, at: Target) => (at === 'hero' ? `h${p}` : `u${at}`);
@@ -548,6 +561,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
           setTimeout(() => setResult(r), 700);
         }
       }
+      if (swung.size) setSwing((w) => [w[0] + (swung.has(0) ? 1 : 0), w[1] + (swung.has(1) ? 1 : 0)]);
       if (sounds.size) for (const s of sounds) play(s);
       if (lines.length) setLog((l) => [...lines.reverse(), ...l].slice(0, 30));
       if (newFx.length) {
@@ -592,7 +606,7 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
     [commit, handleEvents],
   );
 
-  const mySetup = useCallback((): PlayerSetup => ({ name: (name || 'Player').slice(0, 16), hero, deck: deck.map((id) => cards[id]) }), [name, hero, deck, cards]);
+  const mySetup = useCallback((): PlayerSetup => ({ name: (name || defaultName || 'Player').slice(0, 16), hero, deck: deck.map((id) => cards[id]) }), [name, defaultName, hero, deck, cards]);
 
   const begin = useCallback(
     (g: Game, side: 0 | 1) => {
@@ -908,11 +922,11 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
               <input
                 value={name}
                 onChange={(e) => {
-                  const v = e.target.value.replace(/[^A-Za-z0-9 _.\-]/g, '').slice(0, 16);
+                  const v = e.target.value.replace(/[^A-Za-z0-9 _.@\-]/g, '').slice(0, 16);
                   setName(v);
                   store.set(`${storageKey}:name`, v);
                 }}
-                placeholder="Player"
+                placeholder={defaultName || 'Player'}
                 className="w-36 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-white"
               />
             </label>
@@ -929,16 +943,23 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
                   className={`shrink-0 rounded-lg p-0.5 transition ${h.id === hero.id ? 'bg-fuchsia-500' : 'bg-transparent opacity-70 hover:opacity-100'}`}
                   title={`${h.name}: ${POWER_TEXT[h.power].name}`}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={h.img} alt={h.name} loading="lazy" className="h-24 w-16 rounded-md object-cover object-top sm:h-32 sm:w-20" />
+                  {heroArt?.(h, { live: false, swing: 0 }) ? (
+                    <div className="relative h-24 w-16 overflow-hidden rounded-md sm:h-32 sm:w-20">{heroArt(h, { live: false, swing: 0 })}</div>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={h.img} alt={h.name} loading="lazy" className="h-24 w-16 rounded-md object-cover object-top sm:h-32 sm:w-20" />
+                  )}
                   <div className="w-16 truncate text-center text-[10px] text-white sm:w-20">{h.name}</div>
                 </button>
               ))}
             </div>
-            <div className="mb-3 rounded border border-zinc-800 bg-zinc-900/70 p-2 text-xs">
+            <div className="mb-3 flex items-start gap-2 rounded border border-zinc-800 bg-zinc-900/70 p-2 text-xs">
+              {heroArt?.(hero, { live: true, swing: 0 }) && <HeroPortrait key={hero.id} h={hero} size="lg" art={heroArt(hero, { live: true, swing: 0 })} />}
+              <div className="min-w-0 flex-1">
               <b className="text-white">{hero.name}</b> · {STATS.map((s, i) => `${STAT_ABBR[s]} ${hero.stats[i]}`).join(' · ')}
               <div className="text-amber-300">
                 Hero power {POWER_TEXT[hero.power].icon} {POWER_TEXT[hero.power].name} ({POWER_COST} energy): {POWER_TEXT[hero.power].text}
+              </div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -1005,13 +1026,13 @@ export default function CardBattle({ pool, heroes, ownedHeroes = [], storageKey,
       <div className={`flex items-center gap-2 ${mine ? '' : 'flex-row'}`}>
         <button onClick={() => !mine && tapTarget('hero')} aria-label={`${s.hero.name} ${s.hp} health`} className={`relative rounded-lg ${isTarget ? 'cursor-crosshair ring-4 ring-red-500' : ''} ${game.turn === p && game.winner === null ? 'shadow-[0_0_14px_#d946ef]' : ''}`}>
           <div className={anim[`h${p}`] ?? ''}>
-            <HeroPortrait h={s.hero} hp={s.hp} />
+            <HeroPortrait key={s.hero.id} h={s.hero} hp={s.hp} art={heroArt?.(s.hero, { live: true, swing: swing[p] })} />
           </div>
           {fxFor(`h${p}`)}
         </button>
         <div className="min-w-0 flex-1 text-xs">
           <div className="truncate font-bold text-white">
-            {mine ? 'You' : s.name} <span className="font-normal text-zinc-400">· {s.hero.name}</span>
+            {nameTag ? nameTag(s.name, mine) : mine ? 'You' : s.name} <span className="font-normal text-zinc-400">· {s.hero.name}</span>
           </div>
           <div className="flex flex-wrap items-center gap-x-2 text-zinc-300">
             <span className="text-red-400">♥ {Math.max(0, s.hp)}/{HERO_HP}</span>

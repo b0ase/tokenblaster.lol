@@ -3,7 +3,7 @@
 /**
  * Ninja Punk Girls: Card Battle on TokenBlaster: the NPG card engine with a starter pool of NPG
  * element cards, vs AI or online (Room 'npgcards-<slug>'). Coin-op: INSERT COIN (10p) buys a credit,
- * one credit is one match vs the AI (src/lib/coinop.ts); PRACTICE is free and puts nothing on chain.
+ * one credit is one match vs the AI (src/lib/coinop.ts); PRACTICE puts nothing on chain.
  * High score = win streak vs the AI, verified by the coin of the match that set it.
  * LIVE blasting (optional, paid matches vs the AI only): every card played is one tiny real transaction
  * from loaded ammo (src/lib/useActionPay.ts).
@@ -14,6 +14,11 @@ import { sfx, type SfxName } from '@/lib/sfx';
 import { deriveCard } from '@/lib/npgcards/engine';
 import { CARD_IMG_BASE, RAW_CARDS } from '@/lib/npgcards/catalog';
 import { heroesFor } from '@/lib/npgcards/heroes';
+import { makeHero, type HeroInfo } from '@/lib/npgcards/engine';
+import { LIVE_CARDS, liveCardBase, liveCardBySlug } from '@/lib/npgLiveCards';
+import { LiveCard } from './LiveCard';
+import { PlayerBadge, IdentityPicker, useHandleVerified, useMyHandle } from './PlayerBadge';
+import { cleanHandle } from '@/lib/identity';
 import { roomNet } from '@/lib/npgcards/roomNet';
 import type { GameResult, SoundName } from './npgcards/CardBattle';
 import { HighScores } from './HighScores';
@@ -26,7 +31,26 @@ import { ActionAmmo, ActionHud, AmmoAlerts } from './ActionAmmo';
 const CardBattle = dynamic(() => import('./npgcards/CardBattle'), { ssr: false, loading: () => <div className="panel text-dim">Shuffling the deck…</div> });
 
 const SOUND: Record<SoundName, SfxName> = { play: 'stamp', attack: 'shot', hit: 'hit', die: 'explosion', power: 'level', turn: 'click', win: 'level', lose: 'gameover', click: 'click', draw: 'pickup' };
-const PER_CREDIT = '1 credit = 1 match vs the AI. Online matches are free.';
+const PER_CREDIT = '1 credit = 1 match vs the AI.';
+
+/** The canonical live 3D cards as heroes (id '3d-<slug>'; stats as printed on each card). */
+const LIVE_HEROES: HeroInfo[] = LIVE_CARDS.map((c) => makeHero(`3d-${c.slug}`, c.name, `${liveCardBase(c.slug)}-card-frame.webp`, c.stats));
+
+/** A live hero's card: static bg + frame in the picker; the rigged girl (one WebGL view each) in battle. */
+function heroArt(h: HeroInfo, o: { live: boolean; swing: number }) {
+  const c = h.id.startsWith('3d-') ? liveCardBySlug(h.id.slice(3)) : null;
+  if (!c) return null;
+  const base = liveCardBase(c.slug);
+  if (o.live) return <LiveCard compact base={base} name={c.name} box={c.box} swing={o.swing} />;
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`${base}-card-bg.webp`} alt="" loading="lazy" className="absolute inset-0 h-full w-full" />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`${base}-card-frame.webp`} alt={c.name} loading="lazy" className="absolute inset-0 h-full w-full" />
+    </>
+  );
+}
 
 type Run = { paid: boolean; txid: string | null };
 
@@ -44,7 +68,16 @@ export function NpgCards() {
   const [allPaid, setAllPaid] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const pool = useMemo(() => RAW_CARDS.map((r) => deriveCard(r, CARD_IMG_BASE)), []);
-  const heroes = useMemo(() => heroesFor(), []);
+  const heroes = useMemo(() => [...LIVE_HEROES, ...heroesFor()], []);
+  const handle = useMyHandle();
+  const verified = useHandleVerified(handle);
+  const nameTag = useCallback(
+    (n: string, mine: boolean) => {
+      const h = mine ? handle : n.startsWith('@') ? cleanHandle(n.slice(1)) : null;
+      return <PlayerBadge handle={h} name={mine && !h ? 'You' : n} verified={mine && verified} size={16} />;
+    },
+    [handle, verified],
+  );
   const play = useCallback((n: SoundName) => sfx(SOUND[n]), []);
   /** Each match vs the AI: a credit game spends one credit (its coin's txid goes with the match). */
   const beforeStartAI = useCallback((streak: number) => {
@@ -68,6 +101,7 @@ export function NpgCards() {
   }, [credit, co, setLiveRun]);
   const slot = (
     <div className="flex flex-col items-center gap-2">
+      <IdentityPicker compact />
       <CoinSlot co={co} credit={credit} setCredit={setCredit} msg={msg} />
       <ActionAmmo ap={ap} actions="card played" />
     </div>
@@ -100,6 +134,9 @@ export function NpgCards() {
         sfx={play}
         renderGameOver={over}
         menuExtra={slot}
+        heroArt={heroArt}
+        nameTag={nameTag}
+        defaultName={handle ? `@${handle}` : ''}
         badge={
           <div className="pointer-events-none absolute inset-x-0 bottom-1 z-10 flex justify-center">
             <span className="border border-zinc-700 bg-black/60 px-3 py-0.5 text-xs font-bold tracking-widest text-zinc-400">{coinOpModeLabel(run.paid, co.credits)}</span>
@@ -128,7 +165,7 @@ function CoinSlot({ co, credit, setCredit, msg }: { co: CoinOp; credit: boolean;
           <InsertCoin co={co} perCredit={PER_CREDIT} start={(paid) => setCredit(paid)} playLabel="PAID MATCH" />
         )}
         <button onClick={() => setCredit(false)} aria-pressed={!credit} className={`btn px-3 py-1 ${!credit ? 'btn-on' : ''}`}>
-          ▶ PRACTICE · FREE
+          ▶ PRACTICE
         </button>
       </div>
       {msg && <p className="text-xs text-accent">{msg}</p>}
