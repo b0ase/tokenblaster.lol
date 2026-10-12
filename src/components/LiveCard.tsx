@@ -20,10 +20,31 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
   const swing = useRef<() => void>(() => {});
   const [ready, setReady] = useState(false);
   const [rigged, setRigged] = useState(false);
-
+  // Browsers cap live WebGL contexts (~16), so a card only holds a 3D view while it's on (or near) the screen.
+  const [onScreen, setOnScreen] = useState(false);
   useEffect(() => {
     const el = wrap.current;
     if (!el) return;
+    const near = () => {
+      const r = el.getBoundingClientRect();
+      return r.top < innerHeight + 200 && r.bottom > -200;
+    };
+    const check = () => setOnScreen(near());
+    check();
+    addEventListener('scroll', check, { passive: true });
+    addEventListener('resize', check);
+    const io = new IntersectionObserver(([e]) => setOnScreen(e.isIntersecting), { rootMargin: '200px' });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      removeEventListener('scroll', check);
+      removeEventListener('resize', check);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el || !onScreen) return;
     let disposed = false;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -140,7 +161,7 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
       renderer.domElement.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the box is fixed per card
-  }, [base]);
+  }, [base, onScreen]);
 
   useEffect(() => {
     const onK = (e: KeyboardEvent) => {
