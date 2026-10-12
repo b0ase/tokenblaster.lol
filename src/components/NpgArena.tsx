@@ -140,6 +140,14 @@ class FighterView {
   key = -1;
   hold: number | undefined;
   shadow: THREE.Mesh;
+  model: THREE.Object3D;
+  /** skinned vertices sampled every frame to keep her on the floor (all of the feet + a spread over the body) */
+  samples: { mesh: THREE.SkinnedMesh; idx: Int32Array }[] = [];
+  /** body radius (m) for the sim's collision capsule, measured from her mesh */
+  rad = 0.5;
+  /** current lift that keeps her lowest point at floor level (smoothed) */
+  lift = 0;
+  sole = 0;
   constructor(scene: THREE.Scene, l: Loaded) {
     const model = cloneSkinned(l.gltf.scene);
     model.scale.setScalar(l.scale);
@@ -153,6 +161,8 @@ class FighterView {
       }
     });
     this.root.add(model);
+    this.model = model;
+    this.measure();
     // soft contact shadow so she never floats
     const blob = new THREE.Mesh(
       new THREE.CircleGeometry(0.42, 32),
@@ -166,6 +176,54 @@ class FighterView {
     this.mixer = new THREE.AnimationMixer(model);
     for (const c of l.clips) this.actions.set(c.name, this.mixer.clipAction(c));
   }
+  /** Pick the vertices to ground on and measure her body radius, in the rest pose. */
+  private measure() {
+    this.root.updateMatrixWorld(true);
+    const v = new THREE.Vector3();
+    const meshes: THREE.SkinnedMesh[] = [];
+    this.model.traverse((o) => {
+      const sm = o as THREE.SkinnedMesh;
+      if (sm.isSkinnedMesh && sm.visible) meshes.push(sm);
+    });
+    const total = meshes.reduce((n, m) => n + m.geometry.attributes.position.count, 0);
+    const stride = Math.max(1, Math.floor(total / 700));
+    const radii: number[] = [];
+    for (const m of meshes) {
+      const n = m.geometry.attributes.position.count;
+      const pick: number[] = [];
+      let feet = 0;
+      for (let i = 0; i < n; i++) {
+        m.getVertexPosition(i, v);
+        m.localToWorld(v);
+        const low = v.y < HEIGHT * 0.09;
+        // feet: every 2nd vertex (soles + toes decide the floor contact in most clips)
+        if ((low && (feet++ & 1) === 0) || i % stride === 0) pick.push(i);
+        // body radius: torso band only (arms out in the rest pose would make her too fat)
+        if (v.y > HEIGHT * 0.3 && v.y < HEIGHT * 0.62 && i % 3 === 0) radii.push(Math.hypot(v.x, v.z));
+        if (v.y > HEIGHT * 0.62 && i % 3 === 0) radii.push(Math.hypot(v.x, v.z)); // big chibi heads count too
+      }
+      this.samples.push({ mesh: m, idx: Int32Array.from(pick) });
+    }
+    radii.sort((a, b) => a - b);
+    const p90 = radii.length ? radii[Math.floor(radii.length * 0.9)] : 0.45;
+    this.rad = THREE.MathUtils.clamp(p90, 0.46, 0.62);
+  }
+
+  /** Lowest point of her posed (skinned) mesh in world Y, with the root at its sim position. */
+  private lowest() {
+    this.root.updateMatrixWorld(true);
+    const v = new THREE.Vector3();
+    let min = Infinity;
+    for (const { mesh, idx } of this.samples) {
+      for (let k = 0; k < idx.length; k++) {
+        mesh.getVertexPosition(idx[k], v);
+        mesh.localToWorld(v);
+        if (v.y < min) min = v.y;
+      }
+    }
+    return min;
+  }
+
   sync(f: Fighter, dt: number) {
     if (f.anim.key !== this.key) {
       this.key = f.anim.key;
@@ -191,10 +249,18 @@ class FighterView {
     this.mixer.update(dt);
     this.root.position.set(f.x, f.y, f.z);
     this.root.rotation.y = f.face;
+    // ground her: nothing of the posed mesh may go below the floor (falls, rolls, crouches, landings). Lift up fast,
+    // settle back down a little slower, so it never jitters; never pull her down (jumps keep their height).
+    const want = Math.max(0, -this.lowest());
+    const k = want > this.lift ? Math.min(1, dt * 40) : Math.min(1, dt * 14);
+    this.lift += (want - this.lift) * k;
+    if (want > this.lift) this.lift = Math.max(this.lift, want - 0.01);
+    this.root.position.y = f.y + this.lift;
+    this.sole = this.lift - want; // where her lowest point ended up (≥ -1cm)
     this.shadow.position.set(f.x, 0.012, f.z);
-    const k = Math.max(0.3, 1 - f.y * 0.5);
-    this.shadow.scale.setScalar(k);
-    (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.45 * k;
+    const sk = Math.max(0.3, 1 - f.y * 0.5);
+    this.shadow.scale.setScalar(sk);
+    (this.shadow.material as THREE.MeshBasicMaterial).opacity = 0.45 * sk;
   }
   dispose(scene: THREE.Scene) {
     this.mixer.stopAllAction();
@@ -480,6 +546,7 @@ export function NpgArena() {
     window.addEventListener('blur', blur);
     // dev/test hook (read-only peek at the fight)
     (window as unknown as { __npgArena?: () => Sim | null }).__npgArena = () => game.current?.sim ?? null;
+    (window as unknown as { __npgArenaBodies?: () => unknown }).__npgArenaBodies = () => game.current?.views.map((v) => ({ rad: v.rad, lift: v.lift, sole: v.sole }));
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
@@ -506,6 +573,9 @@ export function NpgArena() {
     if (game.current) game.current.views.forEach((v) => v.dispose(stage.scene));
     const sim = makeSim(makeFighter(ra.slug, ra.name, ra.stats, -1), makeFighter(rb.slug, rb.name, rb.stats, 1));
     const views: [FighterView, FighterView] = [new FighterView(stage.scene, loaded.current.get(ra.slug)!), new FighterView(stage.scene, loaded.current.get(rb.slug)!)];
+    // solid bodies: the sim's collision capsules come from each girl's measured mesh
+    sim.f[0].rad = views[0].rad;
+    sim.f[1].rad = views[1].rad;
     const demo = new URLSearchParams(window.location.search).has('demo') || Boolean((window as unknown as { __npgDemo?: boolean }).__npgDemo);
     game.current = { sim, views, brain: mode === 'cpu' ? makeBrain(diff) : null, mode, demo: demo ? makeBrain('hard') : null };
     keys.current.clear();

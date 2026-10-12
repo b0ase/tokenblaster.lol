@@ -78,6 +78,8 @@ export type Fighter = {
   iframes: number;
   /** last movement for walk anim direction (+1 toward opponent, -1 away, 0 strafe) */
   walkDir: number;
+  /** body capsule radius (m); the renderer sets it from her mesh, the sim keeps bodies this far apart */
+  rad: number;
 };
 
 export type SimEvent =
@@ -107,7 +109,9 @@ export type Sim = {
 
 export const RING = 5.2;
 const GRAV = 15;
-const MIN_SEP = 1.1;
+/** extra gap kept between the two body capsules */
+const SKIN = 0.04;
+const sep = (a: Fighter, b: Fighter) => a.rad + b.rad + SKIN;
 
 const BASE_ANIM = (clip: string, speed = 1, loop = true): Anim => ({ clip, speed, loop, key: 0, fade: 0.2 });
 
@@ -129,6 +133,7 @@ export function makeFighter(slug: string, name: string, stats: Stats, side: -1 |
     chip: Math.max(0.06, 0.2 - skl * 0.008),
     iframes: 0.38 + stl * 0.012,
     walkDir: 0,
+    rad: 0.5,
   };
 }
 
@@ -314,7 +319,8 @@ function physics(s: Sim, i: number, dt: number) {
     }
     if (frac < f.atk.active[1]) {
       const dist = Math.hypot(o.x - f.x, o.z - f.z);
-      if (dist > MIN_SEP + 0.25) {
+      // lunge stops when the bodies meet: no walking through her
+      if (dist > sep(f, o) + 0.02) {
         f.x += Math.sin(f.face) * f.atk.lunge * dt;
         f.z += Math.cos(f.face) * f.atk.lunge * dt;
       }
@@ -366,26 +372,83 @@ function physics(s: Sim, i: number, dt: number) {
       }
     }
   }
-  // stay on the floor
-  const r = Math.hypot(f.x, f.z);
-  if (r > RING) {
-    f.x *= RING / r;
-    f.z *= RING / r;
+  // a knocked-out girl needs room to fall flat (Death01 lays her ~1.3m out behind her feet): slide her in off the rim
+  if (f.state === 'ko') {
+    const r = Math.hypot(f.x, f.z), room = RING - 1.3;
+    if (r > room) {
+      const k = Math.max(room, r - 2.5 * dt) / r;
+      f.x *= k;
+      f.z *= k;
+      f.vx *= 0.9;
+      f.vz *= 0.9;
+    }
   }
+  ringClamp(f);
 }
 
+/** Keep her body (capsule) inside the ring. Returns true if she was against the edge. */
+function ringClamp(f: Fighter) {
+  const lim = RING - f.rad * 0.5;
+  const r = Math.hypot(f.x, f.z);
+  if (r <= lim) return false;
+  f.x *= lim / r;
+  f.z *= lim / r;
+  // a knockback into the edge stops there, it doesn't keep sliding round the rim
+  const nx = f.x / lim, nz = f.z / lim;
+  const out = f.vx * nx + f.vz * nz;
+  if (out > 0) {
+    f.vx -= nx * out;
+    f.vz -= nz * out;
+  }
+  return true;
+}
+
+/**
+ * Solid bodies: two vertical capsules that never interpenetrate. The overlap is split by who is "heavier" this
+ * frame (a fighter reeling from a hit or rolling gives way; one planted, attacking or blocking holds ground), then
+ * both are put back inside the ring; if the ring stopped one, the other takes the rest. A high jump clears her.
+ */
 function separate(s: Sim) {
   const [a, b] = s.f;
-  if (a.y > 0.5 || b.y > 0.5) return; // jump over
-  const dx = b.x - a.x, dz = b.z - a.z;
-  const d = Math.hypot(dx, dz);
-  if (d >= MIN_SEP) return;
-  const nx = d > 1e-4 ? dx / d : 1, nz = d > 1e-4 ? dz / d : 0;
-  const push = (MIN_SEP - d) / 2;
-  a.x -= nx * push;
-  a.z -= nz * push;
-  b.x += nx * push;
-  b.z += nz * push;
+  if (a.y > 0.9 || b.y > 0.9) return; // jumped over her head
+  const give = (f: Fighter) => (f.state === 'hit' || f.state === 'ko' || f.state === 'roll' || f.y > 0 ? 3 : f.state === 'walk' ? 1.2 : 1);
+  let pinA = false, pinB = false;
+  for (let it = 0; it < 4; it++) {
+    let dx = b.x - a.x, dz = b.z - a.z;
+    let d = Math.hypot(dx, dz);
+    const min = sep(a, b);
+    if (d >= min - 1e-4) return;
+    if (d < 1e-4) {
+      // dead centre: split along the line between their facings
+      dx = Math.sin(b.face) - Math.sin(a.face) || 1;
+      dz = Math.cos(b.face) - Math.cos(a.face);
+      d = 0;
+    }
+    const l = Math.hypot(dx, dz) || 1;
+    const nx = dx / l, nz = dz / l;
+    const over = min - d;
+    // a body the ring has stopped can't give way any more
+    const ga = pinA ? 0 : give(a), gb = pinB ? 0 : give(b);
+    if (ga + gb === 0) return;
+    const ka = ga / (ga + gb);
+    a.x -= nx * over * ka;
+    a.z -= nz * over * ka;
+    b.x += nx * over * (1 - ka);
+    b.z += nz * over * (1 - ka);
+    // whoever is moving into the other loses that part of their velocity (knockback into a body stops)
+    const ra = a.vx * nx + a.vz * nz;
+    if (ra > 0) {
+      a.vx -= nx * ra;
+      a.vz -= nz * ra;
+    }
+    const rb = b.vx * nx + b.vz * nz;
+    if (rb < 0) {
+      b.vx -= nx * rb;
+      b.vz -= nz * rb;
+    }
+    pinA = ringClamp(a) || pinA;
+    pinB = ringClamp(b) || pinB;
+  }
 }
 
 function tryHit(s: Sim, i: number) {
@@ -422,7 +485,7 @@ function tryHit(s: Sim, i: number) {
   o.atk = null;
   s.freeze = def.heavy ? 0.13 : 0.075;
   s.events.push({ type: 'hit', ...at, blocked: false, heavy: Boolean(def.heavy), dmg, to: 1 - i });
-  const kb = def.react === 'Hit_Knockback' ? 5.5 : 1.6;
+  const kb = def.react === 'Hit_Knockback' ? 6 : 2.4; // ~1m shove on a knockback, a visible step back on a jab
   o.vx = nx * kb;
   o.vz = nz * kb;
   o.face = Math.atan2(-dx, -dz);
