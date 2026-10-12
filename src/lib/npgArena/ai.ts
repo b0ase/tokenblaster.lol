@@ -70,7 +70,7 @@ export function cpuInput(s: Sim, i: number, br: Brain, dt: number): Input {
   switch (br.plan) {
     case 'approach':
     case 'poke':
-      if (d > 1.2) {
+      if (d > 1.35) {
         inp.x = fx;
         inp.z = fz;
       }

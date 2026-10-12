@@ -36,12 +36,12 @@ type AttackDef = {
 
 // light presses in rhythm walk this chain; heavy is its own big swing
 export const LIGHT: AttackDef[] = [
-  { clip: 'Punch_Jab', speed: 1.7, active: [0.2, 0.38], end: 0.56, dmg: 5, range: 1.4, react: 'Hit_Head', lunge: 1.2 },
-  { clip: 'Punch_Cross', speed: 1.7, active: [0.24, 0.42], end: 0.6, dmg: 6, range: 1.45, react: 'Hit_Chest', lunge: 1.4 },
-  { clip: 'Sword_Regular_A', speed: 1.05, active: [0.25, 0.62], end: 0.9, dmg: 7, range: 1.5, react: 'Hit_Chest', lunge: 1.6 },
-  { clip: 'Melee_Hook', speed: 0.95, active: [0.28, 0.62], end: 1, dmg: 11, range: 1.5, react: 'Hit_Knockback', heavy: true, lunge: 2.2 },
+  { clip: 'Punch_Jab', speed: 1.7, active: [0.2, 0.38], end: 0.56, dmg: 5, range: 1.55, react: 'Hit_Head', lunge: 1.2 },
+  { clip: 'Punch_Cross', speed: 1.7, active: [0.24, 0.42], end: 0.6, dmg: 6, range: 1.60, react: 'Hit_Chest', lunge: 1.4 },
+  { clip: 'Sword_Regular_A', speed: 1.05, active: [0.25, 0.62], end: 0.9, dmg: 7, range: 1.65, react: 'Hit_Chest', lunge: 1.6 },
+  { clip: 'Melee_Hook', speed: 0.95, active: [0.28, 0.62], end: 1, dmg: 11, range: 1.65, react: 'Hit_Knockback', heavy: true, lunge: 2.2 },
 ];
-export const HEAVY: AttackDef = { clip: 'Sword_Attack', speed: 1.3, active: [0.36, 0.56], end: 0.8, dmg: 17, range: 1.65, react: 'Hit_Knockback', heavy: true, lunge: 2.4 };
+export const HEAVY: AttackDef = { clip: 'Sword_Attack', speed: 1.3, active: [0.36, 0.56], end: 0.8, dmg: 17, range: 1.80, react: 'Hit_Knockback', heavy: true, lunge: 2.4 };
 
 export type FState = 'idle' | 'walk' | 'jump' | 'roll' | 'attack' | 'block' | 'hit' | 'ko' | 'win' | 'lose';
 
@@ -107,7 +107,7 @@ export type Sim = {
 
 export const RING = 5.2;
 const GRAV = 15;
-const MIN_SEP = 0.95;
+const MIN_SEP = 1.1;
 
 const BASE_ANIM = (clip: string, speed = 1, loop = true): Anim => ({ clip, speed, loop, key: 0, fade: 0.2 });
 
