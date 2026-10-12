@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { chibiClips } from '@/lib/chibiAnims';
+import { mocap, npgMocap } from '@/lib/npgMocap';
 
 /**
  * A live NPG card: the card's background, the rigged 3D girl in a transparent canvas, then the card's frame (name, QR,
@@ -72,7 +73,7 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
     let idle: THREE.AnimationAction | null = null;
     let attack: THREE.AnimationAction | null = null;
 
-    new GLTFLoader().load(`${base}.glb`, (g) => {
+    new GLTFLoader().load(`${base}.glb`, async (g) => {
       if (disposed) return;
       const model = g.scene;
       const mb = new THREE.Box3().setFromObject(model);
@@ -92,10 +93,12 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
       // Girls on the chibi doll's 84-bone rig share the code-made chibi clips (rest pose already arms-down);
       // older exports carry their own baked idle/attack.
       const onDollRig = Boolean(model.getObjectByName('upper_torso'));
-      const anims = onDollRig ? chibiClips(model, { armsDown: false }) : g.animations;
-      const clip = (n: string) => anims.find((a) => a.name.startsWith(n));
-      const ic = clip('idle');
-      const ac = clip('attack');
+      const mc = onDollRig ? await npgMocap() : [];
+      if (disposed) return;
+      const coded = onDollRig ? chibiClips(model, { armsDown: false }) : g.animations;
+      // Real mocap when we have it (sword stance + sword slash), the code-made clips otherwise.
+      const ic = mocap(mc, 'Sword_Idle') ?? mocap(mc, 'Idle_Loop') ?? coded.find((a) => a.name.startsWith('idle'));
+      const ac = mocap(mc, 'Sword_Attack') ?? coded.find((a) => a.name.startsWith('attack'));
       if (ic) (idle = mixer.clipAction(ic)).play();
       if (ac) {
         attack = mixer.clipAction(ac);
