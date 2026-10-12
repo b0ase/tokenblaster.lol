@@ -241,7 +241,13 @@ export function SatoshiCity() {
           base = mix(base, base * vec3(0.86, 0.9, 1.18) + vec3(0.012, 0.004, 0.03), (1.0 - smoothstep(0.0, 0.4, lg)) * night);
           base = mix(base, base * vec3(1.08, 0.97, 1.02), smoothstep(0.45, 1.2, lg) * night);
           float hy = (vUv.y - 0.5) * 3.2; base += haze * exp(-hy * hy) * (0.05 + 0.07 * night);
-          base *= mix(1.0, smoothstep(1.05, 0.3, distance(vUv, vec2(0.5))), 0.42);
+          // Day look: a filmic S-curve, teal shadows and warm highlights, so daylight has the arena's weight.
+          float dl = dot(base, vec3(0.299, 0.587, 0.114));
+          vec3 sc = base * base * (3.0 - 2.0 * min(base, vec3(1.0)));
+          base = mix(base, mix(base, sc, 0.35), 1.0 - night);
+          base = mix(base, base * vec3(0.9, 1.0, 1.08), (1.0 - smoothstep(0.0, 0.3, dl)) * (1.0 - night) * 0.8);
+          base = mix(base, base * vec3(1.07, 1.0, 0.9), smoothstep(0.4, 1.0, dl) * (1.0 - night) * 0.7);
+          base *= mix(1.0, smoothstep(1.05, 0.3, distance(vUv, vec2(0.5))), 0.5);
           g = dot(base, vec3(0.299, 0.587, 0.114));
           vec3 mono = vec3(g) * vec3(1.05, 0.93, 0.9);
           vec3 col = mix(base, mono, amount);
@@ -255,6 +261,7 @@ export function SatoshiCity() {
     composer.addPass(new OutputPass());
 
     // ── Light ──
+    const SUN_LOW = new THREE.Color('#ff9a5a');
     const hemi = new THREE.HemisphereLight('#cfe4ff', '#3a2a22', 1);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight('#fff1dc', 3);
@@ -326,7 +333,7 @@ export function SatoshiCity() {
     }
     let dead = 0;
     let fling: { vx: number; vy: number; vz: number; spin: number } | null = null;
-    let dayT = 0.4;
+    let dayT = 0.69; // open on golden hour: long shadows, warm light, the neon coming on soon after
     let freezeDay = false;
     let tSec = 0; // game seconds (traffic lights)
     let drift = 0;
@@ -932,6 +939,53 @@ export function SatoshiCity() {
       mctx.restore();
     };
 
+    // ── Air: dust motes in the sun by day, drifting neon specks at night (one draw call, all motion in the shader) ──
+    const MOTE_N = quality === 'high' ? 1400 : 500;
+    const moteGeo = new THREE.BufferGeometry();
+    {
+      const p = new Float32Array(MOTE_N * 3);
+      const k = new Float32Array(MOTE_N);
+      for (let i = 0; i < MOTE_N; i++) {
+        p[i * 3] = Math.random() * 44;
+        p[i * 3 + 1] = Math.random() * 14;
+        p[i * 3 + 2] = Math.random() * 44;
+        k[i] = Math.random();
+      }
+      moteGeo.setAttribute('position', new THREE.BufferAttribute(p, 3));
+      moteGeo.setAttribute('seed', new THREE.BufferAttribute(k, 1));
+    }
+    const moteMat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uDay: { value: new THREE.Color('#ffd9a8') }, uNight: { value: 0 }, uPx: { value: 1 } },
+      vertexShader: `uniform float uTime; uniform vec3 uCam; uniform float uPx; attribute float seed; varying float vSeed; varying float vFade;
+        void main(){
+          vec3 drift = vec3(sin(uTime * 0.21 + seed * 40.0) * 0.6 + uTime * 0.25, sin(uTime * 0.37 + seed * 17.0) * 0.5 + uTime * (0.05 + seed * 0.1), cos(uTime * 0.17 + seed * 23.0) * 0.6);
+          vec3 box = vec3(44.0, 14.0, 44.0);
+          vec3 p = mod(position + drift - uCam + box * 0.5, box) - box * 0.5 + uCam;
+          p.y = max(p.y, uCam.y - 6.0) ;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mv;
+          float d = -mv.z;
+          vFade = smoothstep(0.6, 2.5, d) * (1.0 - smoothstep(14.0, 22.0, d));
+          vSeed = seed;
+          gl_PointSize = uPx * (1.2 + seed * 2.2) * 14.0 / max(d, 0.5);
+        }`,
+      fragmentShader: `uniform vec3 uDay; uniform float uNight; uniform float uTime; varying float vSeed; varying float vFade;
+        void main(){
+          float r = length(gl_PointCoord - 0.5);
+          float a = smoothstep(0.5, 0.0, r);
+          vec3 neon = mix(vec3(1.0, 0.2, 0.75), vec3(0.2, 0.9, 1.0), step(0.5, fract(vSeed * 7.0)));
+          vec3 col = mix(uDay, neon, uNight);
+          float tw = 0.6 + 0.4 * sin(uTime * (1.0 + vSeed * 3.0) + vSeed * 60.0);
+          gl_FragColor = vec4(col * (1.0 + uNight * 1.5), a * vFade * tw * mix(0.35, 0.55, uNight));
+        }`,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const motes = new THREE.Points(moteGeo, moteMat);
+    motes.frustumCulled = false;
+    scene.add(motes);
+
     // ── Night rain ──
     const RAIN_N = 1600;
     const rainPos = new Float32Array(RAIN_N * 6);
@@ -1245,24 +1299,29 @@ export function SatoshiCity() {
       plaza.update(now, night);
       {
         const fog = scene.fog as THREE.Fog;
-        fog.near = 140 - night * 90;
-        fog.far = 520 - night * 180;
+        fog.near = 70 - night * 30; // aerial perspective by day too, so the skyline layers into depth
+        fog.far = 400 - night * 80;
       }
       bloom.threshold = 0.95 - night * 0.3;
       bloom.radius = 0.5 + night * 0.25;
       kit.setNight(night);
       detail.setNight(night);
       detail.update(camera.position);
-      sun.intensity = 3.2 * (1 - night);
-      sun.color.set(dusk > 0.4 ? '#ffb27a' : '#fff1dc');
-      hemi.intensity = 0.22 + 0.52 * (1 - night);
+      sun.intensity = 3.8 * (1 - night);
+      sun.color.set('#fff1dc').lerp(SUN_LOW, Math.min(1, dusk * 1.4));
+      hemi.intensity = 0.22 + 0.3 * (1 - night); // less flat fill: shadows keep their depth
       // Night fill in the DR palette: cold violet sky light, hot magenta neon bounce off the street.
       hemi.color.set('#cfe4ff').lerp(HEMI_NIGHT_SKY, night);
       hemi.groundColor.set('#3a2a22').lerp(HEMI_NIGHT_GND, night);
-      renderer.toneMappingExposure = 0.8 - night * 0.12;
+      renderer.toneMappingExposure = 0.74 - night * 0.06;
       bloom.strength = (0.06 + night * 0.42) * QUALITY_PRESETS[quality].bloomScale;
       headLamp.intensity = night * 60;
       rain.visible = night > 0.45;
+      moteMat.uniforms.uTime.value = now / 1000;
+      (moteMat.uniforms.uCam.value as THREE.Vector3).copy(camera.position);
+      moteMat.uniforms.uNight.value = night;
+      moteMat.uniforms.uPx.value = renderer.getPixelRatio();
+      (moteMat.uniforms.uDay.value as THREE.Color).set('#ffe2b8').lerp(SUN_LOW, dusk * 0.6);
       if (rain.visible) {
         rainMat.opacity = (night - 0.45) * 0.45;
         const fall = (now / 1000) * 22;

@@ -481,7 +481,35 @@ export function buildPlaza(scene: THREE.Scene, cx: number, cz: number, size: num
   const y0 = 0;
   // Paving with LED inlays.
   const tex = plazaTextures(size);
-  const paveMat = new THREE.MeshStandardMaterial({ map: tex.map, emissive: '#ffffff', emissiveMap: tex.emissiveMap, emissiveIntensity: 0.2, roughness: 0.55, metalness: 0.05, envMapIntensity: 0.9 });
+  const paveMat = new THREE.MeshStandardMaterial({ map: tex.map, emissive: '#ffffff', emissiveMap: tex.emissiveMap, emissiveIntensity: 0.2, color: '#c9c6c0', roughness: 1, metalness: 0.05, envMapIntensity: 0.9 });
+  // Real stone underneath the design: worn-concrete normal + roughness (CC0, shared with the arena) tiled every 3 m,
+  // and its albedo multiplied in as grime, so the plaza reads as weathered stone, not a printed plastic sheet.
+  {
+    const ld = new THREE.TextureLoader();
+    const rep = size / 3;
+    const detail = (f: string, srgb: boolean) => {
+      const t = ld.load(`/arena/tex/concrete_floor_worn_001/${f}.jpg`);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(rep, rep);
+      t.anisotropy = 8;
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    };
+    paveMat.normalMap = detail('nor', false);
+    paveMat.normalScale.set(1.4, 1.4);
+    paveMat.roughnessMap = detail('rough', false);
+    const grime = detail('diff', true);
+    paveMat.onBeforeCompile = (sh) => {
+      sh.uniforms.grime = { value: grime };
+      sh.uniforms.grimeRep = { value: rep };
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform sampler2D grime; uniform float grimeRep;')
+        .replace(
+          '#include <map_fragment>',
+          '#include <map_fragment>\nvec3 gr = texture2D(grime, vMapUv * grimeRep).rgb; diffuseColor.rgb *= mix(vec3(1.0), clamp(gr / 0.45, 0.0, 1.6), 0.75);',
+        );
+    };
+  }
   const pave = new THREE.Mesh(new THREE.PlaneGeometry(size, size).rotateX(-Math.PI / 2), paveMat);
   pave.position.y = y0 + 0.012;
   pave.receiveShadow = true;
@@ -656,7 +684,7 @@ export function buildPlaza(scene: THREE.Scene, cx: number, cz: number, size: num
     jets.instanceMatrix.needsUpdate = true;
     holoMat.opacity = 0.18 + nightV * 0.22;
     holoEdge.opacity = 0.4 + nightV * 0.5;
-    paveMat.emissiveIntensity = 0.15 + nightV * 2.2;
+    paveMat.emissiveIntensity = 0.02 + nightV * 2.3; // inlays only glow once it's dark; by day they're just inlaid stone
     gold.emissiveIntensity = 0.25 + nightV * 0.5;
     up.intensity = nightV * 400;
     jetMat.opacity = 0.35 + nightV * 0.3;
