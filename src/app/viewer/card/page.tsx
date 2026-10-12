@@ -35,8 +35,8 @@ export default function LiveCardPage() {
           </Link>
         </div>
         <p className="mt-1 text-dim">
-          Canonical NPG characters as 3D models standing in their own S3 cards. Drag to turn them. Phi-Phi is rigged (click to
-          swing); the others aren&apos;t yet.
+          Canonical NPG characters as rigged 3D models standing in their own S3 cards. Click or press Space to swing, drag to
+          turn them.
         </p>
       </header>
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
