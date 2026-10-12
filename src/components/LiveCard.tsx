@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { chibiClips } from '@/lib/chibiAnims';
 
 /**
  * A live NPG card: the card's background, the rigged 3D girl in a transparent canvas, then the card's frame (name, QR,
@@ -67,7 +68,11 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
       camera.top = bb / ppu;
       camera.updateProjectionMatrix();
       mixer = new THREE.AnimationMixer(model);
-      const clip = (n: string) => g.animations.find((a) => a.name.startsWith(n));
+      // Girls on the chibi doll's 84-bone rig share the code-made chibi clips (rest pose already arms-down);
+      // older exports carry their own baked idle/attack.
+      const onDollRig = Boolean(model.getObjectByName('upper_torso'));
+      const anims = onDollRig ? chibiClips(model, { armsDown: false }) : g.animations;
+      const clip = (n: string) => anims.find((a) => a.name.startsWith(n));
       const ic = clip('idle');
       const ac = clip('attack');
       if (ic) (idle = mixer.clipAction(ic)).play();
