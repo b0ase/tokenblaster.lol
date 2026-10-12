@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { chibiClips } from '@/lib/chibiAnims';
-import { mocap, npgMocap } from '@/lib/npgMocap';
+import type { CardBox } from '@/lib/npgLiveCards';
+import { mocap } from '@/lib/npgMocap';
 
 /**
  * A live NPG card: the card's background, the rigged 3D girl in a transparent canvas, then the card's frame (name, QR,
@@ -12,11 +13,15 @@ import { mocap, npgMocap } from '@/lib/npgMocap';
  * her. The camera is orthographic and scaled so her bounding box matches the 2D girl's: `box` is the 2D girl's pixel box on
  * the 961×1441 card [left, top, right, bottom], and the model's own bounding box is fitted to it.
  */
-export type CardBox = [number, number, number, number];
+export type { CardBox };
 const CARD_W = 961;
 const CARD_H = 1441;
 
-export function LiveCard({ base, name, box }: { base: string; name: string; box: CardBox }) {
+/**
+ * `compact`: a small in-game portrait (fills its parent, no caption, no drag or Space key; the game swings her by
+ * changing `swing`). Each mounted card is one WebGL view, so games keep it to one or two.
+ */
+export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0 }: { base: string; name: string; box: CardBox; compact?: boolean; swing?: number }) {
   const wrap = useRef<HTMLDivElement>(null);
   const swing = useRef<() => void>(() => {});
   const [ready, setReady] = useState(false);
@@ -93,7 +98,8 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
       // Girls on the chibi doll's 84-bone rig share the code-made chibi clips (rest pose already arms-down);
       // older exports carry their own baked idle/attack.
       const onDollRig = Boolean(model.getObjectByName('upper_torso'));
-      const mc = onDollRig ? await npgMocap() : [];
+      // Mocap (npgMocap) is off: big mocap motion tears these meshes far worse than the gentle code clips (owner, 2026-10-12).
+      const mc: THREE.AnimationClip[] = [];
       if (disposed) return;
       const coded = onDollRig ? chibiClips(model, { armsDown: false }) : g.animations;
       // Real mocap when we have it (sword stance + sword slash), the code-made clips otherwise.
@@ -129,9 +135,11 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
       dragX = e.clientX;
     };
     const up = () => (dragX = null);
-    el.addEventListener('pointerdown', down);
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    if (!compact) {
+      el.addEventListener('pointerdown', down);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    }
 
     const size = () => {
       const r = el.getBoundingClientRect();
@@ -163,10 +171,16 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
       renderer.dispose();
       renderer.domElement.remove();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the box is fixed per card
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the box (and compact) is fixed per card
   }, [base, onScreen]);
 
+  // the game asks for a swing by bumping `swing`
   useEffect(() => {
+    if (swingKey) swing.current();
+  }, [swingKey]);
+
+  useEffect(() => {
+    if (compact) return;
     const onK = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         e.preventDefault();
@@ -175,7 +189,17 @@ export function LiveCard({ base, name, box }: { base: string; name: string; box:
     };
     window.addEventListener('keydown', onK);
     return () => window.removeEventListener('keydown', onK);
-  }, []);
+  }, [compact]);
+
+  if (compact)
+    return (
+      <div ref={wrap} className="relative h-full w-full select-none overflow-hidden" role="img" aria-label={`${name}, live 3D card`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={`${base}-card-bg.webp`} alt="" className="absolute inset-0 h-full w-full" draggable={false} />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={`${base}-card-frame.webp`} alt="" className="pointer-events-none absolute inset-0 h-full w-full" draggable={false} />
+      </div>
+    );
 
   return (
     <div className="flex flex-col items-center gap-3">
