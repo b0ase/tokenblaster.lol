@@ -77,3 +77,16 @@ Method details are in [npg-3d-parts.md](npg-3d-parts.md).
   shirt, trousers, sneakers, Erobot face, horns, wings, rear hair and ball-and-chain. The result is a different girl.
 - **Lesson:** a part-by-part build on the generic doll can't show a specific character until nearly all of her parts exist.
   Judge the whole girl, not the pipeline. Next, test whole-character generation from the composited card art.
+
+### 2026-10-12: whole-character generation, canonical Phi-Phi via Tripo website (H3.1 Best Quality)
+- **Input:** her canonical parts composited front-on on white, no card frame (`character: Phi-Phi` parts only, both axes held).
+- **Result:** a faithful model, readable from every side: drill helmet, red bunches, fanged face, corset, fishnet sleeves, red
+  boots and both Red Axes. It composites into the card at the 2D girl's size and centre line and matches the art closely.
+  Owner had called the web preview "a pretty good model" (final verdict on the card render pending).
+- **Compared with local TripoSR on the same image:** blobby, axes melted into the hair, the back is mush. Not usable.
+- **Gaps:** 1.93M triangles and 66 MB, far too heavy for the web, so it needs decimating to about 50–100k triangles and
+  compressed textures. The surfaces are very glossy, so turn roughness up for the card look. It's unrigged.
+- **Cost:** the website free plan can't export, so it needs a paid plan or API credits (an API textured model costs more than
+  25 credits).
+- **Lesson:** for "the character on the card", generate the whole girl from her composited stack. Don't assemble her part by
+  part on the generic doll.
