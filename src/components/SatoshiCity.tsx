@@ -1304,7 +1304,7 @@ export function SatoshiCity() {
       const obstacles: { x: number; z: number; r: number }[] = [];
       if (car) for (const [cx, cz] of circlesOf(car.x, car.z, car.th, car.b.len, car.b.w)) obstacles.push({ x: cx, z: cz, r: car.b.w / 2 });
       else if (!dead) obstacles.push({ x: ped.x, z: ped.z, r: 0.5 });
-      peds.update(dt, focusX, focusZ, [...(car ? [{ x: car.x, z: car.z, speed: Math.hypot(car.vx, car.vz) }] : []), ...ai.map((a) => ({ x: a.x, z: a.z, speed: a.v }))]);
+      peds.update(dt, focusX, focusZ, car || dead ? null : { x: ped.x, z: ped.z }, [...(car ? [{ x: car.x, z: car.z, speed: Math.hypot(car.vx, car.vz) }] : []), ...ai.map((a) => ({ x: a.x, z: a.z, speed: a.v }))]);
       for (const a of ai) {
         let vt = a.vmax;
         if (now < a.stun) vt = 0;
@@ -1511,6 +1511,8 @@ export function SatoshiCity() {
           }
         };
         for (const b of bodies) if (Math.abs(b.x - ped.x) < 8 && Math.abs(b.z - ped.z) < 8) for (const [cx, cz] of circlesOf(b.x, b.z, b.th, b.b.len, b.b.w)) pushOut(cx, cz, b.b.w / 2);
+        for (const a of ai) if (Math.abs(a.x - ped.x) < 8 && Math.abs(a.z - ped.z) < 8) for (const [cx, cz] of circlesOf(a.x, a.z, a.th, a.b.len, a.b.w)) pushOut(cx, cz, a.b.w / 2);
+        for (const w of peds.walkers) if (w.root.visible && w.knocked <= 0) pushOut(w.root.position.x, w.root.position.z, 0.35); // other people are solid too
         // jump
         const gy = groundY(ped.x, ped.z);
         if (inp.jump && ped.onGround) {

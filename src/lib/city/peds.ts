@@ -203,8 +203,17 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, Math.atan2(b[0] - a[0], b[1] - a[1])];
   };
 
+  /** Is the player standing just ahead of this walker? */
+  const blocked = (w: Walker, p: { x: number; z: number }) => {
+    const dx = p.x - w.root.position.x;
+    const dz = p.z - w.root.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 1.3) return false;
+    return dx * Math.sin(w.root.rotation.y) + dz * Math.cos(w.root.rotation.y) > 0; // in front, not behind
+  };
+
   /** Advance walkers. `focus` is where the camera looks; `hazards` are cars that can knock people down. */
-  const update = (dt: number, focusX: number, focusZ: number, hazards: Hazard[]) => {
+  const update = (dt: number, focusX: number, focusZ: number, player: { x: number; z: number } | null, hazards: Hazard[]) => {
     lastHazards = hazards;
     if ((askClock += dt) > ASK_EVERY) {
       askClock = 0;
@@ -250,7 +259,12 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
           w.onBlock = 0;
           w.cross = null;
         }
+      } else if (player && blocked(w, player)) {
+        w.walk.paused = true; // someone's in the way: wait for them rather than walk through them
+        [x, z] = [w.root.position.x, w.root.position.z];
+        heading = w.root.rotation.y;
       } else {
+        w.walk.paused = false;
         w.s += w.speed * dt;
         const L = legLen(w);
         if (!w.plan && !w.asked && (L - w.s) / w.speed < ASK_AHEAD) w.asked = true;
