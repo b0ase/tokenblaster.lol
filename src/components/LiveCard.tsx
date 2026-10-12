@@ -7,15 +7,14 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 /**
  * A live NPG card: the card's background, the rigged 3D girl in a transparent canvas, then the card's frame (name, QR,
  * stats) on top, so she stands inside the card exactly where the 2D art does. Idle loops; click / Space swings. Drag turns
- * her. The camera is orthographic and scaled so her height matches the 2D girl (1007 px of the 1441 px card, feet at 1164).
+ * her. The camera is orthographic and scaled so her bounding box matches the 2D girl's: `box` is the 2D girl's pixel box on
+ * the 961×1441 card [left, top, right, bottom], and the model's own bounding box is fitted to it.
  */
+export type CardBox = [number, number, number, number];
 const CARD_W = 961;
 const CARD_H = 1441;
-const GIRL_PX = 1007; // her height on the 2D card
-const FEET_PX = 1164;
-const CENTRE_PX = 483;
 
-export function LiveCard({ base, name }: { base: string; name: string }) {
+export function LiveCard({ base, name, box }: { base: string; name: string; box: CardBox }) {
   const wrap = useRef<HTMLDivElement>(null);
   const swing = useRef<() => void>(() => {});
   const [ready, setReady] = useState(false);
@@ -53,16 +52,18 @@ export function LiveCard({ base, name }: { base: string; name: string }) {
     new GLTFLoader().load(`${base}.glb`, (g) => {
       if (disposed) return;
       const model = g.scene;
-      const box = new THREE.Box3().setFromObject(model);
-      const h = box.max.y - box.min.y;
-      model.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+      const mb = new THREE.Box3().setFromObject(model);
+      const h = mb.max.y - mb.min.y;
+      model.position.set(-(mb.min.x + mb.max.x) / 2, -mb.min.y, -(mb.min.z + mb.max.z) / 2);
       root.add(model);
       // frame the card so she's GIRL_PX tall with her feet on FEET_PX and centred on CENTRE_PX, like the 2D art
-      const ppu = GIRL_PX / h;
-      camera.left = -CENTRE_PX / ppu;
-      camera.right = (CARD_W - CENTRE_PX) / ppu;
-      camera.bottom = -(CARD_H - FEET_PX) / ppu;
-      camera.top = FEET_PX / ppu;
+      const [bl, bt, br, bb] = box;
+      const ppu = (bb - bt) / h;
+      const cx = (bl + br) / 2;
+      camera.left = -cx / ppu;
+      camera.right = (CARD_W - cx) / ppu;
+      camera.bottom = -(CARD_H - bb) / ppu;
+      camera.top = bb / ppu;
       camera.updateProjectionMatrix();
       mixer = new THREE.AnimationMixer(model);
       const clip = (n: string) => g.animations.find((a) => a.name.startsWith(n));
@@ -131,6 +132,7 @@ export function LiveCard({ base, name }: { base: string; name: string }) {
       renderer.dispose();
       renderer.domElement.remove();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the box is fixed per card
   }, [base]);
 
   useEffect(() => {
@@ -159,7 +161,7 @@ export function LiveCard({ base, name }: { base: string; name: string }) {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={`${base}-card-frame.webp`} alt="" className="pointer-events-none absolute inset-0 h-full w-full" draggable={false} />
       </div>
-      <p className="text-sm text-dim">{ready ? 'Click or press Space to swing · drag to turn her' : 'Loading…'}</p>
+      <p className="text-sm text-dim">{ready ? 'Click or press Space to swing · drag to turn her' : `Loading ${name}…`}</p>
     </div>
   );
 }

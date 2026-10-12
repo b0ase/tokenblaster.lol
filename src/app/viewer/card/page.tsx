@@ -15,9 +15,12 @@ export default function LiveCardPage() {
             &lt; Model viewer
           </Link>
         </div>
-        <p className="mt-1 text-dim">Phi-Phi, the canonical Erobot, as a rigged 3D model standing in her own S3 card.</p>
+        <p className="mt-1 text-dim">Canonical NPG characters as 3D models standing in their own S3 cards. Phi-Phi is rigged; Aika isn&apos;t yet.</p>
       </header>
-      <LiveCard base="/npg/cards/phi-phi" name="Phi-Phi" />
+      <div className="grid gap-6 sm:grid-cols-2">
+        <LiveCard base="/npg/cards/phi-phi" name="Phi-Phi" box={[44, 157, 922, 1164]} />
+        <LiveCard base="/npg/cards/aika" name="Aika" box={[243, 341, 906, 1163]} />
+      </div>
     </main>
   );
 }
