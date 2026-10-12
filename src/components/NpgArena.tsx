@@ -6,7 +6,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { rigClips } from '@/lib/npgRigMocap';
 import { LIVE_CARDS, liveCardBase } from '@/lib/npgLiveCards';
-import { makeStage, type Stage } from '@/lib/npgArena/stage';
+import { makeStage, type Stage, type StageKind } from '@/lib/npgArena/stage';
 import { makeFighter, makeSim, rematch, step, NO_INPUT, type Fighter, type Input, type Sim, type Stats } from '@/lib/npgArena/sim';
 import { cpuInput, makeBrain, type Brain, type Difficulty } from '@/lib/npgArena/ai';
 import { sharedAudio } from '@/lib/sfx';
@@ -335,6 +335,13 @@ export function NpgArena() {
   const [p2, setP2] = useState<string | null>('kimiko');
   const [mode, setMode] = useState<Mode>('cpu');
   const [diff, setDiff] = useState<Difficulty>('normal');
+  const startRef = useRef<() => void>(() => {});
+  const startKind = useRef<StageKind | null>(null);
+  const [arena, setArena] = useState<StageKind | 'random'>(() => {
+    if (typeof window === 'undefined') return 'rooftop';
+    const q = new URLSearchParams(window.location.search).get('stage');
+    return q === 'dojo' || q === 'random' ? q : 'rooftop';
+  });
   const [hud, setHud] = useState<HudState>({ phase: 'intro', timer: 60, wins: [0, 0], round: 1, winner: null });
   const [callout, setCallout] = useState<Callout | null>(null);
   const [fighters, setFighters] = useState<[string, string]>(['miyuki', 'kimiko']);
@@ -567,6 +574,14 @@ export function NpgArena() {
     if (!stage) return;
     sfxRef.current ??= makeFightSfx();
     sfxRef.current?.resume();
+    const kind: StageKind = startKind.current ?? (arena === 'random' ? (Math.random() < 0.5 ? 'rooftop' : 'dojo') : arena);
+    startKind.current = null;
+    if (stage.kind !== kind) {
+      // the dojo streams in on first pick (~3.5MB); start once it's showing
+      startKind.current = kind;
+      void stage.setStage(kind).then(() => startRef.current(), () => setLoadErr('dojo failed to load'));
+      return;
+    }
     const opp = p2 ?? ROSTER[Math.floor(Math.random() * ROSTER.length)].slug;
     const ra = ROSTER.find((r) => r.slug === p1)!;
     const rb = ROSTER.find((r) => r.slug === opp)!;
@@ -581,7 +596,11 @@ export function NpgArena() {
     keys.current.clear();
     setFighters([ra.slug, rb.slug]);
     setScreen('fight');
-  }, [p1, p2, mode, diff]);
+  }, [p1, p2, mode, diff, arena]);
+  // re-entry after a stage load (startKind keeps a RANDOM roll from re-rolling)
+  useEffect(() => {
+    startRef.current = startFight;
+  }, [startFight]);
 
   const again = useCallback(() => {
     const g = game.current;
@@ -677,6 +696,7 @@ export function NpgArena() {
             <div className="mx-auto mt-4 flex max-w-[880px] flex-wrap items-center justify-center gap-2 text-sm">
               <Seg label="OPPONENT" value={p2 ?? 'random'} options={[...ROSTER.map((r) => [r.slug, r.name.toUpperCase()] as const), ['random', 'RANDOM'] as const]} onChange={(v) => setP2(v === 'random' ? null : v)} />
               <Seg label="MODE" value={mode} options={[['cpu', 'VS CPU'], ['2p', '2P LOCAL']]} onChange={(v) => setMode(v as Mode)} />
+ <Seg label="STAGE" value={arena} options={[['rooftop', 'ROOFTOP'], ['dojo', 'DOJO'], ['random', 'RANDOM']]} onChange={(v) => setArena(v as StageKind | 'random')} />
               {mode === 'cpu' && <Seg label="CPU" value={diff} options={[['easy', 'EASY'], ['normal', 'NORMAL'], ['hard', 'HARD']]} onChange={(v) => setDiff(v as Difficulty)} />}
             </div>
             <div className="mt-4 text-center">

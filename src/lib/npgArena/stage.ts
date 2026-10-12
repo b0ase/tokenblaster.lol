@@ -4,6 +4,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RING } from './sim';
 
 /**
@@ -13,6 +14,10 @@ import { RING } from './sim';
 const PINK = '#ff2bd6';
 const CYAN = '#18e8ff';
 const YELLOW = '#ffe100';
+
+export type StageKind = 'rooftop' | 'dojo';
+/** The cyber dojo (NPG asset, optimised in Blender: platform top centred on the origin, metres, 1:1 with the girls). */
+const DOJO_URL = '/arena/models/npg/dojo.glb';
 
 function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void, srgb = true) {
   const cv = document.createElement('canvas');
@@ -220,6 +225,7 @@ export function makeStage(el: HTMLElement, phone: boolean) {
   composer.addPass(grade);
   composer.addPass(new OutputPass());
 
+  const roofStart = scene.children.length;
   // ── Sky: gradient dome + a low magenta sun, DR-style ──
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(200, 32, 16),
@@ -382,6 +388,11 @@ export function makeStage(el: HTMLElement, phone: boolean) {
     14, 3.5, [-20, 5, 14], 1.9,
   );
 
+  // everything added since roofStart is the rooftop set (sky, city, floor, signs); the dojo swaps it out
+  const rooftop = scene.children.slice(roofStart);
+  const roofFog = scene.fog;
+  const roofBg = scene.background;
+
   // ── Lights ──
   scene.add(new THREE.HemisphereLight('#5a4a8a', '#0a0610', 0.9));
   const key = new THREE.DirectionalLight('#fff0f8', 2.2);
@@ -417,6 +428,56 @@ export function makeStage(el: HTMLElement, phone: boolean) {
   rainGeo.setAttribute('position', new THREE.BufferAttribute(rp, 3));
   const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: '#9fdcff', transparent: true, opacity: 0.22, depthWrite: false }));
   scene.add(rain);
+  rooftop.push(rain);
+
+  // ── The cyber dojo (loaded on first use) ──
+  let dojo: THREE.Group | null = null;
+  let dojoLoad: Promise<THREE.Group> | null = null;
+  const dojoLights = new THREE.Group();
+  {
+    // neon practicals inside the hall: magenta + cyan from the shoji walls, a warm overhead over the mat
+    const top = new THREE.PointLight('#ffe6f6', 7, 16, 1.6);
+    top.position.set(0, 7, 0);
+    const m = new THREE.PointLight(PINK, 10, 14, 1.8);
+    m.position.set(-6, 7, 6);
+    const c = new THREE.PointLight(CYAN, 10, 14, 1.8);
+    c.position.set(6, 7, -6);
+    dojoLights.add(top, m, c);
+    dojoLights.visible = false;
+    scene.add(dojoLights);
+  }
+  const loadDojo = () =>
+    (dojoLoad ??= new GLTFLoader().loadAsync(DOJO_URL).then((g) => {
+      const root = g.scene;
+      root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.receiveShadow = true;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mt of mats as THREE.MeshStandardMaterial[]) {
+          if (!mt.emissive) continue;
+          const glow = mt.emissive.r + mt.emissive.g + mt.emissive.b > 0.1;
+          // the neon strips bloom; everything else stays a dark lacquered hall
+          if (glow) {
+            mt.emissiveIntensity = 1.4;
+            mt.toneMapped = false;
+          } else {
+            // the mirror-gloss floor turned every point light into a white hotspot
+            mt.roughness = Math.max(mt.roughness, 0.45);
+            mt.metalness = Math.min(mt.metalness, 0.4);
+          }
+          if (!glow && mt.color.r > 0.5) {
+            mt.color.multiplyScalar(0.28); // the bright shoji panels would blow out under the neon
+            mt.roughness = 0.35;
+          }
+        }
+      });
+      root.visible = false;
+      scene.add(root);
+      dojo = root;
+      return root;
+    }));
+  let kind: StageKind = 'rooftop';
 
   // ── Hit FX: sparks (points) + flash sprites ──
   const SP = 400;
@@ -508,6 +569,19 @@ export function makeStage(el: HTMLElement, phone: boolean) {
       flashAmt = 0.3;
     },
     shake: () => shakeAmt,
+    get kind() {
+      return kind;
+    },
+    /** Switch sets. Resolves once the set is showing (the dojo loads on first use). */
+    async setStage(k: StageKind) {
+      if (k === 'dojo') await loadDojo();
+      kind = k;
+      for (const o of rooftop) o.visible = k === 'rooftop';
+      if (dojo) dojo.visible = k === 'dojo';
+      dojoLights.visible = k === 'dojo';
+      scene.fog = k === 'rooftop' ? roofFog : new THREE.FogExp2('#0a0412', 0.03);
+      scene.background = k === 'rooftop' ? roofBg : new THREE.Color('#040208');
+    },
     /** advance fx + render. `look` is the camera target; camera position must be set before. */
     render(dt: number) {
       clock += dt;
@@ -542,7 +616,7 @@ export function makeStage(el: HTMLElement, phone: boolean) {
       }
       hitLight.intensity *= Math.exp(-14 * dt);
       // rain
-      for (let i = 0; i < RAIN; i++) {
+      if (rain.visible) for (let i = 0; i < RAIN; i++) {
         let y = rp[i * 6 + 1] - 18 * dt;
         if (y < -0.4) y += 14;
         rp[i * 6 + 1] = y;
