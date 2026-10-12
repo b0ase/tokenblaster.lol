@@ -103,7 +103,10 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
     const batch = walkers.filter((w) => w.asked && !w.plan).slice(0, 16);
     if (!batch.length) return;
     if (!brainOnline) {
-      for (const w of batch) (w.plan = roll()), (w.asked = false);
+      for (const w of batch) {
+        w.plan = roll();
+        w.asked = false;
+      }
       return;
     }
     const peds = batch.map((w) => {
@@ -133,7 +136,10 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
       })
       .catch((status) => {
         if (status === 503 || status === 404) brainOnline = false; // no key / no route: dice from now on
-        for (const w of batch) (w.plan = roll()), (w.asked = false);
+        for (const w of batch) {
+        w.plan = roll();
+        w.asked = false;
+      }
       });
   };
 
