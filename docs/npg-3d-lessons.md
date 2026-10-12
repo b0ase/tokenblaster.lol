@@ -69,3 +69,11 @@ Method details are in [npg-3d-parts.md](npg-3d-parts.md).
 - **2026-10-09:**
   - Hand-built hair rejected (6.5/10).
   - The owner pointed out we had rebuilt existing models, so rule 1 was added.
+
+### 2026-10-12: whole-card test, Phi-Phi (verdict: "rekt. That's not Phi Phi...")
+- **Test:** a random full stack (22 parts) rendered on the chibi base doll using only parts that already exist in 3D (Spikes horns,
+  graffiti can, and the doll's own mohawk and mask), then composited into the real card frame.
+- **Why it failed:** 3 of 22 parts existed. The doll's default outfit, blue eyes and taller proportions replaced the card's jacket,
+  shirt, trousers, sneakers, Erobot face, horns, wings, rear hair and ball-and-chain. The result is a different girl.
+- **Lesson:** a part-by-part build on the generic doll can't show a specific character until nearly all of her parts exist.
+  Judge the whole girl, not the pipeline. Next, test whole-character generation from the composited card art.
