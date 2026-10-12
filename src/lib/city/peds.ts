@@ -39,6 +39,8 @@ type Walker = {
   pause: number; // seconds left standing on a corner
   cross: { ax: number; az: number; bx: number; bz: number; t: number; len: number; loop: [number, number][]; leg: number } | null;
   onBlock: number; // seconds on the current block
+  fly: { vx: number; vy: number; vz: number; spin: number; y: number } | null; // tumbling through the air after a hit
+  flee: number; // seconds left running away (from a fast car, a horn, a chase)
   id: string;
 };
 
@@ -47,7 +49,8 @@ const DICE: [CrowdAction, number][] = [['continue', 0.55], ['cross', 0.2], ['pau
 const ASK_EVERY = 2; // seconds between crowd-brain batches
 const ASK_AHEAD = 4; // queue a walker this many seconds before their corner
 
-export type Hazard = { x: number; z: number; speed: number };
+/** A car: centre, speed, and (optionally) heading/size/velocity so people are solid against the whole body. */
+export type Hazard = { x: number; z: number; speed: number; th?: number; len?: number; w?: number; vx?: number; vz?: number };
 
 export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
   const walkers: Walker[] = [];
@@ -196,7 +199,7 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
         down.setLoop(THREE.LoopOnce, 1);
         down.clampWhenFinished = true;
       }
-      const w: Walker = { root, body, mixer, walk, down, loop: loops[0], leg: 0, s: 0, dir: 1, speed: 1.3, knocked: 0, plan: null, asked: false, pause: 0, cross: null, onBlock: 0, id: `p${i}` };
+      const w: Walker = { root, body, mixer, walk, down, loop: loops[0], leg: 0, s: 0, dir: 1, speed: 1.3, knocked: 0, plan: null, asked: false, pause: 0, cross: null, onBlock: 0, fly: null, flee: 0, id: `p${i}` };
       place(w);
       walkers.push(w);
     }
@@ -218,9 +221,32 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
     return dx * Math.sin(w.root.rotation.y) + dz * Math.cos(w.root.rotation.y) > 0; // in front, not behind
   };
 
-  /** Advance walkers. `focus` is where the camera looks; `hazards` are cars that can knock people down. */
+  /** Send everyone near (x, z) running: along their sidewalk, away from the source, at a sprint. */
+  const scare = (x: number, z: number, radius: number) => {
+    for (const w of walkers) {
+      if (w.knocked > 0 || !w.root.visible) continue;
+      const wx = w.root.position.x;
+      const wz = w.root.position.z;
+      if (Math.hypot(wx - x, wz - z) > radius) continue;
+      if (w.flee <= 0 && !w.cross) {
+        const [a, b] = legEnds(w);
+        // running toward the threat? turn round on the same leg
+        if ((b[0] - a[0]) * (wx - x) + (b[1] - a[1]) * (wz - z) < 0) {
+          w.s = Math.max(0, legLen(w) - w.s);
+          w.dir = w.dir === 1 ? -1 : 1;
+        }
+      }
+      w.flee = 3 + r() * 2;
+      w.pause = 0;
+    }
+  };
+
+  /** Advance walkers. `focus` is where the camera looks; `hazards` are cars that can knock people down.
+   *  Returns how many people hazards[0] (the player's car, when driving) knocked down this frame. */
   const update = (dt: number, focusX: number, focusZ: number, player: { x: number; z: number } | null, hazards: Hazard[]) => {
     lastHazards = hazards;
+    let hits = 0;
+    for (const h of hazards) if (Math.abs(h.speed) > 11) scare(h.x, h.z, 9 + Math.abs(h.speed) * 0.2);
     if ((askClock += dt) > ASK_EVERY) {
       askClock = 0;
       ask();
@@ -230,10 +256,31 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
       w.root.visible = d < 110;
       if (w.knocked > 0) {
         w.knocked -= dt;
-        if (!w.down) w.body.rotation.x = Math.min(Math.PI / 2, w.body.rotation.x + dt * 6);
+        if (w.fly) {
+          const f = w.fly;
+          f.vy -= 22 * dt;
+          w.root.position.x += f.vx * dt;
+          w.root.position.z += f.vz * dt;
+          f.y += f.vy * dt;
+          w.body.rotation.x += f.spin * dt;
+          if (f.y <= 0) {
+            f.y = 0;
+            f.vx *= 0.35;
+            f.vz *= 0.35;
+            f.vy = Math.abs(f.vy) * 0.25;
+            f.spin *= 0.4;
+            if (Math.hypot(f.vx, f.vz) < 0.6) {
+              w.fly = null;
+              w.body.rotation.x = Math.PI / 2;
+            }
+          }
+          w.root.position.y = CURB_H + f.y;
+        }
+        if (!w.down && !w.fly) w.body.rotation.x = Math.min(Math.PI / 2, w.body.rotation.x + dt * 6);
         if (w.root.visible) w.mixer.update(dt);
         if (w.knocked <= 0) {
           w.body.rotation.x = 0;
+          w.fly = null;
           w.down?.stop();
           w.walk.reset().play();
           w.cross = null;
@@ -271,7 +318,10 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
         heading = w.root.rotation.y;
       } else {
         w.walk.paused = false;
-        w.s += w.speed * dt;
+        const run = w.flee > 0 ? 3.3 : 1;
+        if (w.flee > 0) w.flee -= dt;
+        w.walk.timeScale = w.flee > 0 ? 2.4 : 1;
+        w.s += w.speed * run * dt;
         const L = legLen(w);
         if (!w.plan && !w.asked && (L - w.s) / w.speed < ASK_AHEAD) w.asked = true;
         if (w.s >= L) {
@@ -301,14 +351,46 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
       w.root.position.set(x, CURB_H, z);
       w.root.rotation.y = heading;
       if (w.root.visible && d < 70) w.mixer.update(dt);
-      if (w.pause <= 0) for (const h of hazards)
-        if (Math.abs(h.speed) > 3 && Math.hypot(h.x - x, h.z - z) < 1.6) {
+      for (let hi = 0; hi < hazards.length; hi++) {
+        const h = hazards[hi];
+        const sp = Math.abs(h.speed);
+        if (sp < 0.3) continue;
+        // solid against the car's whole footprint (oriented box), not just its centre
+        const th = h.th ?? 0;
+        const fx = Math.cos(th);
+        const fz = -Math.sin(th);
+        const rx = x - h.x;
+        const rz = z - h.z;
+        const along = rx * fx + rz * fz;
+        const side = rx * -fz + rz * fx;
+        const hl = (h.len ?? 2) / 2 + 0.35;
+        const hw = (h.w ?? 2) / 2 + 0.35;
+        if (h.th === undefined ? Math.hypot(rx, rz) > 1.6 : Math.abs(along) > hl || Math.abs(side) > hw) continue;
+        if (sp > 4) {
+          if (hi === 0) hits++;
+          const vx = h.vx ?? fx * h.speed;
+          const vz = h.vz ?? fz * h.speed;
           w.knocked = 6;
+          w.flee = 0;
+          w.pause = 0;
+          w.cross = null;
+          w.walk.timeScale = 1;
           w.walk.stop();
           w.down?.reset().play();
+          w.fly = { vx: vx * 0.8 + (Math.random() - 0.5) * 2, vy: 3 + sp * 0.22, vz: vz * 0.8 + (Math.random() - 0.5) * 2, spin: 6 + sp * 0.3, y: 0 };
+          scare(x, z, 18); // everyone near sees it
           break;
         }
+        // slow: shoved aside out of the car's path
+        if (h.th !== undefined) {
+          const push = hw - Math.abs(side) + 0.05;
+          const sg = side >= 0 ? 1 : -1;
+          w.root.position.x += -fz * sg * push;
+          w.root.position.z += fx * sg * push;
+        }
+      }
     }
+    return hits;
   };
 
   const dispose = () => {
@@ -320,5 +402,5 @@ export function createPeds(scene: THREE.Scene, blocks: Block[], count = 36) {
     walkers.length = 0;
   };
 
-  return { ready, update, dispose, walkers };
+  return { ready, update, scare, dispose, walkers };
 }

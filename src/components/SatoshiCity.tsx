@@ -53,7 +53,8 @@ import { HighScores } from './HighScores';
 import { buildCityDetail } from '@/lib/visuals/cityDetail';
 import { buildPlaza, buildStreetSigns, cityUniforms, createStreetLight } from '@/lib/city/art';
 import { QUALITY_PRESETS, autoCityQuality, saveCityQuality, type CityQuality } from '@/lib/visuals/cityQuality';
-import { sharedAudio } from '@/lib/sfx';
+import { getNowPlaying, setStation, sharedAudio, subscribeAudio, type Track } from '@/lib/sfx';
+import { CRIME, buildHeli, buildLightBar, copVmax, copsFor, createSiren, loseAfter } from '@/lib/city/police';
 import { useGameFullscreen } from '@/lib/useGameFullscreen';
 
 /**
@@ -67,7 +68,7 @@ import { useGameFullscreen } from '@/lib/useGameFullscreen';
  * (src/lib/useActionPay.ts). Out of ammo: you can't take a car until you load more.
  */
 const DAY_S = 240;
-const AI_CAP = 26;
+const AI_CAP: Record<CityQuality, number> = { high: 40, low: 30 };
 const BODY_CAP = 26;
 const BEST = 'tokenblaster:city-best';
 const KIND_COL = Object.fromEntries(KINDS.map((k) => [k.id, k.color])) as Record<TxKind, string>;
@@ -85,8 +86,21 @@ type Hud = {
   locked: boolean;
   carLabel: string;
   feedNote: string;
+  stars: number;
+  heatLost: boolean;
+  cine: boolean;
 };
-const HUD0: Hud = { score: 0, best: 0, driving: false, speed: 0, health: 100, mission: null, prompt: '', clock: '', drift: 0, locked: false, carLabel: '', feedNote: '' };
+const HUD0: Hud = { score: 0, best: 0, driving: false, speed: 0, health: 100, mission: null, prompt: '', clock: '', drift: 0, locked: false, carLabel: '', feedNote: '', stars: 0, heatLost: false, cine: false };
+
+/** In-car radio (R to retune). Each station rides one of the site's licensed playlists (public/music/CREDITS.md). */
+const RADIO: { id: Track; name: string; tag: string; col: string; album?: boolean }[] = [
+  { id: 'city', name: 'BLOCK FM', tag: 'news read off the live chain', col: '#ffd23f' },
+  { id: 'doubleo', name: 'VEXVOID FM', tag: 'Echoes in the Abyss · VexVoid', col: '#28e7ff', album: true },
+  { id: 'arena', name: 'COURT TV RADIO', tag: 'day 4,012: the Professor v. everyone', col: '#ff3b5c' },
+  { id: 'hopper', name: 'SIGNAL 1MB', tag: 'pirate broadcast · run a full node', col: '#3bff8a' },
+  { id: 'kweg', name: 'SILK RADIO', tag: 'five stars · trusted vendor · do not ask', col: '#c77dff' },
+];
+const BMUSIC = 'https://bitcoin-music.vercel.app/bmusic/streams/first-12/';
 type Control = { setGirl: (slug: string) => void; cine: (s: Shot | null) => void; setQuality: (q: CityQuality) => void; key: (k: keyof Input, down: boolean) => void; action: (a: 'f' | 'horn' | 'skip' | 'tx') => void; start: () => void };
 type Input = { up: boolean; down: boolean; left: boolean; right: boolean; sprint: boolean; jump: boolean };
 
@@ -105,6 +119,20 @@ export function SatoshiCity() {
   const [hud, setHud] = useState<Hud>(HUD0);
   const [toast, setToast] = useState<null | { text: string; sub: string; n: number; col: string }>(null);
   const [wasted, setWasted] = useState<null | { by: string; id: string; sim: boolean }>(null);
+  const [busted, setBusted] = useState<null | { stars: number }>(null);
+  const [radio, setRadio] = useState<null | { i: number; n: number; sub: string }>(null);
+  const [song, setSong] = useState('');
+  const [album, setAlbum] = useState<string[]>([]);
+  useEffect(() => subscribeAudio(() => setSong(getNowPlaying()?.title ?? '')), []);
+  // VexVoid FM: the album's track list comes from the live bMusic manifest (the audio itself is paid per second there).
+  const wantAlbum = radio !== null && !!RADIO[radio.i].album;
+  useEffect(() => {
+    if (!wantAlbum || album.length) return;
+    fetch(`${BMUSIC}manifest.json`)
+      .then((r) => r.json())
+      .then((m: { tracks?: { title: string }[] }) => setAlbum((m.tracks ?? []).map((t) => t.title)))
+      .catch(() => {});
+  }, [wantAlbum, album.length]);
   const [started, setStarted] = useState(false);
   const [cine, setCine] = useState<Cutscene | null>(null);
   const onShot = (s: Shot) => control.current?.cine(s);
@@ -182,7 +210,7 @@ export function SatoshiCity() {
     const street = createStreetLight(scene, world.lightSources, quality);
     const plaza = buildPlaza(scene, ...squareCentre(), 60);
     buildStreetSigns(scene);
-    const peds = createPeds(scene, blocks); // sidewalk walkers (real rigged models)
+    const peds = createPeds(scene, blocks, quality === 'high' ? 56 : 40); // sidewalk walkers (real rigged models)
     const edges = world.edges;
     const edgesFrom: Edge[][] = Array.from({ length: N * N }, () => []);
     for (const e of edges) edgesFrom[e.a].push(e);
@@ -285,6 +313,10 @@ export function SatoshiCity() {
     scene.add(sun, sun.target);
     const headLamp = new THREE.SpotLight('#fff4dc', 0, 70, 0.55, 0.45, 1.2);
     const headTarget = new THREE.Object3D();
+    // Light-bar spill: two point lights that ride the nearest patrol car (always in the scene so no shader recompiles).
+    const copLights = [new THREE.PointLight('#ff1030', 0, 26, 1.4), new THREE.PointLight('#1060ff', 0, 26, 1.4)];
+    for (const l of copLights) scene.add(l);
+    const heli = buildHeli(scene);
     headLamp.target = headTarget;
 
     // ── Vehicles ──
@@ -350,6 +382,11 @@ export function SatoshiCity() {
     type Ai = { b: Built; f: FeedTx; edge: Edge; next: Edge; s: number; turn: Turn | null; v: number; vmax: number; born: number; stun: number; x: number; z: number; th: number; honk: number };
     const bodies: Body[] = [];
     const ai: Ai[] = [];
+    // The Miners: patrol cars chasing you (own array: they drive), roadblocks (parked bodies), the 5-star helicopter.
+    type Cop = { bd: Body; bar: ReturnType<typeof buildLightBar>; phase: number; stuck: number; rev: number; wp: number; born: number };
+    const cops: Cop[] = [];
+    type Roadblock = { cars: { bd: Body; bar: ReturnType<typeof buildLightBar> }[]; born: number };
+    const roadblocks: Roadblock[] = [];
     let car: Body | null = null;
     let score = 0;
     let best = 0;
@@ -367,6 +404,20 @@ export function SatoshiCity() {
     let driftIdle = 0;
     let shake = 0;
     let isStarted = false;
+    let heat = 0; // stars = ceil(heat)
+    let lostFor = 0; // seconds out of every cop's sight
+    let reportUntil = 0; // a crime was just witnessed: the Miners know where you are
+    let bustT = 0;
+    let busted = 0;
+    let crimeCd = 0;
+    let slowmoUntil = 0;
+    let camMode: 'chase' | 'cine' = 'chase';
+    const cinePt = new THREE.Vector3();
+    let cineHas = false;
+    let radioIdx = 0;
+    let copSpawnAt = 0;
+    let rbAt = 0;
+    let bfsAt = 0;
     const inp: Input = { up: false, down: false, left: false, right: false, sprint: false, jump: false };
     const simIds = new Set<string>();
     const t0 = performance.now();
@@ -378,6 +429,15 @@ export function SatoshiCity() {
 
     const toastN = { n: 0 };
     const say = (text: string, sub = '', col = '#ffd23f') => setToast({ text, sub, n: ++toastN.n, col });
+    const starsOf = () => Math.min(5, Math.ceil(heat - 1e-6));
+    const addHeat = (n: number) => {
+      if (busted || dead) return;
+      const before = starsOf();
+      heat = Math.min(5, heat + n);
+      lostFor = 0;
+      reportUntil = performance.now() + 3500;
+      if (starsOf() > before) beep([660, 990], 'square', 0.07, 0.05, 0.12);
+    };
     const addScore = (n: number) => {
       score += n;
       if (score > best) {
@@ -396,6 +456,7 @@ export function SatoshiCity() {
     let engOsc: OscillatorNode | null = null;
     let engGain: GainNode | null = null;
     let engFilter: BiquadFilterNode | null = null;
+    let siren: ReturnType<typeof createSiren> | null = null;
     const initAudio = () => {
       if (audio) return;
       try {
@@ -412,6 +473,7 @@ export function SatoshiCity() {
         engGain.gain.value = 0;
         engOsc.connect(engFilter).connect(engGain).connect(audioOut);
         engOsc.start();
+        siren = createSiren(audio, audioOut);
       } catch {
         audio = null;
       }
@@ -434,6 +496,21 @@ export function SatoshiCity() {
       });
     };
     const horn = () => beep([392, 494], 'square', 0, 0.06, 0.35);
+    /** Your horn: same sound, and it scatters the sidewalk. */
+    const playerHorn = () => {
+      horn();
+      if (car) peds.scare(car.x, car.z, 20);
+      else peds.scare(ped.x, ped.z, 12);
+    };
+    /** R: retune the car radio (DR-style station card; VexVoid FM shows the album). */
+    const tune = (step: number) => {
+      radioIdx = (radioIdx + step + RADIO.length) % RADIO.length;
+      const st = RADIO[radioIdx];
+      setStation(st.id);
+      const sub = st.id === 'city' && chainHeight ? `block ${chainHeight.toLocaleString()} just landed · none of its transactions are yours` : st.tag;
+      setRadio({ i: radioIdx, n: ++toastN.n, sub });
+      beep([1500, 1900], 'square', 0.03, 0.025, 0.05);
+    };
 
     // ── Car helpers ──
     const fwdOf = (th: number): [number, number] => [Math.cos(th), -Math.sin(th)];
@@ -749,6 +826,8 @@ export function SatoshiCity() {
         car.b.g.remove(headLamp, headTarget);
         car = null;
         player.visible = true;
+        setStation(null);
+        setRadio(null);
         look.yaw = look.yaw + look.lookYaw;
         return;
       }
@@ -785,6 +864,8 @@ export function SatoshiCity() {
         say('OUT OF AMMO', 'load more to take a car', '#ff3b5c');
         return;
       }
+      if (pickA) addHeat(CRIME.carjack);
+      else if (cops.some((c) => Math.hypot(c.bd.x - ped.x, c.bd.z - ped.z) < 50) || heat > 0) addHeat(CRIME.steal); // stolen in front of a Miner
       if (pickA) {
         const a = pickA;
         ai.splice(ai.indexOf(a), 1);
@@ -802,6 +883,8 @@ export function SatoshiCity() {
       headTarget.position.set(car.b.len / 2 + 20, -1.5, 0);
       look.lookYaw = angDiff(Math.atan2(-Math.cos(car.th), Math.sin(car.th)), look.yaw);
       look.lookPitch = 0;
+      cineHas = false;
+      tune(0);
     };
     const skip = () => (dayT = (dayT + 0.5) % 1);
     const start = () => {
@@ -843,6 +926,20 @@ export function SatoshiCity() {
           return true;
         },
         action: () => action(),
+        heat: (n = 1) => addHeat(n),
+        // Aim the car you're in at the nearest visible pedestrian at speed v (run-over test).
+        ram: (v = 20) => {
+          const w = peds.walkers.filter((p) => p.root.visible && p.knocked <= 0).sort((p, q) => Math.hypot(p.root.position.x - ped.x, p.root.position.z - ped.z) - Math.hypot(q.root.position.x - ped.x, q.root.position.z - ped.z))[0];
+          if (!car || !w) return false;
+          const th = car.th;
+          car.x = w.root.position.x - Math.cos(th) * 12;
+          car.z = w.root.position.z + Math.sin(th) * 12;
+          car.vx = Math.cos(th) * v;
+          car.vz = -Math.sin(th) * v;
+          return true;
+        },
+        knocked: () => peds.walkers.filter((p) => p.knocked > 0).map((p) => +p.root.position.y.toFixed(2)),
+        state: () => ({ heat, stars: starsOf(), cops: cops.length, copD: cops.map((c) => Math.round(Math.hypot(c.bd.x - (car ? car.x : ped.x), c.bd.z - (car ? car.z : ped.z)))), copV: cops.map((c) => Math.round(Math.hypot(c.bd.vx, c.bd.vz))), bustT, roadblocks: roadblocks.length, heli: heli.active, lostFor, busted: !!busted, car: !!car }),
         hidePlayer: (hidden = true) => (player.visible = !hidden),
         where: () => [ped.x, ped.z, ...squareCentre()],
         // Screenshot rig: freeze the clock at dayT, put the player at (x, z) and aim the camera.
@@ -888,7 +985,7 @@ export function SatoshiCity() {
         applyQuality(q);
       },
       key: (k, down) => (inp[k] = down),
-      action: (a) => (a === 'f' ? action() : a === 'horn' ? horn() : a === 'skip' ? skip() : openTx()),
+      action: (a) => (a === 'f' ? action() : a === 'horn' ? playerHorn() : a === 'skip' ? skip() : openTx()),
       start,
     };
     const KEYMAP: Record<string, keyof Input> = {
@@ -912,7 +1009,13 @@ export function SatoshiCity() {
       }
       if (!down || e.repeat || !isStarted) return;
       if (e.code === 'KeyF' || e.code === 'KeyE') action();
-      else if (e.code === 'KeyH') horn();
+      else if (e.code === 'KeyH') playerHorn();
+      else if (e.code === 'KeyR' && car) tune(1);
+      else if (e.code === 'KeyV') {
+        camMode = camMode === 'chase' ? 'cine' : 'chase';
+        cineHas = false;
+        say(camMode === 'cine' ? 'CINEMATIC CAM' : 'CHASE CAM', camMode === 'cine' ? 'V to go back' : '', '#28e7ff');
+      }
       else if (e.code === 'KeyT') openTx();
       else if (e.code === 'KeyN') skip();
     };
@@ -955,6 +1058,18 @@ export function SatoshiCity() {
       }
       mctx.fillStyle = '#bbb';
       for (const b of bodies) mctx.fillRect(mm(b.x) - 1, mm(b.z) - 1, 2, 2);
+      const flash = Math.floor(now / 180) % 2;
+      for (const c of cops) {
+        mctx.fillStyle = flash ? '#ff1030' : '#2a6bff';
+        mctx.fillRect(mm(c.bd.x) - 3, mm(c.bd.z) - 3, 6, 6);
+      }
+      if (heli.active) {
+        mctx.strokeStyle = flash ? '#ff1030' : '#2a6bff';
+        mctx.lineWidth = 2;
+        mctx.beginPath();
+        mctx.arc(mm(heli.aim.x), mm(heli.aim.z), 7, 0, Math.PI * 2);
+        mctx.stroke();
+      }
       const dot = (x: number, z: number, col: string, r: number) => {
         mctx.beginPath();
         mctx.arc(mm(x), mm(z), r, 0, Math.PI * 2);
@@ -1263,6 +1378,114 @@ export function SatoshiCity() {
       return impact;
     };
 
+    // ── The Miners: spawning, road-graph pathing (BFS over intersections), roadblocks ──
+    const bfsD = new Int32Array(N * N);
+    const nodeOf = (x: number, z: number) => {
+      const i = THREE.MathUtils.clamp(Math.round(x / P + (N - 1) / 2), 0, N - 1);
+      const j = THREE.MathUtils.clamp(Math.round(z / P + (N - 1) / 2), 0, N - 1);
+      return i * N + j;
+    };
+    const bfs = (src: number) => {
+      bfsD.fill(1e9);
+      bfsD[src] = 0;
+      const q = [src];
+      for (let h = 0; h < q.length; h++) {
+        const u = q[h];
+        for (const e of edgesFrom[u])
+          if (bfsD[e.b] > bfsD[u] + 1) {
+            bfsD[e.b] = bfsD[u] + 1;
+            q.push(e.b);
+          }
+      }
+    };
+    const copCar = (x: number, z: number, th: number, parked: boolean) => {
+      const b = kit.build('sedan', 4.8, '#0d0f14');
+      b.g.rotation.set(0, 0, 0);
+      const box = new THREE.Box3().setFromObject(b.g);
+      const bar = buildLightBar(b.len);
+      bar.g.position.y = box.max.y - b.g.position.y + 0.02;
+      b.g.add(bar.g);
+      const bd: Body = { b, x, z, th, vx: 0, vz: 0, w: 0, f: null, health: 100, awake: !parked, parked };
+      b.g.position.set(x, groundY(x, z), z);
+      b.g.rotation.y = th;
+      scene.add(b.g);
+      return { bd, bar };
+    };
+    const dropBar = (b: Built, bar: ReturnType<typeof buildLightBar>) => {
+      b.g.remove(bar.g);
+      bar.dispose();
+    };
+    const spawnCop = (tx: number, tz: number, now: number) => {
+      for (let tries = 0; tries < 16; tries++) {
+        const e = pick(edges);
+        const s = INT + 6 + Math.random() * (P - INT * 2 - 12);
+        const [x, z] = edgePoint(e, s);
+        const d = Math.hypot(x - tx, z - tz);
+        if (d < 55 || d > 125) continue;
+        if (ai.some((a) => Math.hypot(a.x - x, a.z - z) < 7)) continue;
+        const { bd, bar } = copCar(x, z, Math.atan2(-e.dz, e.dx), false);
+        cops.push({ bd, bar, phase: Math.random(), stuck: 0, rev: 0, wp: -1, born: now });
+        return;
+      }
+    };
+    const removeCop = (c: Cop) => {
+      dropBar(c.bd.b, c.bar);
+      removeBuilt(c.bd.b);
+      cops.splice(cops.indexOf(c), 1);
+    };
+    const clearRoadblock = (r: Roadblock) => {
+      for (const { bd, bar } of r.cars) {
+        dropBar(bd.b, bar);
+        const k = bodies.indexOf(bd);
+        if (k >= 0) bodies.splice(k, 1);
+        removeBuilt(bd.b);
+      }
+      roadblocks.splice(roadblocks.indexOf(r), 1);
+    };
+    /** Two patrol cars parked across the road ~70 m ahead of you, facing your way in. */
+    const placeRoadblock = (c: Body, now: number) => {
+      const sp = Math.hypot(c.vx, c.vz);
+      if (sp < 8) return;
+      const n = nodeOf(c.x + (c.vx / sp) * 75, c.z + (c.vz / sp) * 75);
+      const [nx, nz] = nodeXZ(n);
+      let best: Edge | null = null;
+      let bestDot = 0.3;
+      for (const e of edgesFrom[n]) {
+        const dx = c.x - nx;
+        const dz = c.z - nz;
+        const dl = Math.hypot(dx, dz) || 1;
+        const dot = (e.dx * dx + e.dz * dz) / dl;
+        if (dot > bestDot) {
+          bestDot = dot;
+          best = e;
+        }
+      }
+      if (!best) return;
+      const cx = nx + best.dx * (INT + 12);
+      const cz = nz + best.dz * (INT + 12);
+      if (Math.hypot(cx - c.x, cz - c.z) < 35) return;
+      const th = Math.atan2(-best.dz, best.dx) + Math.PI / 2;
+      const cars = [-2.7, 2.7].map((o) => {
+        const k = copCar(cx - best.dz * o, cz + best.dx * o, th + (o > 0 ? 0.25 : -0.25), true);
+        bodies.push(k.bd);
+        return k;
+      });
+      roadblocks.push({ cars, born: now });
+    };
+    const bust = (now: number) => {
+      busted = now;
+      bustT = 0;
+      if (car) action();
+      setBusted({ stars: starsOf() });
+      beep([523, 392, 262], 'square', 0.16, 0.09, 0.3);
+      mission = null;
+    };
+    const coolDown = () => {
+      heat = 0;
+      lostFor = 0;
+      heli.despawn();
+    };
+
     // Frame-time watchdog: 3 s of > 30 ms frames on 'high' drops to 'low' (not saved, so a faster device can retry).
     let slowFor = 0;
     let dprSlow = 0;
@@ -1300,7 +1523,7 @@ export function SatoshiCity() {
         }
       }
       last = now;
-      const dt = dead ? realDt * 0.28 : realDt;
+      const dt = dead || busted ? realDt * 0.28 : now < slowmoUntil ? realDt * 0.3 : realDt;
       tSec += dt;
       grade.uniforms.amount.value += ((dead ? 1 : 0) - grade.uniforms.amount.value) * Math.min(1, realDt * (dead ? 5 : 3));
       grade.uniforms.time.value = now / 1000;
@@ -1395,8 +1618,8 @@ export function SatoshiCity() {
 
       // ── Traffic: spawn, despawn, drive ──
       if (kitReady && now > spawnAt) {
-        spawnAt = now + (ai.length < AI_CAP * 0.6 ? 60 : 400);
-        if (ai.length < AI_CAP) spawnAi(now, ai.length < 8);
+        spawnAt = now + (ai.length < AI_CAP[quality] * 0.6 ? 60 : 300);
+        if (ai.length < AI_CAP[quality]) spawnAi(now, ai.length < 8);
         // Keep the sample fresh: retire old cars far from you.
         const old = ai.find((a) => now - a.born > 70000 && Math.hypot(a.x - focusX, a.z - focusZ) > 110);
         if (old) {
@@ -1415,7 +1638,20 @@ export function SatoshiCity() {
       const obstacles: { x: number; z: number; r: number }[] = [];
       if (car) for (const [cx, cz] of circlesOf(car.x, car.z, car.th, car.b.len, car.b.w)) obstacles.push({ x: cx, z: cz, r: car.b.w / 2 });
       else if (!dead) obstacles.push({ x: ped.x, z: ped.z, r: 0.5 });
-      peds.update(dt, focusX, focusZ, car || dead ? null : { x: ped.x, z: ped.z }, [...(car ? [{ x: car.x, z: car.z, speed: Math.hypot(car.vx, car.vz) }] : []), ...ai.map((a) => ({ x: a.x, z: a.z, speed: a.v }))]);
+      for (const c of cops) obstacles.push({ x: c.bd.x, z: c.bd.z, r: c.bd.b.w / 2 });
+      const knocked = peds.update(dt, focusX, focusZ, car || dead ? null : { x: ped.x, z: ped.z }, [
+        ...(car ? [{ x: car.x, z: car.z, speed: Math.hypot(car.vx, car.vz), th: car.th, len: car.b.len, w: car.b.w, vx: car.vx, vz: car.vz }] : []),
+        ...cops.map((c) => ({ x: c.bd.x, z: c.bd.z, speed: Math.hypot(c.bd.vx, c.bd.vz), th: c.bd.th, len: c.bd.b.len, w: c.bd.b.w, vx: c.bd.vx, vz: c.bd.vz })),
+        ...ai.map((a) => ({ x: a.x, z: a.z, speed: a.v, th: a.th, len: a.b.len, w: a.b.w })),
+      ]);
+      if (car && knocked) {
+        addHeat(CRIME.runOver * knocked);
+        shake = Math.max(shake, 0.35);
+        const slow = Math.pow(0.9, knocked); // a body on the bonnet costs some speed
+        car.vx *= slow;
+        car.vz *= slow;
+        beep([110, 70], 'sawtooth', 0.05, 0.08, 0.15);
+      }
       for (const a of ai) {
         let vt = a.vmax;
         if (now < a.stun) vt = 0;
@@ -1523,13 +1759,31 @@ export function SatoshiCity() {
         c.z += c.vz * dt;
         let impact = bodyVsWorld(c, 0.35);
         for (const b of bodies) impact = Math.max(impact, bodyVsBody(c, b));
+        let crashed = 0;
         for (const a of ai) {
           const hit = aiVsBody(a, c);
           if (hit > 1) {
             a.stun = now + 1800;
             impact = Math.max(impact, hit);
+            crashed = Math.max(crashed, hit);
           }
         }
+        for (const cp of cops) {
+          const hit = bodyVsBody(c, cp.bd);
+          if (hit > 3) {
+            impact = Math.max(impact, hit);
+            cp.bd.health -= hit * 4;
+            if (now > crimeCd) {
+              crimeCd = now + 1500;
+              addHeat(CRIME.hitCop);
+            }
+          }
+        }
+        if (crashed > 9 && now > crimeCd) {
+          crimeCd = now + 1500;
+          addHeat(CRIME.crash);
+        }
+        if (impact > 16 && now > slowmoUntil + 2500) slowmoUntil = now + 650; // a big one: a beat of slow motion
         if (impact > 3) {
           shake = Math.min(1, impact / 18);
           {
@@ -1592,8 +1846,169 @@ export function SatoshiCity() {
         }
       }
 
+      // ── The Miners: chase, pathing, busts, roadblocks, helicopter ──
+      {
+        const stars = starsOf();
+        const chasing = stars > 0 && !busted && !dead;
+        const tx = car ? car.x : ped.x;
+        const tz = car ? car.z : ped.z;
+        const tvx = car ? car.vx : 0;
+        const tvz = car ? car.vz : 0;
+        if (kitReady && chasing && cops.length < copsFor(stars) && now > copSpawnAt) {
+          copSpawnAt = now + 1600;
+          spawnCop(tx, tz, now);
+        }
+        if (now > bfsAt) {
+          bfsAt = now + 400;
+          bfs(nodeOf(tx, tz));
+        }
+        let seen = now < reportUntil;
+        let nearest = Infinity;
+        let near = false;
+        for (const cp of [...cops]) {
+          const bd = cp.bd;
+          const dx = tx - bd.x;
+          const dz = tz - bd.z;
+          const d = Math.hypot(dx, dz);
+          nearest = Math.min(nearest, d);
+          const los = d < 80 && segmentHit(bd.x, bd.z, tx, tz, camBoxes, 0.4) >= 1;
+          if (chasing && (los || d < 30)) seen = true;
+          // where to drive: straight at you with a lead when in sight, else down the road graph toward you
+          let gx: number;
+          let gz: number;
+          if (chasing && (los || d < 14)) {
+            cp.wp = -1;
+            const lead = Math.min(1.1, d / 30);
+            gx = tx + tvx * lead;
+            gz = tz + tvz * lead;
+          } else {
+            // head for an intersection first, then hop along the shortest road path toward you
+            if (cp.wp < 0) cp.wp = nodeOf(bd.x, bd.z);
+            const [wx, wz] = nodeXZ(cp.wp);
+            if (Math.hypot(wx - bd.x, wz - bd.z) < 9) {
+              const at = cp.wp;
+              let best = at;
+              const opts = edgesFrom[at];
+              if (chasing) {
+                for (const e of opts) if (bfsD[e.b] < bfsD[best]) best = e.b;
+              } else best = pick(opts).b; // off duty: cruise
+              cp.wp = best;
+            }
+            const [gx2, gz2] = nodeXZ(cp.wp);
+            // already at your intersection with no sight line: go straight at you anyway
+            const atYours = chasing && cp.wp === nodeOf(tx, tz) && Math.hypot(gx2 - bd.x, gz2 - bd.z) < 9;
+            [gx, gz] = atYours ? [tx, tz] : [gx2, gz2];
+          }
+          // drive (the same arcade model as yours, tuned a little calmer)
+          const [fx, fz] = fwdOf(bd.th);
+          let vf = bd.vx * fx + bd.vz * fz;
+          let vl = bd.vx * -fz + bd.vz * fx;
+          let err = angDiff(bd.th, Math.atan2(-(gz - bd.z), gx - bd.x));
+          let vt = chasing ? copVmax(stars) + (d > 90 ? 10 : 0) : 12;
+          vt *= Math.abs(err) > 1.2 ? 0.4 : Math.abs(err) > 0.5 ? 0.72 : 1;
+          if (chasing && !car && d < 10) vt = Math.max(0, (d - 3.8) * 1.6); // pull up beside a suspect on foot
+          else if (chasing && car && d < 16 && Math.hypot(car.vx, car.vz) < 6) vt = Math.min(vt, Math.max(1.5, (d - 5) * 1.4)); // box in a slow suspect
+          if (cp.rev > 0) {
+            cp.rev -= dt;
+            err = -err;
+            vf = Math.max(-8, vf - 20 * dt);
+          } else if (vf < vt) vf += 17 * dt * Math.max(0.15, 1 - vf / Math.max(1, vt));
+          else vf -= Math.min(vf - vt, 26 * dt);
+          const sp = Math.abs(vf);
+          const steer = THREE.MathUtils.clamp(err * 2.2, -1, 1);
+          bd.th += (steer * 2.4 * Math.min(1, sp / 4) * Math.sign(vf || 1)) / (1 + sp / 40) * dt + bd.w * dt;
+          bd.w *= Math.exp(-6 * dt);
+          vl *= Math.exp(-7 * dt);
+          const [nfx, nfz] = fwdOf(bd.th);
+          bd.vx = nfx * vf - nfz * vl;
+          bd.vz = nfz * vf + nfx * vl;
+          bd.x += bd.vx * dt;
+          bd.z += bd.vz * dt;
+          const imp = bodyVsWorld(bd, 0.3);
+          if (imp > 10) bd.health -= (imp - 10) * 3;
+          for (const b of bodies) bodyVsBody(bd, b);
+          for (const o of cops) if (o !== cp) bodyVsBody(bd, o.bd);
+          for (const a of ai) if (aiVsBody(a, bd) > 1) a.stun = now + 1500;
+          if (cp.rev <= 0 && vt > 3 && Math.abs(vf) < 1.5) cp.stuck += dt;
+          else cp.stuck = 0;
+          if (cp.stuck > 1.1) {
+            cp.stuck = 0;
+            cp.rev = 1.1;
+          }
+          placeBody(bd);
+          if (chasing && d < (car ? 7.5 : 4.8) && Math.abs(vf) < 6) near = true;
+          // takedown: a wrecked patrol car becomes scrap you can push around (or steal)
+          if (bd.health <= 0) {
+            dropBar(bd.b, cp.bar);
+            cops.splice(cops.indexOf(cp), 1);
+            bd.awake = true;
+            bodies.push(bd);
+            addScore(250);
+            addHeat(CRIME.takedown);
+            say('TAKEDOWN', '+250 · one Miner fewer', '#ff3b5c');
+            slowmoUntil = now + 900;
+            shake = 1;
+            emit(bd.x, 1, bd.z, 40, 7, 1.8, 0.7, 0.2, 5);
+            beep([140, 90], 'sawtooth', 0.12, 0.12, 0.4);
+            continue;
+          }
+          if (!chasing && (d > 90 || now - cp.born > 40000)) removeCop(cp);
+        }
+        // busted: boxed in while stopped, or caught on foot
+        if (chasing && near && (!car || Math.hypot(car.vx, car.vz) < 3)) bustT += dt;
+        else bustT = Math.max(0, bustT - dt * 2);
+        if (chasing && bustT > (car ? 2 : 0.9)) bust(now);
+        // the helicopter at 5 stars; its searchlight counts as eyes
+        if (chasing && stars >= 5 && !heli.active) {
+          heli.spawn(tx, tz);
+          say('AIR SUPPORT', 'the Miners sent the chopper', '#ff3b5c');
+        }
+        if (heli.active && !chasing) heli.despawn();
+        heli.update(dt, now, tx, tz, night, seen);
+        if (heli.active && Math.hypot(heli.aim.x - tx, heli.aim.z - tz) < 9) seen = true;
+        // lose them: stay out of sight
+        if (chasing) {
+          if (seen) lostFor = 0;
+          else lostFor += dt;
+          if (lostFor > loseAfter(stars)) {
+            coolDown();
+            addScore(stars * 50);
+            say('LOST THEM', `+${stars * 50} · the Miners gave up`, '#3bff8a');
+            beep([523.25, 783.99, 1046.5], 'triangle', 0.09, 0.08);
+          }
+        }
+        // roadblocks from 3 stars
+        if (chasing && stars >= 3 && car && now > rbAt && roadblocks.length < 2) {
+          rbAt = now + 15000;
+          placeRoadblock(car, now);
+        }
+        for (const r of [...roadblocks]) {
+          const d = Math.min(...r.cars.map((c) => Math.hypot(c.bd.x - tx, c.bd.z - tz)));
+          if ((now - r.born > 45000 || !chasing) && d > 50) clearRoadblock(r);
+        }
+        // strobes + street spill from the nearest car's bar, siren level from the nearest cop
+        let nb: { x: number; z: number; s: number; d: number } | null = null;
+        for (const cp of cops) {
+          const st = cp.bar.update(now, cp.phase);
+          const d = Math.hypot(cp.bd.x - tx, cp.bd.z - tz);
+          if (!nb || d < nb.d) nb = { x: cp.bd.x, z: cp.bd.z, s: st, d };
+        }
+        for (const r of roadblocks)
+          for (const c of r.cars) {
+            const st = c.bar.update(now, 0.5);
+            const d = Math.hypot(c.bd.x - tx, c.bd.z - tz);
+            if (!nb || d < nb.d) nb = { x: c.bd.x, z: c.bd.z, s: st, d };
+          }
+        const li = (60 + night * 160) * (chasing ? 1 : 0);
+        copLights[0].intensity = nb && nb.s === 1 ? li : 0;
+        copLights[1].intensity = nb && nb.s === 2 ? li : 0;
+        if (nb) for (const l of copLights) l.position.set(nb.x, 2.2, nb.z);
+        siren?.set(chasing && cops.length ? THREE.MathUtils.clamp(1 - nearest / 110, 0, 1) : 0, nearest < 25);
+        if (!chasing && !busted) for (const cp of [...cops]) if (Math.hypot(cp.bd.x - tx, cp.bd.z - tz) > 60) removeCop(cp);
+      }
+
       // ── On foot ──
-      if (!car && !dead) {
+      if (!car && !dead && !busted) {
         const mfwd = (inp.up ? 1 : 0) - (inp.down ? 1 : 0);
         const mright = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
         let mx = -Math.sin(look.yaw) * mfwd + Math.cos(look.yaw) * mright;
@@ -1665,6 +2080,23 @@ export function SatoshiCity() {
           acts[k]?.setEffectiveWeight(weights[k]);
         }
         if (acts.walk) acts.walk.timeScale = Math.max(0.6, ped.speed / 3.2);
+      } else if (busted && !dead) {
+        if (now - busted > 3600) {
+          busted = 0;
+          setBusted(null);
+          coolDown();
+          for (const c of [...cops]) removeCop(c);
+          for (const r of [...roadblocks]) clearRoadblock(r);
+          ped.x = SPAWN.x;
+          ped.z = SPAWN.z;
+          ped.y = CURB_H;
+          ped.vy = 0;
+          ped.speed = 0;
+          player.position.set(ped.x, ped.y, ped.z);
+          player.rotation.set(0, Math.PI, 0);
+          look.yaw = 0;
+          placeOffers();
+        }
       } else if (dead && fling) {
         fling.vy -= 22 * dt;
         player.position.x += fling.vx * dt;
@@ -1682,6 +2114,8 @@ export function SatoshiCity() {
         }
         if (now - dead > 3600) {
           dead = 0;
+          coolDown();
+          for (const r of [...roadblocks]) clearRoadblock(r);
           fling = null;
           setWasted(null);
           ped.x = SPAWN.x;
@@ -1766,36 +2200,56 @@ export function SatoshiCity() {
       }
 
       // ── Camera ──
-      if (dead) {
-        const t = (now - dead) / 1000;
+      if (dead || busted) {
+        const t = (now - (dead || busted)) / 1000;
         const a = 0.6 + t * 0.35;
         tmpV.set(player.position.x + Math.sin(a) * 7, 3.4 + t * 0.4, player.position.z + Math.cos(a) * 7);
         camPos.lerp(tmpV, Math.min(1, realDt * 2));
         camLook.lerp(tmpV.set(player.position.x, player.position.y + 0.6, player.position.z), Math.min(1, realDt * 6));
       } else {
-        let ty: number;
-        let cx: number;
-        let cz: number;
-        let yaw: number;
-        let pitch: number;
-        let dist: number;
-        let rate: number;
+        let ty = 0;
+        let cx = 0;
+        let cz = 0;
+        let yaw = 0;
+        let pitch = 0;
+        let dist = 0;
+        let rate = 0;
         let ahead = 0;
-        if (car) {
+        if (car && camMode === 'cine') {
+          // Cinematic cam: hard cuts between low roadside spots ahead of the car, the camera panning as it passes.
+          const sp = Math.hypot(car.vx, car.vz);
+          look.yaw = Math.atan2(-Math.cos(car.th), Math.sin(car.th));
+          look.lookYaw = look.lookPitch = 0;
+          if (!cineHas || Math.hypot(cinePt.x - car.x, cinePt.z - car.z) > 42 || segmentHit(cinePt.x, cinePt.z, car.x, car.z, camBoxes, 0.2) < 1) {
+            const ux = sp > 2 ? car.vx / sp : Math.cos(car.th);
+            const uz = sp > 2 ? car.vz / sp : -Math.sin(car.th);
+            const side = Math.random() < 0.5 ? 1 : -1;
+            const fwdD = 16 + Math.min(16, sp * 0.55);
+            const c = collideCircleBoxes(car.x + ux * fwdD - uz * side * 7, car.z + uz * fwdD + ux * side * 7, 1);
+            cinePt.set(c.x, groundY(c.x, c.z) + 0.8 + Math.random() * 2.4, c.z);
+            cineHas = true;
+            camLook.set(car.x, car.b.g.position.y + 1, car.z);
+          }
+          camPos.copy(cinePt);
+          camLook.lerp(tmpV.set(car.x, car.b.g.position.y + 1, car.z), Math.min(1, realDt * 9));
+        }
+        if (car && camMode === 'cine') {
+          /* the cinematic cam placed itself above */
+        } else if (car) {
           if (now - look.lastMouse > 1500) {
             look.lookYaw *= Math.exp(-2.5 * realDt);
             look.lookPitch *= Math.exp(-2.5 * realDt);
           }
           const behind = Math.atan2(-Math.cos(car.th), Math.sin(car.th));
-          look.yaw = look.yaw + angDiff(look.yaw, behind) * Math.min(1, realDt * 4);
+          look.yaw = look.yaw + angDiff(look.yaw, behind) * Math.min(1, realDt * 3.2);
           const sp = Math.hypot(car.vx, car.vz);
           yaw = look.yaw + look.lookYaw;
-          pitch = 0.2 + look.lookPitch;
-          dist = 5 + car.b.len * 0.7 + sp * 0.07 + (look.dist - 6) * 0.5;
+          pitch = 0.2 + look.lookPitch - Math.min(0.06, sp * 0.0015);
+          dist = 5 + car.b.len * 0.7 + sp * 0.09 + (look.dist - 6) * 0.5;
           cx = car.x;
           cz = car.z;
           ty = car.b.g.position.y + 1.7;
-          rate = 8;
+          rate = 8 - Math.min(3.5, sp * 0.09); // lag grows with speed: the car pulls away, then the camera catches up
           ahead = 3;
         } else {
           yaw = look.yaw;
@@ -1806,19 +2260,22 @@ export function SatoshiCity() {
           ty = ped.y + 1.45;
           rate = 14;
         }
-        const ox = Math.sin(yaw) * Math.cos(pitch) * dist;
-        const oz = Math.cos(yaw) * Math.cos(pitch) * dist;
-        const hit = segmentHit(cx, cz, cx + ox, cz + oz, camBoxes, 0.4);
-        const k = Math.max(0.12, hit - 0.04);
-        tmpV.set(cx + ox * k, Math.max(ty + Math.sin(pitch) * dist * k, groundY(cx + ox * k, cz + oz * k) + 0.4), cz + oz * k);
-        camPos.lerp(tmpV, Math.min(1, realDt * rate));
-        if (hit < 1) camPos.lerp(tmpV, 0.6); // snap in front of walls rather than clip through
-        tmpV.set(cx - Math.sin(yaw) * ahead, ty, cz - Math.cos(yaw) * ahead);
-        camLook.lerp(tmpV, Math.min(1, realDt * rate * 1.5));
+        if (!(car && camMode === 'cine')) {
+          const ox = Math.sin(yaw) * Math.cos(pitch) * dist;
+          const oz = Math.cos(yaw) * Math.cos(pitch) * dist;
+          const hit = segmentHit(cx, cz, cx + ox, cz + oz, camBoxes, 0.4);
+          const k = Math.max(0.12, hit - 0.04);
+          tmpV.set(cx + ox * k, Math.max(ty + Math.sin(pitch) * dist * k, groundY(cx + ox * k, cz + oz * k) + 0.4), cz + oz * k);
+          camPos.lerp(tmpV, Math.min(1, realDt * rate));
+          if (hit < 1) camPos.lerp(tmpV, 0.6); // snap in front of walls rather than clip through
+          tmpV.set(cx - Math.sin(yaw) * ahead, ty, cz - Math.cos(yaw) * ahead);
+          camLook.lerp(tmpV, Math.min(1, realDt * rate * 1.5));
+        }
       }
       {
         const sp = car ? Math.hypot(car.vx, car.vz) : 0;
-        const fovT = 60 + Math.min(16, Math.max(0, sp - 8) * 0.42) + (inp.sprint && !car ? 3 : 0);
+        const fovT = camMode === 'cine' && car ? 42 : 60 + Math.min(22, Math.max(0, sp - 8) * 0.55) + (inp.sprint && !car ? 3 : 0) + (now < slowmoUntil ? -6 : 0);
+        if (car && sp > 32) shake = Math.max(shake, (sp - 32) * 0.006); // road rumble at the top end
         if (Math.abs(camera.fov - fovT) > 0.05) {
           camera.fov += (fovT - camera.fov) * Math.min(1, realDt * 3);
           camera.updateProjectionMatrix();
@@ -1931,6 +2388,9 @@ export function SatoshiCity() {
           locked,
           carLabel: car ? carSay(car.f) : '',
           feedNote: fd.status === 'live' ? `${ai.length - nSim} live txs on the road` : nSim ? 'feed offline · simulated traffic' : 'connecting…',
+          stars: starsOf(),
+          heatLost: starsOf() > 0 && lostFor > 0.6,
+          cine: camMode === 'cine' && !!car,
         };
         const key = JSON.stringify(next);
         if (key !== lastHud) {
@@ -1954,6 +2414,10 @@ export function SatoshiCity() {
       renderer.domElement.removeEventListener('pointerdown', onDown);
       renderer.domElement.removeEventListener('wheel', onWheel);
       if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
+      siren?.stop();
+      setStation(null);
+      for (const c of cops) c.bar.dispose();
+      heli.dispose();
       try {
         engOsc?.stop();
       } catch {
@@ -2052,6 +2516,15 @@ export function SatoshiCity() {
         {/* Minimap + clock */}
         <div className="pointer-events-none absolute right-3 top-3 flex flex-col items-end gap-1">
           <canvas ref={mapRef} width={200} height={200} className="h-[120px] w-[120px] rounded-full border-2 border-black/80 shadow-lg sm:h-[170px] sm:w-[170px]" />
+          {hud.stars > 0 && (
+            <div className={`flex gap-0.5 text-2xl leading-none sm:text-3xl ${hud.heatLost ? 'blink' : ''}`} title={hud.heatLost ? 'out of sight: keep hiding' : 'wanted by the Miners'}>
+              {[5, 4, 3, 2, 1].map((i) => (
+                <span key={i} style={{ color: 6 - i <= hud.stars ? '#ffffff' : 'rgba(255,255,255,0.16)', WebkitTextStroke: '1.5px #000', textShadow: 6 - i <= hud.stars ? '0 0 10px rgba(255,255,255,0.5)' : 'none' }}>
+                  ★
+                </span>
+              ))}
+            </div>
+          )}
           <div className="bg-black/60 px-2 text-lg font-bold text-hot">{hud.clock}</div>
           <div className="bg-black/60 px-2 text-[10px] text-dim">{hud.feedNote}</div>
         </div>
@@ -2097,6 +2570,96 @@ export function SatoshiCity() {
               {toast.text}
             </span>
             {toast.sub && <span className="mt-1 bg-black/70 px-3 py-0.5 text-sm font-bold text-fg">{toast.sub}</span>}
+          </div>
+        )}
+
+        {hud.cine && (
+          <>
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-[9%] bg-black" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[9%] bg-black" />
+          </>
+        )}
+
+        {/* Radio: a Designers Republic station card on every retune, then a slim now-playing strip */}
+        {hud.driving && radio && (
+          <div className="pointer-events-none absolute left-3 top-[34%] z-10 max-w-[78%] sm:top-[30%]">
+            <style>{`
+              @keyframes tbRadioIn { 0% { transform: translateX(-40px) skewX(-12deg); opacity: 0 } 12% { transform: none; opacity: 1 } 85% { opacity: 1 } 100% { opacity: 0.0 } }
+              @keyframes tbScroll { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+            `}</style>
+            <div key={radio.n} style={{ animation: 'tbRadioIn 4.2s cubic-bezier(.2,.9,.2,1) both' }}>
+              <div className="flex items-stretch">
+                <div className="flex w-10 flex-col items-center justify-center text-black" style={{ background: RADIO[radio.i].col, fontFamily: '"Arial Black", Impact, sans-serif' }}>
+                  <span className="text-[9px] leading-none">FM</span>
+                  <span className="text-xl leading-none">{String(radio.i + 1).padStart(2, '0')}</span>
+                </div>
+                <div className="bg-black/85 px-3 py-1.5" style={{ borderTop: `2px solid ${RADIO[radio.i].col}` }}>
+                  <div className="text-[9px] tracking-[0.35em] text-dim">SATOSHI CITY RADIO ▶▶ {RADIO.length} STATIONS</div>
+                  <div className="text-3xl font-black uppercase leading-none tracking-tight sm:text-4xl" style={{ fontFamily: '"Arial Black", Impact, sans-serif', color: RADIO[radio.i].col, letterSpacing: '-0.02em' }}>
+                    {RADIO[radio.i].name}
+                  </div>
+                  <div className="mt-0.5 font-mono text-[11px] text-fg">{radio.sub}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {hud.driving && radio && (
+          <div className="pointer-events-none absolute bottom-4 left-3 z-10 flex max-w-[60%] items-end gap-2 max-sm:bottom-48">
+            {RADIO[radio.i].album && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`${BMUSIC}cover.jpg`} alt="Echoes in the Abyss cover" className="h-16 w-16 border border-black/80 object-cover shadow-lg sm:h-20 sm:w-20" />
+            )}
+            <div className="overflow-hidden bg-black/75 px-2 py-1 text-[11px] leading-tight">
+              <div className="font-black tracking-widest" style={{ color: RADIO[radio.i].col }}>
+                ♪ {RADIO[radio.i].name} <span className="font-normal text-dim">· R to retune</span>
+              </div>
+              <div className="text-fg">{song || '…'}</div>
+              {RADIO[radio.i].album && (
+                <>
+                  <div className="text-dim">
+                    album: <span className="text-fg">Echoes in the Abyss</span> · VexVoid · streams on bMusic, 1 sat per second
+                  </div>
+                  {album.length > 0 && (
+                    <div className="max-w-72 overflow-hidden whitespace-nowrap text-[10px] text-dim">
+                      <div className="inline-block" style={{ animation: 'tbScroll 40s linear infinite' }}>
+                        {[...album, ...album].map((t, i) => `${(i % album.length) + 1}. ${t}`).join('   ·   ')}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {busted && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <style>{`
+              @keyframes tbBand { from { transform: scaleX(0); opacity: 0 } 40% { opacity: 1 } to { transform: scaleX(1); opacity: 1 } }
+              @keyframes tbPunch { 0% { transform: scale(2.6); opacity: 0; filter: blur(8px) } 55% { transform: scale(0.94); opacity: 1; filter: blur(0) } 75% { transform: scale(1.03) } 100% { transform: scale(1) } }
+              @keyframes tbSub { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+            `}</style>
+            <div className="relative flex w-full items-center justify-center py-5" style={{ animation: 'tbBand 0.45s ease-out 0.35s both' }}>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-black/80 to-transparent" />
+              <span
+                className="relative font-black uppercase"
+                style={{
+                  fontFamily: '"Pricedown", "Impact", "Haettenschweiler", "Arial Black", serif',
+                  fontSize: 'clamp(56px, 11vw, 132px)',
+                  letterSpacing: '0.06em',
+                  color: '#2f6dff',
+                  WebkitTextStroke: '3px #000',
+                  textShadow: '0 0 24px rgba(47,109,255,0.55), 0 6px 0 #000, 0 10px 24px rgba(0,0,0,0.9)',
+                  animation: 'tbPunch 0.7s cubic-bezier(.2,1.4,.4,1) 0.55s both',
+                }}
+              >
+                Busted
+              </span>
+            </div>
+            <div className="mt-2 bg-black/70 px-3 py-1 text-sm text-fg" style={{ animation: 'tbSub 0.4s ease-out 1.2s both' }}>
+              the Miners took you in at {busted.stars} star{busted.stars === 1 ? '' : 's'} · heat cleared
+            </div>
           </div>
         )}
 
@@ -2152,7 +2715,11 @@ export function SatoshiCity() {
               <span className="text-fg">T</span>
               <span>open the tx you&apos;re looking at</span>
               <span className="text-fg">H · N</span>
-              <span>horn · skip to day/night</span>
+              <span>horn (scatters the sidewalk) · skip to day/night</span>
+              <span className="text-fg">R · V</span>
+              <span>retune the car radio · cinematic camera</span>
+              <span className="text-fg">★ heat</span>
+              <span>crimes bring the Miners; break line of sight to lose them</span>
               <span className="text-fg">G</span>
               <span>fullscreen (Esc leaves)</span>
             </div>
