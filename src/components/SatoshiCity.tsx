@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { CutscenePlayer } from '@/components/city/CutscenePlayer';
+import { CUTSCENES } from '@/lib/city/story/cutscenes';
+import { loadProgress, markSeen } from '@/lib/city/story/progress';
+import type { Cutscene, Shot } from '@/lib/city/story/types';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createPeds } from '@/lib/city/peds';
@@ -82,7 +86,7 @@ type Hud = {
   feedNote: string;
 };
 const HUD0: Hud = { score: 0, best: 0, driving: false, speed: 0, health: 100, mission: null, prompt: '', clock: '', drift: 0, locked: false, carLabel: '', feedNote: '' };
-type Control = { setQuality: (q: CityQuality) => void; key: (k: keyof Input, down: boolean) => void; action: (a: 'f' | 'horn' | 'skip' | 'tx') => void; start: () => void };
+type Control = { cine: (s: Shot | null) => void; setQuality: (q: CityQuality) => void; key: (k: keyof Input, down: boolean) => void; action: (a: 'f' | 'horn' | 'skip' | 'tx') => void; start: () => void };
 type Input = { up: boolean; down: boolean; left: boolean; right: boolean; sprint: boolean; jump: boolean };
 
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
@@ -101,6 +105,13 @@ export function SatoshiCity() {
   const [toast, setToast] = useState<null | { text: string; sub: string; n: number; col: string }>(null);
   const [wasted, setWasted] = useState<null | { by: string; id: string; sim: boolean }>(null);
   const [started, setStarted] = useState(false);
+  const [cine, setCine] = useState<Cutscene | null>(null);
+  const onShot = (s: Shot) => control.current?.cine(s);
+  const endCine = () => {
+    if (cine) markSeen(cine.id);
+    control.current?.cine(null);
+    setCine(null);
+  };
   // Hall of fame: post this visit's score (snapshot taken when the player asks, not on every frame).
   const runStart = useRef(0);
   const [post, setPost] = useState<{ score: number; secs: number; live: boolean } | null>(null);
@@ -830,6 +841,23 @@ export function SatoshiCity() {
         },
       };
     control.current = {
+      // Cutscene camera: freeze the clock and frame a shot around Genesis Square; null hands control back.
+      cine: (s) => {
+        if (!s) {
+          freezeDay = false;
+          ped.x = SPAWN.x;
+          ped.z = SPAWN.z;
+          Object.assign(look, { yaw: 0, pitch: 0.32, dist: 6 });
+          return;
+        }
+        const [cx, cz] = squareCentre();
+        dayT = s.dayT;
+        freezeDay = true;
+        slowFor = -1e9;
+        ped.x = cx + s.x;
+        ped.z = cz + s.z;
+        Object.assign(look, { yaw: s.yaw, pitch: s.pitch ?? 0.32, dist: s.dist ?? 6 });
+      },
       setQuality: (q) => {
         saveCityQuality(q);
         slowFor = -1e9; // a player's choice beats the watchdog
@@ -2116,11 +2144,14 @@ export function SatoshiCity() {
                 setPost(null);
                 setStarted(true);
                 control.current?.start();
+                if (!loadProgress().seen.includes('prologue')) setCine(CUTSCENES.prologue);
               }}
             />
             <ActionAmmo ap={ap} actions="car stolen, block delivered and rush checkpoint" />
           </div>
         )}
+
+        {cine && <CutscenePlayer scene={cine} onShot={onShot} onDone={endCine} />}
 
         {/* Touch controls */}
         {started && (
