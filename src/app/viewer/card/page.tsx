@@ -8,6 +8,7 @@ const CARDS: { slug: string; name: string; box: CardBox }[] = [
   { slug: 'phi-phi', name: 'Phi-Phi', box: [44, 157, 922, 1164] },
   { slug: 'hikaru', name: 'Hikaru', box: [182, 351, 828, 1164] },
   { slug: 'joy', name: 'Joy', box: [236, 385, 719, 1167] },
+  { slug: 'yamarashii', name: 'Yamarashii', box: [203, 191, 758, 1165] },
   { slug: 'ayumi', name: 'Ayumi', box: [147, 337, 829, 1163] },
   { slug: 'kimiko', name: 'Kimiko', box: [279, 414, 710, 1160] },
   { slug: 'kazuyo', name: 'Kazuyo', box: [204, 242, 763, 1177] },
