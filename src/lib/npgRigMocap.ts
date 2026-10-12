@@ -27,8 +27,16 @@ const library = () =>
 
 const key = (n: string) => n.replace(/^mixamorig\d*[:_]?/, '');
 
+/**
+ * How much of the mocap's spine/hips rotation to remove (0 = full mocap, 1 = none). The live cards use the default
+ * 0.6 on both; locomotion-heavy games can keep the hips (`hipsDamp: 0`) so walks, rolls and knockdowns read.
+ */
+export type RigClipOptions = { spineDamp?: number; hipsDamp?: number };
+
 /** All clips, bound to this girl's bones. */
-export async function rigClips(model: THREE.Object3D, slug: string): Promise<THREE.AnimationClip[]> {
+export async function rigClips(model: THREE.Object3D, slug: string, opts: RigClipOptions = {}): Promise<THREE.AnimationClip[]> {
+  const spineDamp = opts.spineDamp ?? 0.6;
+  const hipsDamp = opts.hipsDamp ?? 0.6;
   const src = await library();
   const names = new Map<string, string>();
   model.traverse((o) => {
@@ -44,11 +52,13 @@ export async function rigClips(model: THREE.Object3D, slug: string): Promise<THR
       const k = t.clone();
       k.name = `${bone}${t.name.slice(dot)}`;
       // every bone rests at identity, so halving the spine's rotation keeps the big head over her body
-      if (/^(Spine\d?|Hips)$/.test(key(t.name.slice(0, dot))) && t.name.endsWith('.quaternion')) {
+      const bn = key(t.name.slice(0, dot));
+      const damp = /^Spine\d?$/.test(bn) ? spineDamp : bn === 'Hips' ? hipsDamp : 0;
+      if (damp > 0 && t.name.endsWith('.quaternion')) {
         const v = k.values;
         const q = new THREE.Quaternion();
         for (let i = 0; i < v.length; i += 4) {
-          q.fromArray(v, i).slerp(new THREE.Quaternion(), 0.6).toArray(v, i);
+          q.fromArray(v, i).slerp(new THREE.Quaternion(), damp).toArray(v, i);
         }
       }
       if (t.name.endsWith('.position')) {
