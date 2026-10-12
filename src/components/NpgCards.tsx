@@ -48,7 +48,7 @@ function heroArt(h: HeroInfo, o: { live: boolean; swing: number }) {
   const c = h.id.startsWith('3d-') ? liveCardBySlug(h.id.slice(3)) : null;
   if (!c) return null;
   const base = liveCardBase(c.slug);
-  if (o.live) return <LiveCard compact base={base} name={c.name} box={c.box} swing={o.swing} />;
+  if (o.live) return <LiveCard compact base={base} name={c.name} box={c.box} swing={o.swing} rig={c.rig} />;
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
