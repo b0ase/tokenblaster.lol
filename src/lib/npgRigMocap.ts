@@ -12,6 +12,21 @@ const HIPS_REST: Record<string, THREE.Vector3> = {
   kimiko: KIMIKO_HIPS,
   nao: new THREE.Vector3(0.0019, 0.244, 0.0327),
   miyuki: new THREE.Vector3(0.0019, 0.2236, 0.044),
+  'phi-phi': new THREE.Vector3(0.0000, 0.1850, 0.0733),
+  'hikaru': new THREE.Vector3(0.0000, 0.2300, 0.0754),
+  'yamarashii': new THREE.Vector3(0.0000, 0.2100, 0.0337),
+  'payne': new THREE.Vector3(0.0000, 0.2200, 0.1274),
+  'peggy': new THREE.Vector3(-0.0450, 0.2500, 0.0509),
+  'scarlet': new THREE.Vector3(0.0000, 0.2400, 0.0260),
+  'matoko': new THREE.Vector3(0.0000, 0.2650, 0.0763),
+  'ayumi': new THREE.Vector3(0.0000, 0.2300, -0.0126),
+  'kazuyo': new THREE.Vector3(0.0000, 0.2200, 0.0876),
+  'doctor': new THREE.Vector3(0.0000, 0.2300, 0.0975),
+  'bot': new THREE.Vector3(0.0000, 0.2500, 0.0387),
+  'tech': new THREE.Vector3(0.0000, 0.2500, 0.0334),
+  'graf-bot': new THREE.Vector3(0.0000, 0.2500, 0.0356),
+  'frog-bot': new THREE.Vector3(0.0000, 0.2500, 0.0468),
+  'stripey-bot': new THREE.Vector3(0.0000, 0.2500, 0.0696),
 };
 
 export const IDLE = 'Idle_Loop';
