@@ -13,11 +13,13 @@ import { sharedAudio } from '@/lib/sfx';
 import { GameAudio } from '@/components/SoundToggle';
 
 /** The three girls with working mocap rigs. */
-const ROSTER = ['miyuki', 'kimiko', 'nao'].map((slug) => {
-  const c = LIVE_CARDS.find((k) => k.slug === slug)!;
-  return { slug, name: c.name, stats: c.stats as Stats };
+// every card with a fixed Tripo rig (<slug>-rigged.glb); Joy and Aika stay solid-only so they sit out
+const ROSTER = LIVE_CARDS.filter((c) => c.rig && c.slug !== 'joy' && c.slug !== 'aika').map((c) => {
+  return { slug: c.slug, name: c.name, stats: c.stats as Stats };
 });
-const COLORS: Record<string, string> = { miyuki: '#ff2bd6', kimiko: '#18e8ff', nao: '#ffe100' };
+const PALETTE = ['#ff2bd6', '#18e8ff', '#ffe100', '#7dff3a', '#ff6a1a', '#b46bff'];
+const COLORS: Record<string, string> = Object.fromEntries(ROSTER.map((r, i) => [r.slug, PALETTE[i % PALETTE.length]]));
+Object.assign(COLORS, { miyuki: '#ff2bd6', kimiko: '#18e8ff', nao: '#ffe100' });
 const HEIGHT = 1.55;
 const FULL_BODY = new Set(['Death01', 'Roll', 'Hit_Knockback']);
 const STEP = 1 / 60;
@@ -327,6 +329,8 @@ export function NpgArena() {
   const mount = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const loaded = useRef(new Map<string, Loaded>());
+  const loadRef = useRef<(slug: string) => Promise<void>>(() => Promise.resolve());
+  const [waiting, setWaiting] = useState(false);
   const [screen, setScreen] = useState<Screen>('loading');
   const [progress, setProgress] = useState(0);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -361,44 +365,62 @@ export function NpgArena() {
     stageRef.current = stage;
     let disposed = false;
     const loader = new GLTFLoader();
-    const bytes = ROSTER.map(() => ({ got: 0, total: 9e6 }));
-    const tick = () => setProgress(bytes.reduce((a, b) => a + b.got, 0) / bytes.reduce((a, b) => a + b.total, 0));
+    const pending = new Map<string, Promise<void>>();
+    // ~6-10MB each: the two picked fighters load first, the rest stream in behind the select screen
+    const load = (slug: string, onBytes?: (got: number, total: number) => void) => {
+      let p = pending.get(slug);
+      if (p) return p;
+      p = loader
+        .loadAsync(`${liveCardBase(slug)}-rigged.glb`, (e) => onBytes?.(e.loaded, e.total || 9e6))
+        .then(async (gltf) => {
+          const model = gltf.scene;
+          model.updateMatrixWorld(true);
+          model.traverse((o) => {
+            const sm = o as THREE.SkinnedMesh;
+            if (sm.isSkinnedMesh) {
+              sm.skeleton.update();
+              sm.computeBoundingBox();
+            }
+          });
+          const box = new THREE.Box3().setFromObject(model);
+          const h = box.max.y - box.min.y;
+          const scale = HEIGHT / h;
+          const offset = new THREE.Vector3(-((box.min.x + box.max.x) / 2) * scale, -box.min.y * scale, -((box.min.z + box.max.z) / 2) * scale);
+          // full-body moves (falls, rolls, knockbacks) keep the mocap hips so she actually goes down
+          const [calm, free] = await Promise.all([rigClips(model, slug), rigClips(model, slug, { hipsDamp: 0, spineDamp: 0.3 })]);
+          const clips = calm.map((c) => (FULL_BODY.has(c.name) ? free.find((k) => k.name === c.name) ?? c : c));
+          const l = { gltf, clips, scale, offset };
+          loaded.current.set(slug, l);
+          if (!disposed) {
+            const url = portrait(stage.renderer, l, COLORS[slug]);
+            setPortraits((ps) => ({ ...ps, [slug]: url }));
+          }
+        });
+      p.catch(() => pending.delete(slug));
+      pending.set(slug, p);
+      return p;
+    };
+    loadRef.current = load;
+    const first = ['miyuki', 'kimiko'];
+    const bytes = first.map(() => ({ got: 0, total: 9e6 }));
     Promise.all(
-      ROSTER.map((r, i) =>
-        loader
-          .loadAsync(`${liveCardBase(r.slug)}-rigged.glb`, (e) => {
-            bytes[i].got = e.loaded;
-            if (e.total) bytes[i].total = e.total;
-            tick();
-          })
-          .then(async (gltf) => {
-            const model = gltf.scene;
-            model.updateMatrixWorld(true);
-            model.traverse((o) => {
-              const sm = o as THREE.SkinnedMesh;
-              if (sm.isSkinnedMesh) {
-                sm.skeleton.update();
-                sm.computeBoundingBox();
-              }
-            });
-            const box = new THREE.Box3().setFromObject(model);
-            const h = box.max.y - box.min.y;
-            const scale = HEIGHT / h;
-            const offset = new THREE.Vector3(-((box.min.x + box.max.x) / 2) * scale, -box.min.y * scale, -((box.min.z + box.max.z) / 2) * scale);
-            // full-body moves (falls, rolls, knockbacks) keep the mocap hips so she actually goes down
-            const [calm, free] = await Promise.all([rigClips(model, r.slug), rigClips(model, r.slug, { hipsDamp: 0, spineDamp: 0.3 })]);
-            const clips = calm.map((c) => (FULL_BODY.has(c.name) ? free.find((k) => k.name === c.name) ?? c : c));
-            loaded.current.set(r.slug, { gltf, clips, scale, offset });
-          }),
+      first.map((slug, i) =>
+        load(slug, (got, total) => {
+          bytes[i] = { got, total };
+          setProgress(bytes.reduce((a, b) => a + b.got, 0) / bytes.reduce((a, b) => a + b.total, 0));
+        }),
       ),
     )
-      .then(() => {
+      .then(async () => {
         if (disposed) return;
-        const ps: Record<string, string> = {};
-        for (const r of ROSTER) ps[r.slug] = portrait(stage.renderer, loaded.current.get(r.slug)!, COLORS[r.slug]);
-        setPortraits(ps);
         setProgress(1);
         setScreen('select');
+        // background: two at a time so a picked fighter can still jump the queue
+        const rest = ROSTER.map((r) => r.slug).filter((s) => !first.includes(s));
+        const worker = async () => {
+          for (let s = rest.shift(); s && !disposed; s = rest.shift()) await load(s).catch(() => {});
+        };
+        await Promise.all([worker(), worker()]);
       })
       .catch((e) => !disposed && setLoadErr(String(e?.message ?? e)));
 
@@ -585,6 +607,22 @@ export function NpgArena() {
     const opp = p2 ?? ROSTER[Math.floor(Math.random() * ROSTER.length)].slug;
     const ra = ROSTER.find((r) => r.slug === p1)!;
     const rb = ROSTER.find((r) => r.slug === opp)!;
+    if (!loaded.current.has(ra.slug) || !loaded.current.has(rb.slug)) {
+      // still streaming: fetch both now, then start this same matchup
+      setWaiting(true);
+      void Promise.all([loadRef.current(ra.slug), loadRef.current(rb.slug)]).then(
+        () => {
+          setWaiting(false);
+          if (p2 === null) setP2(rb.slug);
+          startRef.current();
+        },
+        (e) => {
+          setWaiting(false);
+          setLoadErr(String(e?.message ?? e));
+        },
+      );
+      return;
+    }
     if (game.current) game.current.views.forEach((v) => v.dispose(stage.scene));
     const sim = makeSim(makeFighter(ra.slug, ra.name, ra.stats, -1), makeFighter(rb.slug, rb.name, rb.stats, 1));
     const views: [FighterView, FighterView] = [new FighterView(stage.scene, loaded.current.get(ra.slug)!), new FighterView(stage.scene, loaded.current.get(rb.slug)!)];
@@ -662,7 +700,7 @@ export function NpgArena() {
               <div className="npga-title text-4xl text-white sm:text-6xl">CHOOSE YOUR FIGHTER</div>
               <div className="mt-1 text-xs tracking-[0.3em] text-white/60">CLICK = YOU · SHIFT-CLICK OR RIGHT-CLICK = OPPONENT</div>
             </div>
-            <div className="mx-auto mt-4 grid max-w-[880px] grid-cols-3 gap-2 sm:gap-5">
+            <div className="mx-auto mt-4 grid max-w-[1100px] grid-cols-4 gap-1.5 sm:grid-cols-6 sm:gap-3">
               {ROSTER.map((r) => {
                 const you = p1 === r.slug, them = p2 === r.slug;
                 return (
@@ -678,9 +716,11 @@ export function NpgArena() {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={`${liveCardBase(r.slug)}-card-bg.webp`} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                    {portraits[r.slug] && (
+                    {portraits[r.slug] ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={portraits[r.slug]} alt={r.name} className="absolute left-[8%] top-[17%] h-[66%] w-[84%] object-cover object-top" />
+                    ) : (
+                      <div className="npga-name absolute inset-x-0 top-[42%] text-center text-[10px] text-white/70 sm:text-sm">{r.name.toUpperCase()}<div className="mt-1 animate-pulse text-[8px] tracking-widest text-white/40">LOADING</div></div>
                     )}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={`${liveCardBase(r.slug)}-card-frame.webp`} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
@@ -694,14 +734,14 @@ export function NpgArena() {
               })}
             </div>
             <div className="mx-auto mt-4 flex max-w-[880px] flex-wrap items-center justify-center gap-2 text-sm">
-              <Seg label="OPPONENT" value={p2 ?? 'random'} options={[...ROSTER.map((r) => [r.slug, r.name.toUpperCase()] as const), ['random', 'RANDOM'] as const]} onChange={(v) => setP2(v === 'random' ? null : v)} />
+              <Seg label="OPPONENT" value={p2 === null ? 'random' : 'picked'} options={[['picked', p2 ? nameOf(p2).toUpperCase() : 'PICK'], ['random', 'RANDOM']]} onChange={(v) => setP2(v === 'random' ? null : p2 ?? 'kimiko')} />
               <Seg label="MODE" value={mode} options={[['cpu', 'VS CPU'], ['2p', '2P LOCAL']]} onChange={(v) => setMode(v as Mode)} />
  <Seg label="STAGE" value={arena} options={[['rooftop', 'ROOFTOP'], ['dojo', 'DOJO'], ['random', 'RANDOM']]} onChange={(v) => setArena(v as StageKind | 'random')} />
               {mode === 'cpu' && <Seg label="CPU" value={diff} options={[['easy', 'EASY'], ['normal', 'NORMAL'], ['hard', 'HARD']]} onChange={(v) => setDiff(v as Difficulty)} />}
             </div>
             <div className="mt-4 text-center">
-              <button type="button" onClick={startFight} className="npga-go px-10 py-3 text-2xl sm:text-3xl">
-                FIGHT
+              <button type="button" onClick={startFight} disabled={waiting} className="npga-go px-10 py-3 text-2xl sm:text-3xl">
+                {waiting ? 'LOADING…' : 'FIGHT'}
               </button>
             </div>
             <Controls mode={mode} />
