@@ -5,6 +5,10 @@ competitions are meant to be joined from bWallet's chat rooms and Market.
 
 - `/`: the live "highway": every car is a real transaction from a GorillaPool JungleBus subscription
   (`NEXT_PUBLIC_JUNGLEBUS_SUBSCRIPTION_ID`, Output types `pubkeyhash`), laned by type
+- `/` hero: the live-chain footage mix (`src/components/landing`): a deck of practice-mode gameplay clips
+  (`public/landing/clips`, recorded headless by `node scripts/landing-clips.mjs` against a running `next dev`) cut
+  to the mainnet pulse: tx rate sets the cut rhythm, big moves / tokens / blasts slam DR stickers, new blocks take
+  over the frame; stat flashes, void drops, soft mono. Reduced motion = still frame.
 - `/blast`: the gun app. Connect bWallet (BRC-100 `window.CWI`), pick a BSV-21 token (GorillaPool), load a
   pack (one approval funds an in-tab gun key), fire: each blast is broadcast to GorillaPool ARC and
   "landed" counts the ones seen back on the JungleBus feed. Unload returns leftover sats.

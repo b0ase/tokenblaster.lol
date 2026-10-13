@@ -3,7 +3,8 @@ import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
 import { Barcode, Pictogram } from '@/components/dr';
 import { SectionHead } from '@/components/dr/site';
-import { HeroShowcase } from '@/components/HeroShowcase';
+import { IntenseHero } from '@/components/landing/IntenseHero';
+import { LANDING_CLIPS } from '@/components/landing/clips';
 import { HeroSound } from '@/components/HeroSound';
 import { ArcadeGrid } from '@/components/ArcadeGrid';
 import { HeroLive } from '@/components/HeroLive';
@@ -25,40 +26,12 @@ const STACK = [
 export default function Home() {
   return (
     <main className="flex w-full flex-col">
-      {/* Hero: full viewport below the sticky nav, edge to edge, gameplay video behind, text + corner UI overlaid */}
+      {/* Hero: full viewport below the sticky nav, edge to edge; the live-chain footage mix behind, copy + corner UI overlaid (src/components/landing) */}
       <header className="dr-hero dr-rise">
-        <HeroShowcase />
-        {/* directional scrims: dark on the text side, clear on the art side; no flat wash */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-[90%] bg-[linear-gradient(to_top,var(--panel)_10%,color-mix(in_srgb,var(--panel)_82%,transparent)_50%,transparent)] lg:hidden" aria-hidden />
-        <div className="pointer-events-none absolute inset-0 z-[5] hidden bg-[linear-gradient(90deg,var(--panel)_0%,color-mix(in_srgb,var(--panel)_88%,transparent)_28%,color-mix(in_srgb,var(--panel)_40%,transparent)_52%,transparent_74%)] lg:block" aria-hidden />
-        <div className="relative z-10 flex flex-1 items-end px-4 pb-20 pt-[150px] sm:px-8 lg:items-center lg:px-12 lg:pb-20 lg:pt-8">
-          <div className="min-w-0 lg:max-w-[56%]">
-            <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span className="dr-code !text-[var(--accent)]">TB-001 / LIVE ON MAINNET</span>
-              <span className="dr-code">TokenBlaster.lol</span>
-              <span className="dr-kana text-[11px] text-[var(--muted)]" aria-hidden>
-                トークン発射
-              </span>
-            </div>
-            <h1 className="dr-display dr-mega dr-skew text-hot [text-shadow:0_2px_0_var(--panel),0_0_18px_var(--panel)]">
-              <span className="dr-line" style={{ ['--d' as string]: '0.05s' }}>
-                Load your
-              </span>
-              <span className="dr-line" style={{ ['--d' as string]: '0.2s' }}>
-                tokens<span className="text-[var(--accent)]">.</span>
-              </span>
-              <span className="dr-line" style={{ ['--d' as string]: '0.35s' }}>
-                Blast the
-              </span>
-              <span className="dr-line" style={{ ['--d' as string]: '0.5s' }}>
-                chain<span className="text-[var(--accent)]">.</span>
-              </span>
-            </h1>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="dr-sticker text-base sm:text-xl">Every bullet = 1 real BSV tx</span>
-              <span className="dr-sticker dr-sticker-red text-xs sm:text-sm">No fake coins</span>
-            </div>
-            <div className="mt-4"><HeroSound /></div>
+        <IntenseHero
+          clips={LANDING_CLIPS}
+          sound={<HeroSound />}
+          cta={
             <div className="flex flex-wrap items-center gap-3 sm:gap-4">
               <Link href="/blast" className="btn-fire inline-flex items-center justify-center !text-xl sm:!text-2xl">
                 Blast now &raquo;
@@ -74,16 +47,16 @@ export default function Home() {
               </Link>
               <GitHubLink />
             </div>
-          </div>
-        </div>
-        <div className="pointer-events-none absolute inset-x-0 bottom-9 z-10 flex justify-center" aria-hidden>
-          <span className="dr-scroll dr-code !text-[var(--text)]">
-            scroll<span className="dr-scroll-arrow">▼</span>
-          </span>
-        </div>
-        <div className="absolute inset-x-0 bottom-0 z-10">
-          <HeroLive />
-        </div>
+          }
+          scroll={
+            <div className="pointer-events-none absolute inset-x-0 bottom-16 z-10 flex justify-center" aria-hidden>
+              <span className="dr-scroll dr-code !text-[var(--text)]">
+                scroll<span className="dr-scroll-arrow">▼</span>
+              </span>
+            </div>
+          }
+          strip={<HeroLive />}
+        />
       </header>
 
       <div className="dr-chev dr-chev-march !h-[16px]" aria-hidden />
