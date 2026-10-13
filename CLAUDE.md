@@ -8,3 +8,4 @@ competition (TeraGun / TXBlaster style). See README.md for routes and the roadma
 - pnpm only. Next.js 16 App Router, Tailwind 4, @bsv/sdk.
 - Never put private keys in code or committed files. The blaster reads BLASTER_WIF from the environment.
 - Fees are normal: this is BSV, every action is a real transaction and the player pays its network fee. Games may charge per action (e.g. Chain Frogger: 1 sat per hop/shot to the house address in NEXT_PUBLIC_TB_HOUSE_ADDRESS). Not an App Store app; don't add "free entry / no fees / bragging rights" wording.
+- Type-check with `pnpm typecheck` (runs `next typegen` first). A bare `tsc --noEmit` in a fresh worktree reports PageProps/LayoutProps/RouteContext as missing: those are Next's generated route types, not code errors.
