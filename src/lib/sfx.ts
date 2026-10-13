@@ -612,7 +612,8 @@ export const STATIONS: { id: Track; name: string }[] = [
   { id: 'city', name: 'City' },
 ];
 let station: Track | null = null; // player's pick; null = the game's own soundtrack
-const playlist = () => PLAYLISTS[station ?? wantTrack ?? 'doubleo'];
+// Default station = the NPG-X punk set (owner, 2026-10-13: VexVoid's downbeat spy set isn't TokenBlaster; it stays Double-O's own).
+const playlist = () => PLAYLISTS[station ?? wantTrack ?? 'arena'];
 export const getStation = () => station ?? wantTrack;
 export const getPlaylist = () => (wantTrack ? playlist() : []);
 
