@@ -7,7 +7,7 @@
  * and returns that coin's txid (record it with the run). Render `chooserEl` once (wallet picker).
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { COINOP_HOUSE, COIN_PENCE, coinSats, insertCoin, isCancel, LIVES_PER_CREDIT } from '@/lib/coinop';
+import { COINOP_HOUSE, COIN_PENCE, coinSats, insertCoin, isCancel, LIVES_PER_CREDIT, penceToSats } from '@/lib/coinop';
 import type { WalletInterface } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
 import { WalletChooser } from './WalletChooser';
@@ -46,7 +46,8 @@ const subscribe = (f: () => void) => {
 };
 let coinN = 0;
 
-export function useCoinOp(game: string, tag: string) {
+/** `pence`: this game's coin (default 10p; NPG Arena's Penny Battles use 1p). */
+export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE) {
   const count = useSyncExternalStore(subscribe, () => credits.get(tag)?.length ?? 0, () => 0);
   const [rate, setRate] = useState<number | null>(null);
   const [rateErr, setRateErr] = useState(false);
@@ -75,7 +76,7 @@ export function useCoinOp(game: string, tag: string) {
     };
   }, []);
 
-  const sats = coinSats(rate);
+  const sats = pence === COIN_PENCE ? coinSats(rate) : penceToSats(pence, rate);
 
   const payWith = useCallback(
     async (client: WalletInterface) => {
@@ -83,7 +84,7 @@ export function useCoinOp(game: string, tag: string) {
       setPaying(true);
       setMsg(null);
       try {
-        const txid = await insertCoin(client, { game, tag, sats, n: ++coinN });
+        const txid = await insertCoin(client, { game, tag, sats, n: ++coinN, pence });
         credits.set(tag, [...(credits.get(tag) ?? []), txid]);
         emit();
         setMsg({ ok: true, text: `Coin accepted (${sats.toLocaleString('en-GB')} sats).`, txid });
@@ -98,7 +99,7 @@ export function useCoinOp(game: string, tag: string) {
         setPaying(false);
       }
     },
-    [sats, game, tag],
+    [sats, game, tag, pence],
   );
 
   const insert = useCallback(async () => {
@@ -150,7 +151,7 @@ export function useCoinOp(game: string, tag: string) {
     return txid;
   }, [tag]);
 
-  return { credits: count, sats, rateErr, paying, msg, walletErr: null as string | null, insert, playPaid, consume, chooserEl, enabled: Boolean(COINOP_HOUSE) };
+  return { credits: count, sats, pence, rateErr, paying, msg, walletErr: null as string | null, insert, playPaid, consume, chooserEl, enabled: Boolean(COINOP_HOUSE) };
 }
 
 export type CoinOp = ReturnType<typeof useCoinOp>;
@@ -168,7 +169,7 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }
       : co.credits > 0 && start
         ? `▶ ${playLabel} · 1 CREDIT (${co.credits} left)`
         : co.sats
-          ? `🪙 ${start ? `${playLabel} · ` : 'INSERT COIN · '}${COIN_PENCE}p (${co.sats.toLocaleString('en-GB')} sats)`
+          ? `🪙 ${start ? `${playLabel} · ` : 'INSERT COIN · '}${co.pence}p (${co.sats.toLocaleString('en-GB')} sats)`
           : co.rateErr
             ? 'PRICE UNAVAILABLE'
             : 'PRICING…';

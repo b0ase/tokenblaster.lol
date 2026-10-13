@@ -36,20 +36,21 @@ export function penceToSats(pence: number, bsvGbp: number | null | undefined): n
 export const coinSats = (bsvGbp: number | null | undefined) => penceToSats(COIN_PENCE, bsvGbp);
 
 /** The coin's description, in plain English with the exact amount (shown in the wallet prompt). */
-export const coinDescription = (game: string, sats: number) => `Insert coin: 1 credit for ${game} (10p = ${sats.toLocaleString('en-GB')} sats to TokenBlaster)`;
+export const coinDescription = (game: string, sats: number, pence = COIN_PENCE) => `Insert coin: 1 credit for ${game} (${pence}p = ${sats.toLocaleString('en-GB')} sats to TokenBlaster)`;
 
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
 
 /** Pay one coin. Returns the txid. Throws plain errors (cancelled, no house address, wallet failure). */
-export async function insertCoin(client: WalletInterface, o: { game: string; tag: string; sats: number; n: number; house?: string }): Promise<string> {
+export async function insertCoin(client: WalletInterface, o: { game: string; tag: string; sats: number; n: number; house?: string; pence?: number }): Promise<string> {
   const house = o.house ?? COINOP_HOUSE;
   if (!house) throw new Error('The coin slot is closed: no house address is set.');
   if (!Number.isInteger(o.sats) || o.sats < MIN_COIN_SATS || o.sats > MAX_COIN_SATS) throw new Error('Bad coin price.');
-  const description = coinDescription(o.game, o.sats);
+  const pence = o.pence ?? COIN_PENCE;
+  const description = coinDescription(o.game, o.sats, pence);
   const r = await client.createAction({
     description: description.slice(0, 2000),
     outputs: [
-      { lockingScript: new P2PKH().lock(house).toHex(), satoshis: o.sats, outputDescription: `Coin: 10p (${o.sats} sats)` },
+      { lockingScript: new P2PKH().lock(house).toHex(), satoshis: o.sats, outputDescription: `Coin: ${pence}p (${o.sats} sats)` },
       {
         lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${['tokenblaster.lol', 'coinop', String(o.n), o.tag].map(hex).join(' ')}`).toHex(),
         satoshis: 0,

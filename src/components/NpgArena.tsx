@@ -11,6 +11,7 @@ import { makeFighter, makeSim, rematch, step, NO_INPUT, type Fighter, type Input
 import { cpuInput, makeBrain, type Brain, type Difficulty } from '@/lib/npgArena/ai';
 import { sharedAudio } from '@/lib/sfx';
 import { GameAudio } from '@/components/SoundToggle';
+import { useCoinOp } from '@/components/InsertCoin';
 
 /** The three girls with working mocap rigs. */
 // the rigged NPG girls (<slug>-rigged.glb); Joy has no rig, and the owner keeps Doctor, Matoko and the Erobots out
@@ -18,6 +19,13 @@ const OUT = new Set(['joy', 'doctor', 'matoko', 'bot', 'tech', 'graf-bot', 'frog
 const ROSTER = LIVE_CARDS.filter((c) => c.rig && !OUT.has(c.slug)).map((c) => {
   return { slug: c.slug, name: c.name, stats: c.stats as Stats };
 });
+/**
+ * Penny Battles: 1p coins are energy. Practice is one bar each; every coin you put in before the fight is one more
+ * bar for the match (your opponent gets the same, so it's a bigger fight, not a bought win), and mid-fight a coin
+ * tops YOU up by a bar. Coins go to the house pot (prizes from the pot come later; no payouts yet).
+ */
+const COIN_P = 1;
+const MAX_BARS = 5;
 const PALETTE = ['#ff2bd6', '#18e8ff', '#ffe100', '#7dff3a', '#ff6a1a', '#b46bff'];
 const COLORS: Record<string, string> = Object.fromEntries(ROSTER.map((r, i) => [r.slug, PALETTE[i % PALETTE.length]]));
 Object.assign(COLORS, { miyuki: '#ff2bd6', kimiko: '#18e8ff', nao: '#ffe100' });
@@ -336,6 +344,10 @@ export function NpgArena() {
   const loaded = useRef(new Map<string, Loaded>());
   const loadRef = useRef<(slug: string) => Promise<void>>(() => Promise.resolve());
   const [waiting, setWaiting] = useState(false);
+  const co = useCoinOp('NPG Arena', 'npg-arena', COIN_P);
+  const [energy, setEnergy] = useState<[number, number]>([1, 1]);
+  const [pot, setPot] = useState(0);
+  const baseHp = useRef<[number, number]>([0, 0]);
   const [screen, setScreen] = useState<Screen>('loading');
   const [progress, setProgress] = useState(0);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -630,6 +642,14 @@ export function NpgArena() {
     }
     if (game.current) game.current.views.forEach((v) => v.dispose(stage.scene));
     const sim = makeSim(makeFighter(ra.slug, ra.name, ra.stats, -1), makeFighter(rb.slug, rb.name, rb.stats, 1));
+    // energy: 1 bar free, +1 per coin in the slot (both fighters get the same number of bars)
+    let paid = 0;
+    while (paid < MAX_BARS - 1 && co.consume()) paid++;
+    const n = 1 + paid;
+    baseHp.current = [sim.f[0].maxHp, sim.f[1].maxHp];
+    for (const f of sim.f) f.hp = f.maxHp = f.maxHp * n;
+    setEnergy([n, n]);
+    setPot(paid);
     const views: [FighterView, FighterView] = [new FighterView(stage.scene, loaded.current.get(ra.slug)!), new FighterView(stage.scene, loaded.current.get(rb.slug)!)];
     // solid bodies: the sim's collision capsules come from each girl's measured mesh
     sim.f[0].rad = views[0].rad;
@@ -639,7 +659,7 @@ export function NpgArena() {
     keys.current.clear();
     setFighters([ra.slug, rb.slug]);
     setScreen('fight');
-  }, [p1, p2, mode, diff, arena]);
+  }, [p1, p2, mode, diff, arena, co]);
   // re-entry after a stage load (startKind keeps a RANDOM roll from re-rolling)
   useEffect(() => {
     startRef.current = startFight;
@@ -675,11 +695,25 @@ export function NpgArena() {
     return () => window.removeEventListener('keydown', k);
   }, [screen, again, toSelect]);
 
+  // mid-fight: the coin lands (or a spare credit is used) and P1 gets one more bar, straight away
+  const topUp = useCallback(() => {
+    co.playPaid(() => {
+      const g = game.current;
+      if (!g || !co.consume()) return;
+      const f = g.sim.f[0];
+      f.maxHp += baseHp.current[0];
+      f.hp += baseHp.current[0];
+      setEnergy(([x, y]) => [x + 1, y]);
+      setPot((v) => v + 1);
+    });
+  }, [co]);
+
   const nameOf = (slug: string) => ROSTER.find((r) => r.slug === slug)?.name ?? slug;
 
   return (
     <section className="panel game-root">
       <style>{CSS}</style>
+      {co.chooserEl}
       <div className="game-stage relative w-full overflow-hidden bg-black" style={{ height: 'min(78vh, 760px)', minHeight: 420 }}>
         <div ref={mount} className="absolute inset-0" />
 
@@ -744,6 +778,23 @@ export function NpgArena() {
  <Seg label="STAGE" value={arena} options={[['rooftop', 'ROOFTOP'], ['dojo', 'DOJO'], ['random', 'RANDOM']]} onChange={(v) => setArena(v as StageKind | 'random')} />
               {mode === 'cpu' && <Seg label="CPU" value={diff} options={[['easy', 'EASY'], ['normal', 'NORMAL'], ['hard', 'HARD']]} onChange={(v) => setDiff(v as Difficulty)} />}
             </div>
+            <div className="npga-energy mx-auto mt-4 max-w-[880px] p-3 text-center">
+              <div className="npga-name text-lg text-white sm:text-2xl">
+                PENNY BATTLE · ENERGY {'▮'.repeat(Math.min(MAX_BARS, 1 + co.credits))}
+                <span className="text-white/25">{'▮'.repeat(Math.max(0, MAX_BARS - 1 - co.credits))}</span>
+              </div>
+              <div className="mt-1 text-[11px] text-white/70">
+                One bar free. Each {COIN_P}p coin is one more energy bar for the match (up to {MAX_BARS}); your opponent fights with the same. Mid-fight, a coin tops you up. Coins go to the house pot, plus the network fee. No payouts yet.
+              </div>
+              {co.enabled ? (
+                <button type="button" onClick={() => void co.insert()} disabled={co.paying || !co.sats || co.credits >= MAX_BARS - 1} className="npga-seg mt-2 px-4 py-1 text-sm">
+                  {co.paying ? 'WAITING FOR WALLET…' : co.sats ? `🪙 +1 BAR · ${COIN_P}p (${co.sats.toLocaleString('en-GB')} sats)` : 'PRICE LOADING…'}
+                </button>
+              ) : (
+                <div className="mt-2 text-[11px] text-white/50">Paid energy is off here (no house address set). Practice is free.</div>
+              )}
+              {co.msg && <div className={`mt-1 text-[11px] ${co.msg.ok ? 'text-[#7dff3a]' : 'text-[#ff6a1a]'}`}>{co.msg.text}</div>}
+            </div>
             <div className="mt-4 text-center">
               <button type="button" onClick={startFight} disabled={waiting} className="npga-go px-10 py-3 text-2xl sm:text-3xl">
                 {waiting ? 'LOADING…' : 'FIGHT'}
@@ -775,6 +826,12 @@ export function NpgArena() {
                       <div className={`mt-1 flex items-center gap-2 ${flip ? 'flex-row-reverse' : ''}`}>
                         <span className="npga-name text-base text-white sm:text-2xl">{nameOf(slug).toUpperCase()}</span>
                         <span className="text-[10px] tracking-widest text-white/60">{i === 0 ? 'P1' : mode === 'cpu' ? `CPU · ${diff.toUpperCase()}` : 'P2'}</span>
+                        {energy[i] > 1 && <span className="npga-name text-xs text-[#ffe100] sm:text-base">×{energy[i]}</span>}
+                        {i === 0 && co.enabled && hud.phase === 'fight' && (
+                          <button type="button" onClick={topUp} disabled={co.paying || !co.sats || energy[0] >= MAX_BARS + 2} className="npga-seg pointer-events-auto px-2 text-[10px] sm:text-xs">
+                            {co.paying ? '…' : `+${COIN_P}p`}
+                          </button>
+                        )}
                         <span className={`flex gap-1 ${flip ? 'mr-auto flex-row-reverse' : 'ml-auto'}`}>
                           {[0, 1].map((k) => (
                             <span key={k} className={`npga-pip ${hud.wins[i] > k ? 'npga-pip-on' : ''}`} />
@@ -788,6 +845,7 @@ export function NpgArena() {
               <div className="order-2 flex shrink-0 flex-col items-center">
                 <div className={`npga-timer text-3xl sm:text-5xl ${hud.timer <= 10 && hud.phase === 'fight' ? 'text-[#ff2bd6]' : 'text-white'}`}>{hud.timer}</div>
                 <div className="text-[10px] tracking-[0.3em] text-white/60">ROUND {hud.round}</div>
+                {pot > 0 && <div className="text-[10px] tracking-[0.2em] text-[#ffe100]">POT {pot}p</div>}
               </div>
             </div>
 
@@ -909,6 +967,7 @@ const CSS = `
 .npga-port { border: 3px solid; background: radial-gradient(circle at 50% 30%, #3a1840, #08040c); transform: skewX(-8deg); }
 .npga-bar { background: #000a; border: 2px solid #fff; transform: skewX(-24deg); box-shadow: 0 0 0 2px #000, 0 0 14px #ff2bd655; overflow: hidden; }
 .npga-bar-r { transform: skewX(24deg); }
+.npga-energy { border: 1px solid #ffe10066; background: linear-gradient(90deg, #ff2bd61a, #0009, #18e8ff1a); transform: skewX(-6deg); }
 .npga-name { font-family: var(--font-display); font-weight: 900; font-style: italic; text-shadow: 2px 2px 0 #000; }
 .npga-pip { width: 12px; height: 12px; border: 2px solid #fff; transform: rotate(45deg); background: #0008; display: inline-block; }
 .npga-pip-on { background: #ffe100; box-shadow: 0 0 10px #ffe100; }
