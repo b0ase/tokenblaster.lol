@@ -96,7 +96,7 @@ export const ITEM_NAME: Record<Item, string> = { shuriken: 'SHURIKEN', smoke: 'S
 export function ResultCard({ slug, name, face, place, stats, width = 220, tag }: { slug: string; name: string; face: string | null; place: string; stats: [string, string][]; width?: number; tag: 'NPG' | 'EROBOT' }) {
   return (
     <div className="relative shrink-0 overflow-hidden" style={{ width, aspectRatio: '961 / 1441', border: `3px solid ${NPG.ink}`, boxShadow: `8px 8px 0 ${NPG.ink}`, background: `#1a0630 url(/npg/cards/${slug}-card-bg.webp) center / cover` }}>
-      {face && <div className="absolute inset-x-[10%] top-[9%] h-[52%]" style={{ background: `url(${face}) center top / cover` }} />}
+      {face && <div className="absolute inset-x-[10%] top-[12%] h-[46%]" style={{ background: `url(${face}) center 20% / cover` }} />}
       <div className="absolute inset-0" style={{ background: `url(/npg/cards/${slug}-card-frame.webp) center / cover` }} />
       <div className="absolute left-[6%] top-[4%] rotate-[-6deg]" style={{ ...cardBox, fontSize: width * 0.1, padding: '2px 10px', background: tag === 'NPG' ? '#fff' : NPG.ink, color: tag === 'NPG' ? NPG.ink : '#fff', fontStyle: 'italic', fontWeight: 900, fontFamily: 'Impact, "Arial Black", sans-serif' }}>
         {tag}
@@ -106,11 +106,11 @@ export function ResultCard({ slug, name, face, place, stats, width = 220, tag }:
       </div>
       <div className="absolute inset-x-[5%] bottom-[5%] grid gap-1">
         <CardBox style={{ fontSize: width * 0.085, justifyContent: 'flex-start' }}>{name}</CardBox>
-        <div className="grid grid-cols-2 gap-1">
+        <div className="grid gap-1">
           {stats.map(([k, v]) => (
-            <span key={k} className="grid gap-0.5" style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
-              <CardBox style={{ fontSize: width * 0.045, justifyContent: 'flex-start', padding: '1px 5px', overflow: 'hidden' }}>{k}</CardBox>
-              <CardBox style={{ fontSize: width * 0.055, padding: '1px 5px', minWidth: '2.2em' }}>{v}</CardBox>
+            <span key={k} className="grid gap-1" style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}>
+              <CardBox style={{ fontSize: width * 0.05, justifyContent: 'flex-start', padding: '1px 6px', overflow: 'hidden' }}>{k}</CardBox>
+              <CardBox style={{ fontSize: width * 0.06, padding: '1px 6px', minWidth: '3em' }}>{v}</CardBox>
             </span>
           ))}
         </div>

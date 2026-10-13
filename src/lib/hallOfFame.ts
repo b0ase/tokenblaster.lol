@@ -49,7 +49,7 @@ export const CABINETS: Cabinet[] = [
   { id: 'bubbo', title: 'Coin Pop', href: '/arcade/bubbo-bubbo', img: '/arcade/bubbo-bubbo.jpg', tags: ['bubbo'], unit: 'pts' },
   { id: 'potions', title: 'Token Potions', href: '/arcade/puzzling-potions', img: '/arcade/puzzling-potions.jpg', tags: ['potions'], unit: 'pts' },
   { id: 'bracer', title: 'bRacer', href: '/arcade/bracer', img: '/arcade/bracer.jpg', tags: ['bracer', 'bracer-hc'], unit: 'pts' },
-  { id: 'npgracing', title: 'NPG Racing', href: '/arcade/npg-racing', img: '/arcade/npg.jpg', tags: ['npgracing', 'npgracing-hc'], unit: 'pts' },
+  { id: 'npgracing', title: 'NPG Racing', href: '/arcade/npg-racing', img: '/arcade/npg-racing.jpg', tags: ['npgracing', 'npgracing-hc'], unit: 'pts' },
 ];
 
 export const boardsOf = (c: Cabinet): ScoreGame[] => (Object.keys(SCORE_GAMES) as ScoreGame[]).filter((g) => c.tags.includes(SCORE_GAMES[g].tag));

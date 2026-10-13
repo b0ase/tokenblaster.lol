@@ -547,7 +547,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   }
 
   // Grandstand at the start line and the pit block beside the pit lane, each on a megastructure tower.
-  const towerMat = own(WINDOW_MAT(0.5));
+  const towerMat = npg ? own(toonMat({ color: '#b9a4ff' })) : own(WINDOW_MAT(0.5));
   const tower = (s: number, lat: number, w: number, d: number, topH: number) => {
     frameAt(tr, s, fm);
     const x = fm.px + fm.rx * lat;

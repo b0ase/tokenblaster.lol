@@ -7,7 +7,7 @@ import { npgRacingScoreGame, TRACK_LIST } from '@/lib/hyper/content';
 const BOARDS = [false, true].flatMap((hc) => TRACK_LIST.map((t) => ({ game: npgRacingScoreGame(t.id, hc), title: `${t.name.toUpperCase()}${hc ? ' HARDCORE' : ''}` })));
 
 const description = 'Ninja Punk Girls vs the Erobots: fat toon anti-gravity karts, NPG girls in the cockpit, and every Erobot rival is a live BSV transaction.';
-const SHARE = { url: '/arcade/npg.jpg', alt: 'Ninja Punk Girls' };
+const SHARE = { url: '/arcade/npg-racing.jpg', width: 1200, height: 630, alt: 'NPG Racing on TokenBlaster.lol: a Ninja Punk Girl power-sliding a fat toon kart through a pink checker-kerb corner at sunset, card-style HUD' };
 
 export const metadata = {
   title: 'NPG Racing · TokenBlaster.lol',

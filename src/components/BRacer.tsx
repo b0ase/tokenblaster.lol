@@ -736,7 +736,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
           {/* Live order */}
           <div className="absolute left-3 top-24 hidden w-36 flex-col gap-0.5 sm:flex">
             {board.slice(0, 8).map((r, i) => (
-              <div key={`${r.name}${i}`} className="flex items-center gap-1 px-1 py-0.5 text-xs" style={{ ...hudFont, background: r.me ? DR.colour.signal : 'rgba(0,0,0,0.6)', color: '#fff' }}>
+              <div key={`${r.name}${i}`} className="flex items-center gap-1 px-1 py-0.5 text-xs" style={npg ? { fontFamily: LOGO_FAMILY, fontSize: 10, background: r.me ? NPG.pink : '#0a0a0c', color: '#fff', border: '2px solid #fff', borderRadius: 5, boxShadow: '0 0 0 2px #0a0a0c', marginBottom: 2 } : { ...hudFont, background: r.me ? DR.colour.signal : 'rgba(0,0,0,0.6)', color: '#fff' }}>
                 <span className="w-4 text-right opacity-70">{i + 1}</span>
                 <span className="inline-block h-2.5 w-2.5 shrink-0" style={{ background: r.color, outline: '1px solid #000' }} />
                 {r.logo ? (

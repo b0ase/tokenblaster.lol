@@ -495,6 +495,13 @@ export class HyperEngine {
     this.audio.start();
     this.setPhase('menu');
     // Dev-only art-review hook: ?shot puts the chase camera anywhere on the lap (window.__bracerShot(0.45)).
+    if (process.env.NODE_ENV !== 'production') {
+      // Dev hooks for art review and headless checks: ?auto (the engine drives) and ?laps=N (shorter races).
+      const qs = new URLSearchParams(location.search);
+      if (qs.has('auto')) this.autopilot = true;
+      const laps = Number(qs.get('laps'));
+      if (laps >= 1 && laps <= 9) this.laps = Math.floor(laps);
+    }
     if (process.env.NODE_ENV !== 'production' && new URLSearchParams(location.search).has('shot')) {
       (window as unknown as { __bracerShot?: (f: number) => void }).__bracerShot = (fr: number) => {
         this.me.S = fr * this.tr.len;
