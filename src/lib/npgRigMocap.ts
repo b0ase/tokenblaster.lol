@@ -21,6 +21,7 @@ const HIPS_REST: Record<string, THREE.Vector3> = {
   'matoko': new THREE.Vector3(0.0000, 0.2650, 0.0763),
   'ayumi': new THREE.Vector3(0.0000, 0.2300, -0.0126),
   'kazuyo': new THREE.Vector3(0.0000, 0.2200, 0.0876),
+  'aika': new THREE.Vector3(-0.0001, 0.2302, 0.1174),
   'doctor': new THREE.Vector3(0.0000, 0.2300, 0.0975),
   'bot': new THREE.Vector3(0.0000, 0.2500, 0.0387),
   'tech': new THREE.Vector3(0.0000, 0.2500, 0.0334),

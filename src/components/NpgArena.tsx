@@ -13,8 +13,8 @@ import { sharedAudio } from '@/lib/sfx';
 import { GameAudio } from '@/components/SoundToggle';
 
 /** The three girls with working mocap rigs. */
-// the rigged NPG girls (<slug>-rigged.glb); Joy and Aika have no rig, and the owner keeps Doctor, Matoko and the Erobots out
-const OUT = new Set(['joy', 'aika', 'doctor', 'matoko', 'bot', 'tech', 'graf-bot', 'frog-bot', 'stripey-bot']);
+// the rigged NPG girls (<slug>-rigged.glb); Joy has no rig, and the owner keeps Doctor, Matoko and the Erobots out
+const OUT = new Set(['joy', 'doctor', 'matoko', 'bot', 'tech', 'graf-bot', 'frog-bot', 'stripey-bot']);
 const ROSTER = LIVE_CARDS.filter((c) => c.rig && !OUT.has(c.slug)).map((c) => {
   return { slug: c.slug, name: c.name, stats: c.stats as Stats };
 });
@@ -134,6 +134,28 @@ function makeFightSfx() {
   };
 }
 
+const _pq = new THREE.Quaternion();
+const _mq = new THREE.Quaternion();
+/**
+ * The mocap's head/neck tracks are stripped (big chibi heads nodding read as broken necks), so the head rides on the
+ * spine and every forward-leaning stance bowed her head. Pull it most of the way back to upright, facing her front.
+ */
+function holdHeadUp(model: THREE.Object3D, head: THREE.Object3D | null, amount = 0.85) {
+  if (!head?.parent) return;
+  model.updateWorldMatrix(true, true);
+  head.parent.getWorldQuaternion(_pq);
+  model.getWorldQuaternion(_mq);
+  head.quaternion.slerp(_pq.invert().multiply(_mq), amount);
+  head.updateMatrixWorld(true);
+}
+const findHead = (model: THREE.Object3D) => {
+  let h: THREE.Object3D | null = null;
+  model.traverse((o) => {
+    if (!h && (o as THREE.Bone).isBone && /(^|:)Head$/.test(o.name)) h = o;
+  });
+  return h;
+};
+
 /** One girl in the scene: her model, mixer and clip actions, following a sim Fighter. */
 class FighterView {
   root = new THREE.Group();
@@ -144,6 +166,7 @@ class FighterView {
   hold: number | undefined;
   shadow: THREE.Mesh;
   model: THREE.Object3D;
+  head: THREE.Object3D | null;
   /** skinned vertices sampled every frame to keep her on the floor (all of the feet + a spread over the body) */
   samples: { mesh: THREE.SkinnedMesh; idx: Int32Array }[] = [];
   /** body radius (m) for the sim's collision capsule, measured from her mesh */
@@ -165,6 +188,7 @@ class FighterView {
     });
     this.root.add(model);
     this.model = model;
+    this.head = findHead(model);
     this.measure();
     // soft contact shadow so she never floats
     const blob = new THREE.Mesh(
@@ -252,6 +276,7 @@ class FighterView {
     this.mixer.update(dt);
     this.root.position.set(f.x, f.y, f.z);
     this.root.rotation.y = f.face;
+    holdHeadUp(this.model, this.head);
     // ground her: nothing of the posed mesh may go below the floor (falls, rolls, crouches, landings). Lift up fast,
     // settle back down a little slower, so it never jitters; never pull her down (jumps keep their height).
     const want = Math.max(0, -this.lowest());
@@ -296,6 +321,7 @@ function portrait(renderer: THREE.WebGLRenderer, l: Loaded, color: string): stri
     const m = new THREE.AnimationMixer(model);
     m.clipAction(idle).play();
     m.update(0.4);
+    holdHeadUp(model, findHead(model));
   }
   const cam = new THREE.PerspectiveCamera(30, W / H, 0.05, 20);
   cam.position.set(0, HEIGHT * 0.62, 3.1);

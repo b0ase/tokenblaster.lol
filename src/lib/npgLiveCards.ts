@@ -21,7 +21,7 @@ export const LIVE_CARDS: LiveCardInfo[] = [
   { slug: 'kimiko', name: 'Kimiko', box: [279, 414, 710, 1160], stats: [5, 6, 13, 13, 10, 7], rig: true },
   { slug: 'kazuyo', name: 'Kazuyo', box: [204, 242, 763, 1177], stats: [7, 7, 9, 6, 10, 8], rig: true },
   { slug: 'nao', name: 'Nao', box: [46, 380, 916, 1171], stats: [8, 5, 9, 13, 12, 12], rig: true },
-  { slug: 'aika', name: 'Aika', box: [243, 341, 906, 1163], stats: [7, 8, 8, 10, 8, 9] },
+  { slug: 'aika', name: 'Aika', box: [243, 341, 906, 1163], stats: [7, 8, 8, 10, 8, 9], rig: true },
   { slug: 'doctor', name: 'Doctor', box: [249, 389, 706, 1161], stats: [5, 11, 9, 15, 7, 10], rig: true },
   // Generic Erobots: the five bot bodies in the sample Erobot outfit (the game's grunts)
   { slug: 'bot', name: 'Bot', box: [262, 449, 681, 1158], stats: [5, 4, 7, 12, 13, 5], rig: true },
