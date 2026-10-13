@@ -16,12 +16,14 @@ import { HyperAudio } from './audio';
 import { Input, type Touch } from './input';
 import { newShip, noInput, SHIPS, stepShip, WEAPONS, type ShipSpec, type SimInput, type Weapon } from './sim';
 import { buildShip, Trail, type Rig } from './ships';
+import { buildToonShip } from './toonShips';
+import { EROBOT_PILOTS, NPG_PILOTS } from './npgPilots';
 import { FONTS } from './signs';
 import { SnapshotBuffer } from '@/lib/racemp/buffer';
 import { readWire, verifyWire } from '@/lib/identity';
 import { disposeAvatarTag, makeAvatarTag } from '@/lib/avatarTag';
 import type { RaceLink } from '@/lib/racemp/session';
-import { teamOfKind, TEAMS, type Team } from './teams';
+import { ALL_TEAMS, EROBOT_TEAMS, isNpgTeam, NPG_TEAMS, teamOfKind, TEAMS, type Livery, type Team } from './teams';
 import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, type Frame, type Track, type TrackId } from './track';
 import { CORE_SHIPS, DEFAULT_TRACK, TRACKS } from './content';
 import { buildWorld, Particles, SpeedLines, type Quality, type World } from './world';
@@ -110,6 +112,10 @@ export type Options = {
   /** Multiplayer link (src/lib/hyper/mp.ts), present when the player is in a room. */
   mp?: MpLink;
   pay?: PayHook;
+  /** 'npg' = NPG Racing: toon hulls, NPG girls vs Erobots. Visual only; the sim is identical. */
+  skin?: 'npg';
+  /** NPG skin: the player's pilot (an NPG_PILOTS slug). */
+  pilot?: string;
 };
 
 const BEST_KEY = 'tokenblaster:bracer-laps';
@@ -337,7 +343,7 @@ export class HyperEngine {
     this.el = el;
     this.opts = opts;
     this.spec = SHIPS.find((s) => s.id === opts.ship) ?? SHIPS[1];
-    this.team = TEAMS.find((t) => t.id === opts.team) ?? TEAMS[0];
+    this.team = opts.skin === 'npg' ? (NPG_TEAMS.find((t) => t.id === opts.team) ?? NPG_TEAMS[0]) : (TEAMS.find((t) => t.id === opts.team) ?? TEAMS[0]);
     this.laps = 3;
     this.hc = opts.difficulty === 'hardcore';
     this.maxDpr = opts.quality === 'ultra' ? 2 : opts.quality === 'high' ? 1.6 : 1.05;
@@ -477,8 +483,8 @@ export class HyperEngine {
 
   private buildPlayer() {
     const accent = this.team.accent === '#ffffff' || this.team.accent === '#f4efe2' || this.team.accent === '#f2f2ee' ? (TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK]).palette.a1 : this.team.accent;
-    const lv = this.spec.livery;
-    const rig = buildShip(this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null }, lv?.accent ?? accent);
+    const lv = this.npg ? undefined : this.spec.livery;
+    const rig = this.makeRig(this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null }, lv?.accent ?? accent, this.npg ? (this.opts.pilot && NPG_PILOTS.includes(this.opts.pilot) ? this.opts.pilot : NPG_PILOTS[0]) : null);
     this.playerRig = rig;
     this.scene.add(rig.root);
     const col = new THREE.Color(this.TRAIL_COL(accent)).multiplyScalar(0.45);
@@ -487,6 +493,14 @@ export class HyperEngine {
     this.scene.add(this.trailL.mesh, this.trailR.mesh);
   }
   private playerRig!: Rig;
+  private get npg() {
+    return this.opts.skin === 'npg';
+  }
+  /** One ship builder for every skin. Pilots only ride in the NPG skin, and not on low quality (GLBs are heavy). */
+  private makeRig(spec: ShipSpec, l: Livery, accent: string, pilot: string | null = null): Rig {
+    if (!this.npg) return buildShip(spec, l, accent);
+    return buildToonShip(spec, l, accent, { pilot: this.opts.quality === 'low' ? null : pilot, outline: true });
+  }
   private TRAIL_COL(c: string) {
     return new THREE.Color(c).multiplyScalar(2.2).getHex();
   }
@@ -512,10 +526,10 @@ export class HyperEngine {
     for (const spec of rivals) {
       while (taken.includes(slot)) slot++;
       spec.slot = slot++;
-      const team = teamOfKind(spec.kind);
+      const team = this.npg ? EROBOT_TEAMS[spec.slot % EROBOT_TEAMS.length] : teamOfKind(spec.kind);
       const hull = CORE_SHIPS[(spec.slot + 1) % CORE_SHIPS.length];
       const meta = spec.token ? tokenMeta(spec.token) : null;
-      const rig = buildShip(hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null }, team.accent === '#ffffff' ? team.base : team.accent);
+      const rig = this.makeRig(hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null }, team.accent === '#ffffff' ? team.base : team.accent, EROBOT_PILOTS[spec.slot % EROBOT_PILOTS.length]);
       this.scene.add(rig.root);
       const label = this.makeLabel();
       rig.root.add(label.sprite);
@@ -757,11 +771,11 @@ export class HyperEngine {
 
   private addRemote(id: string, info: { name: string; vehicle: string; team: string; gun?: string }, slot: number) {
     const spec = SHIPS.find((s) => s.id === info.vehicle) ?? SHIPS[1];
-    const team = TEAMS.find((t) => t.id === info.team) ?? TEAMS[0];
+    const team = ALL_TEAMS.find((t) => t.id === info.team) ?? TEAMS[0];
     const xid = readWire(info);
     const name = xid.x ? `@${xid.x}` : String(info.name || 'PILOT').slice(0, 14);
     const accent = team.accent === '#ffffff' || team.accent === '#f4efe2' || team.accent === '#f2f2ee' ? team.base : team.accent;
-    const rig = buildShip(spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent);
+    const rig = this.makeRig(spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent, isNpgTeam(team.id) ? NPG_PILOTS[slot % NPG_PILOTS.length] : EROBOT_PILOTS[slot % EROBOT_PILOTS.length]);
     this.scene.add(rig.root);
     const label = this.makeLabel();
     rig.root.add(label.sprite);
@@ -1631,6 +1645,7 @@ export class HyperEngine {
     pr.flame.scale.set(1, 1, 0.3 + thrust * 0.6 + (boosting ? 0.9 : 0) + Math.random() * 0.1);
     pr.flameMat.opacity = 0.55 + thrust * 0.4;
     pr.shield.visible = me.shieldT > 0;
+    pr.toon?.update(dt, { thrust, boost: boosting, air: me.air, roll: me.rollVis });
     this.under.position.copy(this.shipPos).addScaledVector(this.v2.set(this.frame2.ux, this.frame2.uy, this.frame2.uz), -1.2);
     this.under.intensity = 14 + thrust * 12 + (boosting ? 16 : 0);
     // Trails from both engines.
@@ -1650,6 +1665,7 @@ export class HyperEngine {
       this.placeShip(r.rig, r.S, r.lat, 1.3 + Math.sin(this.time * 2.3 + r.phase) * 0.12 + (r.stun > 0 ? Math.sin(this.time * 20) * 0.3 : 0), -rl * 0.6, 0, rl + r.spin, this.v3);
       const th = r.v > 0 ? Math.min(1, r.v / 190) : 0.3;
       r.rig.flame.scale.set(1, 1, 0.3 + th * 0.6 + Math.random() * 0.1);
+      r.rig.toon?.update(dt, { thrust: th, boost: false, air: false, roll: rl });
       if (r.trail) {
         const e = r.rig.engine;
         this.v3.copy(e[0]).add(this.v4.copy(e[1])).multiplyScalar(0.5).applyQuaternion(r.rig.tilt.quaternion).applyQuaternion(r.rig.root.quaternion).add(r.rig.root.position);
@@ -1672,6 +1688,7 @@ export class HyperEngine {
       const th = Math.min(1, r.vs / r.spec.vmax);
       r.rig.flame.scale.set(1, 1, 0.3 + th * 0.6 + (r.fl & 1 ? 0.9 : 0) + Math.random() * 0.1);
       r.rig.shield.visible = (r.fl & 2) !== 0;
+      r.rig.toon?.update(dt, { thrust: th, boost: (r.fl & 1) !== 0, air: r.h > 2.6, roll: r.roll });
       if (r.trail) {
         const e = r.rig.engine;
         this.v3.copy(e[0]).add(this.v4.copy(e[1])).multiplyScalar(0.5).applyQuaternion(r.rig.tilt.quaternion).applyQuaternion(r.rig.root.quaternion).add(r.rig.root.position);

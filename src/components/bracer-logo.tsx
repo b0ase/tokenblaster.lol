@@ -18,3 +18,16 @@ export function Logo({ size, rest = DR.colour.paper, style }: { size: number | s
     </span>
   );
 }
+
+/** NPG Racing title: NINJA PUNK GIRLS on one line, NPG RACING under it, both in Audiowide. */
+export function NpgLogo({ size, style }: { size: number | string; style?: CSSProperties }) {
+  const css = typeof size === 'number' ? `${size}px` : size;
+  return (
+    <span style={{ fontFamily: LOGO_FAMILY, fontWeight: 400, lineHeight: 0.95, display: 'inline-block', textShadow: '0.04em 0.04em 0 #000', whiteSpace: 'nowrap', ...style }}>
+      <span style={{ display: 'block', fontSize: `calc(${css} * 0.42)`, color: '#ffffff', letterSpacing: '0.04em' }}>NINJA PUNK GIRLS</span>
+      <span style={{ display: 'block', fontSize: css, letterSpacing: '-0.02em', color: '#ff2d95' }}>
+        NPG <span style={{ color: '#22e6ff' }}>RACING</span>
+      </span>
+    </span>
+  );
+}

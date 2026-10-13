@@ -199,6 +199,9 @@ export function paintLivery(c: HTMLCanvasElement, l: Livery) {
   }
 }
 
+export type ToonState = { thrust: number; boost: boolean; air: boolean; roll: number };
+export type ToonFx = { update(dt: number, s: ToonState): void };
+
 export type Rig = {
   root: THREE.Group;
   /** Local tilt group (yaw/pitch/roll). */
@@ -208,10 +211,12 @@ export type Rig = {
   glow: THREE.Mesh;
   canvas: HTMLCanvasElement;
   tex: THREE.CanvasTexture;
-  bodyMat: THREE.MeshPhysicalMaterial;
+  bodyMat: THREE.Material;
   trimMat: THREE.MeshBasicMaterial;
   shield: THREE.Mesh;
   engine: THREE.Vector3[];
+  /** Cartoon skin only (toonShips.ts): visual squash/stretch + pilot animation, never touches the sim. */
+  toon?: ToonFx;
   setLivery(l: Livery): void;
   dispose(): void;
 };

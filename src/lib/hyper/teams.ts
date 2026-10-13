@@ -21,3 +21,22 @@ export const liveryOfKind = (k: TxKind) => {
   const [base, accent, trim] = RIVAL_PAINT[k];
   return { base, accent, trim };
 };
+
+/**
+ * NPG Racing (the Ninja Punk Girls skin): the player's side is Ninja Punk Girls, the rivals are the evil Erobots.
+ * `trim` doubles as the graffiti-tag colour and is always pure white or black: the NPG tag is never tinted.
+ */
+export const NPG_TEAMS: Team[] = [
+  { id: 'npg-pink', name: 'NPG PINK', kana: 'ニンジャパンク', code: 'NPG-01', base: '#ff2d95', accent: '#22e6ff', trim: '#ffffff', motto: 'PUNK NEVER DIES' },
+  { id: 'npg-cyan', name: 'NPG CYAN', kana: 'ニンジャパンク', code: 'NPG-02', base: '#22e6ff', accent: '#ff2d95', trim: '#111111', motto: 'BLADE AND BASS' },
+  { id: 'npg-noir', name: 'NPG NOIR', kana: 'ニンジャパンク', code: 'NPG-03', base: '#111111', accent: '#ff2d95', trim: '#ffffff', motto: 'SILENT AND LOUD' },
+  { id: 'npg-blanc', name: 'NPG BLANC', kana: 'ニンジャパンク', code: 'NPG-04', base: '#f4f4f4', accent: '#ff2d95', trim: '#111111', motto: 'CLEAN KILLS' },
+];
+export const EROBOT_TEAMS: Team[] = [
+  { id: 'erobot-red', name: 'EROBOTS', kana: 'エロボット', code: 'ERO-66', base: '#9aa0a8', accent: '#e8261d', trim: '#111111', motto: 'OBEY THE CIRCUIT' },
+  { id: 'erobot-iron', name: 'EROBOTS', kana: 'エロボット', code: 'ERO-13', base: '#3a3d44', accent: '#ff3b2a', trim: '#ffffff', motto: 'RESISTANCE IS SCRAP' },
+];
+/** Every team any skin can field (multiplayer looks up a remote player's team here). */
+export const ALL_TEAMS: Team[] = [...TEAMS, ...NPG_TEAMS, ...EROBOT_TEAMS];
+export const isNpgTeam = (id: string) => id.startsWith('npg-');
+export const isErobotTeam = (id: string) => id.startsWith('erobot-');

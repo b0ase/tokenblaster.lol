@@ -15,7 +15,10 @@ import { drDisplay, drFontClass, drJp, drMono } from './dr/fonts';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { DR } from '@/lib/dr/tokens';
 import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
-import { LOGO_FAMILY, Logo } from './bracer-logo';
+import { LOGO_FAMILY, Logo as BRacerLogo, NpgLogo } from './bracer-logo';
+import { ALL_TEAMS, NPG_TEAMS } from '@/lib/hyper/teams';
+import { NPG_PILOTS } from '@/lib/hyper/npgPilots';
+import { LIVE_CARDS } from '@/lib/npgLiveCards';
 import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
 import { type Track, type TrackId } from '@/lib/hyper/track';
@@ -95,7 +98,11 @@ const WEAPON_ICON: Record<Weapon, PictogramName> = { rocket: 'rocket', mine: 'mi
 const ORD = ['', '1ST', '2ND', '3RD'];
 const hudFont = { fontFamily: DR.font.display, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' } as const;
 
-export function BRacer() {
+export function BRacer({ skin }: { skin?: 'npg' } = {}) {
+  const npg = skin === 'npg';
+  const teamList = npg ? NPG_TEAMS : TEAMS;
+  const Logo = npg ? NpgLogo : BRacerLogo;
+  const [npgPilot, setNpgPilot] = useState(NPG_PILOTS[0]);
   const mount = useRef<HTMLDivElement>(null);
   const feed = useChainFeed();
   const takeRef = useRef(feed.take);
@@ -162,7 +169,7 @@ export function BRacer() {
   const [run, setRun] = useState<{ paid: boolean; txid: string | null }>({ paid: false, txid: null });
   const [trackId, setTrackId] = useState<TrackId>(DEFAULT_TRACK);
   const [shipId, setShipId] = useState(DEFAULT_SHIP);
-  const [teamId, setTeamId] = useState('house');
+  const [teamId, setTeamId] = useState(npg ? NPG_TEAMS[0].id : 'house');
   const [mode, setMode] = useState<Mode>('race');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const wrap = useRef<HTMLDivElement>(null);
@@ -261,7 +268,7 @@ export function BRacer() {
         const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; diff?: Difficulty; q?: QualityPref };
         if (isTrackId(p.track)) setTrackId(p.track);
         if (isShipId(p.ship)) setShipId(p.ship);
-        if (p.team && TEAMS.some((t) => t.id === p.team)) setTeamId(p.team);
+        if (p.team && (npg ? NPG_TEAMS : TEAMS).some((t) => t.id === p.team)) setTeamId(p.team);
         if (p.mode) setMode(p.mode);
         if (p.diff) setDifficulty(p.diff);
         if (p.q) setQualityPref(p.q);
@@ -278,7 +285,7 @@ export function BRacer() {
       else if (qs) console.warn(`[bracer] no ship pack "${qs}" (content/bracer/ships/${qs}/ship.json); run pnpm content:check`);
       setReady(true);
     });
-  }, []);
+  }, [npg]);
   useEffect(() => {
     coRef.current = co;
     try {
@@ -387,6 +394,8 @@ export function BRacer() {
       track: trackId,
       ship: shipId,
       team: teamId,
+      skin,
+      pilot: npgPilot,
       mode: effMode,
       difficulty,
       mp: getLink.current() ?? undefined,
@@ -456,7 +465,7 @@ export function BRacer() {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini]);
+  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini, skin, npgPilot]);
 
   useEffect(() => {
     if (phase !== 'menu') return;
@@ -466,7 +475,7 @@ export function BRacer() {
 
   const def = TRACKS[trackId] ?? TRACKS[DEFAULT_TRACK];
   const ship = SHIPS.find((s) => s.id === shipId) ?? SHIPS[1];
-  const team = TEAMS.find((t) => t.id === teamId) ?? TEAMS[0];
+  const team = teamList.find((t) => t.id === teamId) ?? teamList[0];
   const bestTime = best[`${trackId}:${mode}`];
   const racing = phase === 'racing' || phase === 'countdown' || phase === 'paused';
   const start = (paid: boolean) => {
@@ -597,7 +606,7 @@ export function BRacer() {
     <section className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
       <GameAudio track={def.music} />
       <div className="panel-header">
-        <span className="panel-title">{GAME_NAME}</span>
+        <span className="panel-title">{npg ? 'NPG RACING' : GAME_NAME}</span>
         <span className="text-accent">
           {feed.status === 'live' ? (
             <>
@@ -619,7 +628,7 @@ export function BRacer() {
         <div className={`pointer-events-none absolute inset-0 transition-opacity ${racing ? 'opacity-100' : 'opacity-0'}`}>
           {mpOn && xHandle && (
             <div className="absolute left-3 top-24 bg-black/70 px-2 py-1 text-xs text-white sm:top-28" data-hud-me={xHandle}>
-              <PlayerBadge handle={xHandle} name={xHandle} verified={Boolean(meId && room.verified[meId])} ring={(TEAMS.find((t) => t.id === teamId) ?? TEAMS[0]).base} size={22} />
+              <PlayerBadge handle={xHandle} name={xHandle} verified={Boolean(meId && room.verified[meId])} ring={(ALL_TEAMS.find((t) => t.id === teamId) ?? TEAMS[0]).base} size={22} />
             </div>
           )}
           {/* Position + lap */}
@@ -819,7 +828,7 @@ export function BRacer() {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black" style={gridBg()}>
             <Logo size="clamp(56px,11vw,120px)" />
             <Kana size={16} colour={DR.colour.amber}>
-              {GAME_KANA}
+              {npg ? 'ニンジャパンクガールズ' : GAME_KANA}
             </Kana>
             <div className="w-[min(80vw,420px)]">
               <ChevronBar n={30} h={14} colour={DR.colour.amber} />
@@ -850,7 +859,7 @@ export function BRacer() {
                 </div>
                 <div className="absolute right-0 top-1 hidden flex-col items-end gap-1 sm:flex">
                   <Kana size={13} colour={DR.colour.amber}>
-                    {GAME_KANA}
+                    {npg ? 'ニンジャパンクガールズ' : GAME_KANA}
                   </Kana>
                   <ProductCode code="HG-3000" label="TB" />
                 </div>
@@ -859,14 +868,15 @@ export function BRacer() {
                     BUY NOW / BLAST MORE
                   </Sticker>
                   <Sticker bg={DR.colour.paper} size={12} rot={2}>
-                    {GAME_TAGLINE}
+                    {npg ? 'Girls vs Erobots, live on chain' : GAME_TAGLINE}
                   </Sticker>
                 </div>
                 <div className="mt-2 w-[min(90%,22rem)]">
                   <ChevronBar n={26} h={10} colour={DR.colour.signal} />
                 </div>
               </div>
-              <p className="max-w-md text-xs text-fg">Every rival is a real mainnet transaction. The bigger the move, the faster the ship; token tickers and logos fly as team colours. Hit pads, grab weapons, barrel-roll for boost.</p>
+              {npg && <p className="max-w-md text-xs text-fg">Ninja Punk Girls race the Erobots in fat toon karts. Every Erobot rides a real mainnet transaction: the bigger the move, the faster it goes.</p>}
+              <p className={`max-w-md text-xs text-fg ${npg ? 'hidden' : ''}`}>Every rival is a real mainnet transaction. The bigger the move, the faster the ship; token tickers and logos fly as team colours. Hit pads, grab weapons, barrel-roll for boost.</p>
 
               <div>
                 <p className="mb-1 text-[10px] tracking-widest text-dim">01 / CIRCUIT</p>
@@ -952,7 +962,7 @@ export function BRacer() {
               <div>
                 <p className="mb-1 text-[10px] tracking-widest text-dim">04 / TEAM</p>
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-                  {TEAMS.map((t) => (
+                  {teamList.map((t) => (
                     <button key={t.id} onClick={() => setTeamId(t.id)} aria-pressed={t.id === teamId} className="relative overflow-hidden p-1 text-left" style={{ background: t.base, outline: t.id === teamId ? `3px solid ${DR.colour.paper}` : '1px solid #000', outlineOffset: -1 }}>
                       <div className="opacity-90">
                         <ChevronBar n={6} h={9} colour={t.accent} />
@@ -970,6 +980,20 @@ export function BRacer() {
                   {team.name} <Kana size={9} colour={DR.colour.grey}>{team.kana}</Kana> · {team.motto}
                 </p>
               </div>
+
+              {npg && (
+                <div data-npg-pilot={npgPilot}>
+                  <p className="mb-1 text-[10px] tracking-widest text-dim">PILOT · NINJA PUNK GIRL</p>
+                  <div className="flex flex-wrap gap-1">
+                    {NPG_PILOTS.map((slug) => (
+                      <button key={slug} onClick={() => setNpgPilot(slug)} aria-pressed={slug === npgPilot} className="px-1.5 py-0.5 text-[11px]" style={{ ...hudFont, background: slug === npgPilot ? '#ff2d95' : 'rgba(0,0,0,0.6)', color: slug === npgPilot ? '#fff' : '#22e6ff', outline: slug === npgPilot ? '2px solid #fff' : '1px solid #22e6ff55' }}>
+                        {LIVE_CARDS.find((c) => c.slug === slug)?.name ?? slug}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-dim">Rivals are the evil Erobots, each one riding a live mainnet transaction.</p>
+                </div>
+              )}
 
               {room.available && !mpOn && (
                 <div className="inset bg-black/60 p-2" data-bracer-mp="menu">
@@ -1014,8 +1038,8 @@ export function BRacer() {
                   racingElsewhere={room.ui.players.some((p) => p.st === 'racing') && !meRow?.ready}
                   colours={{ quick: DR.colour.cyan, priv: DR.colour.amber, ok: DR.colour.acid, warn: DR.colour.signal, amber: DR.colour.amber }}
                   titleStyle={hudFont}
-                  teamColour={(x) => (TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).base}
-                  detail={(x) => `${SHIPS.find((sp) => sp.id === x.vehicle)?.name ?? x.vehicle} · ${(TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).name}`}
+                  teamColour={(x) => (ALL_TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).base}
+                  detail={(x) => `${SHIPS.find((sp) => sp.id === x.vehicle)?.name ?? x.vehicle} · ${(ALL_TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).name}`}
                   bar={
                     <div className="mt-1.5 w-[min(90%,22rem)]">
                       <ChevronBar n={22} h={7} colour={room.ui.count !== null ? DR.colour.amber : '#333'} />
@@ -1189,7 +1213,7 @@ export function BRacer() {
                   <Barcode seed={`${result.score}${result.total}`} w={110} h={22} />
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-center">
-                  {mpOn && <RaceStandings rows={room.ui.standings} final={room.ui.final} teamColour={(t) => (TEAMS.find((x) => x.id === t) ?? TEAMS[0]).base} fmt={fmt} />}
+                  {mpOn && <RaceStandings rows={room.ui.standings} final={room.ui.final} teamColour={(t) => (ALL_TEAMS.find((x) => x.id === t) ?? TEAMS[0]).base} fmt={fmt} />}
                   {result.mode === 'race' && (
                     <div className="inset w-full bg-black/70 p-2 text-left text-xs sm:max-w-sm">
                       <p className="mb-1 text-center font-bold tracking-widest text-dim">THE FIELD (LIVE TXS)</p>
