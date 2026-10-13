@@ -859,7 +859,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
         {error && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-4 text-center">
             <p className="text-2xl font-bold text-hot">Could not start the 3D scene</p>
-            <p className="max-w-md text-sm text-dim">{error}. {GAME_NAME} needs WebGL: try a recent Chrome, Edge, Firefox or Safari with hardware acceleration on.</p>
+            <p className="max-w-md text-sm text-dim">{error}. {ID.name} needs WebGL: try a recent Chrome, Edge, Firefox or Safari with hardware acceleration on.</p>
             <button onClick={() => setSession((s) => s + 1)} className="btn btn-on">
               RETRY
             </button>
@@ -1292,10 +1292,16 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       </div>
       </div>
       <HazardBar h={8} colour={DR.colour.amber} />
+      {npg ? (
+        <p className="mt-2 text-xs text-muted">
+          NPG Racing: Ninja Punk Girls in toon karts against the Erobots, and every Erobot rides a real transaction sampled from the live BSV chain. A 1p coin buys one race, paid to the NPG house; practice sends nothing. Same circuits and physics as bRacer, its own boards and rooms.
+        </p>
+      ) : (
       <p className="mt-2 text-xs text-muted">
         {GAME_NAME}: rivals are real transactions sampled from the live BSV chain when you start; tokens race as teams wearing their ticker and logo, the biggest moves are the fastest ships. A credit (10p) buys one race; practice sends nothing. Ships, circuits, signage and the techno are generated in code;
         no outside assets. The graphic style is an homage to 90s electronic-label design, all layouts original.
       </p>
+      )}
       {co.chooserEl}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
