@@ -463,7 +463,7 @@ export class HyperEngine {
 
   private readBest() {
     try {
-      const j = JSON.parse(localStorage.getItem(BEST_KEY) ?? '{}') as Record<string, { lap: number; splits: number[] }>;
+      const j = JSON.parse(localStorage.getItem(this.bestKey) ?? '{}') as Record<string, { lap: number; splits: number[] }>;
       const b = j[this.opts.track];
       this.bestLap = b?.lap ?? null;
       this.bestSplits = b?.splits ?? [];
@@ -473,9 +473,9 @@ export class HyperEngine {
   }
   private writeBest(lap: number, splits: number[]) {
     try {
-      const j = JSON.parse(localStorage.getItem(BEST_KEY) ?? '{}') as Record<string, { lap: number; splits: number[] }>;
+      const j = JSON.parse(localStorage.getItem(this.bestKey) ?? '{}') as Record<string, { lap: number; splits: number[] }>;
       j[this.opts.track] = { lap, splits };
-      localStorage.setItem(BEST_KEY, JSON.stringify(j));
+      localStorage.setItem(this.bestKey, JSON.stringify(j));
     } catch {
       /* storage blocked */
     }
@@ -493,6 +493,9 @@ export class HyperEngine {
     this.scene.add(this.trailL.mesh, this.trailR.mesh);
   }
   private playerRig!: Rig;
+  private get bestKey() {
+    return this.npg ? 'tokenblaster:npgracing-laps' : BEST_KEY;
+  }
   private get npg() {
     return this.opts.skin === 'npg';
   }

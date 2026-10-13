@@ -40,8 +40,16 @@ const BRACER_GAMES: Record<BracerScoreGame, GameInfo> = Object.fromEntries(
     [`bracer-${t.id}-hc`, { title: `bRacer HARDCORE · ${t.name}`, tag: 'bracer-hc', sort: 'score' }],
   ]),
 );
-export type ScoreGame = keyof typeof STATIC_GAMES | BracerScoreGame;
-export const SCORE_GAMES: Record<ScoreGame, GameInfo> = { ...STATIC_GAMES, ...BRACER_GAMES } as Record<ScoreGame, GameInfo>;
+/** NPG Racing (bRacer's NPG skin) has its own boards per track: npgracing-<slug> / npgracing-<slug>-hc (db/021). */
+export type NpgRacingScoreGame = `npgracing-${string}`;
+const NPG_RACING_GAMES: Record<NpgRacingScoreGame, GameInfo> = Object.fromEntries(
+  TRACK_LIST.flatMap((t) => [
+    [`npgracing-${t.id}`, { title: `NPG Racing · ${t.name}`, tag: 'npgracing', sort: 'score' }],
+    [`npgracing-${t.id}-hc`, { title: `NPG Racing HARDCORE · ${t.name}`, tag: 'npgracing-hc', sort: 'score' }],
+  ]),
+);
+export type ScoreGame = keyof typeof STATIC_GAMES | BracerScoreGame | NpgRacingScoreGame;
+export const SCORE_GAMES: Record<ScoreGame, GameInfo> = { ...STATIC_GAMES, ...BRACER_GAMES, ...NPG_RACING_GAMES } as Record<ScoreGame, GameInfo>;
 export const isScoreGame = (g: string | null): g is ScoreGame => !!g && Object.prototype.hasOwnProperty.call(SCORE_GAMES, g);
 
 export type ScorePeriod = '24h' | '7d' | 'all';

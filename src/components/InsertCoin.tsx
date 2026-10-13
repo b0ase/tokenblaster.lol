@@ -47,7 +47,8 @@ const subscribe = (f: () => void) => {
 let coinN = 0;
 
 /** `pence`: this game's coin (default 10p; NPG Arena's Penny Battles use 1p). */
-export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE) {
+/** `house` overrides the coin's receiving address (default: the TokenBlaster house, COINOP_HOUSE). */
+export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE, house: string = COINOP_HOUSE) {
   const count = useSyncExternalStore(subscribe, () => credits.get(tag)?.length ?? 0, () => 0);
   const [rate, setRate] = useState<number | null>(null);
   const [rateErr, setRateErr] = useState(false);
@@ -84,7 +85,7 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
       setPaying(true);
       setMsg(null);
       try {
-        const txid = await insertCoin(client, { game, tag, sats, n: ++coinN, pence });
+        const txid = await insertCoin(client, { game, tag, sats, n: ++coinN, pence, house });
         credits.set(tag, [...(credits.get(tag) ?? []), txid]);
         emit();
         setMsg({ ok: true, text: `Coin accepted (${sats.toLocaleString('en-GB')} sats).`, txid });
@@ -99,17 +100,17 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
         setPaying(false);
       }
     },
-    [sats, game, tag, pence],
+    [sats, game, tag, pence, house],
   );
 
   const insert = useCallback(async () => {
-    if (!COINOP_HOUSE || !sats || paying) return;
+    if (!house || !sats || paying) return;
     setPaying(true);
     const w = await findCoinWallet();
     setPaying(false);
     if (w === 'choose') return setChoosing(true); // first visit only: pick a wallet once
     void payWith(w);
-  }, [sats, paying, payWith]);
+  }, [sats, paying, payWith, house]);
 
   const pick = useCallback(
     (entry: WalletEntry) => {
@@ -151,7 +152,7 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
     return txid;
   }, [tag]);
 
-  return { credits: count, sats, pence, rateErr, paying, msg, walletErr: null as string | null, insert, playPaid, consume, chooserEl, enabled: Boolean(COINOP_HOUSE) };
+  return { credits: count, sats, pence, rateErr, paying, msg, walletErr: null as string | null, insert, playPaid, consume, chooserEl, enabled: Boolean(house) };
 }
 
 export type CoinOp = ReturnType<typeof useCoinOp>;

@@ -1,10 +1,10 @@
 import { GameShell } from '@/components/GameShell';
 import { BRacer } from '@/components/BRacer';
 import { HighScoresPanel } from '@/components/HighScores';
-import { bracerScoreGame, TRACK_LIST } from '@/lib/hyper/content';
+import { npgRacingScoreGame, TRACK_LIST } from '@/lib/hyper/content';
 
 // NPG Racing is bRacer in the NPG skin: same sim, coin-op, multiplayer rooms and score boards.
-const BOARDS = [false, true].flatMap((hc) => TRACK_LIST.map((t) => ({ game: bracerScoreGame(t.id, hc), title: `${t.name.toUpperCase()}${hc ? ' HARDCORE' : ''}` })));
+const BOARDS = [false, true].flatMap((hc) => TRACK_LIST.map((t) => ({ game: npgRacingScoreGame(t.id, hc), title: `${t.name.toUpperCase()}${hc ? ' HARDCORE' : ''}` })));
 
 const description = 'Ninja Punk Girls vs the Erobots: fat toon anti-gravity karts, NPG girls in the cockpit, and every Erobot rival is a live BSV transaction.';
 const SHARE = { url: '/arcade/npg.jpg', alt: 'Ninja Punk Girls' };

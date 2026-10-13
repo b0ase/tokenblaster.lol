@@ -22,13 +22,14 @@ import { LIVE_CARDS } from '@/lib/npgLiveCards';
 import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
 import { type Track, type TrackId } from '@/lib/hyper/track';
-import { bracerScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRACK_LIST } from '@/lib/hyper/content';
+import { bracerScoreGame, npgRacingScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRACK_LIST } from '@/lib/hyper/content';
 import type { Weapon } from '@/lib/hyper/sim';
 import type { ScoreGame } from '@/lib/scores';
 import { useBlaster } from '@/lib/useBlaster';
 import { createPvpQueue, type PvpQueue } from '@/lib/pvpPay';
 import { TOKEN_FEE } from '@/lib/gun';
-import { BRACER_COIN } from '@/lib/gameCoins';
+import { BRACER_COIN, NPG_RACING_COIN } from '@/lib/gameCoins';
+import { NPG_HOUSE_ADDRESS } from '@/lib/coinop';
 import { formatCount, packSats } from '@/lib/pricing';
 import { AmmoStrip } from './AmmoStrip';
 import { AmmoPicker } from './AmmoPicker';
@@ -40,11 +41,19 @@ import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
 
 type QualityPref = 'auto' | 'low' | 'high' | 'ultra';
 type RivalInfo = { name: string; detail: string; color: string; live: boolean; tx: string | null; team: string; kind: string };
-const PREFS = `tokenblaster:${GAME_SLUG}-prefs`;
-const NAME_KEY = `tokenblaster:${GAME_SLUG}-name`;
-const BEST = `tokenblaster:${GAME_SLUG}-best`;
+/** Everything that gives a skin its own identity: coin-op tag + price + house, boards, rooms, storage. */
+type Ident = { name: string; slug: string; prefs: string; nameKey: string; best: string; house: string; pence?: number; coin: typeof BRACER_COIN; board: (track: string, hc: boolean) => string };
+const BRACER_ID: Ident = {
+  name: GAME_NAME, slug: GAME_SLUG, prefs: `tokenblaster:${GAME_SLUG}-prefs`, nameKey: `tokenblaster:${GAME_SLUG}-name`, best: `tokenblaster:${GAME_SLUG}-best`,
+  house: process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU', // bCorp's receiving address (public, not a key)
+  coin: BRACER_COIN, board: bracerScoreGame,
+};
+/** NPG Racing: its own slug, NPG coin, 1p coin-op (Penny Racing) paid to the NPG house. */
+const NPG_ID: Ident = {
+  name: 'NPG Racing', slug: 'npgracing', prefs: 'tokenblaster:npgracing-prefs', nameKey: 'tokenblaster:npgracing-name', best: 'tokenblaster:npgracing-best',
+  house: NPG_HOUSE_ADDRESS, pence: 1, coin: NPG_RACING_COIN, board: npgRacingScoreGame,
+};
 /** LIVE blasting pays like Chain Frogger: 1 sat (or 1 token) to the house per action + the network fee, from the loaded gun. */
-const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
 const EST_FEE = 26; // sats per ~260-byte tx at the 100 sat/kB ARC minimum
 type PayItem = { action: string[]; to?: string; target?: string };
 const isMobileish = () => {
@@ -86,7 +95,7 @@ class HudDom {
   }
 }
 
-const readBest = (): Record<string, number> => {
+const readBest = (BEST: string): Record<string, number> => {
   try {
     return JSON.parse(localStorage.getItem(BEST) ?? '{}') as Record<string, number>;
   } catch {
@@ -100,6 +109,8 @@ const hudFont = { fontFamily: DR.font.display, fontWeight: 900, fontStyle: 'ital
 
 export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   const npg = skin === 'npg';
+  const ID = npg ? NPG_ID : BRACER_ID;
+  const HOUSE = ID.house;
   const teamList = npg ? NPG_TEAMS : TEAMS;
   const Logo = npg ? NpgLogo : BRacerLogo;
   const [npgPilot, setNpgPilot] = useState(NPG_PILOTS[0]);
@@ -110,7 +121,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
     takeRef.current = feed.take;
   });
   const engine = useRef<HyperEngine | null>(null);
-  const co = useCoinOp(GAME_NAME, GAME_SLUG);
+  const co = useCoinOp(ID.name, ID.slug, ID.pence, ID.house);
   // ── LIVE blasting: every shot / boost pad / boost is one tiny real tx from the shared gun (same path as Chain Frogger) ──
   const b = useBlaster();
   const [blastOn, setBlastOn] = useState(true);
@@ -136,7 +147,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       retries: 2,
       emptyMsg: 'Out of ammo: load more to keep blasting.',
       send: (startN, batch, to) => {
-        const extras = batch.map((x) => ['bracer', ...x.action]);
+        const extras = batch.map((x) => [ID.slug, ...x.action]);
         // Shots/pads/boosts pay the house; a hit on a pilot sends the token to their gun (sats: a plain blast).
         return payRef.current.tokenMode ? fireTokensRef.current(startN, extras, to ?? HOUSE) : to ? fireBatchRef.current(startN, extras) : fireBatchRef.current(startN, extras, { address: HOUSE, sats: 1 });
       },
@@ -150,7 +161,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       },
       onFail: (msg) => setPayErr(msg),
     });
-  }, []);
+  }, [ID, HOUSE]);
   const payHook = useRef<PayHook>({
     live: () => payRef.current.live,
     reserve: () => {
@@ -185,8 +196,8 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   useEffect(() => {
     if (!result || txReported.current === result) return;
     txReported.current = result;
-    if (run.paid && onChain > 0) reportTxs({ game: 'bracer', txs: onChain, txid: lastTx, secs: result.total });
-  }, [result, run.paid, onChain, lastTx]);
+    if (run.paid && onChain > 0) reportTxs({ game: ID.slug, txs: onChain, txid: lastTx, secs: result.total });
+  }, [result, run.paid, onChain, lastTx, ID]);
   const [rivals, setRivals] = useState<RivalInfo[]>([]);
   const [board, setBoard] = useState<LiveRow[]>([]);
   const [toasts, setToasts] = useState<(Toast & { id: number })[]>([]);
@@ -209,7 +220,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   const coRef = useRef<ReturnType<typeof useCoinOp> | null>(null);
   const xHandle = useMyHandle();
   const room = useRaceRoom<BRaceCfg>({
-    game: 'bracer',
+    game: ID.slug,
     enabled: ready,
     wallet: b.wallet?.client ?? null,
     profile: { name: pilot || 'PILOT', vehicle: shipId, team: teamId, gun: b.gunAddress || undefined, x: xHandle ?? undefined },
@@ -256,16 +267,16 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   useEffect(() => {
     setFonts({ display: drDisplay.style.fontFamily, mono: drMono.style.fontFamily, jp: drJp.style.fontFamily, logo: `${LOGO_FAMILY}, Impact, sans-serif` });
     void Promise.resolve().then(() => {
-      setBest(readBest());
+      setBest(readBest(ID.best));
       setTouch(Boolean(window.matchMedia?.('(pointer: coarse)').matches));
       try {
-        const n = localStorage.getItem(NAME_KEY) || `PILOT-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+        const n = localStorage.getItem(ID.nameKey) || `PILOT-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
         setPilot(n);
       } catch {
         setPilot('PILOT');
       }
       try {
-        const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; diff?: Difficulty; q?: QualityPref };
+        const p = JSON.parse(localStorage.getItem(ID.prefs) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; diff?: Difficulty; q?: QualityPref };
         if (isTrackId(p.track)) setTrackId(p.track);
         if (isShipId(p.ship)) setShipId(p.ship);
         if (p.team && (npg ? NPG_TEAMS : TEAMS).some((t) => t.id === p.team)) setTeamId(p.team);
@@ -285,11 +296,11 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       else if (qs) console.warn(`[bracer] no ship pack "${qs}" (content/bracer/ships/${qs}/ship.json); run pnpm content:check`);
       setReady(true);
     });
-  }, [npg]);
+  }, [npg, ID]);
   useEffect(() => {
     coRef.current = co;
     try {
-      if (pilot) localStorage.setItem(NAME_KEY, pilot);
+      if (pilot) localStorage.setItem(ID.nameKey, pilot);
     } catch {
       /* storage blocked */
     }
@@ -297,11 +308,11 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   useEffect(() => {
     if (!ready) return;
     try {
-      localStorage.setItem(PREFS, JSON.stringify({ track: trackId, ship: shipId, team: teamId, mode, diff: difficulty, q: qualityPref }));
+      localStorage.setItem(ID.prefs, JSON.stringify({ track: trackId, ship: shipId, team: teamId, mode, diff: difficulty, q: qualityPref }));
     } catch {
       /* storage blocked */
     }
-  }, [ready, trackId, shipId, teamId, mode, difficulty, qualityPref]);
+  }, [ready, trackId, shipId, teamId, mode, difficulty, qualityPref, ID]);
 
   const pushToast = useCallback((t: Toast) => {
     const id = ++toastId.current;
@@ -428,12 +439,12 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
           setResult(r);
           setShowBoard(false);
           setTimeout(() => !life.dead && setShowBoard(true), 1500);
-          const b = readBest();
+          const b = readBest(ID.best);
           const k = `${r.track}:${r.mode}`;
           if (!r.dnf && (!b[k] || r.total < b[k])) {
             b[k] = r.total;
             try {
-              localStorage.setItem(BEST, JSON.stringify(b));
+              localStorage.setItem(ID.best, JSON.stringify(b));
             } catch {
               /* storage blocked */
             }
@@ -465,7 +476,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini, skin, npgPilot]);
+  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini, skin, npgPilot, ID]);
 
   useEffect(() => {
     if (phase !== 'menu') return;
@@ -579,7 +590,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   };
   const fullscreen = () => (document.fullscreenElement ? exitFs() : enterFs());
   const hardcore = difficulty === 'hardcore';
-  const scoreGame = bracerScoreGame(trackId, hardcore) as ScoreGame;
+  const scoreGame = ID.board(trackId, hardcore) as ScoreGame;
   const cover = phase === 'countdown' || phase === 'racing' || phase === 'paused';
   const phaseRef = useRef(phase);
   useEffect(() => {
@@ -1099,7 +1110,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                   tokenPresets={[10, 100, 1_000, 10_000]}
                   initialTokenLoad={100}
                   remember
-                  house={BRACER_COIN}
+                  house={ID.coin}
                   sats={{
                     picker: <AmmoPicker value={shots} onChange={setShots} bsvUsd={null} />,
                     label: `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SATS BLASTS`,

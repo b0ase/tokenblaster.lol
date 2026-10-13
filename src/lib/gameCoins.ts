@@ -5,9 +5,9 @@
 import { iconUrl } from './tokens';
 
 export type GameKey = 'arena' | 'doubleo' | 'frogger' | 'bsvgun';
-export type GameCoin = { game: GameKey | 'bracer'; id: string; sym: string; name: string; url: string; icon: string | null };
+export type GameCoin = { game: GameKey | 'bracer' | 'npgracing'; id: string; sym: string; name: string; url: string; icon: string | null };
 
-const coin = (game: GameKey | 'bracer', sym: string, name: string, id: string): GameCoin => ({
+const coin = (game: GameKey | 'bracer' | 'npgracing', sym: string, name: string, id: string): GameCoin => ({
   game,
   id,
   sym,
@@ -25,6 +25,9 @@ export const GAME_COINS: Record<GameKey, GameCoin> = {
 
 /** bRacer's own coin, once it exists: set NEXT_PUBLIC_TB_BRACER_COIN to its BSV-21 id. Undefined until then. */
 export const BRACER_COIN: GameCoin | undefined = process.env.NEXT_PUBLIC_TB_BRACER_COIN ? coin('bracer', 'BRACER', 'bRacer', process.env.NEXT_PUBLIC_TB_BRACER_COIN) : undefined;
+
+/** NPG Racing's house coin (an NPG coin, not bRacer's): set NEXT_PUBLIC_TB_NPG_RACING_COIN to its BSV-21 id. */
+export const NPG_RACING_COIN: GameCoin | undefined = process.env.NEXT_PUBLIC_TB_NPG_RACING_COIN ? coin('npgracing', 'NPG', 'Ninja Punk Girls', process.env.NEXT_PUBLIC_TB_NPG_RACING_COIN) : undefined;
 
 /** Home-turf perk for firing a game's own coin LIVE. */
 export const HOUSE_GOLD = '#f5b800';

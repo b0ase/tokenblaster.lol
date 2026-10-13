@@ -193,7 +193,9 @@ const WINDOW_MAT = (tint: number) => {
         vWn = normalize(nq);`,
       );
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vWp; varying vec3 vWn; varying float vSeed;\nfloat wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`)
+      // vColor only exists with vertex/instance colours; the start-line towers are plain meshes (no instanceColor),
+      // so give them a fixed neon tint instead of failing to compile.
+      .replace('#include <common>', `#include <common>\n#if !defined(USE_COLOR) && !defined(USE_COLOR_ALPHA) && !defined(USE_INSTANCING_COLOR)\n#define vColor vec3(1.0, 0.25, 0.55)\n#endif\nvarying vec3 vWp; varying vec3 vWn; varying float vSeed;\nfloat wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`)
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>

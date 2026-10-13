@@ -19,6 +19,8 @@ export const MAX_COIN_SATS = 5_000_000;
 
 /** Empty when unset: then the coin slot is disabled (no fallback address for coin-op). */
 export const COINOP_HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS ?? '';
+/** The NPG house (public receiving address, not a key): NPG games' coins and actions pay here. */
+export const NPG_HOUSE_ADDRESS = process.env.NEXT_PUBLIC_NPG_HOUSE_ADDRESS || '1Uo6uagmm48swJHSeUgwQLnvjTD49tmuC';
 
 /**
  * `pence` in sats at `bsvGbp` (£ per BSV), rounded up to a whole sat, clamped to

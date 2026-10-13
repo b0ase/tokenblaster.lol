@@ -42,3 +42,5 @@ export const isShipId = (x: unknown): x is string => typeof x === 'string' && SH
 
 /** High-score board ids derive from the track slug: bracer-<slug> and bracer-<slug>-hc. */
 export const bracerScoreGame = (track: string, hardcore: boolean) => `bracer-${track}${hardcore ? '-hc' : ''}` as const;
+/** NPG Racing's own boards: npgracing-<slug> and npgracing-<slug>-hc. */
+export const npgRacingScoreGame = (track: string, hardcore: boolean) => `npgracing-${track}${hardcore ? '-hc' : ''}` as const;
