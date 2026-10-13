@@ -18,6 +18,7 @@ import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand
 import { LOGO_FAMILY, Logo as BRacerLogo, NpgLogo } from './bracer-logo';
 import { ALL_TEAMS, NPG_TEAMS } from '@/lib/hyper/teams';
 import { NPG_PILOTS } from '@/lib/hyper/npgPilots';
+import { npgTrackDef } from '@/lib/hyper/npgWorld';
 import { LIVE_CARDS } from '@/lib/npgLiveCards';
 import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
@@ -114,6 +115,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   const teamList = npg ? NPG_TEAMS : TEAMS;
   const Logo = npg ? NpgLogo : BRacerLogo;
   const [npgPilot, setNpgPilot] = useState(NPG_PILOTS[0]);
+  const [faces, setFaces] = useState<Record<string, string>>({});
   const mount = useRef<HTMLDivElement>(null);
   const feed = useChainFeed();
   const takeRef = useRef(feed.take);
@@ -465,6 +467,8 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       .init()
       .then(() => {
         if (life.dead) return;
+        // NPG skin: render the pilots' faces for the picker (skipped on low quality: the GLBs are heavy).
+        if (npg && q !== 'low') void eng.pilotPortraits(NPG_PILOTS, (slug, url) => !life.dead && setFaces((f) => (f[slug] ? f : { ...f, [slug]: url })));
         bakeMini(eng.tr);
         if (process.env.NODE_ENV !== 'production') (window as unknown as { __bracer?: HyperEngine }).__bracer = eng;
       })
@@ -476,7 +480,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini, skin, npgPilot, ID]);
+  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini, skin, npgPilot, ID, npg]);
 
   useEffect(() => {
     if (phase !== 'menu') return;
@@ -484,7 +488,9 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
     return () => clearInterval(id);
   }, [phase]);
 
-  const def = TRACKS[trackId] ?? TRACKS[DEFAULT_TRACK];
+  const def0 = TRACKS[trackId] ?? TRACKS[DEFAULT_TRACK];
+  const def = npg ? npgTrackDef(def0) : def0;
+  const trackList = npg ? TRACK_LIST.map(npgTrackDef) : TRACK_LIST;
   const ship = SHIPS.find((s) => s.id === shipId) ?? SHIPS[1];
   const team = teamList.find((t) => t.id === teamId) ?? teamList[0];
   const bestTime = best[`${trackId}:${mode}`];
@@ -862,7 +868,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
 
         {/* ── Title poster / menu ── */}
         {phase === 'menu' && (
-          <div className="absolute inset-0 overflow-y-auto p-2 sm:p-4" style={{ background: 'linear-gradient(90deg, rgba(5,5,8,0.94) 0%, rgba(5,5,8,0.78) 46%, rgba(5,5,8,0) 78%)' }}>
+          <div className="absolute inset-0 overflow-y-auto p-2 sm:p-4" style={{ background: npg ? 'linear-gradient(90deg, rgba(24,6,30,0.93) 0%, rgba(40,8,46,0.72) 46%, rgba(0,0,0,0) 78%)' : 'linear-gradient(90deg, rgba(5,5,8,0.94) 0%, rgba(5,5,8,0.78) 46%, rgba(5,5,8,0) 78%)' }}>
             <div className="flex max-w-[34rem] flex-col gap-3">
               <div className="relative">
                 <div className="leading-none">
@@ -874,17 +880,30 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                   </Kana>
                   <ProductCode code="HG-3000" label="TB" />
                 </div>
-                <div className="-mt-1 flex flex-wrap items-center gap-2">
-                  <Sticker bg={DR.colour.amber} size={15} rot={-2}>
-                    BUY NOW / BLAST MORE
-                  </Sticker>
-                  <Sticker bg={DR.colour.paper} size={12} rot={2}>
-                    {npg ? 'Girls vs Erobots, live on chain' : GAME_TAGLINE}
-                  </Sticker>
-                </div>
-                <div className="mt-2 w-[min(90%,22rem)]">
-                  <ChevronBar n={26} h={10} colour={DR.colour.signal} />
-                </div>
+                {npg ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="border-[3px] border-white bg-black px-2 text-2xl leading-tight text-white" style={{ ...hudFont, transform: 'rotate(-4deg)' }}>
+                      NPG
+                    </span>
+                    <span className="border-[3px] border-black px-2 py-0.5 text-sm text-black" style={{ ...hudFont, background: '#22e6ff', boxShadow: '4px 4px 0 #ff2d95' }}>
+                      GIRLS VS EROBOTS · PENNY RACING 1P
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="-mt-1 flex flex-wrap items-center gap-2">
+                      <Sticker bg={DR.colour.amber} size={15} rot={-2}>
+                        BUY NOW / BLAST MORE
+                      </Sticker>
+                      <Sticker bg={DR.colour.paper} size={12} rot={2}>
+                        {GAME_TAGLINE}
+                      </Sticker>
+                    </div>
+                    <div className="mt-2 w-[min(90%,22rem)]">
+                      <ChevronBar n={26} h={10} colour={DR.colour.signal} />
+                    </div>
+                  </>
+                )}
               </div>
               {npg && <p className="max-w-md text-xs text-fg">Ninja Punk Girls race the Erobots in fat toon karts. Every Erobot rides a real mainnet transaction: the bigger the move, the faster it goes.</p>}
               <p className={`max-w-md text-xs text-fg ${npg ? 'hidden' : ''}`}>Every rival is a real mainnet transaction. The bigger the move, the faster the ship; token tickers and logos fly as team colours. Hit pads, grab weapons, barrel-roll for boost.</p>
@@ -892,7 +911,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
               <div>
                 <p className="mb-1 text-[10px] tracking-widest text-dim">01 / CIRCUIT</p>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {TRACK_LIST.map((t, i) => (
+                  {trackList.map((t, i) => (
                     <button key={t.id} onClick={() => pickTrack(t.id)} disabled={locked} aria-pressed={t.id === trackId} className="relative overflow-hidden border-2 p-1.5 text-left" style={{ borderColor: t.id === trackId ? t.palette.a1 : '#333', background: t.id === trackId ? '#0c0c10' : '#07070a', ...(t.id === trackId ? halftone(t.palette.a2, 10, 0.3) : {}) }}>
                       <span className="block text-[9px] tracking-widest" style={{ color: t.palette.a1, fontFamily: DR.font.mono }}>
                         {t.code} · 0{i + 1}
@@ -995,12 +1014,18 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
               {npg && (
                 <div data-npg-pilot={npgPilot}>
                   <p className="mb-1 text-[10px] tracking-widest text-dim">PILOT · NINJA PUNK GIRL</p>
-                  <div className="flex flex-wrap gap-1">
-                    {NPG_PILOTS.map((slug) => (
-                      <button key={slug} onClick={() => setNpgPilot(slug)} aria-pressed={slug === npgPilot} className="px-1.5 py-0.5 text-[11px]" style={{ ...hudFont, background: slug === npgPilot ? '#ff2d95' : 'rgba(0,0,0,0.6)', color: slug === npgPilot ? '#fff' : '#22e6ff', outline: slug === npgPilot ? '2px solid #fff' : '1px solid #22e6ff55' }}>
-                        {LIVE_CARDS.find((c) => c.slug === slug)?.name ?? slug}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-7">
+                    {NPG_PILOTS.map((slug, i) => {
+                      const on = slug === npgPilot;
+                      return (
+                        <button key={slug} onClick={() => setNpgPilot(slug)} aria-pressed={on} className="relative overflow-hidden border-[3px] border-black text-left" style={{ background: i % 2 ? '#22e6ff' : '#ff2d95', boxShadow: on ? '0 0 0 3px #fff, 4px 4px 0 #000' : '2px 2px 0 #000', transform: on ? 'rotate(-2deg) scale(1.05)' : undefined }}>
+                          <span className="block aspect-[6/7] w-full" style={faces[slug] ? { backgroundImage: `url(${faces[slug]})`, backgroundSize: 'cover', backgroundPosition: 'center top' } : { backgroundImage: `url(/npg/cards/${slug}-card-bg.webp)`, backgroundSize: 'cover', opacity: 0.6 }} />
+                          <span className="block bg-black px-0.5 text-center text-[10px] leading-tight text-white" style={hudFont}>
+                            {LIVE_CARDS.find((c) => c.slug === slug)?.name ?? slug}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                   <p className="mt-0.5 text-[10px] text-dim">Rivals are the evil Erobots, each one riding a live mainnet transaction.</p>
                 </div>

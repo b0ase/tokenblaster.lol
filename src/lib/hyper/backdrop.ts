@@ -137,9 +137,11 @@ function ridgeRing(cx: number, cz: number, r: number, hMax: number, seed: number
 
 export type Backdrop = { group: THREE.Group; update(time: number, cam: THREE.Vector3): void; hideCity: boolean; groundTint: THREE.Color; showGround: boolean };
 
-export function buildBackdrop(tr: Track, scenery: Scenery, hi: boolean, own: Own): Backdrop {
+export function buildBackdrop(tr: Track, scenery: Scenery, hi: boolean, own: Own, npg = false): Backdrop {
   const p: Pal = tr.def.palette;
   const group = new THREE.Group();
+  // NPG Racing: bright open ground, no neon skyline bands or haze (its scenery is in npgWorld.ts).
+  if (npg) return { group, hideCity: false, showGround: true, groundTint: new THREE.Color(0, 0, 0), update() {} };
   const bd = tr.bounds;
   const cx = (bd.minX + bd.maxX) / 2;
   const cz = (bd.minZ + bd.maxZ) / 2;

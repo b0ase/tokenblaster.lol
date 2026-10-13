@@ -7,6 +7,8 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { addSweep, BARRIER_LAT, BARRIER_TOP, braceGeo, Bucketed, energyMaterial, frameMatrix, gantryParts, grandstandParts, pitParts, pylonParts, ribGeo, SLAB, TUNNEL, TUNNEL_OUT, type Prof } from './architecture';
 import { baysTex, crowdTex, deckTextures, plateTextures, sponsorTex, stripTex } from './artTex';
 import { buildBackdrop } from './backdrop';
+import { buildNpgProps, buildToonSky, drawNpgBanner, NPG_BUILDING_TINTS, npgBuildingMat, npgDeckTexture, npgSignTextures, npgSponsorTex, toonMat } from './npgWorld';
+import { FONTS } from './signs';
 
 export type Quality = 'low' | 'high' | 'ultra';
 
@@ -254,19 +256,21 @@ const ROCK_MAT = (warm: string) => {
   return m;
 };
 
-export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer, pitLane = true): World {
+/** style 'npg' = NPG Racing's cartoon world (npgWorld.ts); default is bRacer's night megacity, unchanged. */
+export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer, pitLane = true, style?: 'npg'): World {
+  const npg = style === 'npg';
   const p = tr.def.palette;
   const group = new THREE.Group();
   const disposables: { dispose(): void }[] = [];
   const own = <T extends { dispose(): void }>(o: T) => (disposables.push(o), o);
-  const sky = buildSky(p);
+  const sky = npg ? buildToonSky(p) : buildSky(p);
   const f = newFrame();
   const R = rng(tr.def.seed * 7 + 1);
 
   const hi = q !== 'low';
   const TS = hi ? 1024 : 512;
   const scenery = tr.def.scenery ?? 'megacity';
-  const backdrop = buildBackdrop(tr, scenery, hi, own);
+  const backdrop = buildBackdrop(tr, scenery, hi, own, npg);
   group.add(backdrop.group);
   const groundY = backdrop.showGround ? 0 : Math.min(0, tr.bounds.minY - 90);
   const fm = newFrame();
@@ -279,14 +283,15 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   const LS = 24;
   const topProf: Prof = [];
   for (let j = 0; j <= LS; j++) topProf.push([-HALF_W + (2 * HALF_W * j) / LS, 0]);
-  addSweep(group, own, tr, topProf, topMat, { vLen: 18, pipe: true });
+  const deckMat = npg ? own(toonMat({ map: own(npgDeckTexture()), side: THREE.DoubleSide })) : topMat;
+  addSweep(group, own, tr, topProf, deckMat, { vLen: npg ? 14 : 18, pipe: true });
 
   // Solid bevelled slab with kerbs, keel and a running-light stripe on the outer face.
   const pt = plateTextures(TS, hi);
   own(pt.map); own(pt.rough);
   if (pt.normal) own(pt.normal);
-  const darkMat = own(new THREE.MeshStandardMaterial({ map: pt.map, roughnessMap: pt.rough, normalMap: pt.normal, color: '#c4cad8', metalness: 0.82, roughness: 1, envMapIntensity: 1.25, side: THREE.DoubleSide }));
-  const steelMat = own(new THREE.MeshStandardMaterial({ map: pt.map, roughnessMap: pt.rough, normalMap: pt.normal, color: '#8a90a0', metalness: 0.9, roughness: 1, envMapIntensity: 1.1 }));
+  const darkMat: THREE.Material = npg ? own(toonMat({ color: '#2a2440', side: THREE.DoubleSide })) : own(new THREE.MeshStandardMaterial({ map: pt.map, roughnessMap: pt.rough, normalMap: pt.normal, color: '#c4cad8', metalness: 0.82, roughness: 1, envMapIntensity: 1.25, side: THREE.DoubleSide }));
+  const steelMat: THREE.Material = npg ? own(toonMat({ color: '#ffffff' })) : own(new THREE.MeshStandardMaterial({ map: pt.map, roughnessMap: pt.rough, normalMap: pt.normal, color: '#8a90a0', metalness: 0.9, roughness: 1, envMapIntensity: 1.1 }));
   addSweep(group, own, tr, SLAB, darkMat, { hard: true, uLen: 6, vLen: 8, pipe: true });
   const stripT = own(stripTex());
   const stripe = (lat: number, colr: string) => {
@@ -470,6 +475,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     g.fillStyle = p.a1;
     g.fillRect(0, 230, 1024, 26);
     drawLogo(g, 70, 200, 150, p.a2, '#fff', '#000');
+    if (npg) drawNpgBanner(bannerC, FONTS.logo);
   }
   const bannerTex = own(texOf(bannerC, true, false));
   const bannerMat = own(new THREE.MeshBasicMaterial({ map: bannerTex, color: col('#ffffff', 1.6), side: THREE.DoubleSide }));
@@ -508,7 +514,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   });
   sponsorLists.forEach((list, i) => {
     if (!list.length) return;
-    const t = own(sponsorTex(i, p));
+    const t = own(npg ? npgSponsorTex(i + tr.def.seed) : sponsorTex(i, p));
     const im = new THREE.InstancedMesh(boardGeo, own(new THREE.MeshBasicMaterial({ map: t, color: col('#ffffff', 1.35) })), list.length);
     list.forEach((m, j) => im.setMatrixAt(j, m));
     im.computeBoundingSphere();
@@ -572,8 +578,8 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   }
 
   // Signage.
-  const signTexs: THREE.CanvasTexture[] = [];
-  for (let i = 0; i < SIGN_COUNT; i++) {
+  const signTexs: THREE.CanvasTexture[] = npg ? npgSignTextures(9).map(own) : [];
+  for (let i = 0; i < (npg ? 0 : SIGN_COUNT); i++) {
     const c = canvas(1024, 512);
     drawSign(c, i, p.a1, p.a2);
     signTexs.push(own(texOf(c, true, false)));
@@ -739,7 +745,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   rockBase.dispose();
   rockGeo.translate(0, 0.5, 0);
   rockGeo.computeVertexNormals();
-  const variants = (canyon ? [WINDOW_MAT(0), ROCK_MAT(p.sun), WINDOW_MAT(1)] : [WINDOW_MAT(0), WINDOW_MAT(0.5), WINDOW_MAT(1)]).map((m) => own(m));
+  const variants: THREE.Material[] = npg ? [0, 1, 2].map(() => own(npgBuildingMat())) : (canyon ? [WINDOW_MAT(0), ROCK_MAT(p.sun), WINDOW_MAT(1)] : [WINDOW_MAT(0), WINDOW_MAT(0.5), WINDOW_MAT(1)]).map((m) => own(m));
   const groups: typeof buildings[] = [[], [], []];
   buildings.forEach((b, i) => groups[i % 3].push(b));
   const tints = [col(p.a1, 0.9), col(p.a2, 0.9), col('#ffcf8a', 0.9), col(p.glow, 0.9)];
@@ -751,7 +757,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
       const rk = canyon && vi === 1;
       m.compose(new THREE.Vector3(b.x, 0, b.z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rk ? b.tint * 6.28 : 0), new THREE.Vector3(b.w * (rk ? 1.6 : 1), rk ? b.h * 0.8 : b.h, b.d * (rk ? 1.6 : 1)));
       im.setMatrixAt(i, m);
-      im.setColorAt(i, tints[Math.floor(b.tint * 4) % 4]);
+      im.setColorAt(i, npg ? NPG_BUILDING_TINTS[Math.floor(b.tint * 6) % 6] : tints[Math.floor(b.tint * 4) % 4]);
     });
     im.frustumCulled = false;
     group.add(im);
@@ -771,7 +777,9 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   const gt = own(texOf(gc, true));
   gt.repeat.set(160, 160);
   const ground = new THREE.Mesh(own(new THREE.PlaneGeometry(cell * 160, cell * 160)), own(new THREE.MeshStandardMaterial({ map: gt, emissiveMap: gt, emissive: backdrop.groundTint, roughness: 0.55, metalness: 0.4 })));
+  if (npg) (ground as THREE.Mesh).material = own(toonMat({ color: '#7fd65a' }));
   ground.visible = backdrop.showGround;
+  if (npg) group.add(buildNpgProps(tr, own, hi));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set((bd.minX + bd.maxX) / 2, 0, (bd.minZ + bd.maxZ) / 2);
   // Texture tile aligns with the building grid: shift by half a cell.

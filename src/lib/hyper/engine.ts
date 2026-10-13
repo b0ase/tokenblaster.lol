@@ -17,7 +17,8 @@ import { Input, type Touch } from './input';
 import { newShip, noInput, SHIPS, stepShip, WEAPONS, type ShipSpec, type SimInput, type Weapon } from './sim';
 import { buildShip, Trail, type Rig } from './ships';
 import { buildToonShip } from './toonShips';
-import { EROBOT_PILOTS, NPG_PILOTS } from './npgPilots';
+import { npgTrackDef } from './npgWorld';
+import { EROBOT_PILOTS, NPG_PILOTS, pilotPortrait } from './npgPilots';
 import { FONTS } from './signs';
 import { SnapshotBuffer } from '@/lib/racemp/buffer';
 import { readWire, verifyWire } from '@/lib/identity';
@@ -373,7 +374,8 @@ export class HyperEngine {
   async init() {
     const { cb } = this.opts;
     const q = this.opts.quality;
-    const def = TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK];
+    const def0 = TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK];
+    const def = this.npg ? npgTrackDef(def0) : def0;
     cb.onLoading('Setting up renderer', 0.03);
     const hi = q !== 'low';
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -381,7 +383,7 @@ export class HyperEngine {
     this.dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr);
     renderer.setPixelRatio(this.dpr);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.92;
+    renderer.toneMappingExposure = this.npg ? 1.0 : 0.92;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
     this.el.appendChild(renderer.domElement);
@@ -400,7 +402,7 @@ export class HyperEngine {
     cb.onLoading('Building the megastructure', 0.3);
     await new Promise((r) => setTimeout(r, 0));
     if (this.disposed) return;
-    this.world = buildWorld(tr, q, renderer, this.opts.difficulty !== 'hardcore');
+    this.world = buildWorld(tr, q, renderer, this.opts.difficulty !== 'hardcore', this.npg ? 'npg' : undefined);
     const sky = this.world.sky;
     // Image-based light from the sky dome.
     const envScene = new THREE.Scene();
@@ -412,8 +414,9 @@ export class HyperEngine {
     this.scene.add(sky);
     this.scene.add(this.world.group);
     this.scene.fog = new THREE.FogExp2(new THREE.Color(def.palette.fog), def.palette.fogDensity);
-    this.scene.add(new THREE.HemisphereLight('#aab4ff', def.palette.fog, 1.45));
-    this.moon = new THREE.DirectionalLight(def.palette.sun, 2.4);
+    // NPG: bright flat daylight for cel shading.
+    this.scene.add(this.npg ? new THREE.HemisphereLight('#ffffff', '#ffb8dc', 2.2) : new THREE.HemisphereLight('#aab4ff', def.palette.fog, 1.45));
+    this.moon = new THREE.DirectionalLight(def.palette.sun, this.npg ? 2.8 : 2.4);
     this.moon.position.set(-0.5, 0.7, 0.8).multiplyScalar(100);
     this.scene.add(this.moon);
     this.under = new THREE.PointLight(def.palette.a1, 30, 38, 1.4);
@@ -484,7 +487,7 @@ export class HyperEngine {
   private buildPlayer() {
     const accent = this.team.accent === '#ffffff' || this.team.accent === '#f4efe2' || this.team.accent === '#f2f2ee' ? (TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK]).palette.a1 : this.team.accent;
     const lv = this.npg ? undefined : this.spec.livery;
-    const rig = this.makeRig(this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null }, lv?.accent ?? accent, this.npg ? (this.opts.pilot && NPG_PILOTS.includes(this.opts.pilot) ? this.opts.pilot : NPG_PILOTS[0]) : null);
+    const rig = this.makeRig(this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null }, lv?.accent ?? accent, this.npg ? (this.opts.pilot && NPG_PILOTS.includes(this.opts.pilot) ? this.opts.pilot : NPG_PILOTS[0]) : null, true);
     this.playerRig = rig;
     this.scene.add(rig.root);
     const col = new THREE.Color(this.TRAIL_COL(accent)).multiplyScalar(0.45);
@@ -493,6 +496,14 @@ export class HyperEngine {
     this.scene.add(this.trailL.mesh, this.trailR.mesh);
   }
   private playerRig!: Rig;
+  /** NPG skin: head-and-shoulders portraits of the pilots for the picker, rendered one at a time. */
+  async pilotPortraits(slugs: string[], each: (slug: string, url: string) => void) {
+    for (const slug of slugs) {
+      if (this.disposed || !this.renderer) return;
+      const url = await pilotPortrait(this.renderer, slug).catch(() => null);
+      if (url && !this.disposed) each(slug, url);
+    }
+  }
   private get bestKey() {
     return this.npg ? 'tokenblaster:npgracing-laps' : BEST_KEY;
   }
@@ -500,9 +511,9 @@ export class HyperEngine {
     return this.opts.skin === 'npg';
   }
   /** One ship builder for every skin. Pilots only ride in the NPG skin, and not on low quality (GLBs are heavy). */
-  private makeRig(spec: ShipSpec, l: Livery, accent: string, pilot: string | null = null): Rig {
+  private makeRig(spec: ShipSpec, l: Livery, accent: string, pilot: string | null = null, light = false): Rig {
     if (!this.npg) return buildShip(spec, l, accent);
-    return buildToonShip(spec, l, accent, { pilot: this.opts.quality === 'low' ? null : pilot, outline: true });
+    return buildToonShip(spec, l, accent, { pilot: this.opts.quality === 'low' ? null : pilot, outline: true, light });
   }
   private TRAIL_COL(c: string) {
     return new THREE.Color(c).multiplyScalar(2.2).getHex();
@@ -1068,7 +1079,7 @@ export class HyperEngine {
       u.uPulse.value = this.pulse;
       u.uTime.value = this.time % 100;
     }
-    if (this.bloom) this.bloom.strength = (this.fxLevel >= 3 ? 0.42 : 0.36) + this.boostFx * 0.2;
+    if (this.bloom) this.bloom.strength = this.npg ? 0.08 + this.boostFx * 0.1 : (this.fxLevel >= 3 ? 0.42 : 0.36) + this.boostFx * 0.2;
     this.audio.update(this.showSpeed, this.me.boostT > 0, this.me.scrape > 0, racing || this.phase === 'countdown');
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
@@ -1747,11 +1758,12 @@ export class HyperEngine {
       cam.lookAt(this.v4.copy(this.shipPos).addScaledVector(this.v3, 3));
       this.fov += (52 - this.fov) * Math.min(1, 4 * dt);
     } else {
-      const dist = this.camMode === 0 ? 7.6 : 12;
-      const height = this.camMode === 0 ? 3.0 : 4.8;
+      // NPG skin: a touch higher and further back, so the pilot in the cockpit reads as a girl.
+      const dist = this.camMode === 0 ? (this.npg ? 9.2 : 7.6) : this.npg ? 13.5 : 12;
+      const height = this.camMode === 0 ? (this.npg ? 4.1 : 3.0) : this.npg ? 5.8 : 4.8;
       this.v1.set(0, height, dist).applyQuaternion(this.qCam);
       cam.position.copy(this.v4).add(this.v1);
-      this.qTmp2.setFromAxisAngle(this.v2.set(1, 0, 0), -0.17 - (this.camMode ? 0.05 : 0));
+      this.qTmp2.setFromAxisAngle(this.v2.set(1, 0, 0), -0.17 - (this.camMode ? 0.05 : 0) - (this.npg ? 0.07 : 0));
       cam.quaternion.copy(this.qCam).multiply(this.qTmp2);
       const asp = cam.aspect;
       const base = asp < 1 ? 92 : 74;

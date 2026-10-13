@@ -89,17 +89,19 @@ export function toonHullFor(spec: ShipSpec): ToonHull {
     f.translate(e.x, e.y, -1.3);
     flame.push(ni(f));
   }
-  // Open cockpit: a dark tub ring sunk into the top, the pilot sits in it.
-  const seat = new THREE.Vector3(0, 0.38, L * 0.04);
-  const tub = new THREE.TorusGeometry(0.62, 0.16, 8, 22);
+  // Open cockpit: a chunky dark tub rim flush with the top of the hull and a dark well inside it. The pilot's
+  // hips sit well below (inside the hull), so only her chest, shoulders and head show above the rim.
+  const seat = new THREE.Vector3(0, 0, L * 0.04);
+  const rimY = 0.7;
+  const tub = new THREE.TorusGeometry(0.66, 0.2, 10, 24);
   tub.rotateX(Math.PI / 2);
-  tub.scale(1, 1, 1.35);
-  tub.translate(seat.x, seat.y + 0.12, seat.z);
+  tub.scale(1, 1, 1.3);
+  tub.translate(seat.x, rimY, seat.z);
   dark.push(ni(tub));
-  const floor = new THREE.CircleGeometry(0.6, 20);
+  const floor = new THREE.CircleGeometry(0.66, 24);
   floor.rotateX(-Math.PI / 2);
-  floor.scale(1, 1, 1.35);
-  floor.translate(seat.x, seat.y + 0.02, seat.z);
+  floor.scale(1, 1, 1.3);
+  floor.translate(seat.x, rimY - 0.04, seat.z);
   dark.push(ni(floor));
   const bodyParts = [ni(fus), ni(nose), ...wings.map(ni), ni(fin)];
   const body = mergeGeometries(bodyParts, false);
@@ -221,7 +223,7 @@ export function paintToonLivery(c: HTMLCanvasElement, l: Livery) {
 
 const shared: { dark?: THREE.MeshToonMaterial; glow?: THREE.MeshBasicMaterial; outline?: THREE.MeshBasicMaterial } = {};
 
-export type ToonOptions = { pilot?: string | null; outline?: boolean };
+export type ToonOptions = { pilot?: string | null; outline?: boolean; /** Light the pilot (player ship only). */ light?: boolean };
 
 export function buildToonShip(spec: ShipSpec, l: Livery, accentCol: string, o: ToonOptions = {}): Rig {
   const hull = toonHullFor(spec);
@@ -268,7 +270,7 @@ export function buildToonShip(spec: ShipSpec, l: Livery, accentCol: string, o: T
   toon.add(seat);
   let alive = true;
   let pilot: Pilot | null = null;
-  if (o.pilot) void seatPilot(seat, o.pilot, () => alive).then((p) => (pilot = p));
+  if (o.pilot) void seatPilot(seat, o.pilot, () => alive, o.light).then((p) => (pilot = p));
   // Spring state for the bounce.
   let t = Math.random() * 10;
   let sq = 0;
