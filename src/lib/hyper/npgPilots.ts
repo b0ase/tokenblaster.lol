@@ -18,7 +18,7 @@ const cache = new Map<string, Promise<Src | null>>();
 let loader: GLTFLoader | null = null;
 
 /** Pilot height in ship units (hulls are ~6 long): a big chibi head poking out of the cockpit. */
-const HEIGHT = 1.9;
+const HEIGHT = 2.4;
 
 function load(slug: string): Promise<Src | null> {
   let p = cache.get(slug);

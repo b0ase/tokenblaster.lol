@@ -857,7 +857,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                 <div className="leading-none">
                   <Logo size="clamp(44px,7.2vw,80px)" />
                 </div>
-                <div className="absolute right-0 top-1 hidden flex-col items-end gap-1 sm:flex">
+                <div className={`absolute right-0 top-1 hidden flex-col items-end gap-1 ${npg ? "" : "sm:flex"}`}>
                   <Kana size={13} colour={DR.colour.amber}>
                     {npg ? 'ニンジャパンクガールズ' : GAME_KANA}
                   </Kana>
