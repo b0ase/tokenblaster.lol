@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { rigClips } from '@/lib/npgRigMocap';
+import { rigClips, holdHeadUp, findHead } from '@/lib/npgRigMocap';
 import { LIVE_CARDS, liveCardBase } from '@/lib/npgLiveCards';
 import { makeStage, type Stage, type StageKind } from '@/lib/npgArena/stage';
 import { makeFighter, makeSim, rematch, step, NO_INPUT, type Fighter, type Input, type Sim, type Stats } from '@/lib/npgArena/sim';
@@ -133,28 +133,6 @@ function makeFightSfx() {
     resume: () => ac.state !== 'running' && void ac.resume(),
   };
 }
-
-const _pq = new THREE.Quaternion();
-const _mq = new THREE.Quaternion();
-/**
- * The mocap's head/neck tracks are stripped (big chibi heads nodding read as broken necks), so the head rides on the
- * spine and every forward-leaning stance bowed her head. Pull it most of the way back to upright, facing her front.
- */
-function holdHeadUp(model: THREE.Object3D, head: THREE.Object3D | null, amount = 0.85) {
-  if (!head?.parent) return;
-  model.updateWorldMatrix(true, true);
-  head.parent.getWorldQuaternion(_pq);
-  model.getWorldQuaternion(_mq);
-  head.quaternion.slerp(_pq.invert().multiply(_mq), amount);
-  head.updateMatrixWorld(true);
-}
-const findHead = (model: THREE.Object3D) => {
-  let h: THREE.Object3D | null = null;
-  model.traverse((o) => {
-    if (!h && (o as THREE.Bone).isBone && /(^|:)Head$/.test(o.name)) h = o;
-  });
-  return h;
-};
 
 /** One girl in the scene: her model, mixer and clip actions, following a sim Fighter. */
 class FighterView {

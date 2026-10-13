@@ -12,7 +12,7 @@ import type { CardBox } from '@/lib/npgLiveCards';
 const SKIN = false;
 import { mocap } from '@/lib/npgMocap';
 import { mixamoRig, type MixamoRig } from '@/lib/mixamoPose';
-import { rigClips, IDLE, ATTACKS } from '@/lib/npgRigMocap';
+import { rigClips, IDLE, ATTACKS, holdHeadUp, findHead } from '@/lib/npgRigMocap';
 
 /**
  * A live NPG card: the card's background, the rigged 3D girl in a transparent canvas, then the card's frame (name, QR,
@@ -82,6 +82,8 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
     const root = new THREE.Group();
     scene.add(root);
     let mixer: THREE.AnimationMixer | null = null;
+    let head: THREE.Object3D | null = null;
+    let rigged: THREE.Object3D | null = null;
     let idle: THREE.AnimationAction | null = null;
     let attack: THREE.AnimationAction | null = null;
     // Tripo's own clean Mixamo rig (owner-rigged in Tripo): real bone animation, no tearing
@@ -122,6 +124,8 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
         if (o.name.startsWith('Icosphere')) o.visible = false; // Tripo's rig-preview marker
       });
       mix = hasRig ? mixamoRig(model) : null;
+      head = hasRig ? findHead(model) : null;
+      rigged = model;
       if (hasRig)
         rigClips(model, base.split('/').pop() ?? '').then((clips) => {
           const m = mixer;
@@ -225,7 +229,10 @@ export function LiveCard({ base, name, box, compact = false, swing: swingKey = 0
       let spin = 0;
       let fwd = 0;
       let hop = 0;
-      if (mo) mixer?.update(dt);
+      if (mo) {
+        mixer?.update(dt);
+        if (rigged) holdHeadUp(rigged, head);
+      }
       if (!mo && lunge >= 0) {
         lunge += dt;
         const k = Math.min(1, lunge / (mix ? 0.8 : 0.55));

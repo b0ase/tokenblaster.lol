@@ -90,3 +90,25 @@ export async function rigClips(model: THREE.Object3D, slug: string, opts: RigCli
     return new THREE.AnimationClip(c.name, c.duration, tracks);
   });
 }
+
+const _pq = new THREE.Quaternion();
+const _mq = new THREE.Quaternion();
+/**
+ * The mocap's head/neck tracks are stripped (big chibi heads nodding read as broken necks), so the head rides on the
+ * spine and every forward-leaning stance bowed her head. Pull it most of the way back to upright, facing her front.
+ */
+export function holdHeadUp(model: THREE.Object3D, head: THREE.Object3D | null, amount = 0.85) {
+  if (!head?.parent) return;
+  model.updateWorldMatrix(true, true);
+  head.parent.getWorldQuaternion(_pq);
+  model.getWorldQuaternion(_mq);
+  head.quaternion.slerp(_pq.invert().multiply(_mq), amount);
+  head.updateMatrixWorld(true);
+}
+export const findHead = (model: THREE.Object3D) => {
+  let h: THREE.Object3D | null = null;
+  model.traverse((o) => {
+    if (!h && (o as THREE.Bone).isBone && /(^|:)Head$/.test(o.name)) h = o;
+  });
+  return h;
+};
