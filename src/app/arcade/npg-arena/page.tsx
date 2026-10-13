@@ -1,7 +1,7 @@
 import { GameShell } from '@/components/GameShell';
 import { NpgArena } from '@/components/NpgArena';
 
-const description = 'Ninja Punk Girls Arena: a 3D one-on-one fighter on a neon rooftop dojo. Eleven Ninja Punk Girls in real motion capture: light combos, heavies, blocks, rolls, best of three rounds against the CPU or a friend.';
+const description = 'Ninja Punk Girls Arena: a 3D one-on-one fighter on a neon rooftop dojo. Twelve Ninja Punk Girls in real motion capture: light combos, heavies, blocks, rolls, best of three rounds against the CPU or a friend.';
 export const metadata = {
   title: 'Ninja Punk Girls: Arena · TokenBlaster.lol',
   description,
