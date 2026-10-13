@@ -33,8 +33,23 @@ export function npgName(def: { id: string; name: string; kana: string; blurb: st
 export function npgTrackDef(def: TrackDef): TrackDef {
   const n = npgName(def);
   const [zen, hor, glow] = SUNSETS[Math.abs(def.seed) % SUNSETS.length];
+  // Kart circuits: about 60% of the hover lap, with extra wiggle harmonics (hairpins) and more ramps.
+  const extraHarm: [number, number, number][] = def.points ? [] : [[5, 0.17, 0.9 + def.seed * 0.3], [8, 0.08, 2.1]];
+  const jumps = Array.from(new Set([...def.jumps, 0.3, 0.52, 0.86].map((j) => Math.round(j * 100) / 100))).filter((j) => !def.tunnels.some(([a, b]) => j > a - 0.02 && j < b + 0.02)).sort((a, b) => a - b);
+  let points = def.points;
+  if (points) {
+    const cx = points.reduce((a, p) => a + p.x, 0) / points.length;
+    const cz = points.reduce((a, p) => a + p.z, 0) / points.length;
+    const cy = points.reduce((a, p) => a + p.y, 0) / points.length;
+    points = points.map((p) => ({ ...p, x: cx + (p.x - cx) * 0.62, z: cz + (p.z - cz) * 0.62, y: cy + (p.y - cy) * 0.8 }));
+  }
   return {
     ...def,
+    points,
+    R: def.R * 0.62,
+    harm: [...def.harm, ...extraHarm],
+    jumps,
+    par: def.par ? { lapSeconds: def.par.lapSeconds ? Math.round(def.par.lapSeconds * 0.85) : undefined, raceSeconds: def.par.raceSeconds ? Math.round(def.par.raceSeconds * 0.85) : undefined } : undefined,
     name: n.name,
     kana: n.kana,
     blurb: n.blurb,
@@ -68,7 +83,31 @@ export function toonRamp() {
   ramp.needsUpdate = true;
   return ramp;
 }
-export const toonMat = (o: THREE.MeshToonMaterialParameters) => new THREE.MeshToonMaterial({ gradientMap: toonRamp(), ...o });
+export const toonMat = (o: THREE.MeshToonMaterialParameters) => screentone(new THREE.MeshToonMaterial({ gradientMap: toonRamp(), ...o }));
+
+/**
+ * Manga screen-tone: a screen-space dot pattern printed into the shadow side of a toon material, like the halftone
+ * shading on the NPG cards. Dots are drawn where the lit colour falls below the mid band.
+ */
+export function screentone<T extends THREE.Material>(m: T): T {
+  const prev = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    prev?.(sh, r);
+    sh.fragmentShader = sh.fragmentShader.replace(
+      '#include <dithering_fragment>',
+      `#include <dithering_fragment>
+      {
+        float lum = dot(gl_FragColor.rgb, vec3(0.3, 0.59, 0.11));
+        vec2 cell = fract(gl_FragCoord.xy / 7.0) - 0.5;
+        float dot_ = 1.0 - smoothstep(0.22, 0.3, length(cell));
+        float shade = smoothstep(0.62, 0.3, lum);
+        gl_FragColor.rgb *= 1.0 - dot_ * shade * 0.42;
+      }`,
+    );
+  };
+  m.customProgramCacheKey = () => 'screentone';
+  return m;
+}
 
 // ───────────── Sky ─────────────
 

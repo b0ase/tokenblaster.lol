@@ -199,7 +199,7 @@ export function paintLivery(c: HTMLCanvasElement, l: Livery) {
   }
 }
 
-export type ToonState = { thrust: number; boost: boolean; air: boolean; roll: number };
+export type ToonState = { thrust: number; boost: boolean; air: boolean; roll: number; /** m/s, spins the wheels */ speed: number; /** -1/0/1 while power-sliding */ drift: number; /** suspension lean -1..1 */ lean: number };
 export type ToonFx = { update(dt: number, s: ToonState): void };
 
 export type Rig = {

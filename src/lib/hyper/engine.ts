@@ -14,9 +14,10 @@ import { pickRivals, type RivalSpec } from '@/lib/rally/rivals';
 import { rng } from '@/lib/rally/noise';
 import { HyperAudio } from './audio';
 import { Input, type Touch } from './input';
-import { newShip, noInput, SHIPS, stepShip, WEAPONS, type ShipSpec, type SimInput, type Weapon } from './sim';
+import { noInput, SHIPS, stepShip, WEAPONS, type ShipSpec, type SimInput, type Weapon } from './sim';
 import { buildShip, Trail, type Rig } from './ships';
 import { buildToonShip } from './toonShips';
+import { bumpKarts, DRIFT_LEVELS, driftLevel, KART_H, KART_SPEED, newKart, stepKart, type KartShip } from './kart';
 import { npgTrackDef } from './npgWorld';
 import { EROBOT_PILOTS, NPG_PILOTS, pilotPortrait } from './npgPilots';
 import { FONTS } from './signs';
@@ -62,7 +63,14 @@ export type Hud = {
   air: boolean;
   wrongWay: boolean;
   best: number | null;
+  /** NPG Racing: the held item, drift charge 0..1 and the level it has reached (0..3). */
+  item?: Item | null;
+  drift?: number;
+  driftLvl?: number;
 };
+/** NPG Racing items (the kart skin's weapons): a straight shuriken, a smoke bomb dropped behind, a ramen boost, an EMP that stalls every Erobot nearby. */
+export type Item = 'shuriken' | 'smoke' | 'ramen' | 'emp';
+export const ITEMS: Item[] = ['shuriken', 'smoke', 'ramen', 'emp'];
 export type Toast = { text: string; tone: 'good' | 'bad' | 'info' };
 export type BoardRow = { name: string; sub: string; time: number; me: boolean; tx: string | null; color: string; logo: string | null };
 export type Result = {
@@ -120,6 +128,30 @@ export type Options = {
 };
 
 const BEST_KEY = 'tokenblaster:bracer-laps';
+
+/** NPG card stat-box name plate: black fill, thick white bevelled border, blocky white type, a team colour chip. */
+function cardPlate(g: CanvasRenderingContext2D, w: number, h: number, text: string, chip: string) {
+  g.clearRect(0, 0, w, h);
+  g.fillStyle = '#0a0a0c';
+  g.fillRect(6, 6, w - 12, h - 12);
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 9;
+  g.strokeRect(10, 10, w - 20, h - 20);
+  g.strokeStyle = '#0a0a0c';
+  g.lineWidth = 4;
+  g.strokeRect(4, 4, w - 8, h - 8);
+  g.fillStyle = '#5a5a66';
+  g.fillRect(16, h - 22, w - 32, 6);
+  g.fillStyle = chip;
+  g.fillRect(24, 32, 30, 48);
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 3;
+  g.strokeRect(24, 32, 30, 48);
+  g.fillStyle = '#ffffff';
+  g.font = `400 46px ${FONTS.logo}`;
+  g.textBaseline = 'alphabetic';
+  g.fillText(text, 70, 76, w - 100);
+}
 const COUNT = 7;
 const RIVAL_SCALE = 1.1;
 const GRID_S = (k: number) => -9 - k * 12;
@@ -263,7 +295,8 @@ export class HyperEngine {
   private time = 0;
   private spec: ShipSpec;
   private team: Team;
-  private me = newShip(0);
+  private me: KartShip = newKart(0, 1);
+  private item: Item | null = null;
   private trailL: Trail | null = null;
   private trailR: Trail | null = null;
   private rivals: RivalRun[] = [];
@@ -294,9 +327,9 @@ export class HyperEngine {
   private under!: THREE.PointLight;
   private shots: Shot[] = [];
   private mines: Mine[] = [];
-  private shotGeo = new THREE.ConeGeometry(0.5, 3.2, 8);
+  private shotGeo: THREE.BufferGeometry = new THREE.ConeGeometry(0.5, 3.2, 8);
   private shotMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffb23a').multiplyScalar(3.5) });
-  private mineGeo = new THREE.IcosahedronGeometry(1.1, 0);
+  private mineGeo: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1.1, 0);
   private mineMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff3b3b').multiplyScalar(3) });
   private cellTaken: number[] = [];
   private weaponCool: number[] = [];
@@ -347,6 +380,13 @@ export class HyperEngine {
     this.team = opts.skin === 'npg' ? (NPG_TEAMS.find((t) => t.id === opts.team) ?? NPG_TEAMS[0]) : (TEAMS.find((t) => t.id === opts.team) ?? TEAMS[0]);
     this.laps = 3;
     this.hc = opts.difficulty === 'hardcore';
+    if (this.npg) {
+      // Shuriken and smoke bombs instead of rockets and mines.
+      this.shotGeo = new THREE.OctahedronGeometry(1.1, 0).scale(1, 0.22, 1);
+      this.shotMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffffff').multiplyScalar(2) });
+      this.mineGeo = new THREE.SphereGeometry(1.4, 10, 8);
+      this.mineMat = new THREE.MeshBasicMaterial({ color: '#4a4452' });
+    }
     this.maxDpr = opts.quality === 'ultra' ? 2 : opts.quality === 'high' ? 1.6 : 1.05;
   }
 
@@ -438,7 +478,7 @@ export class HyperEngine {
     await new Promise((r) => setTimeout(r, 0));
     this.input.attach();
     document.addEventListener('visibilitychange', this.visHandler);
-    this.me = newShip(0);
+    this.me = newKart(0, this.npg ? KART_H : 1);
     this.buildPlayer();
     this.world.strobe(0);
     cb.onLoading('Reading the mempool', 0.8);
@@ -554,8 +594,9 @@ export class HyperEngine {
       let vPrev = 0.5;
       for (let i = 1; i < n; i++) {
         const si = (((s0 + i * STEP) % tr.len) + tr.len) % tr.len;
-        const lim = Math.min(210, tr.vlim[Math.floor(si / STEP) % tr.n] * spec.skill * RIVAL_SCALE);
-        const v = Math.max(1, Math.min(lim, Math.sqrt(vPrev * vPrev + 2 * 42 * STEP)));
+        const ks = this.npg ? KART_SPEED * 1.08 : 1;
+        const lim = Math.min(210, tr.vlim[Math.floor(si / STEP) % tr.n] * spec.skill * RIVAL_SCALE) * ks;
+        const v = Math.max(1, Math.min(lim, Math.sqrt(vPrev * vPrev + 2 * 42 * ks * STEP)));
         t += STEP / ((v + vPrev) / 2);
         tt[i] = t;
         vPrev = v;
@@ -611,6 +652,11 @@ export class HyperEngine {
       g.lineTo(34 + i * 54, 24);
       g.closePath();
       g.fill();
+    }
+    if (this.npg) {
+      cardPlate(g, c.width, c.height, main.slice(0, 10), r.team.accent);
+      r.labelTex.needsUpdate = true;
+      return;
     }
     g.strokeStyle = '#000';
     g.lineWidth = 6;
@@ -672,7 +718,8 @@ export class HyperEngine {
   // ───────────── Control ─────────────
 
   private resetRace() {
-    const sh = newShip(this.opts.mode === 'trial' ? GRID_S(0) : GRID_S(this.mySlot));
+    const sh = newKart(this.opts.mode === 'trial' ? GRID_S(0) : GRID_S(this.mySlot), this.npg ? KART_H : 1);
+    this.item = null;
     sh.lat = this.opts.mode === 'trial' ? 0 : (this.mySlot % 2 ? 1 : -1) * 6;
     this.me = sh;
     this.raceT = 0;
@@ -863,6 +910,11 @@ export class HyperEngine {
       g.lineTo(34 + i * 54, 24);
       g.closePath();
       g.fill();
+    }
+    if (this.npg) {
+      cardPlate(g, c.width, c.height, r.name.toUpperCase().slice(0, 12), r.team.base);
+      r.labelTex.needsUpdate = true;
+      return;
     }
     g.strokeStyle = '#000';
     g.lineWidth = 6;
@@ -1100,7 +1152,7 @@ export class HyperEngine {
   }
 
   private idleBob(dt: number) {
-    this.me.h = 1.3 + Math.sin(this.time * 2) * 0.12;
+    this.me.h = this.npg ? KART_H + Math.sin(this.time * 2) * 0.03 : 1.3 + Math.sin(this.time * 2) * 0.12;
     this.menuAng += dt * 0.35;
   }
 
@@ -1124,7 +1176,7 @@ export class HyperEngine {
       inp.steer = Math.max(-1, Math.min(1, -me.lat * 0.2 - me.vl * 0.1));
     }
     const wasBoost = me.boostT > 0;
-    if (inp.boost && !finished && me.energy >= 0.2 && me.boostT < 0.5 && this.payAction(['boost'])) {
+    if (!this.npg && inp.boost && !finished && me.energy >= 0.2 && me.boostT < 0.5 && this.payAction(['boost'])) {
       me.boostT = 1 + me.energy * 4;
       me.energy = 0;
       this.audio.fx('turbo');
@@ -1138,7 +1190,26 @@ export class HyperEngine {
       return;
     }
     const bt0 = me.boostT;
-    stepShip(me, inp, this.spec, tr, dt, this.frame, !this.hc);
+    if (this.npg) {
+      stepKart(me, inp, this.spec, tr, dt, this.frame);
+      // The drift charge rides the HUD's boost meter.
+      me.energy = me.drift ? Math.min(1, me.driftT / DRIFT_LEVELS[2]) : 0;
+      // Bump-and-shove with the Erobots: both karts get pushed apart, nobody breaks.
+      if (this.dmgCool <= 0 && !finished) {
+        for (const r of this.rivals) {
+          if (r.done || Math.abs(r.S - me.S) > 5.5 || Math.abs(r.lat - me.lat) > 3.4 || me.h > 2.5) continue;
+          const rv = { lat: r.lat, vl: 0, vs: r.v };
+          bumpKarts(me, rv);
+          r.lat += rv.vl * 0.08;
+          r.lane += rv.vl * 0.08;
+          this.dmgCool = 0.35;
+          this.shake = Math.max(this.shake, 0.25);
+          this.audio.fx('wall');
+          this.bonkAt(r.S, r.lat, 0.5);
+          break;
+        }
+      }
+    } else stepShip(me, inp, this.spec, tr, dt, this.frame, !this.hc);
     const ev = me.ev;
     if (ev.pad && !finished && !this.payAction(['pad'])) {
       me.boostT = bt0; // no ammo, no pad boost
@@ -1146,7 +1217,7 @@ export class HyperEngine {
     }
     this.dmgCool = Math.max(0, this.dmgCool - dt);
     const drain = this.hc ? 2.5 : 1;
-    if (ev.wall > 0 && !finished) {
+    if (ev.wall > 0 && !finished && !this.npg) {
       if (me.shieldT > 0) me.shieldT = Math.max(0, me.shieldT - 0.5);
       else if (this.dmgCool <= 0) {
         this.dmgCool = 0.2;
@@ -1184,8 +1255,9 @@ export class HyperEngine {
     }
     if (ev.roll) this.audio.fx('roll');
     if (ev.rollBoost) {
-      this.toast('BARREL ROLL BOOST', 'good');
-      this.boostBurst(false);
+      this.toast(this.npg ? ['', 'DRIFT BOOST', 'DRIFT BOOST ×2', 'SUPER DRIFT ×3'][me.driftLvl] || 'DRIFT BOOST' : 'BARREL ROLL BOOST', 'good');
+      this.boostBurst(this.npg && me.driftLvl >= 3);
+      if (this.npg) this.audio.fx('turbo');
     }
     // Race clocks.
     if (!finished) {
@@ -1269,19 +1341,83 @@ export class HyperEngine {
       let d = s - w.s;
       if (d > len / 2) d -= len;
       if (d < -len / 2) d += len;
-      if (Math.abs(d) < 4.5 && Math.abs(me.lat - w.lat) < 4 && me.h < 6 && !me.weapon) {
+      if (Math.abs(d) < 4.5 && Math.abs(me.lat - w.lat) < 4 && me.h < 6 && !(this.npg ? this.item : me.weapon)) {
         this.weaponCool[i] = this.time + 7;
         if (this.opts.mp?.race) this.opts.mp.send('pad', { i: this.opts.mp.id, k: i });
         this.world.weapons.setActive(i, false);
         setTimeout(() => !this.disposed && this.world.weapons.setActive(i, true), 7000);
-        const bag: Weapon[] = ['rocket', 'rocket', 'rocket', 'mine', 'mine', 'shield', 'turbo', 'turbo', 'quake'];
-        me.weapon = bag[Math.floor(this.rng() * bag.length)] ?? WEAPONS[0];
-        me.ev.weapon = true;
-        this.audio.fx('weapon');
-        this.toast(`PICKUP: ${me.weapon.toUpperCase()}`, 'good');
+        if (this.npg) {
+          // Items: more shuriken when ahead, more ramen and EMPs when behind (the kart-racer catch-up rule).
+          const pos = this.position();
+          const bag: Item[] = pos <= 2 ? ['shuriken', 'shuriken', 'smoke', 'smoke', 'ramen'] : pos <= 4 ? ['shuriken', 'smoke', 'ramen', 'ramen', 'emp'] : ['ramen', 'ramen', 'emp', 'emp', 'shuriken'];
+          this.item = bag[Math.floor(this.rng() * bag.length)] ?? ITEMS[0];
+          me.ev.weapon = true;
+          this.audio.fx('weapon');
+          this.toast(`ITEM: ${this.item.toUpperCase()}`, 'good');
+        } else {
+          const bag: Weapon[] = ['rocket', 'rocket', 'rocket', 'mine', 'mine', 'shield', 'turbo', 'turbo', 'quake'];
+          me.weapon = bag[Math.floor(this.rng() * bag.length)] ?? WEAPONS[0];
+          me.ev.weapon = true;
+          this.audio.fx('weapon');
+          this.toast(`PICKUP: ${me.weapon.toUpperCase()}`, 'good');
+        }
       }
     }
-    if (fire && me.weapon) this.fireWeapon(me.weapon);
+    if (fire && this.npg && this.item) this.fireItem(this.item);
+    else if (fire && me.weapon) this.fireWeapon(me.weapon);
+  }
+
+  /** NPG Racing items. They ride the same network events as bRacer's weapons (rk / mn / qk), so mixed rooms agree. */
+  private fireItem(it: Item) {
+    const me = this.me;
+    const pay = this.opts.pay;
+    const live = pay?.live() ?? false;
+    if (live && pay && !pay.reserve()) {
+      this.toast('OUT OF AMMO: LOAD MORE', 'bad');
+      return;
+    }
+    this.item = null;
+    if (live && it !== 'shuriken') pay?.send(['fire', it]);
+    const mp = this.opts.mp?.race ? this.opts.mp : null;
+    if (it === 'shuriken') {
+      const sid = String(++this.msid);
+      const v = Math.max(me.vs, 60) + 110;
+      this.spawnShot('me', me.S + 5, me.lat, v, `${mp?.id ?? 'me'}:${sid}`, null);
+      if (live) this.shots[this.shots.length - 1].act = ['fire', 'shuriken'];
+      mp?.send('rk', { i: mp.id, id: sid, S: me.S + 5, lat: me.lat, v, tg: null });
+    } else if (it === 'smoke') {
+      const mid = String(++this.msid);
+      this.spawnMine('me', me.S - 8, me.lat, `${mp?.id ?? 'me'}:${mid}`);
+      mp?.send('mn', { i: mp.id, id: mid, S: me.S - 8, lat: me.lat });
+    } else if (it === 'ramen') {
+      me.boostT = Math.max(me.boostT, 2.4);
+      this.audio.fx('turbo');
+      this.boostBurst(true);
+      this.opts.cb.onFlash?.('boost');
+      this.toast('RAMEN POWER', 'good');
+    } else if (it === 'emp') {
+      this.audio.fx('quake');
+      this.shake = 0.5;
+      this.opts.cb.onFlash?.('quake');
+      frameAt(this.tr, me.S, this.frame2);
+      this.spawnRing(this.v1.set(this.frame2.px, this.frame2.py, this.frame2.pz), this.frame2, '#22e6ff', 110, 1.0);
+      for (const r of this.rivals) if (Math.abs(r.S - me.S) < 500) this.stunRival(r, 1.5, true);
+      this.toast('EMP: EROBOTS STALLED', 'good');
+      mp?.send('qk', { i: mp.id, S: me.S });
+    }
+  }
+
+  /** NPG skin: a cartoon bonk (stars, no fire) where bRacer would explode. */
+  private bonkAt(S: number, lat: number, k = 1) {
+    frameAt(this.tr, S, this.frame2);
+    const f = this.frame2;
+    const hs = surfaceH(this.tr.pipe[f.i], lat);
+    this.v4.set(f.px + f.rx * lat + f.ux * (hs + 1.2), f.py + f.ry * lat + f.uy * (hs + 1.2), f.pz + f.rz * lat + f.uz * (hs + 1.2));
+    for (let i = 0; i < 16 * k; i++) {
+      this.v2.set(this.rng() - 0.5, this.rng() * 0.6, this.rng() - 0.5).normalize().multiplyScalar(6 + this.rng() * 12);
+      this.parts.emit(this.v4, this.v2, this.tmpCol.set(i % 2 ? '#ffd93a' : '#ffffff').multiplyScalar(1.6), 0.45 + this.rng() * 0.3, 6);
+    }
+    this.spawnRing(this.v4, f, '#ffffff', 8 * k, 0.35);
   }
 
   private fireWeapon(w: Weapon) {
@@ -1352,6 +1488,11 @@ export class HyperEngine {
   }
 
   private explodeAt(S: number, lat: number, k = 1) {
+    if (this.npg) {
+      this.bonkAt(S, lat, k);
+      this.audio.fx('hit');
+      return;
+    }
     frameAt(this.tr, S, this.frame2);
     const f = this.frame2;
     const hs = surfaceH(this.tr.pipe[f.i], lat);
@@ -1375,7 +1516,7 @@ export class HyperEngine {
       // Gentle rubber band so the pack stays in the race.
       const gap = r.S - me.S;
       let rate = r.stun > 0 ? 0.18 : 1;
-      if (r.stun <= 0) rate *= gap > 350 ? 0.975 : gap < -350 ? 1.04 : 1;
+      if (r.stun <= 0) rate *= this.npg ? (gap > 420 ? 0.9 : gap > 160 ? 0.955 : gap < -420 ? 1.1 : gap < -160 ? 1.05 : 1) : gap > 350 ? 0.975 : gap < -350 ? 1.04 : 1;
       r.tc += dt * rate;
       while (r.idx + 1 < r.tt.length && r.tt[r.idx + 1] <= r.tc) r.idx++;
       const f0 = r.tt[r.idx];
@@ -1565,13 +1706,14 @@ export class HyperEngine {
     }
     me.stunT = 1.1;
     me.hits++;
-    me.hp = Math.max(0, me.hp - 0.28 * (this.hc ? 2.5 : 1));
+    if (!this.npg) me.hp = Math.max(0, me.hp - 0.28 * (this.hc ? 2.5 : 1));
     me.vs *= 0.55;
+    if (this.npg) me.drift = 0;
     this.shake = 1;
     this.hitFlash = 1;
     this.audio.fx('hit');
     this.opts.cb.onFlash?.('hit');
-    this.toast('HIT!', 'bad');
+    this.toast(this.npg ? 'SPUN OUT!' : 'HIT!', 'bad');
   }
 
   private placeOnTrack(m: THREE.Object3D, S: number, lat: number, h: number, dir: number) {
@@ -1659,7 +1801,18 @@ export class HyperEngine {
     pr.flame.scale.set(1, 1, 0.3 + thrust * 0.6 + (boosting ? 0.9 : 0) + Math.random() * 0.1);
     pr.flameMat.opacity = 0.55 + thrust * 0.4;
     pr.shield.visible = me.shieldT > 0;
-    pr.toon?.update(dt, { thrust, boost: boosting, air: me.air, roll: me.rollVis });
+    pr.toon?.update(dt, { thrust, boost: boosting, air: me.air, roll: me.rollVis, speed: me.vs, drift: me.drift, lean: me.lean });
+    if (this.npg && me.drift !== 0 && !me.air && this.phase === 'racing') {
+      // Drift sparks off the rear wheels, colour-coded by charge: white → cyan → pink → yellow.
+      const lvl = driftLevel(me.driftT);
+      const col = this.tmpCol.set(['#ffffff', '#22e6ff', '#ff2d95', '#ffd93a'][lvl]).multiplyScalar(2.2);
+      const e = pr.engine[me.drift > 0 ? 1 : 0];
+      this.v3.copy(e).setY(-0.3).applyQuaternion(pr.tilt.quaternion).applyQuaternion(pr.root.quaternion).add(pr.root.position);
+      for (let k = 0; k < 2 + lvl; k++) {
+        this.v2.set(this.frame2.rx, this.frame2.ry, this.frame2.rz).multiplyScalar(-me.drift * (6 + this.rng() * 8)).addScaledVector(this.v4.set(this.frame2.ux, this.frame2.uy, this.frame2.uz), 3 + this.rng() * 5).addScaledVector(this.v1.set(this.frame2.tx, this.frame2.ty, this.frame2.tz), -8);
+        this.parts.emit(this.v3, this.v2, col, 0.25 + this.rng() * 0.2, 14);
+      }
+    }
     this.under.position.copy(this.shipPos).addScaledVector(this.v2.set(this.frame2.ux, this.frame2.uy, this.frame2.uz), -1.2);
     this.under.intensity = 14 + thrust * 12 + (boosting ? 16 : 0);
     // Trails from both engines.
@@ -1676,10 +1829,10 @@ export class HyperEngine {
     // Rivals.
     for (const r of this.rivals) {
       const rl = (r.lane - r.lat) * 0.06 + Math.sin(this.time * 0.9 + r.phase) * 0.12;
-      this.placeShip(r.rig, r.S, r.lat, 1.3 + Math.sin(this.time * 2.3 + r.phase) * 0.12 + (r.stun > 0 ? Math.sin(this.time * 20) * 0.3 : 0), -rl * 0.6, 0, rl + r.spin, this.v3);
+      this.placeShip(r.rig, r.S, r.lat, (this.npg ? KART_H + Math.sin(this.time * 2.3 + r.phase) * 0.03 : 1.3 + Math.sin(this.time * 2.3 + r.phase) * 0.12) + (r.stun > 0 ? Math.sin(this.time * 20) * 0.3 : 0), -rl * 0.6, 0, rl + r.spin, this.v3);
       const th = r.v > 0 ? Math.min(1, r.v / 190) : 0.3;
       r.rig.flame.scale.set(1, 1, 0.3 + th * 0.6 + Math.random() * 0.1);
-      r.rig.toon?.update(dt, { thrust: th, boost: false, air: false, roll: rl });
+      r.rig.toon?.update(dt, { thrust: th, boost: false, air: false, roll: rl, speed: r.v, drift: 0, lean: -rl * 2 });
       if (r.trail) {
         const e = r.rig.engine;
         this.v3.copy(e[0]).add(this.v4.copy(e[1])).multiplyScalar(0.5).applyQuaternion(r.rig.tilt.quaternion).applyQuaternion(r.rig.root.quaternion).add(r.rig.root.position);
@@ -1702,7 +1855,7 @@ export class HyperEngine {
       const th = Math.min(1, r.vs / r.spec.vmax);
       r.rig.flame.scale.set(1, 1, 0.3 + th * 0.6 + (r.fl & 1 ? 0.9 : 0) + Math.random() * 0.1);
       r.rig.shield.visible = (r.fl & 2) !== 0;
-      r.rig.toon?.update(dt, { thrust: th, boost: (r.fl & 1) !== 0, air: r.h > 2.6, roll: r.roll });
+      r.rig.toon?.update(dt, { thrust: th, boost: (r.fl & 1) !== 0, air: r.h > 1.4, roll: r.roll, speed: r.vs, drift: 0, lean: 0 });
       if (r.trail) {
         const e = r.rig.engine;
         this.v3.copy(e[0]).add(this.v4.copy(e[1])).multiplyScalar(0.5).applyQuaternion(r.rig.tilt.quaternion).applyQuaternion(r.rig.root.quaternion).add(r.rig.root.position);
@@ -1788,7 +1941,7 @@ export class HyperEngine {
     this.moon.position.copy(this.shipPos).add(this.v2.set(-50, 70, 80));
     this.moon.target.position.copy(this.shipPos);
     this.moon.target.updateMatrixWorld();
-    this.lines.update(this.distAcc(me.vs * dt), sp);
+    this.lines.update(this.distAcc(me.vs * dt), this.npg ? 0 : sp);
   }
   private distAcc(d: number) {
     this.travelled += d;
@@ -1883,7 +2036,7 @@ export class HyperEngine {
     this.lastPos = pos;
     const lapNo = Math.max(0, Math.min(this.laps, Math.floor(me.S / tr.len) + 1));
     this.opts.cb.onHud({
-      kmh: me.vs * 3.6 * 1.1,
+      kmh: me.vs * 3.6 * (this.npg ? 1 : 1.1),
       speed01: Math.min(1, me.vs / (this.spec.vmax * 1.3)),
       lap: Math.max(1, lapNo),
       laps: this.laps,
@@ -1900,6 +2053,9 @@ export class HyperEngine {
       air: me.air,
       wrongWay: false,
       best: this.bestLap,
+      item: this.item,
+      drift: me.drift ? Math.min(1, me.driftT / DRIFT_LEVELS[2]) : 0,
+      driftLvl: me.drift ? driftLevel(me.driftT) : 0,
     });
   }
   private emitMap() {

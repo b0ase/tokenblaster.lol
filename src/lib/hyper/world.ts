@@ -298,16 +298,21 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     const prof: Prof = lat > 0 ? [[lat, -0.15], [lat, -0.65]] : [[lat, -0.65], [lat, -0.15]];
     addSweep(group, own, tr, prof, own(new THREE.MeshBasicMaterial({ map: stripT, color: col(colr, 3) })), { vLen: 5, pipe: true });
   };
-  stripe(HALF_W + 1.88, p.a2);
-  stripe(-HALF_W - 1.88, p.a1);
+  if (!npg) {
+    stripe(HALF_W + 1.88, p.a2);
+    stripe(-HALF_W - 1.88, p.a1);
+  }
 
   // Energy barriers: segmented panels with a hex field and scanning pulse, steel posts, neon cap rail.
-  const eMats = [own(energyMaterial(col(p.a1, 1.4), p.fogDensity, !hi)), own(energyMaterial(col(p.a2, 1.4), p.fogDensity, !hi))];
-  for (const [side, mat, colr] of [[-1, eMats[0], p.a1], [1, eMats[1], p.a2]] as const) {
+  // NPG: a chunky white track wall with a pink/cyan top rail (flat cel colour) instead of the energy field.
+  const eMats = npg ? [] : [own(energyMaterial(col(p.a1, 1.4), p.fogDensity, !hi)), own(energyMaterial(col(p.a2, 1.4), p.fogDensity, !hi))];
+  const wallMat = npg ? own(toonMat({ color: '#f4f4f4', side: THREE.DoubleSide })) : null;
+  for (const [side, mi, colr] of [[-1, 0, p.a1], [1, 1, p.a2]] as const) {
     const L = side * BARRIER_LAT;
-    addSweep(group, own, tr, [[L, 1.2], [L, BARRIER_TOP]], mat, { vLen: 8, pipe: true });
-    const cap: Prof = [[L - 0.22, BARRIER_TOP - 0.1], [L - 0.22, BARRIER_TOP + 0.3], [L + 0.22, BARRIER_TOP + 0.3], [L + 0.22, BARRIER_TOP - 0.1]];
-    addSweep(group, own, tr, cap, own(new THREE.MeshBasicMaterial({ color: col(colr, 4.2) })), { hard: true, vLen: 10, pipe: true });
+    addSweep(group, own, tr, [[L, npg ? 0 : 1.2], [L, npg ? BARRIER_TOP * 0.55 : BARRIER_TOP]], npg ? wallMat! : eMats[mi], { vLen: 8, pipe: true });
+    const top = npg ? BARRIER_TOP * 0.55 : BARRIER_TOP;
+    const cap: Prof = [[L - 0.22, top - 0.1], [L - 0.22, top + 0.3], [L + 0.22, top + 0.3], [L + 0.22, top - 0.1]];
+    addSweep(group, own, tr, cap, own(npg ? toonMat({ color: colr }) : new THREE.MeshBasicMaterial({ color: col(colr, 4.2) })), { hard: true, vLen: 10, pipe: true });
   }
   const postGeo = own(new RoundedBoxGeometry(0.55, BARRIER_TOP - 1.0, 0.7, 2, 0.12));
   postGeo.translate(0, 1.2 + (BARRIER_TOP - 1.2) / 2, 0);
@@ -403,10 +408,10 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   const lv = new THREE.Vector3();
   // Tunnels: octagonal plated shell, chunky ribs, ceiling light strips, strobing light rings, hazard portals.
   const tunnelRanges: [number, number][] = tr.def.tunnels.map(([a, b]) => [a * tr.len, b * tr.len]);
-  const tunnelMat = own(new THREE.MeshStandardMaterial({ map: pt.map, emissiveMap: pt.map, roughnessMap: pt.rough, normalMap: pt.normal, color: '#c8d0e0', metalness: 0.55, roughness: 1, emissive: col('#ffffff').lerp(col(p.a1), 0.35), emissiveIntensity: 0.55, envMapIntensity: 0.35, side: THREE.DoubleSide }));
-  const ribMat = own(new THREE.MeshStandardMaterial({ map: pt.map, emissiveMap: pt.map, roughnessMap: pt.rough, color: '#dfe4ee', metalness: 0.6, roughness: 1, emissive: col('#ffffff').lerp(col(p.a2), 0.5), emissiveIntensity: 0.4, envMapIntensity: 0.6 }));
-  const tLight = own(new THREE.MeshBasicMaterial({ map: stripT, color: col('#ffffff', 2.6) }));
-  const tLightC = own(new THREE.MeshBasicMaterial({ map: stripT, color: col(p.a1, 3.2) }));
+  const tunnelMat: THREE.Material = npg ? own(toonMat({ color: '#6d5a8c', side: THREE.DoubleSide })) : own(new THREE.MeshStandardMaterial({ map: pt.map, emissiveMap: pt.map, roughnessMap: pt.rough, normalMap: pt.normal, color: '#c8d0e0', metalness: 0.55, roughness: 1, emissive: col('#ffffff').lerp(col(p.a1), 0.35), emissiveIntensity: 0.55, envMapIntensity: 0.35, side: THREE.DoubleSide }));
+  const ribMat: THREE.Material = npg ? own(toonMat({ color: '#ff2d95' })) : own(new THREE.MeshStandardMaterial({ map: pt.map, emissiveMap: pt.map, roughnessMap: pt.rough, color: '#dfe4ee', metalness: 0.6, roughness: 1, emissive: col('#ffffff').lerp(col(p.a2), 0.5), emissiveIntensity: 0.4, envMapIntensity: 0.6 }));
+  const tLight = own(new THREE.MeshBasicMaterial({ map: stripT, color: col('#ffffff', npg ? 1.4 : 2.6) }));
+  const tLightC = own(new THREE.MeshBasicMaterial({ map: stripT, color: npg ? col('#ffffff', 1.2) : col(p.a1, 3.2) }));
   const ribs = new Bucketed(200);
   const ringData: { m: THREE.Matrix4; ph: number }[] = [];
   const portals: THREE.Matrix4[] = [];
@@ -428,7 +433,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   const inner = TUNNEL.slice(1, -1);
   if (ribs.size) ribs.build(group, own(ribGeo(inner, 0.75, 1.5, 1.3)), ribMat, hi ? 500 : 260);
   // Emissive rib edges: thin bright lips on both faces of every rib.
-  if (ribs.size) ribs.build(group, own(ribGeo(inner, 1.55, 0.18, 1.5)), own(new THREE.MeshBasicMaterial({ color: col(p.a1, 1.8) })), hi ? 500 : 260);
+  if (ribs.size) ribs.build(group, own(ribGeo(inner, 1.55, 0.18, 1.5)), own(npg ? toonMat({ color: '#111111' }) : new THREE.MeshBasicMaterial({ color: col(p.a1, 1.8) })), hi ? 500 : 260);
   const ringGeo = own(ribGeo(inner, 1.6, 0.22, 0.5));
   const ringMat = own(new THREE.MeshBasicMaterial({ color: '#ffffff' }));
   const rings = new THREE.InstancedMesh(ringGeo, ringMat, Math.max(1, ringData.length));
@@ -442,6 +447,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   const c2 = col(p.a2);
   const tmpC = new THREE.Color();
   const strobe = (t: number) => {
+    if (npg) return; // no strobing gates in the cartoon world
     for (let i = 0; i < ringData.length; i++) {
       const k = Math.max(0, Math.sin(t * 9 - i * 0.9));
       tmpC.copy(i % 2 ? c1 : c2).multiplyScalar(0.25 + Math.pow(k, 3) * 5.5);
@@ -657,7 +663,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   pCap.build(group, pyP.cap, steelMat);
   pBody.build(group, pyP.body, darkMat);
   if (backdrop.showGround) pFoot.build(group, pyP.foot, steelMat, 900);
-  pBand.build(group, pyP.band, own(new THREE.MeshBasicMaterial({ color: col(p.a1, 3) })), 1400);
+  pBand.build(group, pyP.band, own(npg ? toonMat({ color: '#ff2d95' }) : new THREE.MeshBasicMaterial({ color: col(p.a1, 3) })), 1400);
 
   // City: instanced towers with procedural lit windows; canyon walls hug the track.
   const cell = 64;

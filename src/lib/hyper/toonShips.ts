@@ -11,8 +11,9 @@ import type { ShipSpec } from './sim';
 import type { Livery } from './teams';
 import type { Rig, ToonState } from './ships';
 import { seatPilot, type Pilot } from './npgPilots';
+import { screentone } from './npgWorld';
 
-type ToonHull = { body: THREE.BufferGeometry; pods: THREE.BufferGeometry; dark: THREE.BufferGeometry; glow: THREE.BufferGeometry; flame: THREE.BufferGeometry; outline: THREE.BufferGeometry; len: number; span: number; engine: THREE.Vector3[]; seat: THREE.Vector3 };
+type ToonHull = { wheel: THREE.BufferGeometry; hub: THREE.BufferGeometry; wheels: THREE.Vector3[]; body: THREE.BufferGeometry; pods: THREE.BufferGeometry; dark: THREE.BufferGeometry; glow: THREE.BufferGeometry; flame: THREE.BufferGeometry; outline: THREE.BufferGeometry; len: number; span: number; engine: THREE.Vector3[]; seat: THREE.Vector3 };
 const cache = new Map<string, ToonHull>();
 
 const ni = (g: THREE.BufferGeometry) => {
@@ -112,8 +113,17 @@ export function toonHullFor(spec: ShipSpec): ToonHull {
     uv[i * 2 + 1] = 0.5 + pos.getZ(i) / (L * 1.1);
   }
   body.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  // Four fat kart tyres: a torus-ish cylinder with a white hubcap. Axles sit under the wings.
+  const wheel = new THREE.CylinderGeometry(0.62, 0.62, 0.5, 14, 1);
+  wheel.rotateZ(Math.PI / 2);
+  const hub = new THREE.CylinderGeometry(0.34, 0.34, 0.54, 10, 1);
+  hub.rotateZ(Math.PI / 2);
+  const wheels = [new THREE.Vector3(W * 0.36, -0.35, L * 0.3), new THREE.Vector3(-W * 0.36, -0.35, L * 0.3), new THREE.Vector3(W * 0.4, -0.35, -L * 0.28), new THREE.Vector3(-W * 0.4, -0.35, -L * 0.28)];
   const podGeo = mergeGeometries(pods, false);
   const h: ToonHull = {
+    wheel: ni(wheel),
+    hub: ni(hub),
+    wheels,
     body,
     pods: podGeo,
     dark: mergeGeometries(dark, false),
@@ -221,7 +231,7 @@ export function paintToonLivery(c: HTMLCanvasElement, l: Livery) {
   g.fillText(l.number, S * 0.5, S * 0.825);
 }
 
-const shared: { dark?: THREE.MeshToonMaterial; glow?: THREE.MeshBasicMaterial; outline?: THREE.MeshBasicMaterial } = {};
+const shared: { dark?: THREE.MeshToonMaterial; tyre?: THREE.MeshToonMaterial; hub?: THREE.MeshToonMaterial; glow?: THREE.MeshBasicMaterial; outline?: THREE.MeshBasicMaterial } = {};
 
 export type ToonOptions = { pilot?: string | null; outline?: boolean; /** Light the pilot (player ship only). */ light?: boolean };
 
@@ -234,11 +244,13 @@ export function buildToonShip(spec: ShipSpec, l: Livery, accentCol: string, o: T
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   const ramp = toonRamp();
-  const bodyMat = new THREE.MeshToonMaterial({ map: tex, gradientMap: ramp, emissiveMap: tex, emissive: new THREE.Color(0.25, 0.25, 0.25), side: THREE.DoubleSide });
-  const podMat = new THREE.MeshToonMaterial({ color: new THREE.Color(l.accent === '#ffffff' ? l.base : l.accent), gradientMap: ramp, emissive: new THREE.Color(l.accent === '#ffffff' ? l.base : l.accent).multiplyScalar(0.25) });
+  const bodyMat = screentone(new THREE.MeshToonMaterial({ map: tex, gradientMap: ramp, emissiveMap: tex, emissive: new THREE.Color(0.25, 0.25, 0.25), side: THREE.DoubleSide }));
+  const podMat = screentone(new THREE.MeshToonMaterial({ color: new THREE.Color(l.accent === '#ffffff' ? l.base : l.accent), gradientMap: ramp, emissive: new THREE.Color(l.accent === '#ffffff' ? l.base : l.accent).multiplyScalar(0.25) }));
   shared.dark ??= new THREE.MeshToonMaterial({ color: '#1a1a22', gradientMap: ramp, side: THREE.DoubleSide });
   shared.glow ??= new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffe2f2').multiplyScalar(1.2), side: THREE.DoubleSide });
   shared.outline ??= new THREE.MeshBasicMaterial({ color: '#000000', side: THREE.BackSide });
+  shared.tyre ??= new THREE.MeshToonMaterial({ color: '#15131a', gradientMap: ramp });
+  shared.hub ??= new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: ramp });
   const trimMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(accentCol).multiplyScalar(3) });
   const flameMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(accentCol).lerp(new THREE.Color('#ffffff'), 0.4), transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const root = new THREE.Group();
@@ -257,6 +269,18 @@ export function buildToonShip(spec: ShipSpec, l: Livery, accentCol: string, o: T
   mk(hull.pods, podMat);
   mk(hull.dark, shared.dark);
   if (o.outline !== false) mk(hull.outline, shared.outline);
+  const wheelMeshes = hull.wheels.map((p) => {
+    const w = new THREE.Group();
+    w.position.copy(p);
+    const t = new THREE.Mesh(hull.wheel, shared.tyre!);
+    const o = new THREE.Mesh(hull.wheel, shared.outline!);
+    o.scale.setScalar(1.08);
+    const h = new THREE.Mesh(hull.hub, shared.hub!);
+    t.frustumCulled = o.frustumCulled = h.frustumCulled = false;
+    w.add(t, o, h);
+    toon.add(w);
+    return w;
+  });
   const glow = mk(hull.glow, shared.glow);
   // Flames stay on tilt so their length (engine-driven) isn't squashed.
   const flame = mk(hull.flame, flameMat, tilt);
@@ -297,8 +321,14 @@ export function buildToonShip(spec: ShipSpec, l: Livery, accentCol: string, o: T
         toon.scale.set(1 / Math.sqrt(k), 1 / k, k);
         // Idle hover bob + a jaunty wiggle that grows with speed.
         toon.position.y = Math.sin(t * 5.2) * 0.07 * (1 - s.thrust * 0.5) + Math.max(0, -sq) * -0.2;
-        toon.rotation.z = Math.sin(t * 9) * 0.025 * s.thrust;
-        pilot?.update(dt, -s.roll * 0.35);
+        toon.rotation.z = Math.sin(t * 9) * 0.025 * s.thrust + s.lean * 0.09;
+        // Front wheels steer with the drift; all four spin with the ground speed.
+        const spin = (s.speed * dt) / 0.62;
+        wheelMeshes.forEach((w, i) => {
+          w.rotation.x -= spin;
+          if (i < 2) w.rotation.y += ((s.drift * 0.45 - s.lean * 0.2) - w.rotation.y) * Math.min(1, dt * 8);
+        });
+        pilot?.update(dt, -s.roll * 0.35 - s.lean * 0.12);
       },
     },
     setLivery(nl) {

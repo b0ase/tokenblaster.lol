@@ -17,10 +17,11 @@ import { DR } from '@/lib/dr/tokens';
 import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
 import { LOGO_FAMILY, Logo as BRacerLogo, NpgLogo } from './bracer-logo';
 import { ALL_TEAMS, NPG_TEAMS } from '@/lib/hyper/teams';
-import { NPG_PILOTS } from '@/lib/hyper/npgPilots';
+import { EROBOT_PILOTS, NPG_PILOTS } from '@/lib/hyper/npgPilots';
+import { CardBox, ItemIcon, ITEM_NAME, NPG, ResultCard, Stat, tape } from './npg-racing-ui';
 import { npgTrackDef } from '@/lib/hyper/npgWorld';
 import { LIVE_CARDS } from '@/lib/npgLiveCards';
-import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
+import { fmt, HyperEngine, type Item, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
 import { type Track, type TrackId } from '@/lib/hyper/track';
 import { bracerScoreGame, npgRacingScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRACK_LIST } from '@/lib/hyper/content';
@@ -93,6 +94,12 @@ class HudDom {
     this.css('speedBar', { width: `${Math.round(h.speed01 * 100)}%`, background: h.boosting ? DR.colour.cyan : DR.colour.amber });
     this.css('prog', { width: `${Math.round(h.progress * 100)}%` });
     this.css('boosting', { opacity: h.boosting ? '1' : '0' });
+    if (h.drift !== undefined) {
+      // NPG Racing: the boost meter is the drift charge, coloured by level like the sparks.
+      const lvl = h.driftLvl ?? 0;
+      this.css('energy', { width: `${Math.round(h.drift * 100)}%`, background: ['#ffffff', '#22e6ff', '#ff2d95', '#ffd93a'][lvl] });
+      this.text('driftTag', lvl ? `DRIFT ×${lvl}` : 'DRIFT');
+    }
   }
 }
 
@@ -204,6 +211,8 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   const [board, setBoard] = useState<LiveRow[]>([]);
   const [toasts, setToasts] = useState<(Toast & { id: number })[]>([]);
   const [weapon, setWeapon] = useState<Weapon | null>(null);
+  const [item, setItem] = useState<Item | null>(null);
+  const itemRef = useRef<Item | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState(0);
@@ -383,6 +392,11 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
   const onHud = useCallback(
     (h: Hud) => {
       hud.update(h);
+      const it = h.item ?? null;
+      if (it !== itemRef.current) {
+        itemRef.current = it;
+        setItem(it);
+      }
       if (h.weapon !== weaponRef.current) {
         weaponRef.current = h.weapon;
         setWeapon(h.weapon);
@@ -468,7 +482,8 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
       .then(() => {
         if (life.dead) return;
         // NPG skin: render the pilots' faces for the picker (skipped on low quality: the GLBs are heavy).
-        if (npg && q !== 'low') void eng.pilotPortraits(NPG_PILOTS, (slug, url) => !life.dead && setFaces((f) => (f[slug] ? f : { ...f, [slug]: url })));
+        // The chosen pilot's face only (one GLB, not fourteen); the rest show their card art until picked.
+        if (npg && q !== 'low') void eng.pilotPortraits([npgPilot], (slug, url) => !life.dead && setFaces((f) => (f[slug] ? f : { ...f, [slug]: url })));
         bakeMini(eng.tr);
         if (process.env.NODE_ENV !== 'production') (window as unknown as { __bracer?: HyperEngine }).__bracer = eng;
       })
@@ -649,6 +664,23 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
             </div>
           )}
           {/* Position + lap */}
+          {npg ? (
+            <div className="absolute left-3 top-3 flex flex-col gap-1">
+              <div className="flex items-stretch gap-1">
+                <CardBox fill={NPG.pink} style={{ fontSize: 'clamp(34px, 5vw, 56px)', padding: '0 10px', lineHeight: 1 }}>
+                  <span ref={hud.ref('pos')}>1</span>
+                  <span ref={hud.ref('posTotal')} style={{ fontSize: '0.45em', opacity: 0.85, marginLeft: 2 }}>/8</span>
+                </CardBox>
+                <div className="flex flex-col gap-1">
+                  <CardBox style={{ fontSize: 15 }}>
+                    <span ref={hud.ref('lap')}>LAP 1/3</span>
+                  </CardBox>
+                  <CardBox fill={NPG.cyan} style={{ fontSize: 10 }}>{def.name}</CardBox>
+                </div>
+              </div>
+              <div style={tape(NPG.pink, 6)} />
+            </div>
+          ) : (
           <div className="absolute left-3 top-3 flex items-stretch">
             <div className="flex items-baseline gap-1 px-3 py-1" style={{ background: DR.colour.signal, ...hudFont }}>
               <span ref={hud.ref('pos')} className="text-5xl text-white sm:text-7xl" style={{ lineHeight: 0.85 }}>
@@ -667,7 +699,23 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
               </span>
             </div>
           </div>
+          )}
           {/* Time */}
+          {npg ? (
+            <div className="absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-1 max-sm:left-auto max-sm:right-3 max-sm:translate-x-0">
+              <CardBox style={{ fontSize: 'clamp(20px, 3vw, 32px)', fontVariantNumeric: 'tabular-nums', padding: '2px 12px' }}>
+                <span ref={hud.ref('time')}>0:00.00</span>
+              </CardBox>
+              <div className="flex gap-1">
+                <CardBox style={{ fontSize: 11 }}>
+                  <span ref={hud.ref('lapTime')}>0:00.00</span>
+                </CardBox>
+                <CardBox fill={NPG.yellow} style={{ fontSize: 11 }}>
+                  <span ref={hud.ref('best')}>BEST --</span>
+                </CardBox>
+              </div>
+            </div>
+          ) : (
           <div className="absolute left-1/2 top-3 -translate-x-1/2 text-center max-sm:left-auto max-sm:right-3 max-sm:translate-x-0">
             <div className="bg-black/70 px-3 py-1" style={hudFont}>
               <div ref={hud.ref('time')} className="text-2xl tabular-nums text-white sm:text-4xl">
@@ -684,6 +732,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
             </div>
             <ChevronBar n={14} h={8} colour={accent} />
           </div>
+          )}
           {/* Live order */}
           <div className="absolute left-3 top-24 hidden w-36 flex-col gap-0.5 sm:flex">
             {board.slice(0, 8).map((r, i) => (
@@ -706,6 +755,27 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
             </div>
           </div>
           {/* Speed + boost */}
+          {npg ? (
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 flex-col items-center gap-1 max-sm:bottom-[5.5rem]">
+              <div className="flex items-end gap-1">
+                <CardBox style={{ fontSize: 'clamp(40px, 6vw, 64px)', lineHeight: 0.95, padding: '0 12px', fontVariantNumeric: 'tabular-nums' }}>
+                  <span ref={hud.ref('speed')}>0</span>
+                </CardBox>
+                <CardBox fill={NPG.yellow} style={{ fontSize: 11, marginBottom: 6 }}>KM/H</CardBox>
+              </div>
+              <div className="flex w-[min(70vw,360px)] items-center gap-1">
+                <CardBox style={{ fontSize: 10, minWidth: 74 }}>
+                  <span ref={hud.ref('driftTag')}>DRIFT</span>
+                </CardBox>
+                <div className="h-4 flex-1 rounded-md border-[3px] border-white bg-black" style={{ boxShadow: '0 0 0 2px #0a0a0c', backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 9px, rgba(0,0,0,0.9) 9px 10px)' }}>
+                  <div ref={hud.ref('energy')} className="h-full" style={{ width: '0%', background: '#fff' }} />
+                </div>
+              </div>
+              <div className="h-1.5 w-[min(70vw,360px)] rounded-sm bg-black/70">
+                <div ref={hud.ref('speedBar')} className="h-full" style={{ width: '0%', background: NPG.pink }} />
+              </div>
+            </div>
+          ) : (
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 flex-col items-center max-sm:bottom-[5.5rem]">
             <div className="flex items-end gap-2 bg-black/60 px-4 py-1">
               <span ref={hud.ref('speed')} className="text-6xl tabular-nums text-white sm:text-8xl" style={{ ...hudFont, lineHeight: 0.82 }}>
@@ -735,12 +805,21 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
               </div>
             </div>
           </div>
+          )}
           <div ref={hud.ref('boosting')} className="absolute left-1/2 top-[22%] -translate-x-1/2 opacity-0 transition-opacity">
             <Sticker bg={DR.colour.cyan} size={28} rot={-4}>
               TURBO ▸▸▸
             </Sticker>
           </div>
           {/* Weapon slot */}
+          {npg ? (
+            <div className="absolute bottom-16 right-3 flex flex-col items-center gap-1">
+              <div className="flex h-16 w-16 items-center justify-center rounded-md border-[3px] border-white bg-black sm:h-24 sm:w-24" style={{ boxShadow: 'inset 0 0 0 2px #0a0a0c, inset 0 -3px 0 2px #555, 0 0 0 2px #0a0a0c', transform: 'rotate(-3deg)' }}>
+                {item ? <ItemIcon item={item} size={56} /> : <span style={{ fontFamily: LOGO_FAMILY, fontSize: 10, color: '#777' }}>NO ITEM</span>}
+              </div>
+              <CardBox fill={item ? NPG.pink : undefined} style={{ fontSize: 10 }}>{item ? ITEM_NAME[item] : 'ITEM'}</CardBox>
+            </div>
+          ) : (
           <div className="absolute bottom-16 right-3 flex h-16 w-16 items-center justify-center border-2 bg-black/70 sm:bottom-16 sm:h-24 sm:w-24" style={{ borderColor: weapon ? DR.colour.amber : DR.colour.grey }}>
             {weapon ? (
               <div className="flex flex-col items-center gap-1">
@@ -755,6 +834,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
               </span>
             )}
           </div>
+          )}
           {/* Toasts as stickers */}
           <div className="absolute bottom-24 left-3 flex flex-col items-start gap-1 sm:bottom-28">
             {toasts.map((t) => (
@@ -785,6 +865,13 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                 ▶
               </button>
             </div>
+            {npg ? (
+              <div className="absolute bottom-24 left-3 flex gap-2">
+                <button {...hold('boost')} className="btn btn-on h-12 w-20 touch-none text-xs">
+                  DRIFT
+                </button>
+              </div>
+            ) : (
             <div className="absolute bottom-24 left-3 flex gap-2">
               <button {...hold('airL')} className="btn h-10 w-12 touch-none text-[10px]">
                 AIR L
@@ -796,18 +883,21 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                 ROLL
               </button>
             </div>
+            )}
             <div className="absolute bottom-24 right-3 flex flex-col items-end gap-2">
               <button {...hold('fire')} className="btn btn-on h-12 w-16 touch-none text-xs">
-                FIRE
+                {npg ? 'ITEM' : 'FIRE'}
               </button>
             </div>
             <div className="absolute bottom-3 right-24 flex gap-2 sm:right-28">
               <button {...hold('brake')} className="btn h-12 w-14 touch-none text-xs">
                 BRAKE
               </button>
+              {!npg && (
               <button {...hold('boost')} className="btn btn-on h-12 w-16 touch-none text-xs">
                 BOOST
               </button>
+              )}
             </div>
           </>
         )}
@@ -905,7 +995,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                   </>
                 )}
               </div>
-              {npg && <p className="max-w-md text-xs text-fg">Ninja Punk Girls race the Erobots in fat toon karts. Every Erobot rides a real mainnet transaction: the bigger the move, the faster it goes.</p>}
+              {npg && <p className="max-w-md text-xs text-fg">Ninja Punk Girls race the Erobots in fat toon karts. Hold SHIFT while steering to power-slide; the longer the drift, the bigger the boost. Grab item boxes for shuriken, smoke bombs, ramen and EMPs. Every Erobot rides a real mainnet transaction.</p>}
               <p className={`max-w-md text-xs text-fg ${npg ? 'hidden' : ''}`}>Every rival is a real mainnet transaction. The bigger the move, the faster the ship; token tickers and logos fly as team colours. Hit pads, grab weapons, barrel-roll for boost.</p>
 
               <div>
@@ -967,7 +1057,7 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                   </div>
                 </div>
                 <div>
-                  <p className="mb-1 text-[10px] tracking-widest text-dim">03 / HULL</p>
+                  <p className="mb-1 text-[10px] tracking-widest text-dim">{npg ? '03 / KART' : '03 / HULL'}</p>
                   <div className="flex gap-1.5">
                     {SHIPS.map((s) => (
                       <button key={s.id} onClick={() => setShipId(s.id)} aria-pressed={s.id === shipId} title={s.blurb} className="flex-1 border-2 px-1.5 py-1 text-left" style={{ borderColor: s.id === shipId ? DR.colour.cyan : '#333', background: s.id === shipId ? '#0a1a1e' : '#07070a' }}>
@@ -1152,6 +1242,11 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
               <details className="text-[11px] text-dim">
                 <summary className="cursor-pointer text-fg">CONTROLS</summary>
                 <p className="mt-1">
+                  {npg ? (
+                    <>
+                      <span className="text-fg">Keys:</span> ↑/W gas · ↓/S brake · ←→/AD steer · <span style={{ color: NPG.pink }}>Shift</span> (or Q/E) hold to DRIFT while steering, release for a mini-boost (longer slide = bigger boost, ×3 max) · <span style={{ color: NPG.pink }}>Space</span> use item · C camera · P pause. Items: shuriken, smoke bomb, ramen boost, Erobot EMP. Bump the Erobots to shove them.
+                    </>
+                  ) : null}
                   <span className="text-fg">Keys:</span> ↑/W thrust · ↓/S brake · ←→/AD steer · <span style={{ color: DR.colour.amber }}>Q / E</span> airbrakes (hairpins) · <span style={{ color: DR.colour.amber }}>Z / X</span> barrel roll (in the air = boost) · <span style={{ color: DR.colour.amber }}>Shift</span> boost meter · <span style={{ color: DR.colour.amber }}>Space</span> fire item · C camera · P pause
                 </p>
                 <p>
@@ -1215,6 +1310,31 @@ export function BRacer({ skin }: { skin?: 'npg' } = {}) {
                     <ProductCode code={def.code} label={(hardcore ? 'HC ' : '') + ship.name.toUpperCase()} />
                   </div>
                 </div>
+                {npg && result.board.length > 0 && (() => {
+                  const win = result.board[0];
+                  const slugOf = (row: typeof win, i: number) => (row.me ? npgPilot : EROBOT_PILOTS[(row.name.length + i) % EROBOT_PILOTS.length]);
+                  const meRow = result.board.find((b) => b.me);
+                  const meIdx = result.board.findIndex((b) => b.me);
+                  const drifts = Math.max(0, Math.round(result.parts.clean / 50));
+                  return (
+                    <div className="flex flex-wrap items-start gap-4">
+                      <ResultCard slug={slugOf(win, 0)} name={win.me ? (LIVE_CARDS.find((c) => c.slug === npgPilot)?.name ?? 'YOU').toUpperCase() : win.name} face={win.me ? faces[npgPilot] ?? null : null} place="1ST" tag={win.me ? 'NPG' : 'EROBOT'} stats={[['TIME', fmt(win.time)], ['LAP', result.laps.length && win.me ? fmt(result.bestLap) : '--'], ['TEAM', win.sub.slice(0, 7)], ['WIN', win.me ? 'GIRLS' : 'BOTS']]} />
+                      {meRow && !win.me && (
+                        <ResultCard slug={npgPilot} name={(LIVE_CARDS.find((c) => c.slug === npgPilot)?.name ?? 'YOU').toUpperCase()} face={faces[npgPilot] ?? null} place={ORD[meIdx + 1] ?? `${meIdx + 1}TH`} tag="NPG" stats={[['TIME', fmt(result.total)], ['LAP', result.laps.length ? fmt(result.bestLap) : '--'], ['BUMPS', String(result.hits)], ['CLEAN', String(drifts)]]} />
+                      )}
+                      <div className="flex min-w-[12rem] flex-1 flex-col gap-2">
+                        <div style={tape(NPG.pink, 10)} />
+                        <p className="text-xs text-dim">{win.me ? 'The Ninja Punk Girls take it. The Erobots go home to the foundry.' : `${win.name} and the Erobots take this one. Drift harder: the longer the slide, the bigger the boost.`}</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {([['PLACE', ORD[result.pos] ?? `${result.pos}TH`], ['SCORE', result.score.toLocaleString()], ['LAPS', String(result.laps.length)], ['BEST LAP', result.laps.length ? fmt(result.bestLap) : '--']] as const).map(([k, v]) => (
+                            <Stat key={k} label={k} value={v} fill={k === 'SCORE' ? NPG.pink : undefined} />
+                          ))}
+                        </div>
+                        <div style={tape(NPG.cyan, 10)} />
+                      </div>
+                    </div>
+                  );
+                })()}
                 <ChevronBar n={44} h={12} colour={accent2} />
                 <p className="text-xs text-dim">
                   laps {result.laps.map(fmt).join(' / ') || '-'} · best lap {result.laps.length ? fmt(result.bestLap) : '-'} · {result.hits} wall hits · {result.cells} cells · {result.rivalHits} rival hits
