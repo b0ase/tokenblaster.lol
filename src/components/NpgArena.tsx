@@ -13,8 +13,9 @@ import { sharedAudio } from '@/lib/sfx';
 import { GameAudio } from '@/components/SoundToggle';
 
 /** The three girls with working mocap rigs. */
-// every card with a fixed Tripo rig (<slug>-rigged.glb); Joy and Aika stay solid-only so they sit out
-const ROSTER = LIVE_CARDS.filter((c) => c.rig && c.slug !== 'joy' && c.slug !== 'aika').map((c) => {
+// the rigged NPG girls (<slug>-rigged.glb); Joy and Aika have no rig, and the owner keeps Doctor, Matoko and the Erobots out
+const OUT = new Set(['joy', 'aika', 'doctor', 'matoko', 'bot', 'tech', 'graf-bot', 'frog-bot', 'stripey-bot']);
+const ROSTER = LIVE_CARDS.filter((c) => c.rig && !OUT.has(c.slug)).map((c) => {
   return { slug: c.slug, name: c.name, stats: c.stats as Stats };
 });
 const PALETTE = ['#ff2bd6', '#18e8ff', '#ffe100', '#7dff3a', '#ff6a1a', '#b46bff'];
