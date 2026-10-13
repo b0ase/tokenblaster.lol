@@ -294,8 +294,12 @@ export function IntenseHero({ clips, cta, sound, strip, scroll }: { clips: Clip[
     after(voidLoop, 20000 + Math.random() * 20000);
     after(monoLoop, 70000 + Math.random() * 60000);
     return () => {
+      // a void or mono that is on when the clocks stop (reduced motion flipped, dev HMR) must not stick
       alive = false;
       ts.forEach(clearTimeout);
+      setVoid(false);
+      setMono(false);
+      if (busy.current !== 'block') busy.current = null;
     };
   }, [doSlam, live, reduce]);
 
@@ -316,8 +320,8 @@ export function IntenseHero({ clips, cta, sound, strip, scroll }: { clips: Clip[
           <SignalGrain pulse={live} reduce={reduce} onApi={(a) => (grain.current = a)} />
         </div>
       )}
-      {tear > 0 && !reduce && <div key={tear} className="tbh-tear" aria-hidden />}
-      {white > 0 && !reduce && <div key={white} className="tbh-flash" aria-hidden />}
+      {tear > 0 && !reduce && <div key={`t${tear}`} className="tbh-tear" aria-hidden />}
+      {white > 0 && !reduce && <div key={`w${white}`} className="tbh-flash" aria-hidden />}
       <div className="tbh-plane tbh-slamplane tbh-overlay" aria-hidden>
         {slam && (
           <div key={slam.id} className={`tbh-slam ${slam.ink}`} style={{ left: `${slam.x}%`, top: `${slam.y}%`, ['--ang' as string]: `${slam.ang}deg`, ['--sz' as string]: `clamp(${Math.round(slam.size * 0.5)}px, ${(slam.size / 16).toFixed(2)}vw, ${Math.round(slam.size * 1.4)}px)` }}>
@@ -333,7 +337,7 @@ export function IntenseHero({ clips, cta, sound, strip, scroll }: { clips: Clip[
         )}
       </div>
       {block && (
-        <div key={block.id} className="tbh-block" aria-hidden>
+        <div key={`b${block.id}`} className="tbh-block" aria-hidden>
           <div className="sweep" />
           <div className="slab">
             <span className="k">New block · BSV mainnet</span>
@@ -346,7 +350,7 @@ export function IntenseHero({ clips, cta, sound, strip, scroll }: { clips: Clip[
         </div>
       )}
       {flash && (
-        <div key={flash.id} className={`tbh-stats ${flash.pos}`} aria-hidden>
+        <div key={`s${flash.id}`} className={`tbh-stats ${flash.pos}`} aria-hidden>
           {flash.rows.map((row) => (
             <div key={row.k} className={`tbh-stat ${row.cls ?? ''}`}>
               <span className="lbl">{row.k}</span>
