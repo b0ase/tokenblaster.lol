@@ -4,7 +4,7 @@ import { GAMES } from '@/lib/games';
  * GET /api/public/games?cursor= → { items, next }: the arcade as a public, no-auth feed for bWalletX's bGames tab.
  * `plays` is all-time blasts on chain (games without LIVE blasting have none). `cursor` is an offset; `next` is null at the end.
  */
-const ORIGIN = 'https://tokenblaster.lol';
+const ORIGIN = 'https://www.tokenblaster.lol';
 const ALLOWED = new Set(['https://web.bwalletx.com', 'https://desktop.bwalletx.com']);
 const PAGE = 50;
 
