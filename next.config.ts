@@ -1,11 +1,12 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // bWallet opens bApps (and bGames' chain games) inside its own frame: capacitor://localhost on iOS,
-  // https://localhost on Android. Allow exactly those, plus ourselves.
+  // bWalletX opens bGames inside its own frame: the web and desktop wallets, and capacitor://localhost on iOS.
+  // Allow exactly those, plus ourselves (owner-approved 15 Oct 2026). Android (https://localhost) opens games
+  // full-screen instead. No X-Frame-Options: it can't list origins.
   async headers() {
     return [
-      { source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' capacitor://localhost https://localhost" }] },
+      { source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://web.bwalletx.com https://desktop.bwalletx.com capacitor://localhost" }] },
       // 1Sat Ordnance models and art, loadable by wallets' 3D display cabinets (bWalletX).
       { source: '/arena/models/guns/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
       { source: '/ordnance/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
