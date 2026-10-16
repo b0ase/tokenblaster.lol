@@ -172,9 +172,14 @@ export type World = {
   dispose(): void;
 };
 
-const WINDOW_MAT = (tint: number) => {
+/**
+ * Lit-window facade. The accent colour (coloured windows, neon strips) is the per-instance colour on an
+ * InstancedMesh with setColorAt; plain meshes (no instance/vertex colour, so no vColor) use `accent`.
+ */
+const WINDOW_MAT = (tint: number, accent: THREE.Color = new THREE.Color('#ffffff')) => {
   const m = new THREE.MeshStandardMaterial({ color: '#272b38', metalness: 0.6, roughness: 0.4 });
   m.onBeforeCompile = (sh) => {
+    sh.uniforms.uAccent = { value: accent };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWp; varying vec3 vWn; varying float vSeed;')
       .replace(
@@ -193,7 +198,13 @@ const WINDOW_MAT = (tint: number) => {
         vWn = normalize(nq);`,
       );
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vWp; varying vec3 vWn; varying float vSeed;\nfloat wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`)
+      .replace('#include <common>', `#include <common>\nvarying vec3 vWp; varying vec3 vWn; varying float vSeed;\nfloat wh(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+uniform vec3 uAccent;
+#if defined(USE_COLOR) || defined(USE_INSTANCING_COLOR)
+  #define WIN_ACC vColor.rgb
+#else
+  #define WIN_ACC uAccent
+#endif`)
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
@@ -205,13 +216,13 @@ const WINDOW_MAT = (tint: number) => {
           float win = step(0.18, fr.x) * step(fr.x, 0.82) * step(0.3, fr.y) * step(fr.y, 0.78);
           float hh = wh(id + vSeed * 17.0);
           float lit = step(0.4, hh);
-          vec3 wc = mix(vec3(1.0, 0.82, 0.55), vColor.rgb * 2.4, step(0.6, wh(id.yx + 3.0 + vSeed)));
+          vec3 wc = mix(vec3(1.0, 0.82, 0.55), WIN_ACC * 2.4, step(0.6, wh(id.yx + 3.0 + vSeed)));
           totalEmissiveRadiance += wc * win * lit * sideF * (1.3 + 1.6 * wh(id + 7.0));
           // DR-palette neon corner strips on every few columns.
-          totalEmissiveRadiance += vColor.rgb * 2.2 * sideF * step(0.965, fract(uvw.x * 0.031 + vSeed)) * step(0.5, wh(vec2(vSeed, 1.0)));
+          totalEmissiveRadiance += WIN_ACC * 2.2 * sideF * step(0.965, fract(uvw.x * 0.031 + vSeed)) * step(0.5, wh(vec2(vSeed, 1.0)));
           // Roof-edge neon band every so often.
           float band = step(0.93, fract(vWp.y * 0.012 + vSeed)) * sideF;
-          totalEmissiveRadiance += vColor.rgb * 2.8 * band;
+          totalEmissiveRadiance += WIN_ACC * 2.8 * band;
         }`,
       );
   };
@@ -533,7 +544,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   }
 
   // Grandstand at the start line and the pit block beside the pit lane, each on a megastructure tower.
-  const towerMat = own(WINDOW_MAT(0.5));
+  const towerMat = own(WINDOW_MAT(0.5, col(p.a2, 0.9)));
   const tower = (s: number, lat: number, w: number, d: number, topH: number) => {
     frameAt(tr, s, fm);
     const x = fm.px + fm.rx * lat;

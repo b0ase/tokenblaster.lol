@@ -22,7 +22,7 @@ import { readWire, verifyWire } from '@/lib/identity';
 import { disposeAvatarTag, makeAvatarTag } from '@/lib/avatarTag';
 import type { RaceLink } from '@/lib/racemp/session';
 import { teamOfKind, TEAMS, type Team } from './teams';
-import { InkPass, type BRacerTheme } from './ink';
+import { addInkAccent, InkPass, inkTeamColour, type BRacerTheme } from './ink';
 import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, type Frame, type Track, type TrackId } from './track';
 import { CORE_SHIPS, DEFAULT_TRACK, TRACKS } from './content';
 import { buildWorld, Particles, SpeedLines, type Quality, type World } from './world';
@@ -520,6 +520,7 @@ export class HyperEngine {
       const hull = CORE_SHIPS[(spec.slot + 1) % CORE_SHIPS.length];
       const meta = spec.token ? tokenMeta(spec.token) : null;
       const rig = buildShip(hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null }, team.accent === '#ffffff' ? team.base : team.accent);
+      if (this.opts.theme === 'white') addInkAccent(rig.tilt, inkTeamColour(team.base, team.accent));
       this.scene.add(rig.root);
       const label = this.makeLabel();
       rig.root.add(label.sprite);
@@ -780,6 +781,7 @@ export class HyperEngine {
     const name = xid.x ? `@${xid.x}` : String(info.name || 'PILOT').slice(0, 14);
     const accent = team.accent === '#ffffff' || team.accent === '#f4efe2' || team.accent === '#f2f2ee' ? team.base : team.accent;
     const rig = buildShip(spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent);
+    if (this.opts.theme === 'white') addInkAccent(rig.tilt, inkTeamColour(team.base, team.accent));
     this.scene.add(rig.root);
     const label = this.makeLabel();
     rig.root.add(label.sprite);

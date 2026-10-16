@@ -18,7 +18,7 @@ import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand
 import { LOGO_FAMILY, Logo } from './bracer-logo';
 import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
-import { parseTheme, type BRacerTheme } from '@/lib/hyper/ink';
+import { inkTeamColour, parseTheme, type BRacerTheme } from '@/lib/hyper/ink';
 import { type Track, type TrackId } from '@/lib/hyper/track';
 import { bracerScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRACK_LIST } from '@/lib/hyper/content';
 import type { Weapon } from '@/lib/hyper/sim';
@@ -95,9 +95,52 @@ const readBest = (): Record<string, number> => {
 const WEAPON_ICON: Record<Weapon, PictogramName> = { rocket: 'rocket', mine: 'mine', shield: 'shield', turbo: 'turbo', quake: 'quake' };
 const ORD = ['', '1ST', '2ND', '3RD'];
 /** HUD colours per theme (?theme=white comes from bWalletX's White theme). The 3D scene's white colours live in lib/hyper/ink.ts. */
-const UI: Record<BRacerTheme, { stage: string; panel: string; panelSoft: string; text: string; textDim: string; track: string; amber: string; acid: string; cyan: string }> = {
-  default: { stage: '#000', panel: 'rgba(0,0,0,0.7)', panelSoft: 'rgba(0,0,0,0.6)', text: '#fff', textDim: 'rgba(255,255,255,0.8)', track: 'rgba(0,0,0,0.7)', amber: DR.colour.amber, acid: DR.colour.acid, cyan: DR.colour.cyan },
-  white: { stage: '#fff', panel: 'rgba(255,255,255,0.88)', panelSoft: 'rgba(255,255,255,0.8)', text: '#000', textDim: 'rgba(0,0,0,0.7)', track: 'rgba(0,0,0,0.12)', amber: '#000', acid: '#000', cyan: '#000' },
+type Ui = {
+  stage: string; panel: string; panelSoft: string; text: string; textDim: string; track: string; amber: string; acid: string; cyan: string;
+  /** Countdown digits / GO, their outline, and the mini-map track line. */
+  count: string; go: string; countStroke: string; miniLine: string; miniCase: string; miniMe: string;
+  /** Menu overlay over the 3D attract scene. */
+  menuBg: string;
+};
+const UI: Record<BRacerTheme, Ui> = {
+  default: {
+    stage: '#000', panel: 'rgba(0,0,0,0.7)', panelSoft: 'rgba(0,0,0,0.6)', text: '#fff', textDim: 'rgba(255,255,255,0.8)', track: 'rgba(0,0,0,0.7)', amber: DR.colour.amber, acid: DR.colour.acid, cyan: DR.colour.cyan,
+    count: DR.colour.amber, go: DR.colour.acid, countStroke: '#000', miniLine: DR.colour.amber, miniCase: 'rgba(0,0,0,0.8)', miniMe: '#fff',
+    menuBg: 'linear-gradient(90deg, rgba(5,5,8,0.94) 0%, rgba(5,5,8,0.78) 46%, rgba(5,5,8,0) 78%)',
+  },
+  white: {
+    stage: '#fff', panel: 'rgba(255,255,255,0.88)', panelSoft: 'rgba(255,255,255,0.8)', text: '#000', textDim: 'rgba(0,0,0,0.7)', track: 'rgba(0,0,0,0.12)', amber: '#000', acid: '#000', cyan: '#000',
+    count: '#000', go: '#000', countStroke: '#fff', miniLine: '#000', miniCase: '#fff', miniMe: '#000',
+    menuBg: 'linear-gradient(90deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.9) 46%, rgba(255,255,255,0) 78%)',
+  },
+};
+
+/**
+ * White skin for the shell bar and the menu (cards, buttons, stickers). The menu's DR components carry inline
+ * colours, so this scoped sheet overrides them; it only renders with ?theme=white. Colours come from UI.white.
+ */
+const whiteSkin = (u: Ui) => {
+  const S = '[data-game-shell]:has([data-bracer-theme="white"])';
+  const M = `${S} [data-bracer-menu]`;
+  return `
+${S} .gs-bar, ${S} .gs-bar header, ${S} .gs-bar a, ${S} .gs-bar button { background: ${u.stage} !important; color: ${u.text} !important; border-color: ${u.text} !important; }
+${S} .gs-bar { border-bottom: 2px solid ${u.text}; }
+${S} .gs-bar div, ${S} .gs-bar nav { background-color: ${u.stage} !important; }
+${S} .gs-bar * { color: ${u.text} !important; border-color: ${u.text} !important; }
+${S} .game-root, ${S} .game-root .panel-header { background: ${u.stage} !important; color: ${u.text} !important; border-color: ${u.text} !important; }
+${S} .game-root .panel-header * { color: ${u.text} !important; }
+${M} * { color: ${u.text} !important; border-color: ${u.text} !important; text-shadow: none !important; -webkit-text-stroke: 0 !important; }
+${M} div[style*="background"], ${M} span[style*="background"], ${M} .inset { background: ${u.stage} !important; background-image: none !important; }
+${M} button, ${M} .btn { background: ${u.stage} !important; background-image: none !important; color: ${u.text} !important; border: 2px solid ${u.text} !important; outline: none !important; opacity: 1; }
+${M} button[aria-pressed="true"], ${M} .btn-on { background: ${u.text} !important; }
+${M} button[aria-pressed="true"] *, ${M} button[aria-pressed="true"], ${M} .btn-on, ${M} .btn-on * { color: ${u.stage} !important; }
+${M} button span[style*="background"] { background: ${u.text} !important; }
+${M} button[aria-pressed="true"] span[style*="background"] { background: ${u.stage} !important; }
+${M} button:disabled { opacity: 0.35; }
+${M} [data-ink-chip] { background: var(--chip) !important; border: 1px solid ${u.text} !important; }
+${M} svg [fill]:not([fill="none"]) { fill: ${u.text}; }
+${M} svg [stroke]:not([stroke="none"]) { stroke: ${u.text}; }
+`;
 };
 
 const hudFont = { fontFamily: DR.font.display, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' } as const;
@@ -252,6 +295,7 @@ export function BRacer() {
   const [hud] = useState(() => new HudDom());
   const [theme, setTheme] = useState<BRacerTheme>('default');
   const ui = UI[theme];
+  const themeRef = useRef<BRacerTheme>('default');
   const mini = useRef<HTMLCanvasElement>(null);
   const miniBase = useRef<{ img: HTMLCanvasElement; fit: (x: number, z: number) => [number, number] } | null>(null);
 
@@ -279,7 +323,8 @@ export function BRacer() {
       }
       // Pack testing: /arcade/bracer?track=<slug>&ship=<slug> (content/bracer/...) overrides the saved picks.
       const q = new URLSearchParams(window.location.search);
-      setTheme(parseTheme(q.get('theme')));
+      themeRef.current = parseTheme(q.get('theme'));
+      setTheme(themeRef.current);
       const qt = q.get('track');
       const qs = q.get('ship');
       if (qt && isTrackId(qt)) setTrackId(qt);
@@ -327,7 +372,8 @@ export function BRacer() {
     const fit = (x: number, z: number): [number, number] => [ox + (x - b.minX) * k, H * 2 - (oz + (z - b.minZ) * k)];
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    for (const [w, col] of [[10, 'rgba(0,0,0,0.8)'], [5, DR.colour.amber]] as const) {
+    const pal = UI[themeRef.current];
+    for (const [w, col] of [[10, pal.miniCase], [5, pal.miniLine]] as const) {
       g.lineWidth = w;
       g.strokeStyle = col;
       g.beginPath();
@@ -362,7 +408,7 @@ export function BRacer() {
     }
     const [px, py] = base.fit(m.px, m.pz);
     g.fillStyle = DR.colour.signal;
-    g.strokeStyle = '#fff';
+    g.strokeStyle = UI[themeRef.current].miniMe;
     g.lineWidth = 2;
     g.beginPath();
     g.arc(px * sc, py * sc, 5.2, 0, Math.PI * 2);
@@ -605,7 +651,8 @@ export function BRacer() {
   const accent2 = def.palette.a2;
 
   return (
-    <section className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+    <section data-bracer-theme={theme} className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+      {theme === 'white' && <style>{whiteSkin(UI.white)}</style>}
       <GameAudio track={def.music} />
       <div className="panel-header">
         <span className="panel-title">{GAME_NAME}</span>
@@ -753,7 +800,7 @@ export function BRacer() {
         {count !== null && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <style>{`@keyframes brCount { 0% { transform: scale(2.6) skewX(-8deg); opacity: 0 } 25% { opacity: 1 } 100% { transform: scale(1) skewX(-8deg); opacity: 0.95 } }`}</style>
-            <span key={count} style={{ ...hudFont, fontSize: 'clamp(110px, 24vw, 280px)', color: count === 0 ? DR.colour.acid : DR.colour.amber, WebkitTextStroke: '5px #000', textShadow: '0 10px 0 #000, 0 0 50px rgba(255,184,0,0.5)', animation: 'brCount 0.8s ease-out both' }}>
+            <span key={count} style={{ ...hudFont, fontSize: 'clamp(110px, 24vw, 280px)', color: count === 0 ? ui.go : ui.count, WebkitTextStroke: `5px ${ui.countStroke}`, textShadow: theme === 'white' ? 'none' : '0 10px 0 #000, 0 0 50px rgba(255,184,0,0.5)', animation: 'brCount 0.8s ease-out both' }}>
               {count === 0 ? 'GO' : count}
             </span>
           </div>
@@ -853,7 +900,7 @@ export function BRacer() {
 
         {/* ── Title poster / menu ── */}
         {phase === 'menu' && (
-          <div className="absolute inset-0 overflow-y-auto p-2 sm:p-4" style={{ background: 'linear-gradient(90deg, rgba(5,5,8,0.94) 0%, rgba(5,5,8,0.78) 46%, rgba(5,5,8,0) 78%)' }}>
+          <div data-bracer-menu className="absolute inset-0 overflow-y-auto p-2 sm:p-4" style={{ background: ui.menuBg }}>
             <div className="flex max-w-[34rem] flex-col gap-3">
               <div className="relative">
                 <div className="leading-none">
@@ -965,9 +1012,13 @@ export function BRacer() {
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                   {TEAMS.map((t) => (
                     <button key={t.id} onClick={() => setTeamId(t.id)} aria-pressed={t.id === teamId} className="relative overflow-hidden p-1 text-left" style={{ background: t.base, outline: t.id === teamId ? `3px solid ${DR.colour.paper}` : '1px solid #000', outlineOffset: -1 }}>
-                      <div className="opacity-90">
-                        <ChevronBar n={6} h={9} colour={t.accent} />
-                      </div>
+                      {theme === 'white' ? (
+                        <span data-ink-chip className="block h-2.5 w-5" style={{ ['--chip' as string]: inkTeamColour(t.base, t.accent).getStyle() }} />
+                      ) : (
+                        <div className="opacity-90">
+                          <ChevronBar n={6} h={9} colour={t.accent} />
+                        </div>
+                      )}
                       <span className="mt-1 block text-[13px] leading-[0.9] sm:text-sm" style={{ ...hudFont, color: t.accent }}>
                         {t.name}
                       </span>

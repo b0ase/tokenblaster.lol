@@ -22,6 +22,38 @@ export const INK = {
   line: [0, 0, 0],
 } as const;
 
+/**
+ * Colour that survives the ink pass. Materials are tagged by an HDR brightness no other material
+ * reaches (tone-mapping off, fog off, bloom off in white mode); the pass prints them as flat colour.
+ */
+const KEEP_GAIN = 256;
+
+/** The more colourful of a team's two colours (white/black liveries fall back to the other). */
+export function inkTeamColour(base: string, accent: string): THREE.Color {
+  const score = (c: string) => {
+    const hsl = { h: 0, s: 0, l: 0 };
+    new THREE.Color(c).getHSL(hsl);
+    return hsl.s * (1 - Math.abs(hsl.l - 0.5) * 2);
+  };
+  return new THREE.Color(score(accent) > score(base) ? accent : base);
+}
+
+/** Solid team-colour wing-tip plates on a rival ship, kept in colour by the ink pass. */
+export function addInkAccent(ship: THREE.Object3D, colour: THREE.Color) {
+  ship.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(ship);
+  const inv = new THREE.Matrix4().copy(ship.matrixWorld).invert();
+  box.applyMatrix4(inv);
+  const size = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  const mat = new THREE.MeshBasicMaterial({ color: colour.clone().multiplyScalar(KEEP_GAIN), fog: false, toneMapped: false, side: THREE.DoubleSide });
+  for (const sx of [-1, 1]) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.04, size.y * 0.3, size.z * 0.3), mat);
+    cap.position.set(c.x + sx * size.x * 0.46, c.y, c.z);
+    ship.add(cap);
+  }
+}
+
 const v3 = (c: readonly number[]) => new THREE.Vector3(c[0], c[1], c[2]);
 
 const INK_SHADER = {
@@ -39,7 +71,7 @@ const INK_SHADER = {
     uLine: { value: v3(INK.line) },
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-  fragmentShader: `
+  fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse; uniform sampler2D tDepth;
     uniform vec2 uTexel; uniform float uLineW; uniform float uNear; uniform float uFar;
     uniform vec3 uPaper; uniform vec3 uTone1; uniform vec3 uTone2; uniform vec3 uTone3; uniform vec3 uLine;
@@ -80,7 +112,14 @@ const INK_SHADER = {
       float sky = step(0.99999, raw);
       float edge = max(eDepth * (1.0 - sky), eLum * (1.0 - sky * 0.85)) * mix(0.25, 1.0, near);
       // Fill: three light tones from the original colour, so coloured things read as grey shapes.
-      vec3 c = texture2D(tDiffuse, vUv).rgb; c = c / (1.0 + c);
+      vec3 raw3 = texture2D(tDiffuse, vUv).rgb;
+      float peak = max(raw3.r, max(raw3.g, raw3.b));
+      if (peak > ${(KEEP_GAIN * 0.4).toFixed(1)}) {
+        // Kept colour (team accents): flat fill, black only on its silhouette.
+        gl_FragColor = vec4(mix(raw3 / ${KEEP_GAIN.toFixed(1)}, uLine, eDepth), 1.0);
+        return;
+      }
+      vec3 c = raw3 / (1.0 + raw3);
       float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
       float sat = mx > 0.001 ? (mx - mn) / mx : 0.0;
       float L = dot(c, vec3(0.299, 0.587, 0.114));
