@@ -18,6 +18,7 @@ import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand
 import { LOGO_FAMILY, Logo } from './bracer-logo';
 import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
+import { inkTeamColour, parseTheme, type BRacerTheme } from '@/lib/hyper/ink';
 import { type Track, type TrackId } from '@/lib/hyper/track';
 import { bracerScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRACK_LIST } from '@/lib/hyper/content';
 import type { Weapon } from '@/lib/hyper/sim';
@@ -93,6 +94,55 @@ const readBest = (): Record<string, number> => {
 
 const WEAPON_ICON: Record<Weapon, PictogramName> = { rocket: 'rocket', mine: 'mine', shield: 'shield', turbo: 'turbo', quake: 'quake' };
 const ORD = ['', '1ST', '2ND', '3RD'];
+/** HUD colours per theme (?theme=white comes from bWalletX's White theme). The 3D scene's white colours live in lib/hyper/ink.ts. */
+type Ui = {
+  stage: string; panel: string; panelSoft: string; text: string; textDim: string; track: string; amber: string; acid: string; cyan: string;
+  /** Countdown digits / GO, their outline, and the mini-map track line. */
+  count: string; go: string; countStroke: string; miniLine: string; miniCase: string; miniMe: string;
+  /** Menu overlay over the 3D attract scene. */
+  menuBg: string;
+};
+const UI: Record<BRacerTheme, Ui> = {
+  default: {
+    stage: '#000', panel: 'rgba(0,0,0,0.7)', panelSoft: 'rgba(0,0,0,0.6)', text: '#fff', textDim: 'rgba(255,255,255,0.8)', track: 'rgba(0,0,0,0.7)', amber: DR.colour.amber, acid: DR.colour.acid, cyan: DR.colour.cyan,
+    count: DR.colour.amber, go: DR.colour.acid, countStroke: '#000', miniLine: DR.colour.amber, miniCase: 'rgba(0,0,0,0.8)', miniMe: '#fff',
+    menuBg: 'linear-gradient(90deg, rgba(5,5,8,0.94) 0%, rgba(5,5,8,0.78) 46%, rgba(5,5,8,0) 78%)',
+  },
+  white: {
+    stage: '#fff', panel: 'rgba(255,255,255,0.88)', panelSoft: 'rgba(255,255,255,0.8)', text: '#000', textDim: 'rgba(0,0,0,0.7)', track: 'rgba(0,0,0,0.12)', amber: '#000', acid: '#000', cyan: '#000',
+    count: '#000', go: '#000', countStroke: '#fff', miniLine: '#000', miniCase: '#fff', miniMe: '#000',
+    menuBg: 'linear-gradient(90deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.9) 46%, rgba(255,255,255,0) 78%)',
+  },
+};
+
+/**
+ * White skin for the shell bar and the menu (cards, buttons, stickers). The menu's DR components carry inline
+ * colours, so this scoped sheet overrides them; it only renders with ?theme=white. Colours come from UI.white.
+ */
+const whiteSkin = (u: Ui) => {
+  const S = '[data-game-shell]:has([data-bracer-theme="white"])';
+  const M = `${S} [data-bracer-menu]`;
+  return `
+${S} .gs-bar, ${S} .gs-bar header, ${S} .gs-bar a, ${S} .gs-bar button { background: ${u.stage} !important; color: ${u.text} !important; border-color: ${u.text} !important; }
+${S} .gs-bar { border-bottom: 2px solid ${u.text}; }
+${S} .gs-bar div, ${S} .gs-bar nav { background-color: ${u.stage} !important; }
+${S} .gs-bar * { color: ${u.text} !important; border-color: ${u.text} !important; }
+${S} .game-root, ${S} .game-root .panel-header { background: ${u.stage} !important; color: ${u.text} !important; border-color: ${u.text} !important; }
+${S} .game-root .panel-header * { color: ${u.text} !important; }
+${M} * { color: ${u.text} !important; border-color: ${u.text} !important; text-shadow: none !important; -webkit-text-stroke: 0 !important; }
+${M} div[style*="background"], ${M} span[style*="background"], ${M} .inset { background: ${u.stage} !important; background-image: none !important; }
+${M} button, ${M} .btn { background: ${u.stage} !important; background-image: none !important; color: ${u.text} !important; border: 2px solid ${u.text} !important; outline: none !important; opacity: 1; }
+${M} button[aria-pressed="true"], ${M} .btn-on { background: ${u.text} !important; }
+${M} button[aria-pressed="true"] *, ${M} button[aria-pressed="true"], ${M} .btn-on, ${M} .btn-on * { color: ${u.stage} !important; }
+${M} button span[style*="background"] { background: ${u.text} !important; }
+${M} button[aria-pressed="true"] span[style*="background"] { background: ${u.stage} !important; }
+${M} button:disabled { opacity: 0.35; }
+${M} [data-ink-chip] { background: var(--chip) !important; border: 1px solid ${u.text} !important; }
+${M} svg [fill]:not([fill="none"]) { fill: ${u.text}; }
+${M} svg [stroke]:not([stroke="none"]) { stroke: ${u.text}; }
+`;
+};
+
 const hudFont = { fontFamily: DR.font.display, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' } as const;
 
 export function BRacer() {
@@ -243,6 +293,9 @@ export function BRacer() {
   const toastId = useRef(0);
   const weaponRef = useRef<Weapon | null>(null);
   const [hud] = useState(() => new HudDom());
+  const [theme, setTheme] = useState<BRacerTheme>('default');
+  const ui = UI[theme];
+  const themeRef = useRef<BRacerTheme>('default');
   const mini = useRef<HTMLCanvasElement>(null);
   const miniBase = useRef<{ img: HTMLCanvasElement; fit: (x: number, z: number) => [number, number] } | null>(null);
 
@@ -270,6 +323,8 @@ export function BRacer() {
       }
       // Pack testing: /arcade/bracer?track=<slug>&ship=<slug> (content/bracer/...) overrides the saved picks.
       const q = new URLSearchParams(window.location.search);
+      themeRef.current = parseTheme(q.get('theme'));
+      setTheme(themeRef.current);
       const qt = q.get('track');
       const qs = q.get('ship');
       if (qt && isTrackId(qt)) setTrackId(qt);
@@ -317,7 +372,8 @@ export function BRacer() {
     const fit = (x: number, z: number): [number, number] => [ox + (x - b.minX) * k, H * 2 - (oz + (z - b.minZ) * k)];
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    for (const [w, col] of [[10, 'rgba(0,0,0,0.8)'], [5, DR.colour.amber]] as const) {
+    const pal = UI[themeRef.current];
+    for (const [w, col] of [[10, pal.miniCase], [5, pal.miniLine]] as const) {
       g.lineWidth = w;
       g.strokeStyle = col;
       g.beginPath();
@@ -352,7 +408,7 @@ export function BRacer() {
     }
     const [px, py] = base.fit(m.px, m.pz);
     g.fillStyle = DR.colour.signal;
-    g.strokeStyle = '#fff';
+    g.strokeStyle = UI[themeRef.current].miniMe;
     g.lineWidth = 2;
     g.beginPath();
     g.arc(px * sc, py * sc, 5.2, 0, Math.PI * 2);
@@ -391,6 +447,7 @@ export function BRacer() {
       difficulty,
       mp: getLink.current() ?? undefined,
       pay: payHook.current,
+      theme,
       quality: q,
       touchDevice: isMobileish() && Boolean(window.matchMedia?.('(pointer: coarse)').matches),
       take: (p) => takeRef.current(p),
@@ -456,7 +513,7 @@ export function BRacer() {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, session, onHud, pushToast, drawMini, bakeMini]);
+  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, theme, session, onHud, pushToast, drawMini, bakeMini]);
 
   useEffect(() => {
     if (phase !== 'menu') return;
@@ -594,7 +651,8 @@ export function BRacer() {
   const accent2 = def.palette.a2;
 
   return (
-    <section className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+    <section data-bracer-theme={theme} className={`panel game-root ${drFontClass}`} style={{ fontFamily: DR.font.mono }}>
+      {theme === 'white' && <style>{whiteSkin(UI.white)}</style>}
       <GameAudio track={def.music} />
       <div className="panel-header">
         <span className="panel-title">{GAME_NAME}</span>
@@ -611,47 +669,47 @@ export function BRacer() {
         </span>
       </div>
       <div className="game-stage relative" style={{ height: 'min(80vh, 800px)', minHeight: 440 }}>
-      <div ref={wrap} className={`select-none overflow-hidden bg-black ${cover || fs ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={cover || fs ? { height: '100dvh' } : undefined}>
+      <div ref={wrap} className={`select-none overflow-hidden ${cover || fs ? 'fixed inset-0 z-[90]' : 'absolute inset-0'}`} style={{ background: ui.stage, ...(cover || fs ? { height: '100dvh' } : {}) }}>
         <div ref={mount} className="absolute inset-0 touch-none" />
         {flash && <div className="pointer-events-none absolute inset-0" style={{ background: flash === 'hit' ? 'rgba(232,38,29,0.28)' : flash === 'quake' ? 'rgba(255,184,0,0.2)' : flash === 'pit' ? 'rgba(24,255,122,0.1)' : 'rgba(39,230,255,0.14)' }} />}
 
         {/* ── HUD ── */}
         <div className={`pointer-events-none absolute inset-0 transition-opacity ${racing ? 'opacity-100' : 'opacity-0'}`}>
           {mpOn && xHandle && (
-            <div className="absolute left-3 top-24 bg-black/70 px-2 py-1 text-xs text-white sm:top-28" data-hud-me={xHandle}>
+            <div className="absolute left-3 top-24 px-2 py-1 text-xs sm:top-28" style={{ background: ui.panel, color: ui.text }} data-hud-me={xHandle}>
               <PlayerBadge handle={xHandle} name={xHandle} verified={Boolean(meId && room.verified[meId])} ring={(TEAMS.find((t) => t.id === teamId) ?? TEAMS[0]).base} size={22} />
             </div>
           )}
           {/* Position + lap */}
           <div className="absolute left-3 top-3 flex items-stretch">
             <div className="flex items-baseline gap-1 px-3 py-1" style={{ background: DR.colour.signal, ...hudFont }}>
-              <span ref={hud.ref('pos')} className="text-5xl text-white sm:text-7xl" style={{ lineHeight: 0.85 }}>
+              <span ref={hud.ref('pos')} className="text-5xl sm:text-7xl" style={{ color: ui.text, lineHeight: 0.85 }}>
                 1
               </span>
-              <span ref={hud.ref('posTotal')} className="text-xl text-white/80 sm:text-3xl">
+              <span ref={hud.ref('posTotal')} className="text-xl sm:text-3xl" style={{ color: ui.textDim }}>
                 /8
               </span>
             </div>
-            <div className="flex flex-col justify-between bg-black/70 px-2 py-1" style={hudFont}>
-              <span ref={hud.ref('lap')} className="text-lg text-white sm:text-2xl">
+            <div className="flex flex-col justify-between px-2 py-1" style={{ ...hudFont, background: ui.panel }}>
+              <span ref={hud.ref('lap')} className="text-lg sm:text-2xl" style={{ color: ui.text }}>
                 LAP 1/3
               </span>
-              <span className="text-xs text-amber-300" style={{ color: DR.colour.amber }}>
+              <span className="text-xs text-amber-300" style={{ color: ui.amber }}>
                 {def.name}
               </span>
             </div>
           </div>
           {/* Time */}
           <div className="absolute left-1/2 top-3 -translate-x-1/2 text-center max-sm:left-auto max-sm:right-3 max-sm:translate-x-0">
-            <div className="bg-black/70 px-3 py-1" style={hudFont}>
-              <div ref={hud.ref('time')} className="text-2xl tabular-nums text-white sm:text-4xl">
+            <div className="px-3 py-1" style={{ ...hudFont, background: ui.panel }}>
+              <div ref={hud.ref('time')} className="text-2xl tabular-nums sm:text-4xl" style={{ color: ui.text }}>
                 0:00.00
               </div>
               <div className="flex gap-3 text-[11px] sm:text-sm" style={{ fontFamily: DR.font.mono, fontStyle: 'normal' }}>
-                <span ref={hud.ref('lapTime')} className="text-white/80">
+                <span ref={hud.ref('lapTime')} style={{ color: ui.textDim }}>
                   0:00.00
                 </span>
-                <span ref={hud.ref('best')} style={{ color: DR.colour.amber }}>
+                <span ref={hud.ref('best')} style={{ color: ui.amber }}>
                   BEST --
                 </span>
               </div>
@@ -661,7 +719,7 @@ export function BRacer() {
           {/* Live order */}
           <div className="absolute left-3 top-24 hidden w-36 flex-col gap-0.5 sm:flex">
             {board.slice(0, 8).map((r, i) => (
-              <div key={`${r.name}${i}`} className="flex items-center gap-1 px-1 py-0.5 text-xs" style={{ ...hudFont, background: r.me ? DR.colour.signal : 'rgba(0,0,0,0.6)', color: '#fff' }}>
+              <div key={`${r.name}${i}`} className="flex items-center gap-1 px-1 py-0.5 text-xs" style={{ ...hudFont, background: r.me ? DR.colour.signal : ui.panelSoft, color: r.me ? '#fff' : ui.text }}>
                 <span className="w-4 text-right opacity-70">{i + 1}</span>
                 <span className="inline-block h-2.5 w-2.5 shrink-0" style={{ background: r.color, outline: '1px solid #000' }} />
                 {r.logo ? (
@@ -674,37 +732,37 @@ export function BRacer() {
           </div>
           {/* Minimap + progress */}
           <div className="absolute right-3 top-3 flex flex-col items-end gap-1 max-sm:top-16">
-            <canvas ref={mini} width={140} height={140} className="h-[84px] w-[84px] bg-black/60 sm:h-[130px] sm:w-[130px]" />
-            <div className="h-1.5 w-[84px] bg-black/60 sm:w-[130px]">
+            <canvas ref={mini} width={140} height={140} className="h-[84px] w-[84px] sm:h-[130px] sm:w-[130px]" style={{ background: ui.panelSoft }} />
+            <div className="h-1.5 w-[84px] sm:w-[130px]" style={{ background: ui.track }}>
               <div ref={hud.ref('prog')} className="h-full" style={{ width: '0%', background: accent2 }} />
             </div>
           </div>
           {/* Speed + boost */}
           <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 flex-col items-center max-sm:bottom-[5.5rem]">
-            <div className="flex items-end gap-2 bg-black/60 px-4 py-1">
-              <span ref={hud.ref('speed')} className="text-6xl tabular-nums text-white sm:text-8xl" style={{ ...hudFont, lineHeight: 0.82 }}>
+            <div className="flex items-end gap-2 px-4 py-1" style={{ background: ui.panelSoft }}>
+              <span ref={hud.ref('speed')} className="text-6xl tabular-nums sm:text-8xl" style={{ color: ui.text, ...hudFont, lineHeight: 0.82 }}>
                 0
               </span>
-              <span className="pb-1 text-sm" style={{ ...hudFont, color: DR.colour.amber }}>
+              <span className="pb-1 text-sm" style={{ ...hudFont, color: ui.amber }}>
                 KM/H
               </span>
             </div>
-            <div className="h-2 w-[min(70vw,360px)] bg-black/70">
+            <div className="h-2 w-[min(70vw,360px)]" style={{ background: ui.track }}>
               <div ref={hud.ref('speedBar')} className="h-full" style={{ width: '0%', background: DR.colour.amber }} />
             </div>
             <div className="mt-1 flex w-[min(70vw,360px)] items-center gap-2">
-              <span ref={hud.ref('hpTag')} className="w-12 text-xs" style={{ ...hudFont, color: DR.colour.acid }}>
+              <span ref={hud.ref('hpTag')} className="w-12 text-xs" style={{ ...hudFont, color: ui.acid }}>
                 SHIELD
               </span>
-              <div className="h-3 flex-1 bg-black/70" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 14px, rgba(0,0,0,0.9) 14px 16px)' }}>
+              <div className="h-3 flex-1" style={{ backgroundColor: ui.track, backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 14px, rgba(0,0,0,0.9) 14px 16px)' }}>
                 <div ref={hud.ref('hp')} className="h-full" style={{ width: '100%', background: DR.colour.acid }} />
               </div>
             </div>
             <div className="mt-1 flex w-[min(70vw,360px)] items-center gap-2">
-              <span ref={hud.ref('boostTag')} className="w-12 text-xs" style={{ ...hudFont, color: DR.colour.cyan }}>
+              <span ref={hud.ref('boostTag')} className="w-12 text-xs" style={{ ...hudFont, color: ui.cyan }}>
                 BOOST
               </span>
-              <div className="h-2.5 flex-1 bg-black/70" style={{ backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 9px, rgba(0,0,0,0.9) 9px 10px)' }}>
+              <div className="h-2.5 flex-1" style={{ backgroundColor: ui.track, backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 9px, rgba(0,0,0,0.9) 9px 10px)' }}>
                 <div ref={hud.ref('energy')} className="h-full" style={{ width: '0%', background: DR.colour.cyan }} />
               </div>
             </div>
@@ -715,11 +773,11 @@ export function BRacer() {
             </Sticker>
           </div>
           {/* Weapon slot */}
-          <div className="absolute bottom-16 right-3 flex h-16 w-16 items-center justify-center border-2 bg-black/70 sm:bottom-16 sm:h-24 sm:w-24" style={{ borderColor: weapon ? DR.colour.amber : DR.colour.grey }}>
+          <div className="absolute bottom-16 right-3 flex h-16 w-16 items-center justify-center border-2 sm:bottom-16 sm:h-24 sm:w-24" style={{ background: ui.panel, borderColor: weapon ? DR.colour.amber : DR.colour.grey }}>
             {weapon ? (
               <div className="flex flex-col items-center gap-1">
                 <Pictogram name={WEAPON_ICON[weapon]} size={36} colour={DR.colour.amber} />
-                <span className="text-xs" style={{ ...hudFont, color: DR.colour.amber }}>
+                <span className="text-xs" style={{ ...hudFont, color: ui.amber }}>
                   {weapon}
                 </span>
               </div>
@@ -742,7 +800,7 @@ export function BRacer() {
         {count !== null && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <style>{`@keyframes brCount { 0% { transform: scale(2.6) skewX(-8deg); opacity: 0 } 25% { opacity: 1 } 100% { transform: scale(1) skewX(-8deg); opacity: 0.95 } }`}</style>
-            <span key={count} style={{ ...hudFont, fontSize: 'clamp(110px, 24vw, 280px)', color: count === 0 ? DR.colour.acid : DR.colour.amber, WebkitTextStroke: '5px #000', textShadow: '0 10px 0 #000, 0 0 50px rgba(255,184,0,0.5)', animation: 'brCount 0.8s ease-out both' }}>
+            <span key={count} style={{ ...hudFont, fontSize: 'clamp(110px, 24vw, 280px)', color: count === 0 ? ui.go : ui.count, WebkitTextStroke: `5px ${ui.countStroke}`, textShadow: theme === 'white' ? 'none' : '0 10px 0 #000, 0 0 50px rgba(255,184,0,0.5)', animation: 'brCount 0.8s ease-out both' }}>
               {count === 0 ? 'GO' : count}
             </span>
           </div>
@@ -792,7 +850,7 @@ export function BRacer() {
           </div>
         )}
         {racing && run.paid && (
-          <div data-bracer-tx={onChain} className="pointer-events-none absolute left-2 top-[4.4rem] border border-white/20 bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:top-10 sm:text-xs" style={{ color: liveBlast ? DR.colour.acid : DR.colour.grey }}>
+          <div data-bracer-tx={onChain} className="pointer-events-none absolute left-2 top-[4.4rem] border border-white/20 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:top-10 sm:text-xs" style={{ background: ui.panelSoft, color: liveBlast ? DR.colour.acid : DR.colour.grey }}>
             {liveBlast ? `LIVE BLAST · ${onChain.toLocaleString()} TX ON CHAIN` : 'LIVE BLAST OFF · LOAD AMMO IN THE MENU'}
             {payErr ? <span className="ml-2 text-[#ff8a7a]">⚠ {payErr.slice(0, 60)}</span> : null}
           </div>
@@ -842,7 +900,7 @@ export function BRacer() {
 
         {/* ── Title poster / menu ── */}
         {phase === 'menu' && (
-          <div className="absolute inset-0 overflow-y-auto p-2 sm:p-4" style={{ background: 'linear-gradient(90deg, rgba(5,5,8,0.94) 0%, rgba(5,5,8,0.78) 46%, rgba(5,5,8,0) 78%)' }}>
+          <div data-bracer-menu className="absolute inset-0 overflow-y-auto p-2 sm:p-4" style={{ background: ui.menuBg }}>
             <div className="flex max-w-[34rem] flex-col gap-3">
               <div className="relative">
                 <div className="leading-none">
@@ -954,9 +1012,13 @@ export function BRacer() {
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                   {TEAMS.map((t) => (
                     <button key={t.id} onClick={() => setTeamId(t.id)} aria-pressed={t.id === teamId} className="relative overflow-hidden p-1 text-left" style={{ background: t.base, outline: t.id === teamId ? `3px solid ${DR.colour.paper}` : '1px solid #000', outlineOffset: -1 }}>
-                      <div className="opacity-90">
-                        <ChevronBar n={6} h={9} colour={t.accent} />
-                      </div>
+                      {theme === 'white' ? (
+                        <span data-ink-chip className="block h-2.5 w-5" style={{ ['--chip' as string]: inkTeamColour(t.base, t.accent).getStyle() }} />
+                      ) : (
+                        <div className="opacity-90">
+                          <ChevronBar n={6} h={9} colour={t.accent} />
+                        </div>
+                      )}
                       <span className="mt-1 block text-[13px] leading-[0.9] sm:text-sm" style={{ ...hudFont, color: t.accent }}>
                         {t.name}
                       </span>

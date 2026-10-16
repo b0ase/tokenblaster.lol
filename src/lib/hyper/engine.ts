@@ -22,6 +22,7 @@ import { readWire, verifyWire } from '@/lib/identity';
 import { disposeAvatarTag, makeAvatarTag } from '@/lib/avatarTag';
 import type { RaceLink } from '@/lib/racemp/session';
 import { teamOfKind, TEAMS, type Team } from './teams';
+import { addInkAccent, InkPass, inkTeamColour, type BRacerTheme } from './ink';
 import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, type Frame, type Track, type TrackId } from './track';
 import { CORE_SHIPS, DEFAULT_TRACK, TRACKS } from './content';
 import { buildWorld, Particles, SpeedLines, type Quality, type World } from './world';
@@ -110,6 +111,8 @@ export type Options = {
   /** Multiplayer link (src/lib/hyper/mp.ts), present when the player is in a room. */
   mp?: MpLink;
   pay?: PayHook;
+  /** 'white' = light surfaces + black linework (bWalletX White theme). Visual only. */
+  theme?: BRacerTheme;
 };
 
 const BEST_KEY = 'tokenblaster:bracer-laps';
@@ -374,7 +377,8 @@ export class HyperEngine {
     this.renderer = renderer;
     this.dpr = Math.min(window.devicePixelRatio || 1, this.maxDpr);
     renderer.setPixelRatio(this.dpr);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // White theme: no tone mapping, so the ink pass's paper white stays pure white.
+    renderer.toneMapping = this.opts.theme === 'white' ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.92;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
@@ -516,6 +520,7 @@ export class HyperEngine {
       const hull = CORE_SHIPS[(spec.slot + 1) % CORE_SHIPS.length];
       const meta = spec.token ? tokenMeta(spec.token) : null;
       const rig = buildShip(hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null }, team.accent === '#ffffff' ? team.base : team.accent);
+      if (this.opts.theme === 'white') addInkAccent(rig.tilt, inkTeamColour(team.base, team.accent));
       this.scene.add(rig.root);
       const label = this.makeLabel();
       rig.root.add(label.sprite);
@@ -615,9 +620,23 @@ export class HyperEngine {
     const r = this.renderer;
     this.composer?.dispose();
     const size = r.getDrawingBufferSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: this.fxLevel >= 2 ? 4 : 0 });
+    const white = this.opts.theme === 'white';
+    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: white ? 0 : this.fxLevel >= 2 ? 4 : 0 });
     const comp = new EffectComposer(r, rt);
     comp.addPass(new RenderPass(this.scene, this.camera));
+    if (white) {
+      // White theme: no bloom/grade; the ink pass draws light fills + black lines from colour and depth.
+      rt.depthTexture = new THREE.DepthTexture(size.x, size.y);
+      comp.renderTarget2.depthTexture = new THREE.DepthTexture(size.x, size.y);
+      this.bloom = null;
+      this.grade = null;
+      comp.addPass(new InkPass(this.camera));
+      comp.addPass(new OutputPass());
+      comp.setPixelRatio(this.dpr);
+      comp.setSize(this.el.clientWidth || 1, this.el.clientHeight || 1);
+      this.composer = comp;
+      return;
+    }
     const bs = this.fxLevel >= 3 ? 1 : this.fxLevel === 2 ? 0.75 : 0.5;
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x * bs, size.y * bs), this.fxLevel >= 3 ? 0.5 : 0.42, 0.6, 1.5);
     comp.addPass(this.bloom);
@@ -762,6 +781,7 @@ export class HyperEngine {
     const name = xid.x ? `@${xid.x}` : String(info.name || 'PILOT').slice(0, 14);
     const accent = team.accent === '#ffffff' || team.accent === '#f4efe2' || team.accent === '#f2f2ee' ? team.base : team.accent;
     const rig = buildShip(spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent);
+    if (this.opts.theme === 'white') addInkAccent(rig.tilt, inkTeamColour(team.base, team.accent));
     this.scene.add(rig.root);
     const label = this.makeLabel();
     rig.root.add(label.sprite);
@@ -1038,16 +1058,16 @@ export class HyperEngine {
     this.world.update(dt, this.time, this.camera.position);
     if (Math.floor(this.time * 20) !== Math.floor((this.time - dt) * 20)) this.world.strobe(this.time);
     // Post uniforms.
+    const sp = Math.min(1, this.me.vs / (this.spec.vmax * 1.3));
+    this.showSpeed += (sp - this.showSpeed) * Math.min(1, 6 * dt);
+    this.boostFx += ((this.me.boostT > 0 ? 1 : 0) - this.boostFx) * Math.min(1, 5 * dt);
+    this.hitFlash = Math.max(0, this.hitFlash - dt * 2.4);
+    this.pulse = Math.min(1, this.pulse + dt * 1.6);
     if (this.grade) {
       const u = this.grade.uniforms;
-      const sp = Math.min(1, this.me.vs / (this.spec.vmax * 1.3));
-      this.showSpeed += (sp - this.showSpeed) * Math.min(1, 6 * dt);
       u.uSpeed.value = Math.max(0, this.showSpeed - 0.35) * 1.3;
-      this.boostFx += ((this.me.boostT > 0 ? 1 : 0) - this.boostFx) * Math.min(1, 5 * dt);
       u.uBoost.value = this.boostFx;
-      this.hitFlash = Math.max(0, this.hitFlash - dt * 2.4);
       u.uHit.value = this.hitFlash;
-      this.pulse = Math.min(1, this.pulse + dt * 1.6);
       u.uPulse.value = this.pulse;
       u.uTime.value = this.time % 100;
     }
