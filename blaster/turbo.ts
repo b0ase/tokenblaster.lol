@@ -5,6 +5,7 @@
  * Shape: one fan-out tx (via @bsv/sdk) splits the wallet's coins into `chains` coins; each chain is
  * `depth` blasts deep. Layer d = the d-th blast of every chain; a layer goes only after the one before.
  */
+import { execFileSync } from 'node:child_process';
 import { cpus } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Transaction } from '@bsv/sdk';
@@ -89,14 +90,44 @@ export async function signAll(key: PrivateKey, heads: Head[], fee: number, token
   return out;
 }
 
-/** POST raw txs to ARC's batch endpoint. Returns the indexes that were not accepted. */
+/**
+ * Broadcasters: GorillaPool ARC always; TAAL ARC too when a key is set (env TAAL_ARC_KEY, or macOS
+ * Keychain service TAAL_ARC_KEY). Every batch goes to all of them, so one stalled relay can't strand a
+ * blast (17 Oct: GorillaPool held a fan-out at ANNOUNCED_TO_NETWORK; WhatsOnChain took it at once).
+ */
+type Arc = { name: string; url: string; auth?: string };
+let arcs: Arc[] | null = null;
+export function broadcasters(): Arc[] {
+  if (arcs) return arcs;
+  arcs = [{ name: 'gorillapool', url: ARC_URL }];
+  let taal = process.env.TAAL_ARC_KEY;
+  if (!taal) { try { taal = execFileSync('security', ['find-generic-password', '-s', 'TAAL_ARC_KEY', '-w'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* none */ } }
+  if (taal) arcs.push({ name: 'taal', url: 'https://arc.taal.com', auth: `Bearer ${taal}` });
+  return arcs;
+}
+
+/** Fan-outs also go to WhatsOnChain, so every chain's parent is on the network whatever ARC does. */
+async function wocBroadcast(hex: string): Promise<boolean> {
+  try {
+    const r = await fetch(`${WOC}/tx/raw`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txhex: hex }), signal: AbortSignal.timeout(30_000) });
+    return r.ok || /already|known|exists/i.test(await r.text());
+  } catch { return false; }
+}
+
+/** POST a batch to every broadcaster; a tx is bad only if none of them took it. */
 async function postBatch(raws: Buffer[]): Promise<{ bad: number[]; why?: string }> {
+  const results = await Promise.all(broadcasters().map((a) => postBatchTo(a, raws)));
+  const bad = raws.map((_, i) => i).filter((i) => results.every((r) => r.bad.includes(i)));
+  return { bad, why: bad.length ? results.map((r, j) => `${broadcasters()[j].name}: ${r.why ?? 'ok'}`).join('; ') : undefined };
+}
+
+async function postBatchTo(arc: Arc, raws: Buffer[]): Promise<{ bad: number[]; why?: string }> {
   for (let attempt = 0; ; attempt++) {
     try {
-      const r = await fetch(`${ARC_URL}/v1/txs`, {
+      const r = await fetch(`${arc.url}/v1/txs`, {
         method: 'POST',
         // reply once ARC has received each tx, not after it has reached the network
-        headers: { 'Content-Type': 'application/json', 'X-WaitFor': process.env.BLASTER_WAITFOR || 'RECEIVED' },
+        headers: { 'Content-Type': 'application/json', 'X-WaitFor': process.env.BLASTER_WAITFOR || 'RECEIVED', ...(arc.auth ? { Authorization: arc.auth } : {}) },
         signal: AbortSignal.timeout(60_000),
         body: JSON.stringify(raws.map((b) => ({ rawTx: b.toString('hex') }))),
       });
@@ -156,9 +187,12 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   if (!broadcast) return { signed, sent: 0, signSecs, sendSecs: 0, fees: signed * fee, deadChains: 0 };
 
   // 2. send: fan-out, then layer by layer
-  const r = await fan.broadcast(new ARC(ARC_URL));
-  if (r.status !== 'success' && !/invalid competing transaction identifiers/i.test((r as { description?: string }).description ?? '')) throw new Error(`Fan-out not accepted: ${JSON.stringify(r)}`);
-  console.log(`${paint('▶')} fan-out  ${fanId}`);
+  const [r, woc] = await Promise.all([fan.broadcast(new ARC(ARC_URL)), wocBroadcast(fan.toHex())]);
+  const arcOk = r.status === 'success' || /invalid competing transaction identifiers/i.test((r as { description?: string }).description ?? '');
+  if (!arcOk && !woc) throw new Error(`Fan-out not accepted: ${JSON.stringify(r)}`);
+  // give the network a moment to have the parent before the chains arrive
+  await sleep(1500);
+  console.log(`${paint('▶')} fan-out  ${fanId}  ${dim(`sending via ${broadcasters().map((a) => a.name).join(' + ')} (fan-out also via whatsonchain)`)}`);
   const dead = new Set<number>();
   let sent = 0, why: string | undefined;
   const t1 = Date.now();
