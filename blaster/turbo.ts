@@ -12,7 +12,7 @@ import { blue, dim, red } from './banner';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const ARC_URL = process.env.BLASTER_ARC_URL || 'https://arc.gorillapool.io';
-const BATCH = 1000;
+const BATCH = Number(process.env.BLASTER_BATCH || 250);
 const CONCURRENCY = Number(process.env.BLASTER_CONCURRENCY || 16);
 const n = (x: number) => x.toLocaleString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -80,7 +80,9 @@ async function postBatch(raws: Buffer[]): Promise<{ bad: number[]; why?: string 
     try {
       const r = await fetch(`${ARC_URL}/v1/txs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // reply once ARC has received each tx, not after it has reached the network
+        headers: { 'Content-Type': 'application/json', 'X-WaitFor': process.env.BLASTER_WAITFOR || 'RECEIVED' },
+        signal: AbortSignal.timeout(60_000),
         body: JSON.stringify(raws.map((b) => ({ rawTx: b.toString('hex') }))),
       });
       if (!r.ok) throw new Error(`ARC ${r.status}: ${(await r.text()).slice(0, 200)}`);
