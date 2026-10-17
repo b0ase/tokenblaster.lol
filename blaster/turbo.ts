@@ -106,12 +106,32 @@ export function broadcasters(): Arc[] {
   return arcs;
 }
 
-/** Fan-outs also go to WhatsOnChain, so every chain's parent is on the network whatever ARC does. */
-async function wocBroadcast(hex: string): Promise<boolean> {
-  try {
-    const r = await fetch(`${WOC}/tx/raw`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txhex: hex }), signal: AbortSignal.timeout(30_000) });
-    return r.ok || /already|known|exists/i.test(await r.text());
-  } catch { return false; }
+/** Fan-outs also go to WhatsOnChain, so every chain's parent is on the network whatever ARC does.
+ *  Retries through its rate limit (the CLI polls it while waiting for a block, so a 429 is likely). */
+async function wocBroadcast(hex: string): Promise<{ ok: boolean; why: string }> {
+  let why = '';
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      const r = await fetch(`${WOC}/tx/raw`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ txhex: hex }), signal: AbortSignal.timeout(30_000) });
+      const body = await r.text();
+      if (r.ok || /already|known|exists/i.test(body)) return { ok: true, why: '' };
+      why = `${r.status} ${body.slice(0, 120)}`;
+      if (r.status !== 429 && r.status < 500) return { ok: false, why };
+    } catch (e) { why = (e as Error).message; }
+    await sleep(1000 * 2 ** Math.min(attempt, 4));
+  }
+  return { ok: false, why };
+}
+
+/** Wait until the network (WhatsOnChain's node) has `txid`, up to `ms`. */
+async function onNetwork(txid: string, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const r = await fetch(`${WOC}/tx/${txid}/hex`, { method: 'HEAD' }).catch(() => null);
+    if (r?.ok) return true;
+    await sleep(2000);
+  }
+  return false;
 }
 
 /** POST a batch to every broadcaster; a tx is bad only if none of them took it. */
@@ -189,9 +209,11 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   // 2. send: fan-out, then layer by layer
   const [r, woc] = await Promise.all([fan.broadcast(new ARC(ARC_URL)), wocBroadcast(fan.toHex())]);
   const arcOk = r.status === 'success' || /invalid competing transaction identifiers/i.test((r as { description?: string }).description ?? '');
-  if (!arcOk && !woc) throw new Error(`Fan-out not accepted: ${JSON.stringify(r)}`);
-  // give the network a moment to have the parent before the chains arrive
-  await sleep(1500);
+  if (!arcOk && !woc.ok) throw new Error(`Fan-out not accepted: ARC ${JSON.stringify(r)}; WhatsOnChain ${woc.why}`);
+  // the chains only go once the network has their parent; otherwise ARC can sit on them (17 Oct)
+  process.stdout.write(dim(`  fan-out sent (whatsonchain ${woc.ok ? 'ok' : 'failed: ' + woc.why}); waiting for the network to have it…`));
+  if (!(await onNetwork(fanId, 90_000))) throw new Error(`The network hasn't picked up the fan-out ${fanId} after 90 s, so nothing else was sent. Its coins are still yours; try again.`);
+  process.stdout.write(dim(' yes\n'));
   console.log(`${paint('▶')} fan-out  ${fanId}  ${dim(`sending via ${broadcasters().map((a) => a.name).join(' + ')} (fan-out also via whatsonchain)`)}`);
   const dead = new Set<number>();
   let sent = 0, why: string | undefined;
