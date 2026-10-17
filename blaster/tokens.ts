@@ -9,7 +9,7 @@
  */
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 import { dim, red } from './banner';
-import { fetchTx } from './turbo';
+import { fetchTx, unspent } from './turbo';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const GP = 'https://ordinals.gorillapool.io/api';
@@ -67,7 +67,7 @@ export async function blastTokens(o: { tokKey: PrivateKey; fees: PrivateKey; t: 
   if (bullets < 1) throw new Error(`Not enough $${t.sym} for one bullet of ${fmt(per, t.dec)}.`);
   const lanes = Math.max(1, Math.min(50, Math.ceil(bullets / 200)));
   const quota = (l: number) => Math.floor(bullets / lanes) + (l < bullets % lanes ? 1 : 0);
-  const satCoins = ((await fetch(`${WOC}/address/${feeAddr}/unspent`, { cache: 'no-store' }).then((r) => r.json())) as { tx_hash: string; tx_pos: number; value: number }[]).filter((c) => c.value > 1).slice(0, 100);
+  const satCoins = (await unspent(feeAddr)).filter((c) => c.value > 1).slice(0, 100);
   const sats = satCoins.reduce((s, c) => s + c.value, 0);
   const need = bullets * bulletSats(feeRate) + lanes * 60 + Math.ceil(((utxos.length + satCoins.length) * 150 + lanes * 140) * feeRate / 1000) + 50;
   if (need > sats) throw new Error(`Fees: ${n(bullets)} bullets need about ${n(need)} sats, the BSV address has ${n(sats)}. Pay ${feeAddr} more, or fire more per bullet.`);

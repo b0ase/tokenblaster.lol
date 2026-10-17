@@ -18,6 +18,18 @@ const n = (x: number) => x.toLocaleString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const BLAST_BYTES = 235;
 
+/** JSON from WhatsOnChain, retrying through its rate limit (it answers with an HTML page when busy). */
+export async function wocJson<T>(path: string): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(`${WOC}${path}`, { cache: 'no-store' }).catch(() => null);
+    const body = r ? await r.text() : '';
+    if (r?.ok) { try { return JSON.parse(body) as T; } catch { /* rate-limit page */ } }
+    if (attempt >= 6) throw new Error(`WhatsOnChain is busy (${r?.status ?? 'network'}); try again in a minute.`);
+    await sleep(500 * 2 ** attempt);
+  }
+}
+export const unspent = (address: string) => wocJson<{ tx_hash: string; tx_pos: number; value: number }[]>(`/address/${address}/unspent`);
+
 /** A tx by id from WhatsOnChain, retrying through its rate limit; cached per run. */
 const txCache = new Map<string, Promise<Transaction>>();
 export function fetchTx(txid: string): Promise<Transaction> {
@@ -112,7 +124,7 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   const quota = (c: number) => Math.floor(o.count / chains) + (c < o.count % chains ? 1 : 0);
 
   // fan-out with @bsv/sdk (sent as EF so ARC needs nothing else)
-  const coins = ((await fetch(`${WOC}/address/${address}/unspent`, { cache: 'no-store' }).then((r) => r.json())) as { tx_hash: string; tx_pos: number; value: number }[])
+  const coins = (await unspent(address))
     .filter((c) => c.value >= 100).sort((a, b) => b.value - a.value).slice(0, 200);   // skip dust left by earlier chains
   if (!coins.length) throw new Error(`No coins at ${address}. Pay it some BSV first.`);
   const fan = new Transaction();

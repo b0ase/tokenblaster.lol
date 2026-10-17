@@ -23,7 +23,7 @@ import * as readline from 'node:readline';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 import { banner, blue, dim, red } from './banner';
 import { blastTokens, bulletSats, fmt, tokensAt } from './tokens';
-import { blastFee, fetchTx, signAll, turbo } from './turbo';
+import { blastFee, fetchTx, signAll, turbo, unspent } from './turbo';
 import { cpus } from 'node:os';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
@@ -41,7 +41,7 @@ const n = (x: number) => x.toLocaleString();
 
 type Coin = { tx_hash: string; tx_pos: number; value: number };
 const coinsOf = async (address: string): Promise<Coin[]> =>
-  (await fetch(`${WOC}/address/${address}/unspent`, { cache: 'no-store' }).then((r) => r.json())).filter((c: Coin) => c.value > 1);
+  (await unspent(address)).filter((c: Coin) => c.value > 1);
 const balanceOf = async (address: string) => (await coinsOf(address)).reduce((s, c) => s + c.value, 0);
 
 /** Sats per blast at this fee rate (a blast is ~230 bytes). */
@@ -202,7 +202,7 @@ async function interactive() {
   // pick up where you left off: the newest saved wallets
   key = savedWallets()[0] ?? null;
   tokKey = savedWallets('tokens-')[0] ?? null;
-  if (key) { console.log(dim('  using your last saved wallet (/wallets to switch)')); await show(); }
+  if (key) { console.log(dim('  using your last saved wallet (/wallets to switch)')); await show().catch((e) => console.log(red(`  ${(e as Error).message}\n`))); }
   for (;;) {
     // strip bracketed-paste markers and whitespace a terminal wraps around pasted text
     const line = (await ask(red('blast> '), true)).replace(/\x1b\[20[01]~/g, '').replace(/[\s\x00-\x1f]/g, '').trim();
