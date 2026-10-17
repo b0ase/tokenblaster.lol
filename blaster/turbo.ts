@@ -17,6 +17,22 @@ const CONCURRENCY = Number(process.env.BLASTER_CONCURRENCY || 16);
 const n = (x: number) => x.toLocaleString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const BLAST_BYTES = 235;
+
+/** A tx by id from WhatsOnChain, retrying through its rate limit; cached per run. */
+const txCache = new Map<string, Promise<Transaction>>();
+export function fetchTx(txid: string): Promise<Transaction> {
+  if (!txCache.has(txid))
+    txCache.set(txid, (async () => {
+      for (let attempt = 0; ; attempt++) {
+        const r = await fetch(`${WOC}/tx/${txid}/hex`).catch(() => null);
+        const body = r ? (await r.text()).trim() : '';
+        if (r?.ok && /^[0-9a-f]+$/i.test(body)) return Transaction.fromHex(body);
+        if (attempt >= 6) throw new Error(`Could not fetch tx ${txid.slice(0, 12)}… from WhatsOnChain (${r?.status ?? 'network'}: ${body.slice(0, 60)})`);
+        await sleep(400 * 2 ** attempt);
+      }
+    })());
+  return txCache.get(txid)!;
+}
 export const blastFee = (feeRate: number) => Math.max(1, Math.ceil((BLAST_BYTES * feeRate) / 1000));
 
 const jwkOf = (k: PrivateKey) => {
@@ -95,11 +111,11 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
 
   // fan-out with @bsv/sdk (sent as EF so ARC needs nothing else)
   const coins = ((await fetch(`${WOC}/address/${address}/unspent`, { cache: 'no-store' }).then((r) => r.json())) as { tx_hash: string; tx_pos: number; value: number }[])
-    .filter((c) => c.value > 1).sort((a, b) => b.value - a.value).slice(0, 200);
+    .filter((c) => c.value >= 100).sort((a, b) => b.value - a.value).slice(0, 200);   // skip dust left by earlier chains
   if (!coins.length) throw new Error(`No coins at ${address}. Pay it some BSV first.`);
   const fan = new Transaction();
   for (const c of coins) {
-    const src = Transaction.fromHex(await fetch(`${WOC}/tx/${c.tx_hash}/hex`).then((r) => r.text()));
+    const src = await fetchTx(c.tx_hash);
     fan.addInput({ sourceTransaction: src, sourceOutputIndex: c.tx_pos, unlockingScriptTemplate: new P2PKH().unlock(key) });
   }
   const per = (c: number) => quota(c) * fee + 2;

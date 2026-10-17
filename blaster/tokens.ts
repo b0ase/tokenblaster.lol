@@ -9,6 +9,7 @@
  */
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 import { dim, red } from './banner';
+import { fetchTx } from './turbo';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const GP = 'https://ordinals.gorillapool.io/api';
@@ -21,7 +22,7 @@ export const bulletSats = (feeRate: number) => Math.ceil((850 * feeRate) / 1000)
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
 const n = (x: number | bigint) => x.toLocaleString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const txOf = async (txid: string) => Transaction.fromHex(await fetch(`${WOC}/tx/${txid}/hex`).then((r) => r.text()));
+const txOf = (txid: string) => fetchTx(txid);
 
 export const bsv21 = (id: string, amt: bigint, address: string) =>
   Script.fromASM(

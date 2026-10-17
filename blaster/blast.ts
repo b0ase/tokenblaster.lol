@@ -23,7 +23,7 @@ import * as readline from 'node:readline';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 import { banner, blue, dim, red } from './banner';
 import { blastTokens, bulletSats, fmt, tokensAt } from './tokens';
-import { blastFee, signAll, turbo } from './turbo';
+import { blastFee, fetchTx, signAll, turbo } from './turbo';
 import { cpus } from 'node:os';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
@@ -86,7 +86,7 @@ async function blast(o: { key: PrivateKey; count: number; chains: number; feeRat
   // fan-out: all coins in, one coin per chain out (sized to its quota), the rest back as change
   const fan = new Transaction();
   for (const c of coins) {
-    const src = Transaction.fromHex(await fetch(`${WOC}/tx/${c.tx_hash}/hex`).then((r) => r.text()));
+    const src = await fetchTx(c.tx_hash);
     fan.addInput({ sourceTransaction: src, sourceOutputIndex: c.tx_pos, unlockingScriptTemplate: new P2PKH().unlock(key) });
   }
   for (let c = 0; c < chains; c++) fan.addOutput({ lockingScript: new P2PKH().lock(address), satoshis: quota(c) * perTx(feeRate) + 50 });
