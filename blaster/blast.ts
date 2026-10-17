@@ -16,7 +16,7 @@
  * Every broadcast transaction pays a network fee. Use a small throwaway wallet.
  */
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
@@ -151,7 +151,19 @@ const HELP = `  ${red('BLAST BSV')}
   ${blue('/bench')}        measure this machine: free signing test, then an optional live test
                 that blasts a little BSV back to your own wallet
 
+  ${red('/wallets')} list saved wallets   ${red('/use')} <n> switch to one
   ${red('/balance')}  ${red('/help')}  ${red('/quit')}`;
+
+/** Saved wallets in ~/.tokenblaster, newest first. */
+const savedWallets = (prefix: '' | 'tokens-' = '') => {
+  try {
+    return readdirSync(KEY_DIR)
+      .filter((f) => f.endsWith('.wif') && (prefix ? f.startsWith(prefix) : !f.startsWith('tokens-')))
+      .map((f) => ({ file: join(KEY_DIR, f), t: statSync(join(KEY_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t)
+      .map((w) => PrivateKey.fromWif(readFileSync(w.file, 'utf8').trim()));
+  } catch { return []; }
+};
 
 const saveKey = (k: PrivateKey, prefix = '') => {
   mkdirSync(KEY_DIR, { recursive: true, mode: 0o700 });
@@ -187,8 +199,13 @@ async function interactive() {
   };
 
   console.log(HELP + '\n');
+  // pick up where you left off: the newest saved wallets
+  key = savedWallets()[0] ?? null;
+  tokKey = savedWallets('tokens-')[0] ?? null;
+  if (key) { console.log(dim('  using your last saved wallet (/wallets to switch)')); await show(); }
   for (;;) {
-    const line = (await ask(red('blast> '), true)).trim();
+    // strip bracketed-paste markers and whitespace a terminal wraps around pasted text
+    const line = (await ask(red('blast> '), true)).replace(/\x1b\[20[01]~/g, '').replace(/[\s\x00-\x1f]/g, '').trim();
     try {
       if (!line) continue;
       if (line === '/quit' || line === '/exit') break;
@@ -237,6 +254,16 @@ async function interactive() {
         console.log(`\n  ${blue('▶')} sending  ${blue(n(Math.round(sendRate)))} tx/s to ${dim(process.env.BLASTER_ARC_URL || 'arc.gorillapool.io')} ${dim(`(${n(r.sent)} accepted in ${r.sendSecs.toFixed(1)}s)`)}${r.deadChains ? red(` · ${r.deadChains} chains rejected: ${r.why ?? ''}`) : ''}`);
         const per10 = Math.min(rate, sendRate) * 600;
         console.log(`  ${blue('▶')} a 10-minute block from this machine: about ${blue(n(Math.round(per10)))} blasts (~${(per10 * fee / 1e8).toFixed(3)} BSV)\n`);
+      } else if (line === '/wallets') {
+        const ws = savedWallets();
+        if (!ws.length) console.log(dim('  none saved yet: /new\n'));
+        for (const [i, w] of ws.entries()) console.log(`  ${red(String(i + 1))}  ${w.toAddress()}  ${dim(`${n(await balanceOf(w.toAddress()))} sats`)}${key && w.toAddress() === key.toAddress() ? red('  ◀ in use') : ''}`);
+        console.log('');
+      } else if (line.startsWith('/use')) {
+        const ws = savedWallets(), i = Number(line.slice(4)) - 1;
+        if (!ws[i]) { console.log(dim('  /wallets to see the numbers, then /use 1\n')); continue; }
+        key = ws[i];
+        await show();
       } else if (line === '/balance') await show();
       else if (line === '/fire') {
         if (!key) { console.log(dim('  no key yet: paste one, or /new\n')); continue; }
