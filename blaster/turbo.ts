@@ -128,7 +128,10 @@ async function onNetwork(txid: string, ms: number): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     const r = await fetch(`${WOC}/tx/${txid}/hex`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
-    if (r?.ok) return true;
+    // WhatsOnChain has it AND GorillaPool ARC has seen it on the network: ARC holds children of a
+    // parent it hasn't seen relayed, and never sends them on (they sit at "RECEIVED" forever)
+    const a = r?.ok ? await fetch(`${ARC_URL}/v1/tx/${txid}`, { signal: AbortSignal.timeout(10_000) }).then((x) => x.json()).catch(() => null) : null;
+    if (a && ['SEEN_ON_NETWORK', 'MINED'].includes(a.txStatus)) return true;
     await sleep(2000);
   }
   return false;
@@ -167,7 +170,7 @@ async function postBatchTo(arc: Arc, raws: Buffer[]): Promise<{ bad: number[]; w
   }
 }
 
-export type TurboResult = { signed: number; sent: number; signSecs: number; sendSecs: number; fees: number; deadChains: number; why?: string };
+export type TurboResult = { signed: number; sent: number; signSecs: number; sendSecs: number; fees: number; deadChains: number; relayed: boolean; why?: string };
 
 export async function turbo(o: { key: PrivateKey; count: number; chains: number; feeRate: number; token: string; broadcast: boolean; color?: (s: string) => string; status?: () => string; panel?: () => string[]; rate?: number }): Promise<TurboResult> {
   const { key, feeRate, token, broadcast } = o;
@@ -253,7 +256,14 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   draw();
   const sendSecs = (Date.now() - t1) / 1000;
   console.log('');
-  return { signed, sent, signSecs, sendSecs, fees: sent * fee, deadChains: dead.size, why };
+  // accepted isn't relayed: check the network really has the first blasts (fan-out outputs spent)
+  let relayed = false;
+  for (let t = 0; t < 15 && !relayed; t++) {
+    if (t) await sleep(2000);
+    const ok = await Promise.all([0, Math.floor(chains / 2), chains - 1].map((v) => fetch(`${WOC}/tx/${fanId}/${v}/spent`, { signal: AbortSignal.timeout(10_000) }).then((x) => x.ok).catch(() => false)));
+    relayed = ok.some(Boolean);
+  }
+  return { signed, sent, signSecs, sendSecs, fees: sent * fee, deadChains: dead.size, why, relayed };
 }
 
 export { blue };

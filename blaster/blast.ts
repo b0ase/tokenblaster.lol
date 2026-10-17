@@ -340,6 +340,7 @@ async function interactive() {
           console.log(`  ${red('▶')} bsv.lol live counter caught ${red(n(caught))} of ${n(r.sent)} (${((caught / Math.max(1, r.sent)) * 100).toFixed(0)}%) at ${rate ? n(rate) + '/s' : 'full speed'}`);
         } else if (after) console.log(dim(`  a block landed during the blast (${n(lolH)} → ${n(after.height)}), so bsv.lol's live count reset: compare by hand`));
         console.log(`\n${red('▶')} blasted ${n(r.sent)} / ${n(r.signed)} in ${r.sendSecs.toFixed(1)}s (${n(Math.round(r.sent / Math.max(0.1, r.sendSecs)))} tx/s), ${n(r.fees)} sats in fees${r.deadChains ? red(`; ${r.deadChains} chains stopped: ${r.why ?? ''}`) : ''}\n`);
+        if (!r.relayed) console.log(red(`  ✗ GorillaPool accepted them but the network doesn't have them yet (WhatsOnChain sees none). They may never relay; the coins stay yours either way.\n`));
         await show();
         await new Promise((ok) => setTimeout(ok, 5000));
         await showLol();
