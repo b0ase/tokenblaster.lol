@@ -43,7 +43,7 @@ const jwkOf = (k: PrivateKey) => {
 
 type Head = { c: number; txid: string; vout: number; value: number; depth: number };
 
-/** Sign every chain on all cores. Returns raws[chain][i]. */
+/** Sign every chain on all cores. Returns each chain's txs in Extended Format: efs[chain][i]. */
 export async function signAll(key: PrivateKey, heads: Head[], fee: number, token: string, onProgress?: (k: number) => void): Promise<Buffer[][]> {
   const W = Math.max(1, Math.min(cpus().length, heads.length));
   const jwk = jwkOf(key);

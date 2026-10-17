@@ -5,6 +5,7 @@
 import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { parentPort, workerData } from 'node:worker_threads';
 
+const EF_MARKER = Buffer.from('0000000000ef', 'hex');
 const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 const sha = (b) => createHash('sha256').update(b).digest();
 const sha2 = (b) => sha(sha(b));
@@ -44,8 +45,12 @@ export function makeSigner({ d, x, y }) {
       u32(1), sha2(outpoint), sha2(seq), outpoint, varint(lock.length), lock, u64(value), seq, sha2(outs), u32(0), u32(0x41),
     ]);
     const unlock = Buffer.concat([push(sig(sha(pre))), push(pub)]);
-    const raw = Buffer.concat([u32(1), varint(1), outpoint, varint(unlock.length), unlock, seq, varint(2), outs, u32(0)]);
-    return { raw, txidLE: sha2(raw), change };
+    const input = Buffer.concat([outpoint, varint(unlock.length), unlock, seq]);
+    const raw = Buffer.concat([u32(1), varint(1), input, varint(2), outs, u32(0)]);
+    // Extended Format (BRC-30): each input carries its parent output's value and script, so ARC can
+    // validate a whole chain in one batch without looking parents up (raw chained batches time out)
+    const ef = Buffer.concat([u32(1), EF_MARKER, varint(1), input, u64(value), varint(lock.length), lock, varint(2), outs, u32(0)]);
+    return { raw, ef, txidLE: sha2(raw), change };
   };
   return { blast, lock };
 }
@@ -66,7 +71,7 @@ if (parentPort && workerData) {
     for (let i = 1; i <= D; i++) {
       if (value - fee < 1) break;
       const t = s.blast(txidLE, vout, value, opReturnFor(token, `${h.c}:${i}`), fee);
-      parts.push(t.raw); lens.push(t.raw.length);
+      parts.push(t.ef); lens.push(t.ef.length);
       txidLE = t.txidLE; vout = 1; value = t.change;
     }
     lens.push(-1);   // end of chain
