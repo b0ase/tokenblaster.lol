@@ -118,7 +118,7 @@ async function postBatch(raws: Buffer[]): Promise<{ bad: number[]; why?: string 
 
 export type TurboResult = { signed: number; sent: number; signSecs: number; sendSecs: number; fees: number; deadChains: number; why?: string };
 
-export async function turbo(o: { key: PrivateKey; count: number; chains: number; feeRate: number; token: string; broadcast: boolean; color?: (s: string) => string; status?: () => string; panel?: () => string[] }): Promise<TurboResult> {
+export async function turbo(o: { key: PrivateKey; count: number; chains: number; feeRate: number; token: string; broadcast: boolean; color?: (s: string) => string; status?: () => string; panel?: () => string[]; rate?: number }): Promise<TurboResult> {
   const { key, feeRate, token, broadcast } = o;
   const paint = o.color ?? red;
   const address = key.toAddress();
@@ -183,7 +183,9 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
       while (next < batches.length) {
-        const b = batches[next++];
+        const k = next++, b = batches[k];
+        // --rate: batch k may start once k * BATCH txs are due at `rate` per second
+        if (o.rate) { const due = t1 + ((k * BATCH) / o.rate) * 1000 - Date.now(); if (due > 0) await sleep(due); }
         const res = await postBatch(b.map((x) => x.raw));
         why ??= res.why;
         for (const i of res.bad) dead.add(b[i].c);

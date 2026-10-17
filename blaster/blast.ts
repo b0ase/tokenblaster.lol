@@ -318,10 +318,20 @@ async function interactive() {
           const h = await waitForBlock((st, secs) => process.stdout.write(`\r  ${red('◷')} waited ${Math.floor(secs / 60)}m${String(Math.floor(secs % 60)).padStart(2, '0')}s for block ${st ? n(st.height + 1) : '…'}  ${dim(st ? `· ${rankLine(st)} since the last one` : '· bsv.lol not answering')}      `));
           console.log(`\n\n  ${red('▶ BLOCK ' + n(h) + ' FOUND: FIRE')}  ${dim('signing, then sending. If you stop mid-send, unsent coins stay in your wallet.')}\n`);
         }
+        const rateIn = (await ask(`  speed: ${red('enter')} = flat out (~2,000/s), or tx per second (e.g. ${red('800')} so bsv.lol's live counter keeps up): `)).trim();
+        const rate = /^\d+$/.test(rateIn) && Number(rateIn) > 0 ? Number(rateIn) : undefined;
         let lol: LolStatus | null = await lolStatus();
+        const lolStart = lol ? (lol.counts.find(([k]) => k === 'TokenBlaster')?.[1] ?? 0) : 0, lolH = lol?.height ?? 0;
         const poll = setInterval(async () => { const st = await lolStatus(); if (st) lol = st; }, 3000);
-        const r = await turbo({ key, count, chains: Math.ceil(count / 250), feeRate, token, broadcast: true, panel: () => (lol ? chart(lol) : []) });
+        const r = await turbo({ key, count, chains: Math.ceil(count / 250), feeRate, token, broadcast: true, rate, panel: () => (lol ? chart(lol) : []) });
         clearInterval(poll);
+        // how much of it bsv.lol's live counter caught (only meaningful if no block landed meanwhile)
+        await new Promise((ok) => setTimeout(ok, 8000));
+        const after = await lolStatus();
+        if (after && after.height === lolH) {
+          const caught = (after.counts.find(([k]) => k === 'TokenBlaster')?.[1] ?? 0) - lolStart;
+          console.log(`  ${red('▶')} bsv.lol live counter caught ${red(n(caught))} of ${n(r.sent)} (${((caught / Math.max(1, r.sent)) * 100).toFixed(0)}%) at ${rate ? n(rate) + '/s' : 'full speed'}`);
+        } else if (after) console.log(dim(`  a block landed during the blast (${n(lolH)} → ${n(after.height)}), so bsv.lol's live count reset: compare by hand`));
         console.log(`\n${red('▶')} blasted ${n(r.sent)} / ${n(r.signed)} in ${r.sendSecs.toFixed(1)}s (${n(Math.round(r.sent / Math.max(0.1, r.sendSecs)))} tx/s), ${n(r.fees)} sats in fees${r.deadChains ? red(`; ${r.deadChains} chains stopped: ${r.why ?? ''}`) : ''}\n`);
         await show();
         await new Promise((ok) => setTimeout(ok, 5000));
