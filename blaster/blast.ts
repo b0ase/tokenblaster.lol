@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import * as readline from 'node:readline';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 import { banner, dim, red } from './banner';
+import { blastTokens, bulletSats, fmt, tokensAt } from './tokens';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const ARC_URL = process.env.BLASTER_ARC_URL || 'https://arc.gorillapool.io';
@@ -135,11 +136,24 @@ async function blast(o: { key: PrivateKey; count: number; chains: number; feeRat
 }
 
 // ── interactive ────────────────────────────────────────────────────────────────────────────
-const HELP = `  ${red('/new')}      make a fresh key pair and show its address to pay
-  ${red('/fire')}     blast the whole balance of the current address
-  ${red('/balance')}  show the current address and balance
-  ${red('/quit')}     leave
-  ${dim('or paste a private key (WIF) to spend from: input is hidden')}`;
+const HELP = `  ${red('BLAST BSV')}
+  ${red('/new')}          make a fresh wallet and show the address to pay
+  ${red('/fire')}         blast everything in that wallet
+  ${dim('or paste a private key you already have (it stays hidden)')}
+
+  ${red('BLAST TOKENS')}
+  ${red('/loadtoken')}    make a token wallet and show the address to send tokens to
+  ${red('/blasttokens')}  blast those tokens until the wallet is empty (fees come from the BSV wallet)
+
+  ${red('/balance')}  ${red('/help')}  ${red('/quit')}`;
+
+const saveKey = (k: PrivateKey, prefix = '') => {
+  mkdirSync(KEY_DIR, { recursive: true, mode: 0o700 });
+  const file = join(KEY_DIR, `${prefix}${k.toAddress()}.wif`);
+  writeFileSync(file, k.toWif() + '\n', { mode: 0o600 });
+  chmodSync(file, 0o600);
+  return file;
+};
 
 async function interactive() {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
@@ -152,12 +166,18 @@ async function interactive() {
   const feeRate = Number(process.env.BLASTER_FEE_RATE || 100);
   const token = arg('token', 'test')!;
   let key: PrivateKey | null = null;
+  let tokKey: PrivateKey | null = null;
 
   const show = async () => {
     if (!key) return console.log(dim('  no key yet: paste one, or /new\n'));
     const a = key.toAddress(), bal = await balanceOf(a);
     const { count } = planFor(bal, 1, feeRate);
-    console.log(`\n  ${red('PAY TO')}  ${a}\n  ${dim('balance')} ${n(bal)} sats  ${dim(`→ about ${n(count)} blasts at ${feeRate} sat/kB`)}\n`);
+    console.log(`\n  ${red('PAY BSV TO')}  ${a}\n  ${dim('balance')} ${n(bal)} sats  ${dim(`→ about ${n(count)} blasts`)}\n`);
+    if (tokKey) {
+      const held = await tokensAt(tokKey.toAddress());
+      console.log(`  ${red('SEND TOKENS TO')}  ${tokKey.toAddress()}`);
+      console.log(held.length ? held.map((t) => `  ${dim('holding')} ${fmt(t.amt, t.dec)} $${t.sym}`).join('\n') + '\n' : dim('  no tokens there yet (the index can take a minute)\n'));
+    }
   };
 
   console.log(HELP + '\n');
@@ -169,11 +189,26 @@ async function interactive() {
       if (line === '/help') console.log(HELP + '\n');
       else if (line === '/new') {
         key = PrivateKey.fromRandom();
-        mkdirSync(KEY_DIR, { recursive: true, mode: 0o700 });
-        const file = join(KEY_DIR, `${key.toAddress()}.wif`);
-        writeFileSync(file, key.toWif() + '\n', { mode: 0o600 });
-        chmodSync(file, 0o600);
-        console.log(dim(`  new key saved to ${file} (keep it: it's the only copy)`));
+        console.log(dim(`  new wallet saved to ${saveKey(key)} (keep it: it's the only copy)`));
+        await show();
+      } else if (line === '/loadtoken') {
+        tokKey = PrivateKey.fromRandom();
+        console.log(dim(`  new token wallet saved to ${saveKey(tokKey, 'tokens-')} (keep it: it's the only copy)`));
+        console.log(`\n  ${red('SEND TOKENS TO')}  ${tokKey.toAddress()}\n  ${dim('any BSV-21 token, from any 1Sat wallet. Then /blasttokens.')}`);
+        if (!key) console.log(dim('  token blasts pay network fees in BSV: also /new (or paste a key) and pay that address.'));
+        console.log('');
+      } else if (line === '/blasttokens') {
+        if (!tokKey) { console.log(dim('  /loadtoken first\n')); continue; }
+        if (!key) { console.log(dim('  fees need a BSV wallet: /new or paste a key, and pay it\n')); continue; }
+        const held = await tokensAt(tokKey.toAddress());
+        if (!held.length) { console.log(dim(`  no tokens at ${tokKey.toAddress()} yet (the index can take a minute)\n`)); continue; }
+        const t = held[0];
+        const perIn = (await ask(`  $${t.sym}: ${fmt(t.amt, t.dec)} loaded. units per bullet [${dim('1')}]: `)).trim();
+        const per = BigInt(perIn && /^\d+$/.test(perIn) ? perIn : '1') * BigInt(10) ** BigInt(t.dec);
+        const bullets = Number(t.amt / per);
+        const yes = (await ask(`  blast ${red(n(bullets))} bullets of $${t.sym} at the burn address (~${n(bullets * bulletSats(feeRate))} sats in fees)? type ${red('yes')}: `)).trim();
+        if (yes !== 'yes') { console.log(dim('  held fire\n')); continue; }
+        await blastTokens({ tokKey, fees: key, t, per, feeRate });
         await show();
       } else if (line === '/balance') await show();
       else if (line === '/fire') {
