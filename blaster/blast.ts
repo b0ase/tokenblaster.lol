@@ -317,7 +317,12 @@ async function interactive() {
         if (wait !== 'n') {
           console.log(`\n  ${red('WAITING FOR THE NEXT BLOCK')}  ${dim('blocks come about every 10 minutes')}`);
           console.log(dim('  nothing is built or sent until it arrives: Ctrl-C now costs nothing\n'));
-          const h = await waitForBlock((st, secs) => process.stdout.write(`\r  ${red('◷')} waited ${Math.floor(secs / 60)}m${String(Math.floor(secs % 60)).padStart(2, '0')}s for block ${st ? n(st.height + 1) : '…'}  ${dim(st ? `· ${rankLine(st)} since the last one` : '· bsv.lol not answering')}      `));
+          const h = await waitForBlock((st, secs) => {
+            // one line, cut to the terminal width so \r can redraw it (a wrapped line can't be)
+            const plain = `  ◷ waited ${Math.floor(secs / 60)}m${String(Math.floor(secs % 60)).padStart(2, '0')}s for block ${st ? n(st.height + 1) : '…'}  · ${st ? rankLine(st) : 'bsv.lol not answering'}`;
+            const w = Math.max(20, (process.stdout.columns || 80) - 1);
+            process.stdout.write(`\r\x1b[2K${dim(plain.length > w ? plain.slice(0, w - 1) + '…' : plain)}`);
+          });
           console.log(`\n\n  ${red('▶ BLOCK ' + n(h) + ' FOUND: FIRE')}  ${dim('signing, then sending. If you stop mid-send, unsent coins stay in your wallet.')}\n`);
         }
         const rateIn = (await ask(`  speed: ${red('enter')} = flat out (~2,000/s), or tx per second (e.g. ${red('800')} so bsv.lol's live counter keeps up): `)).trim();

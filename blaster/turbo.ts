@@ -201,7 +201,7 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
     const secs = Math.max(0.1, (Date.now() - t1) / 1000), w = 30, d = Math.round((sent / signed) * w);
     const bar = `${paint('█'.repeat(d))}${dim('░'.repeat(w - d))} ${n(sent)} / ${n(signed)}  ${n(Math.round(sent / secs))} tx/s ${dead.size ? red(` ${dead.size} chains stopped`) : ''} ${dim(o.status?.() ?? '')}`;
     const panel = o.panel?.() ?? [];
-    if (!panel.length) return void process.stdout.write(`\r${bar}  `);
+    if (!panel.length) return void process.stdout.write(`\r\x1b[2K${bar}`);
     const lines = [bar, '', ...panel];
     process.stdout.write((drawn ? `\x1b[${drawn - 1}F` : '') + '\r\x1b[J' + lines.join('\n'));
     drawn = lines.length;
