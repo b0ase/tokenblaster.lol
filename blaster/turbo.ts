@@ -127,7 +127,7 @@ async function wocBroadcast(hex: string): Promise<{ ok: boolean; why: string }> 
 async function onNetwork(txid: string, ms: number): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    const r = await fetch(`${WOC}/tx/${txid}/hex`, { method: 'HEAD' }).catch(() => null);
+    const r = await fetch(`${WOC}/tx/${txid}/hex`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
     if (r?.ok) return true;
     await sleep(2000);
   }
