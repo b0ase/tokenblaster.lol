@@ -13,6 +13,7 @@ import { blue, dim, red } from './banner';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const ARC_URL = process.env.BLASTER_ARC_URL || 'https://arc.gorillapool.io';
 const BATCH = 1000;
+const CONCURRENCY = Number(process.env.BLASTER_CONCURRENCY || 16);
 const n = (x: number) => x.toLocaleString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const BLAST_BYTES = 235;
@@ -128,27 +129,29 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   const dead = new Set<number>();
   let sent = 0, why: string | undefined;
   const t1 = Date.now();
-  const depth = Math.max(...raws.map((r) => r.length));
   const draw = () => {
     const secs = Math.max(0.1, (Date.now() - t1) / 1000), w = 30, d = Math.round((sent / signed) * w);
     process.stdout.write(`\r${paint('█'.repeat(d))}${dim('░'.repeat(w - d))} ${n(sent)} / ${n(signed)}  ${n(Math.round(sent / secs))} tx/s ${dead.size ? red(` ${dead.size} chains stopped`) : ''}  `);
   };
   const tick = setInterval(draw, 250);
-  for (let d = 0; d < depth; d++) {
-    const layer: { c: number; raw: Buffer }[] = [];
-    for (let c = 0; c < raws.length; c++) if (!dead.has(c) && raws[c][d]) layer.push({ c, raw: raws[c][d] });
-    if (!layer.length) break;
-    const batches: (typeof layer)[] = [];
-    for (let i = 0; i < layer.length; i += BATCH) batches.push(layer.slice(i, i + BATCH));
-    await Promise.all(
-      batches.map(async (b) => {
+  // batches of whole chain segments (parent before child inside a batch: ARC processes a batch in
+  // order), so batches don't wait on each other and many go at once
+  const items: { c: number; raw: Buffer }[] = [];
+  for (let c = 0; c < raws.length; c++) for (const raw of raws[c]) items.push({ c, raw });
+  const batches: (typeof items)[] = [];
+  for (let i = 0; i < items.length; i += BATCH) batches.push(items.slice(i, i + BATCH));
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, batches.length) }, async () => {
+      while (next < batches.length) {
+        const b = batches[next++];
         const res = await postBatch(b.map((x) => x.raw));
         why ??= res.why;
         for (const i of res.bad) dead.add(b[i].c);
         sent += b.length - res.bad.length;
-      }),
-    );
-  }
+      }
+    }),
+  );
   clearInterval(tick);
   draw();
   const sendSecs = (Date.now() - t1) / 1000;

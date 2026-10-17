@@ -228,11 +228,11 @@ async function interactive() {
         console.log(`  ${blue('▶')} so       ${n(Math.round(rate * 60))} signed per minute; 500,000 in ${(500_000 / rate).toFixed(0)}s\n`);
         if (!key) { console.log(dim('  for the live test: /new, pay it, then /bench again\n')); continue; }
         const bal = await balanceOf(key.toAddress());
-        const live = Math.min(2000, Math.floor((bal - 2000) / fee));
+        const live = Math.min(10_000, Math.floor((bal - 2000) / fee));
         if (live < 100) { console.log(dim(`  live test needs ~${n(2000 * fee + 2000)} sats at ${key.toAddress()}\n`)); continue; }
         const yes = (await ask(`  ${blue('live test')}: blast ${n(live)} tx back to your own wallet (~${n(live * fee)} sats in fees)? type ${blue('yes')}: `)).trim();
         if (yes !== 'yes') { console.log(dim('  skipped\n')); continue; }
-        const r = await turbo({ key, count: live, chains: Math.ceil(live / 25), feeRate, token: 'bench', broadcast: true, color: blue });
+        const r = await turbo({ key, count: live, chains: Math.ceil(live / 100), feeRate, token: 'bench', broadcast: true, color: blue });
         const sendRate = r.sent / Math.max(0.1, r.sendSecs);
         console.log(`\n  ${blue('▶')} sending  ${blue(n(Math.round(sendRate)))} tx/s to ${dim(process.env.BLASTER_ARC_URL || 'arc.gorillapool.io')} ${dim(`(${n(r.sent)} accepted in ${r.sendSecs.toFixed(1)}s)`)}${r.deadChains ? red(` · ${r.deadChains} chains rejected: ${r.why ?? ''}`) : ''}`);
         const per10 = Math.min(rate, sendRate) * 600;
