@@ -7,7 +7,7 @@ import { Transaction, Utils } from '@bsv/sdk';
 export type TxKind = 'blast' | 'token' | 'inscription' | 'social' | 'data' | 'payment';
 
 export const KINDS: { id: TxKind; label: string; color: string }[] = [
-  { id: 'blast', label: 'TokenBlaster blast', color: '#ffffff' },
+  { id: 'blast', label: 'TokenBlaster blast', color: '#ff1a2e' },
   { id: 'token', label: 'BSV-20/21 token', color: '#d4a843' },
   { id: 'inscription', label: 'Ordinal inscription', color: '#ff5a48' },
   { id: 'social', label: 'Social (B / MAP)', color: '#ff9a85' },
@@ -19,7 +19,7 @@ export const KINDS: { id: TxKind; label: string; color: string }[] = [
 export type AppId = 'tokenblaster' | 'txblaster' | 'bsv21' | 'bsv20' | 'ordinal' | 'twetch' | 'treechat' | 'map' | 'b' | 'aip' | 'opreturn' | 'payment';
 
 export const APPS: { id: AppId; label: string; color: string }[] = [
-  { id: 'tokenblaster', label: 'TokenBlaster', color: '#ffffff' },
+  { id: 'tokenblaster', label: 'TokenBlaster', color: '#ff1a2e' },
   { id: 'txblaster', label: 'TXBLASTER 🔥', color: '#ff7a00' },
   { id: 'bsv21', label: 'BSV-21', color: '#d4a843' },
   { id: 'bsv20', label: 'BSV-20', color: '#b08a30' },
