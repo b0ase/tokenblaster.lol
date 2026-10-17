@@ -112,7 +112,7 @@ async function blast(o: { key: PrivateKey; count: number; chains: number; feeRat
       for (let i = 1; i <= quota(c); i++) {
         const tx = new Transaction();
         tx.addInput({ sourceTransaction: prev, sourceOutputIndex: vout, unlockingScriptTemplate: new P2PKH().unlock(key) });
-        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${hex('tokenblaster.lol')} ${hex(token)} ${hex(`${c}:${i}`)}`), satoshis: 0 });
+        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${hex('tokenblaster.lol')} ${hex(token)} ${hex(`${c}:${i}`)} ${hex('cli')}`), satoshis: 0 });
         tx.addOutput({ lockingScript: new P2PKH().lock(address), change: true });
         await tx.fee(new SatoshisPerKilobyte(feeRate));
         await tx.sign();

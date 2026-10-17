@@ -115,7 +115,7 @@ export async function blastTokens(o: { tokKey: PrivateKey; fees: PrivateKey; t: 
         tx.addInput({ sourceTransaction: fee.tx, sourceOutputIndex: fee.vout, unlockingScriptTemplate: new P2PKH().unlock(fees) });
         tx.addOutput({ lockingScript: bsv21(t.id, per, BURN_ADDRESS), satoshis: 1 });
         if (rest > BigInt(0)) tx.addOutput({ lockingScript: bsv21(t.id, rest, tokAddr), satoshis: 1 });
-        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, t.id, `${l}:${i}`].map(hex).join(' ')}`), satoshis: 0 });
+        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, t.id, `${l}:${i}`, 'cli'].map(hex).join(' ')}`), satoshis: 0 });
         tx.addOutput({ lockingScript: new P2PKH().lock(feeAddr), change: true });
         await tx.fee(new SatoshisPerKilobyte(feeRate));
         await tx.sign();
