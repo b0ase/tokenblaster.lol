@@ -307,9 +307,11 @@ async function interactive() {
         if (!key) { console.log(dim('  no key yet: paste one, or /new\n')); continue; }
         const a = key.toAddress(), coins = await coinsOf(a);
         const bal = coins.reduce((s, c) => s + c.value, 0);
-        const { count, chains } = planFor(bal, Math.min(200, coins.length), feeRate);
+        let { count } = planFor(bal, Math.min(200, coins.length), feeRate);
         if (count < 1) { console.log(dim(`  ${n(bal)} sats isn't enough for a blast: pay ${a} first\n`)); continue; }
-        const yes = (await ask(`  fire ${red(n(count))} blasts from ${a}, spending ~${n(bal)} sats? type ${red('yes')}: `)).trim();
+        const howMany = (await ask(`  how many? ${red('enter')} = all ${n(count)}, or a number (e.g. ${red('20000')} for a test): `)).trim();
+        if (/^\d+$/.test(howMany) && Number(howMany) > 0) count = Math.min(count, Number(howMany));
+        const yes = (await ask(`  fire ${red(n(count))} blasts from ${a} (~${n(count * blastFee(feeRate))} sats)? type ${red('yes')}: `)).trim();
         if (yes !== 'yes') { console.log(dim('  held fire\n')); continue; }
         const wait = (await ask(`  wait for the next block so the whole blast lands in one? ${red('[Y/n]')} `)).trim().toLowerCase();
         if (wait !== 'n') {
