@@ -313,9 +313,10 @@ async function interactive() {
         if (yes !== 'yes') { console.log(dim('  held fire\n')); continue; }
         const wait = (await ask(`  wait for the next block so the whole blast lands in one? ${red('[Y/n]')} `)).trim().toLowerCase();
         if (wait !== 'n') {
-          console.log(dim('  watching bsv.lol for the next block (Ctrl-C to quit)…'));
-          const h = await waitForBlock((st, secs) => process.stdout.write(`\r  ${red('◷')} ${Math.floor(secs / 60)}m${String(Math.floor(secs % 60)).padStart(2, '0')}s  ${st ? `height ${n(st.height)} · ${rankLine(st)}` : 'bsv.lol not answering'}      `));
-          console.log(`\n  ${red('▶')} block ${n(h)} found: FIRE\n`);
+          console.log(`\n  ${red('WAITING FOR THE NEXT BLOCK')}  ${dim('blocks come about every 10 minutes')}`);
+          console.log(dim('  nothing is built or sent until it arrives: Ctrl-C now costs nothing\n'));
+          const h = await waitForBlock((st, secs) => process.stdout.write(`\r  ${red('◷')} waited ${Math.floor(secs / 60)}m${String(Math.floor(secs % 60)).padStart(2, '0')}s for block ${st ? n(st.height + 1) : '…'}  ${dim(st ? `· ${rankLine(st)} since the last one` : '· bsv.lol not answering')}      `));
+          console.log(`\n\n  ${red('▶ BLOCK ' + n(h) + ' FOUND: FIRE')}  ${dim('signing, then sending. If you stop mid-send, unsent coins stay in your wallet.')}\n`);
         }
         let lol: LolStatus | null = await lolStatus();
         const poll = setInterval(async () => { const st = await lolStatus(); if (st) lol = st; }, 3000);
