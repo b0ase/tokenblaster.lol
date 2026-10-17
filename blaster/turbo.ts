@@ -207,7 +207,7 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   const signSecs = (Date.now() - t0) / 1000;
   const signed = raws.reduce((s, r) => s + r.length, 0);
   console.log(`\r${paint('▶')} signed   ${n(signed)} in ${signSecs.toFixed(1)}s ${dim(`(${n(Math.round(signed / signSecs))} tx/s)`)}      `);
-  if (!broadcast) return { signed, sent: 0, signSecs, sendSecs: 0, fees: signed * fee, deadChains: 0 };
+  if (!broadcast) return { signed, sent: 0, signSecs, sendSecs: 0, fees: signed * fee, deadChains: 0, relayed: false };
 
   // 2. send: fan-out, then layer by layer
   const [r, woc] = await Promise.all([fan.broadcast(new ARC(ARC_URL)), wocBroadcast(fan.toHex())]);
