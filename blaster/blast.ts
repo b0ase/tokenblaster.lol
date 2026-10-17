@@ -21,8 +21,10 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
-import { banner, dim, red } from './banner';
+import { banner, blue, dim, red } from './banner';
 import { blastTokens, bulletSats, fmt, tokensAt } from './tokens';
+import { blastFee, signAll, turbo } from './turbo';
+import { cpus } from 'node:os';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const ARC_URL = process.env.BLASTER_ARC_URL || 'https://arc.gorillapool.io';
@@ -145,6 +147,10 @@ const HELP = `  ${red('BLAST BSV')}
   ${red('/loadtoken')}    make a token wallet and show the address to send tokens to
   ${red('/blasttokens')}  blast those tokens until the wallet is empty (fees come from the BSV wallet)
 
+  ${blue('BENCHMARK')}
+  ${blue('/bench')}        measure this machine: free signing test, then an optional live test
+                that blasts a little BSV back to your own wallet
+
   ${red('/balance')}  ${red('/help')}  ${red('/quit')}`;
 
 const saveKey = (k: PrivateKey, prefix = '') => {
@@ -210,6 +216,27 @@ async function interactive() {
         if (yes !== 'yes') { console.log(dim('  held fire\n')); continue; }
         await blastTokens({ tokKey, fees: key, t, per, feeRate });
         await show();
+      } else if (line === '/bench') {
+        const N = 20_000, cores = cpus().length, fee = blastFee(feeRate);
+        console.log(`\n  ${blue('BENCHMARK')} ${dim(`· ${cores} cores · nothing is sent in step 1`)}`);
+        const k = PrivateKey.fromRandom();
+        const heads = Array.from({ length: cores * 4 }, (_, c) => ({ c, txid: '00'.repeat(32), vout: c, value: Math.ceil(N / (cores * 4)) * fee + 2, depth: Math.ceil(N / (cores * 4)) }));
+        const t0 = Date.now();
+        const raws = await signAll(k, heads, fee, 'bench', (d) => process.stdout.write(`\r  ${blue('■')} signing ${n(d)}   `));
+        const secs = (Date.now() - t0) / 1000, signed = raws.reduce((s, r) => s + r.length, 0), rate = signed / secs;
+        console.log(`\r  ${blue('▶')} signing  ${blue(n(Math.round(rate)))} tx/s on this machine ${dim(`(${n(signed)} in ${secs.toFixed(1)}s)`)}`);
+        console.log(`  ${blue('▶')} so       ${n(Math.round(rate * 60))} signed per minute; 500,000 in ${(500_000 / rate).toFixed(0)}s\n`);
+        if (!key) { console.log(dim('  for the live test: /new, pay it, then /bench again\n')); continue; }
+        const bal = await balanceOf(key.toAddress());
+        const live = Math.min(2000, Math.floor((bal - 2000) / fee));
+        if (live < 100) { console.log(dim(`  live test needs ~${n(2000 * fee + 2000)} sats at ${key.toAddress()}\n`)); continue; }
+        const yes = (await ask(`  ${blue('live test')}: blast ${n(live)} tx back to your own wallet (~${n(live * fee)} sats in fees)? type ${blue('yes')}: `)).trim();
+        if (yes !== 'yes') { console.log(dim('  skipped\n')); continue; }
+        const r = await turbo({ key, count: live, chains: Math.ceil(live / 25), feeRate, token: 'bench', broadcast: true, color: blue });
+        const sendRate = r.sent / Math.max(0.1, r.sendSecs);
+        console.log(`\n  ${blue('▶')} sending  ${blue(n(Math.round(sendRate)))} tx/s to ${dim(process.env.BLASTER_ARC_URL || 'arc.gorillapool.io')} ${dim(`(${n(r.sent)} accepted in ${r.sendSecs.toFixed(1)}s)`)}${r.deadChains ? red(` · ${r.deadChains} chains rejected: ${r.why ?? ''}`) : ''}`);
+        const per10 = Math.min(rate, sendRate) * 600;
+        console.log(`  ${blue('▶')} a 10-minute block from this machine: about ${blue(n(Math.round(per10)))} blasts (~${(per10 * fee / 1e8).toFixed(3)} BSV)\n`);
       } else if (line === '/balance') await show();
       else if (line === '/fire') {
         if (!key) { console.log(dim('  no key yet: paste one, or /new\n')); continue; }
@@ -219,7 +246,8 @@ async function interactive() {
         if (count < 1) { console.log(dim(`  ${n(bal)} sats isn't enough for a blast: pay ${a} first\n`)); continue; }
         const yes = (await ask(`  fire ${red(n(count))} blasts from ${a}, spending ~${n(bal)} sats? type ${red('yes')}: `)).trim();
         if (yes !== 'yes') { console.log(dim('  held fire\n')); continue; }
-        await blast({ key, count, chains, feeRate, token, broadcast: true });
+        const r = await turbo({ key, count, chains: Math.ceil(count / 250), feeRate, token, broadcast: true });
+        console.log(`\n${red('▶')} blasted ${n(r.sent)} / ${n(r.signed)} in ${r.sendSecs.toFixed(1)}s (${n(Math.round(r.sent / Math.max(0.1, r.sendSecs)))} tx/s), ${n(r.fees)} sats in fees${r.deadChains ? red(`; ${r.deadChains} chains stopped: ${r.why ?? ''}`) : ''}\n`);
         await show();
       } else if (line.startsWith('/')) console.log(dim(`  unknown command ${line}; /help\n`));
       else {

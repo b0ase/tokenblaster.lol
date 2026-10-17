@@ -16,6 +16,8 @@ const G: Record<string, string[]> = {
 const color = process.stdout.isTTY && !process.env.NO_COLOR;
 const RED = '\x1b[38;5;196m', DARK = '\x1b[38;5;52m', DIM = '\x1b[38;5;240m', BG = '\x1b[48;5;16m', RESET = '\x1b[0m';
 export const red = (s: string) => (color ? `${RED}${s}${RESET}` : s);
+const BLUE = '\x1b[38;5;39m';
+export const blue = (s: string) => (color ? `${BLUE}${s}${RESET}` : s);
 export const dim = (s: string) => (color ? `${DIM}${s}${RESET}` : s);
 
 function rows(text: string): string[] {
