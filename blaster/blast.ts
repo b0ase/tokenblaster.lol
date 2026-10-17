@@ -198,6 +198,22 @@ async function interactive() {
     }
   };
 
+  let balCache = { a: '', t: 0, v: 0 };
+  // the prompt always says what to do next
+  const promptLine = async () => {
+    let hint: string;
+    if (!key) hint = `type ${red('/new')} for a wallet, or paste a key`;
+    else {
+      // balance for the hint, cached 20 s so the prompt doesn't hammer WhatsOnChain
+      const a = key.toAddress();
+      if (balCache.a !== a || Date.now() - balCache.t > 20_000) balCache = { a, t: Date.now(), v: await balanceOf(a).catch(() => -1) };
+      const bal = balCache.v;
+      hint = bal < 0 ? `${red('/balance')} to retry · ${red('/help')}`
+        : bal < 1000 ? `pay ${key.toAddress().slice(0, 10)}… then ${red('/balance')} · ${red('/help')}`
+        : `${red('/fire')} blast it all · ${blue('/bench')} test · ${red('/loadtoken')} · ${red('/help')}`;
+    }
+    return `  ${dim('next:')} ${hint}\n${red('blast ▶ ')}`;
+  };
   console.log(HELP + '\n');
   // pick up where you left off: the newest saved wallets
   key = savedWallets()[0] ?? null;
@@ -205,7 +221,7 @@ async function interactive() {
   if (key) { console.log(dim('  using your last saved wallet (/wallets to switch)')); await show().catch((e) => console.log(red(`  ${(e as Error).message}\n`))); }
   for (;;) {
     // strip bracketed-paste markers and whitespace a terminal wraps around pasted text
-    const line = (await ask(red('blast> '), true)).replace(/\x1b\[20[01]~/g, '').replace(/[\s\x00-\x1f]/g, '').trim();
+    const line = (await ask(await promptLine(), true)).replace(/\x1b\[20[01]~/g, '').replace(/[\s\x00-\x1f]/g, '').trim();
     try {
       if (!line) continue;
       if (line === '/quit' || line === '/exit') break;

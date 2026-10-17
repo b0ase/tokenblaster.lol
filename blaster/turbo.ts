@@ -28,7 +28,10 @@ export async function wocJson<T>(path: string): Promise<T> {
     await sleep(500 * 2 ** attempt);
   }
 }
-export const unspent = (address: string) => wocJson<{ tx_hash: string; tx_pos: number; value: number }[]>(`/address/${address}/unspent`);
+/** Spendable coins: confirmed + unconfirmed, minus the ones already spent by a tx still in the mempool. */
+export const unspent = async (address: string) =>
+  (await wocJson<{ result: { tx_hash: string; tx_pos: number; value: number; isSpentInMempoolTx?: boolean }[] }>(`/address/${address}/unspent/all`)).result
+    .filter((c) => !c.isSpentInMempoolTx);
 
 /** A tx by id from WhatsOnChain, retrying through its rate limit; cached per run. */
 const txCache = new Map<string, Promise<Transaction>>();
