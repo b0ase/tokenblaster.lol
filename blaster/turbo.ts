@@ -118,7 +118,7 @@ async function postBatch(raws: Buffer[]): Promise<{ bad: number[]; why?: string 
 
 export type TurboResult = { signed: number; sent: number; signSecs: number; sendSecs: number; fees: number; deadChains: number; why?: string };
 
-export async function turbo(o: { key: PrivateKey; count: number; chains: number; feeRate: number; token: string; broadcast: boolean; color?: (s: string) => string }): Promise<TurboResult> {
+export async function turbo(o: { key: PrivateKey; count: number; chains: number; feeRate: number; token: string; broadcast: boolean; color?: (s: string) => string; status?: () => string; panel?: () => string[] }): Promise<TurboResult> {
   const { key, feeRate, token, broadcast } = o;
   const paint = o.color ?? red;
   const address = key.toAddress();
@@ -162,9 +162,15 @@ export async function turbo(o: { key: PrivateKey; count: number; chains: number;
   const dead = new Set<number>();
   let sent = 0, why: string | undefined;
   const t1 = Date.now();
+  let drawn = 0;   // lines drawn last time, so a multi-line panel redraws in place
   const draw = () => {
     const secs = Math.max(0.1, (Date.now() - t1) / 1000), w = 30, d = Math.round((sent / signed) * w);
-    process.stdout.write(`\r${paint('█'.repeat(d))}${dim('░'.repeat(w - d))} ${n(sent)} / ${n(signed)}  ${n(Math.round(sent / secs))} tx/s ${dead.size ? red(` ${dead.size} chains stopped`) : ''}  `);
+    const bar = `${paint('█'.repeat(d))}${dim('░'.repeat(w - d))} ${n(sent)} / ${n(signed)}  ${n(Math.round(sent / secs))} tx/s ${dead.size ? red(` ${dead.size} chains stopped`) : ''} ${dim(o.status?.() ?? '')}`;
+    const panel = o.panel?.() ?? [];
+    if (!panel.length) return void process.stdout.write(`\r${bar}  `);
+    const lines = [bar, '', ...panel];
+    process.stdout.write((drawn ? `\x1b[${drawn - 1}F` : '') + '\r\x1b[J' + lines.join('\n'));
+    drawn = lines.length;
   };
   const tick = setInterval(draw, 250);
   // batches of whole chain segments (parent before child inside a batch: ARC processes a batch in

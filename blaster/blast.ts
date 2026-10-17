@@ -25,6 +25,7 @@ import { banner, blue, dim, red } from './banner';
 import { blastTokens, bulletSats, fmt, tokensAt } from './tokens';
 import { blastFee, fetchTx, signAll, turbo, unspent } from './turbo';
 import { cpus } from 'node:os';
+import { chart, lolStatus, rankLine, waitForBlock, type LolStatus } from './bsvlol';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const ARC_URL = process.env.BLASTER_ARC_URL || 'https://arc.gorillapool.io';
@@ -151,6 +152,7 @@ const HELP = `  ${red('BLAST BSV')}
   ${blue('/bench')}        measure this machine: free signing test, then an optional live test
                 that blasts a little BSV back to your own wallet
 
+  ${red('/lol')}     the bsv.lol board right now (/fire watches it and waits for a block)
   ${red('/wallets')} list saved wallets   ${red('/use')} <n> switch to one
   ${red('/balance')}  ${red('/help')}  ${red('/quit')}`;
 
@@ -199,6 +201,11 @@ async function interactive() {
   };
 
   let balCache = { a: '', t: 0, v: 0 };
+  const showLol = async () => {
+    const st = await lolStatus();
+    if (!st) return console.log(dim('  bsv.lol is not answering\n'));
+    console.log('\n' + chart(st, 8).join('\n') + '\n');
+  };
   // the prompt always says what to do next
   const promptLine = async () => {
     let hint: string;
@@ -289,10 +296,22 @@ async function interactive() {
         if (count < 1) { console.log(dim(`  ${n(bal)} sats isn't enough for a blast: pay ${a} first\n`)); continue; }
         const yes = (await ask(`  fire ${red(n(count))} blasts from ${a}, spending ~${n(bal)} sats? type ${red('yes')}: `)).trim();
         if (yes !== 'yes') { console.log(dim('  held fire\n')); continue; }
-        const r = await turbo({ key, count, chains: Math.ceil(count / 250), feeRate, token, broadcast: true });
+        const wait = (await ask(`  wait for the next block so the whole blast lands in one? ${red('[Y/n]')} `)).trim().toLowerCase();
+        if (wait !== 'n') {
+          console.log(dim('  watching bsv.lol for the next block (Ctrl-C to quit)…'));
+          const h = await waitForBlock((st, secs) => process.stdout.write(`\r  ${red('◷')} ${Math.floor(secs / 60)}m${String(Math.floor(secs % 60)).padStart(2, '0')}s  ${st ? `height ${n(st.height)} · ${rankLine(st)}` : 'bsv.lol not answering'}      `));
+          console.log(`\n  ${red('▶')} block ${n(h)} found: FIRE\n`);
+        }
+        let lol: LolStatus | null = await lolStatus();
+        const poll = setInterval(async () => { const st = await lolStatus(); if (st) lol = st; }, 3000);
+        const r = await turbo({ key, count, chains: Math.ceil(count / 250), feeRate, token, broadcast: true, panel: () => (lol ? chart(lol) : []) });
+        clearInterval(poll);
         console.log(`\n${red('▶')} blasted ${n(r.sent)} / ${n(r.signed)} in ${r.sendSecs.toFixed(1)}s (${n(Math.round(r.sent / Math.max(0.1, r.sendSecs)))} tx/s), ${n(r.fees)} sats in fees${r.deadChains ? red(`; ${r.deadChains} chains stopped: ${r.why ?? ''}`) : ''}\n`);
         await show();
-      } else if (line.startsWith('/')) console.log(dim(`  unknown command ${line}; /help\n`));
+        await new Promise((ok) => setTimeout(ok, 5000));
+        await showLol();
+      } else if (line === '/lol') await showLol();
+      else if (line.startsWith('/')) console.log(dim(`  unknown command ${line}; /help\n`));
       else {
         key = PrivateKey.fromWif(line);
         console.log(dim('  key loaded'));
