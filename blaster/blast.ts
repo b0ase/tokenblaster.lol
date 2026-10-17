@@ -181,7 +181,7 @@ async function interactive() {
   const out = rl as unknown as { _writeToOutput: (s: string) => void; line: string };
   const write = out._writeToOutput.bind(rl);
   let hiding = false;   // only at the main prompt, where a key may be pasted
-  out._writeToOutput = (s: string) => { if (hiding && out.line && !out.line.startsWith('/')) write(s.includes('\n') ? '\n' : ''); else write(s); };
+  out._writeToOutput = (s: string) => { if (hiding && out.line && out.line.length > 12 && !out.line.startsWith('/')) write(s.includes('\n') ? '\n' : ''); else write(s); };
   const ask = (q: string, hide = false) => new Promise<string>((res) => { hiding = hide; rl.question(q, (a) => { hiding = false; res(a); }); });
   const feeRate = Number(process.env.BLASTER_FEE_RATE || 100);
   const token = arg('token', 'test')!;
@@ -207,19 +207,33 @@ async function interactive() {
     console.log('\n' + chart(st, 8).join('\n') + '\n');
   };
   // the prompt always says what to do next
-  const promptLine = async () => {
-    let hint: string;
-    if (!key) hint = `type ${red('/new')} for a wallet, or paste a key`;
-    else {
-      // balance for the hint, cached 20 s so the prompt doesn't hammer WhatsOnChain
-      const a = key.toAddress();
+  // a short menu before every prompt: type the number, the word, or /word
+  let menu: [string, string][] = [];
+  const showMenu = async () => {
+    const bal = key ? await (async () => {
+      const a = key!.toAddress();
       if (balCache.a !== a || Date.now() - balCache.t > 20_000) balCache = { a, t: Date.now(), v: await balanceOf(a).catch(() => -1) };
-      const bal = balCache.v;
-      hint = bal < 0 ? `${red('/balance')} to retry · ${red('/help')}`
-        : bal < 1000 ? `pay ${key.toAddress().slice(0, 10)}… then ${red('/balance')} · ${red('/help')}`
-        : `${red('/fire')} blast it all · ${blue('/bench')} test · ${red('/loadtoken')} · ${red('/help')}`;
-    }
-    return `  ${dim('next:')} ${hint}\n${red('blast ▶ ')}`;
+      return balCache.v;
+    })() : 0;
+    const blasts = bal > 0 ? planFor(bal, 1, feeRate).count : 0;
+    menu = !key
+      ? [['new', 'make a wallet to blast from'], ['wallets', 'pick a saved wallet'], ['lol', 'see the bsv.lol board']]
+      : bal < 1000
+        ? [['balance', `check again (pay ${key.toAddress()} first)`], ['new', 'make another wallet'], ['lol', 'see the bsv.lol board']]
+        : [['fire', `blast ${n(blasts)} txs (~${(bal / 1e8).toFixed(3)} BSV), waits for the next block`], ['bench', 'speed test'], ['lol', 'see the bsv.lol board'], ['loadtoken', 'blast tokens instead'], ...(tokKey ? [['blasttokens', 'blast the loaded tokens'] as [string, string]] : [])];
+    console.log(menu.map(([cmd, what], i) => `  ${red(String(i + 1))} ${(i === 0 ? red : (x: string) => x)(cmd.padEnd(10))} ${dim(what)}`).join('\n'));
+    console.log(dim(`    h help · q quit${key ? '' : ' · or paste a private key'}`));
+  };
+  /** number / word / /word -> '/word'; anything long and without a slash is a pasted key */
+  const normalise = (raw: string) => {
+    const t = raw.toLowerCase();
+    if (/^\d$/.test(t) && menu[Number(t) - 1]) return '/' + menu[Number(t) - 1][0];
+    const word = t.replace(/^\//, '');
+    const alias: Record<string, string> = { blast: 'fire', go: 'fire', h: 'help', '?': 'help', q: 'quit', exit: 'quit', board: 'lol', tokens: 'loadtoken', wallet: 'wallets' };
+    const known = ['new', 'fire', 'bench', 'lol', 'loadtoken', 'blasttokens', 'balance', 'wallets', 'help', 'quit'];
+    if (alias[word]) return '/' + alias[word];
+    if (known.includes(word) || /^use\d+$/.test(word)) return '/' + word;
+    return raw.startsWith('/') ? raw : raw;   // a key, or an unknown /command
   };
   console.log(HELP + '\n');
   // pick up where you left off: the newest saved wallets
@@ -228,7 +242,8 @@ async function interactive() {
   if (key) { console.log(dim('  using your last saved wallet (/wallets to switch)')); await show().catch((e) => console.log(red(`  ${(e as Error).message}\n`))); }
   for (;;) {
     // strip bracketed-paste markers and whitespace a terminal wraps around pasted text
-    const line = (await ask(await promptLine(), true)).replace(/\x1b\[20[01]~/g, '').replace(/[\s\x00-\x1f]/g, '').trim();
+    await showMenu();
+    const line = normalise((await ask(red('  ▶ '), true)).replace(/\x1b\[20[01]~/g, '').replace(/[\s\x00-\x1f]/g, '').trim());
     try {
       if (!line) continue;
       if (line === '/quit' || line === '/exit') break;
@@ -311,7 +326,7 @@ async function interactive() {
         await new Promise((ok) => setTimeout(ok, 5000));
         await showLol();
       } else if (line === '/lol') await showLol();
-      else if (line.startsWith('/')) console.log(dim(`  unknown command ${line}; /help\n`));
+      else if (line.startsWith('/') || line.length < 40) console.log(dim(`  "${line}" isn't a command: pick a number from the menu, or h for help\n`));
       else {
         key = PrivateKey.fromWif(line);
         console.log(dim('  key loaded'));
