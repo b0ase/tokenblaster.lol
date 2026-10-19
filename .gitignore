@@ -59,3 +59,4 @@ public/storm-worker.js
 .private/
 .claude/worktrees/
 __pycache__/
+out/npg-models/
