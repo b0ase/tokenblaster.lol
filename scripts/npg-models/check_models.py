@@ -12,9 +12,9 @@ import bmesh, bpy, glob, json, math, os, sys
 from mathutils import Vector
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-CARDS = os.path.join(ROOT, 'public', 'npg', 'cards')
+CARDS = os.environ.get('NPG_CARDS') or os.path.join(ROOT, 'public', 'npg', 'cards')
 ANIMS = os.path.join(ROOT, 'public', 'npg', 'anims', 'mixamo-anims.glb')
-OUT = os.path.join(ROOT, 'out', 'npg-models'); REN = os.path.join(OUT, 'renders')
+OUT = os.environ.get('NPG_OUT') or os.path.join(ROOT, 'out', 'npg-models'); REN = os.path.join(OUT, 'renders')
 CLIPS = ['Idle_Loop', 'Sprint_Loop', 'Sword_Regular_A', 'Sword_Dash', 'Hit_Chest']
 CORE = ['Hips', 'Spine', 'Spine2', 'Neck', 'Head', 'LeftArm', 'LeftForeArm', 'LeftHand', 'RightArm', 'RightForeArm',
         'RightHand', 'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'RightUpLeg', 'RightLeg', 'RightFoot']
@@ -85,9 +85,12 @@ def check(mid, anim_actions):
     clear(); setup_render()
     objs = imp(os.path.join(CARDS, f'{mid}-rigged.glb'))
     arm = next((o for o in objs if o.type == 'ARMATURE'), None)
-    meshes = [o for o in objs if o.type == 'MESH']
+    # skinned meshes only: the glTF importer adds an 'Icosphere' bone-display shape that is not in the file
+    meshes = [o for o in objs if o.type == 'MESH' and any(m.type == 'ARMATURE' for m in o.modifiers)]
+    loose_objs = [o.name for o in objs if o.type == 'MESH' and o not in meshes and o.users_collection]
     rep = dict(id=mid, armature=bool(arm), meshes=len(meshes))
     rep.update(mesh_checks(meshes, arm))
+    rep['unskinned_meshes'] = [n for n in loose_objs if not n.startswith('Icosphere')]
     names = {b.name.split(':')[-1] for b in arm.data.bones} if arm else set()
     rep['bones'] = len(names); rep['missing_core_bones'] = [b for b in CORE if b not in names]
     rep['non_mixamo_bones'] = sorted(b.name for b in arm.data.bones if not b.name.startswith('mixamorig:'))[:10] if arm else []
@@ -107,6 +110,7 @@ def check(mid, anim_actions):
             rep['poses'][act.name] = dict(frame=f, bbox_vs_rest=round(ratio, 2), exploded=not (0.5 < ratio < 1.8))
     issues = []
     if not arm: issues.append('no armature')
+    if rep['unskinned_meshes']: issues.append('unskinned meshes ' + ','.join(rep['unskinned_meshes']))
     if rep['tris'] > TRI_BUDGET: issues.append(f"{rep['tris']} tris > {TRI_BUDGET}")
     if rep['missing_core_bones']: issues.append('missing bones ' + ','.join(rep['missing_core_bones']))
     if rep['unweighted_verts']: issues.append(f"{rep['unweighted_verts']} unweighted verts")
