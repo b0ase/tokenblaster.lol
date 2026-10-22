@@ -1,11 +1,12 @@
 /** bRacer world: procedural sky, glossy track, tunnels, megastructure city, signage, pads, speed lines, particles. */
 import * as THREE from 'three';
 import { rng } from '@/lib/rally/noise';
-import { drawLogo, drawSign, drawTextSign, SIGN_COUNT } from './signs';
+import { drawLogo, drawSign, drawSponsorSign, drawTeamSign, drawTextSign, FONTS, SIGN_COUNT } from './signs';
+import { luminance, teamGlow, type Sponsor, type Team } from './registry';
 import { frameAt, HALF_W, newFrame, STEP, surfaceH, type Track } from './track';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { addSweep, BARRIER_LAT, BARRIER_TOP, braceGeo, Bucketed, energyMaterial, frameMatrix, gantryParts, grandstandParts, pitParts, pylonParts, ribGeo, SLAB, TUNNEL, TUNNEL_OUT, type Prof } from './architecture';
-import { baysTex, crowdTex, deckTextures, plateTextures, sponsorTex, stripTex } from './artTex';
+import { baysTex, crowdTex, deckTextures, plateTextures, sponsorStripTex, sponsorTex, stripTex } from './artTex';
 import { buildBackdrop } from './backdrop';
 
 export type Quality = 'low' | 'high' | 'ultra';
@@ -263,7 +264,10 @@ const ROCK_MAT = (warm: string) => {
   return m;
 };
 
-export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer, pitLane = true): World {
+/** Per-race dressing: family sponsor adverts and (for a ?teams= grid) the racing teams. Empty = the stock track. */
+export type Dressing = { sponsors: readonly Sponsor[]; grid: readonly Team[] };
+
+export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer, pitLane = true, dress: Dressing = { sponsors: [], grid: [] }): World {
   const p = tr.def.palette;
   const group = new THREE.Group();
   const disposables: { dispose(): void }[] = [];
@@ -478,7 +482,31 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     g.fillRect(0, 0, 1024, 26);
     g.fillStyle = p.a1;
     g.fillRect(0, 230, 1024, 26);
-    drawLogo(g, 70, 200, 150, p.a2, '#fff', '#000');
+    if (dress.grid.length) {
+      // Grid banner: the logo, then a chip per racing team in its body colour, code in its accent.
+      drawLogo(g, 60, 132, 100, p.a2, '#fff', '#000');
+      const n = dress.grid.length;
+      const cw = Math.min(220, (1024 - 120 - (n - 1) * 10) / n);
+      let x = 60;
+      g.font = `900 34px ${FONTS.display}`;
+      g.textAlign = 'center';
+      for (const t of dress.grid) {
+        g.fillStyle = t.base;
+        g.fillRect(x, 156, cw, 56);
+        // A body colour that sinks into the dark banner (V3XV0ID black) gets an accent keyline.
+        if (luminance(t.base) < 0.03) {
+          g.strokeStyle = t.accent;
+          g.lineWidth = 4;
+          g.strokeRect(x + 2, 158, cw - 4, 52);
+        }
+        g.fillStyle = t.trim;
+        g.fillRect(x, 206, cw, 8);
+        g.fillStyle = t.accent;
+        g.fillText(t.code, x + cw / 2, 198, cw - 12);
+        x += cw + 10;
+      }
+      g.textAlign = 'left';
+    } else drawLogo(g, 70, 200, 150, p.a2, '#fff', '#000');
   }
   const bannerTex = own(texOf(bannerC, true, false));
   const bannerMat = own(new THREE.MeshBasicMaterial({ map: bannerTex, color: col('#ffffff', 1.6), side: THREE.DoubleSide }));
@@ -501,23 +529,36 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
   }
   const gM = gSpots.map((s) => frameMatrix(tr, s, 0, 0, fm));
   const gFrames = new THREE.InstancedMesh(gp.frame, steelMat, gM.length);
-  const gLights = new THREE.InstancedMesh(gp.light, own(new THREE.MeshBasicMaterial({ color: col(p.a1, 3.5) })), gM.length);
+  // Light strips: the track accent, or (a ?teams= grid) each racing team's colour in turn.
+  const lightCols = dress.grid.length ? dress.grid.map(teamGlow) : [p.a1];
+  const lightLists: THREE.Matrix4[][] = lightCols.map(() => []);
   gM.forEach((m, i) => {
     gFrames.setMatrixAt(i, m);
-    gLights.setMatrixAt(i, m);
+    lightLists[i % lightCols.length].push(m);
   });
   gFrames.computeBoundingSphere();
-  gLights.computeBoundingSphere();
-  group.add(gFrames, gLights);
+  group.add(gFrames);
+  lightLists.forEach((list, k) => {
+    if (!list.length) return;
+    const gLights = new THREE.InstancedMesh(gp.light, own(new THREE.MeshBasicMaterial({ color: col(lightCols[k], 3.5) })), list.length);
+    list.forEach((m, j) => gLights.setMatrixAt(j, m));
+    gLights.computeBoundingSphere();
+    group.add(gLights);
+  });
   const boardGeo = own(new THREE.PlaneGeometry(2 * (HALF_W + 1.05) - 2, 3.6));
   boardGeo.translate(0, 16, 1.36);
-  const sponsorLists: THREE.Matrix4[][] = [[], [], [], [], [], []];
+  // Family sponsor strips, one texture each, shared by gantry beams and the pit wall.
+  const adStrips: THREE.CanvasTexture[] = [];
+  const adStrip = (j: number) => (adStrips[j] ??= own(sponsorStripTex(dress.sponsors[j], j)));
+  // Beam boards: bRacer's six house boards, then one strip per family sponsor (none with ?ads=0).
+  const nBoards = 6 + dress.sponsors.length;
+  const sponsorLists: THREE.Matrix4[][] = Array.from({ length: nBoards }, () => []);
   gM.forEach((m, i) => {
-    if (i > 0) sponsorLists[(i + tr.def.seed) % 6].push(m);
+    if (i > 0) sponsorLists[(i + tr.def.seed) % nBoards].push(m);
   });
   sponsorLists.forEach((list, i) => {
     if (!list.length) return;
-    const t = own(sponsorTex(i, p));
+    const t = i < 6 ? own(sponsorTex(i, p)) : adStrip(i - 6);
     const im = new THREE.InstancedMesh(boardGeo, own(new THREE.MeshBasicMaterial({ map: t, color: col('#ffffff', 1.35) })), list.length);
     list.forEach((m, j) => im.setMatrixAt(j, m));
     im.computeBoundingSphere();
@@ -578,6 +619,25 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     pm.add(new THREE.Mesh(own(pp.frame), darkMat), new THREE.Mesh(own(pp.bays), own(new THREE.MeshBasicMaterial({ map: own(baysTex('#18ff7a')), color: col('#ffffff', 1.4) }))));
     group.add(pm);
     tower(sP, -(HALF_W + 13), 18, len, -1.5);
+    // Pit-wall boards: sponsor strips along the top of the left barrier, facing the pit lane.
+    if (dress.sponsors.length) {
+      const wallGeo = own(new THREE.PlaneGeometry(10, 1.9));
+      wallGeo.rotateY(Math.PI / 2);
+      const lists: THREE.Matrix4[][] = dress.sponsors.map(() => []);
+      let j = tr.def.seed;
+      for (let s = a * tr.len + 6; s < b * tr.len - 6; s += 12) {
+        const ix = Math.floor((((s % tr.len) + tr.len) % tr.len) / STEP) % tr.n;
+        if (tr.tunnel[ix] || tr.inLoop[ix] || tr.pipe[ix] > 0.02) continue;
+        lists[j++ % lists.length].push(frameMatrix(tr, s, -BARRIER_LAT + 0.25, BARRIER_TOP + 1.1, fm));
+      }
+      lists.forEach((list, k) => {
+        if (!list.length) return;
+        const im = new THREE.InstancedMesh(wallGeo, own(new THREE.MeshBasicMaterial({ map: adStrip(k), color: col('#ffffff', 1.3), side: THREE.DoubleSide })), list.length);
+        list.forEach((m, n) => im.setMatrixAt(n, m));
+        im.computeBoundingSphere();
+        group.add(im);
+      });
+    }
   }
 
   // Signage.
@@ -593,6 +653,22 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     drawTextSign(c, msg, i, p.a1, p.a2);
     signTexs.push(own(texOf(c, true, false)));
   });
+  // A ?teams= grid puts up a poster per racing team.
+  for (const t of dress.grid) {
+    const c = canvas(1024, 512);
+    drawTeamSign(c, t);
+    signTexs.push(own(texOf(c, true, false)));
+  }
+  // Sponsor billboards: with adverts on, every other board is a family sponsor, rotating through them all;
+  // ?ads=0 keeps exactly the stock rotation.
+  const adStart = signTexs.length;
+  dress.sponsors.forEach((sp, i) => {
+    const c = canvas(1024, 512);
+    drawSponsorSign(c, sp, i);
+    signTexs.push(own(texOf(c, true, false)));
+  });
+  const nAds = signTexs.length - adStart;
+  const signSlot = (k: number) => (nAds ? (k % 2 ? adStart + ((k >> 1) % nAds) : (k >> 1) % adStart) : k % signTexs.length);
   const signGeo = own(new THREE.PlaneGeometry(44, 22));
   const signLists: THREE.Matrix4[][] = signTexs.map(() => []);
   const sd = (tr.len / 190) | 0;
@@ -609,7 +685,7 @@ export function buildWorld(tr: Track, q: Quality, renderer: THREE.WebGLRenderer,
     const Z = side > 0 ? new THREE.Vector3(-f.rx, -f.ry, -f.rz) : new THREE.Vector3(f.rx, f.ry, f.rz);
     const m = new THREE.Matrix4().makeBasis(X, new THREE.Vector3(f.ux, f.uy, f.uz), Z);
     m.setPosition(f.px + f.rx * side * off + f.ux * up, f.py + f.ry * side * off + f.uy * up, f.pz + f.rz * side * off + f.uz * up);
-    signLists[k % signTexs.length].push(m);
+    signLists[signSlot(k)].push(m);
     // Billboard housing and two masts down to the ground (they no longer float).
     signFrames.add(s, m.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0, -0.85)));
     const c = new THREE.Vector3().setFromMatrixPosition(m);

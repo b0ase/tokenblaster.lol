@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { rng } from '@/lib/rally/noise';
 import { FONTS } from './signs';
+import { domainOf, type Sponsor } from './registry';
 
 export const cnv = (w: number, h: number) => {
   const c = document.createElement('canvas');
@@ -397,6 +398,47 @@ export function sponsorTex(i: number, p: P) {
   g.fillStyle = acc;
   g.fillText(`${sub} // HG-${300 + i * 17}`, 180, 160);
   g.fillStyle = acc;
+  g.fillRect(0, 182, 1024, 10);
+  return texOf(c, true, false);
+}
+
+/**
+ * A family sponsor's strip for gantry beams and the pit wall: the same DR board as sponsorTex (dark or paper field,
+ * colour block with chevrons, oversized name, product code), with the block, keyline and code in the sponsor's colour.
+ */
+export function sponsorStripTex(sp: Sponsor, i: number) {
+  const c = cnv(1024, 192);
+  const g = c.getContext('2d')!;
+  const inv = i % 2 === 1;
+  const bg = inv ? '#f2f2ee' : '#0b0b10';
+  const fg = inv ? '#0b0b10' : '#f2f2ee';
+  // A sponsor colour that would vanish on the field (black on dark, white on paper) swaps to a solid block.
+  const lumBg = inv ? 0.88 : 0.004;
+  const n = parseInt(sp.colour.slice(1), 16);
+  const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  const acc = Math.abs(lum - lumBg) < 0.1 ? fg : sp.colour;
+  g.fillStyle = bg;
+  g.fillRect(0, 0, 1024, 192);
+  g.fillStyle = acc;
+  g.fillRect(0, 0, 150, 192);
+  g.fillStyle = bg;
+  for (let k = 0; k < 3; k++) {
+    g.beginPath();
+    g.moveTo(20 + k * 40, 40);
+    g.lineTo(50 + k * 40, 96);
+    g.lineTo(20 + k * 40, 152);
+    g.lineTo(38 + k * 40, 152);
+    g.lineTo(68 + k * 40, 96);
+    g.lineTo(38 + k * 40, 40);
+    g.fill();
+  }
+  g.fillStyle = fg;
+  g.font = `900 92px ${FONTS.display}`;
+  g.textBaseline = 'alphabetic';
+  g.fillText(sp.name, 176, 112, 800);
+  g.font = `700 26px ${FONTS.mono}`;
+  g.fillStyle = acc;
+  g.fillText(`${domainOf(sp.url).toUpperCase()} // ${sp.tagline.toUpperCase()}`, 180, 160, 820);
   g.fillRect(0, 182, 1024, 10);
   return texOf(c, true, false);
 }

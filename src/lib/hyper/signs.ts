@@ -4,7 +4,8 @@
  * 90s electronic-label graphic design; every layout here is original.
  */
 import { GAME_B, GAME_KANA, GAME_REST } from './brand';
-import { TEAMS } from './teams';
+import { TEAMS, type Team } from './teams';
+import { domainOf, luminance, type Sponsor } from './registry';
 
 export const FONTS = { display: 'Impact, "Arial Black", sans-serif', mono: 'ui-monospace, Menlo, monospace', jp: '"Hiragino Sans", "Noto Sans JP", sans-serif', logo: 'Audiowide, "Arial Black", Impact, sans-serif' };
 export const setFonts = (f: Partial<typeof FONTS>) => Object.assign(FONTS, f);
@@ -40,7 +41,7 @@ function barcode(g: G, x: number, y: number, w: number, h: number, col: string, 
     px += bw + 1 + ((r >> 3) % 4);
   }
 }
-function text(g: G, s: string, x: number, y: number, size: number, col: string, font = FONTS.display, align: CanvasTextAlign = 'left', rot = 0) {
+function text(g: G, s: string, x: number, y: number, size: number, col: string, font = FONTS.display, align: CanvasTextAlign = 'left', rot = 0, max?: number) {
   g.save();
   g.translate(x, y);
   g.rotate(rot);
@@ -48,7 +49,8 @@ function text(g: G, s: string, x: number, y: number, size: number, col: string, 
   g.font = `900 ${size}px ${font}`;
   g.textAlign = align;
   g.textBaseline = 'alphabetic';
-  g.fillText(s, 0, 0);
+  if (max) g.fillText(s, 0, 0, max);
+  else g.fillText(s, 0, 0);
   g.restore();
 }
 function sticker(g: G, s: string, x: number, y: number, size: number, bg: string, fg: string, rot: number) {
@@ -164,15 +166,7 @@ export function drawSign(c: HTMLCanvasElement, i: number, a1: string, a2: string
     }
     case 1: {
       // Team poster.
-      g.fillStyle = team.base;
-      g.fillRect(0, 0, W, H);
-      chevrons(g, 0, 40, W, 130, 9, team.accent);
-      chevrons(g, 0, 190, W, 70, 18, team.trim);
-      text(g, team.name, 40, 400, 150, team.accent);
-      text(g, team.kana, 44, 462, 44, team.trim === '#111111' ? '#fff' : team.trim, FONTS.jp);
-      circle(g, 900, 380, 90, team.trim);
-      text(g, team.code, 900, 395, 48, team.accent, FONTS.mono, 'center');
-      sticker(g, team.motto, 800, 300, 40, team.accent, '#111', 0.05);
+      teamPoster(g, team);
       break;
     }
     case 2: {
@@ -288,6 +282,69 @@ export function drawSign(c: HTMLCanvasElement, i: number, a1: string, a2: string
     }
   }
   // Frame.
+  g.strokeStyle = '#000';
+  g.lineWidth = 8;
+  g.strokeRect(4, 4, W - 8, H - 8);
+}
+
+/** A team's poster: body colour field, accent chevrons, trim band, name, kana, code roundel, motto sticker. */
+function teamPoster(g: G, team: Team) {
+  g.fillStyle = team.base;
+  g.fillRect(0, 0, W, H);
+  chevrons(g, 0, 40, W, 130, 9, team.accent);
+  chevrons(g, 0, 190, W, 70, 18, team.trim);
+  // Family teams (they carry an ink) keep the name clear of the roundel, and set it in ink when the accent is too
+  // close to the body colour to read at a distance (NPG cyan on pink).
+  const contrast = (x: string, y: string) => {
+    const [hi, lo] = [luminance(x), luminance(y)].sort((m, n) => n - m);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const nameCol = team.ink && contrast(team.accent, team.base) < 2.2 ? team.ink : team.accent;
+  text(g, team.name, 40, 400, 150, nameCol, FONTS.display, 'left', 0, team.ink ? 740 : W - 60);
+  text(g, team.kana, 44, 462, 44, team.trim === '#111111' ? '#fff' : team.trim, FONTS.jp, 'left', 0, 640);
+  circle(g, 900, 380, 90, team.trim);
+  text(g, team.code, 900, 395, 48, team.accent, FONTS.mono, 'center', 0, 160);
+  const stickerFg = !team.ink || luminance(team.accent) > 0.4 ? '#111' : '#fff';
+  sticker(g, team.motto, team.motto.length > 14 ? 760 : 800, 300, team.motto.length > 14 ? 32 : 40, team.accent, stickerFg, 0.05);
+}
+
+/** One racing team's poster on a 1024x512 board (a ?teams= grid puts one up per team). */
+export function drawTeamSign(c: HTMLCanvasElement, team: Team) {
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  teamPoster(g, team);
+  g.strokeStyle = '#000';
+  g.lineWidth = 8;
+  g.strokeRect(4, 4, W - 8, H - 8);
+}
+
+/**
+ * A family sponsor's billboard in the house graphic system: the sponsor's colour as the flat field, chevron bands,
+ * the name set huge, the tagline on a sticker, the domain on a bar, a barcode and a product code. Factual copy only.
+ */
+export function drawSponsorSign(c: HTMLCanvasElement, sp: Sponsor, i: number) {
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const dark = luminance(sp.colour) < 0.03;
+  const field = dark ? '#0b0b10' : sp.colour;
+  const ink = dark ? '#f2efe6' : sp.ink;
+  g.fillStyle = field;
+  g.fillRect(0, 0, W, H);
+  if (dark) grid(g, '#f2efe6', 64, 0.12);
+  chevrons(g, 0, 0, W, 70, 18, ink);
+  const n = parseInt(sp.colour.slice(1), 16);
+  const yellowish = ((n >> 16) & 255) > 200 && ((n >> 8) & 255) > 150 && (n & 255) < 90;
+  text(g, 'OFFICIAL PARTNER', 40, 128, 34, ink, FONTS.mono);
+  const size = Math.min(200, Math.floor(1750 / Math.max(4, sp.name.length)));
+  text(g, sp.name, 40, 196 + size * 0.78, size, ink, FONTS.display, 'left', 0, W - 80);
+  sticker(g, sp.tagline.toUpperCase(), 690, 136, sp.tagline.length > 24 ? 26 : 32, yellowish ? '#111' : '#ffe600', yellowish ? '#ffe600' : '#111', -0.05);
+  g.fillStyle = ink;
+  g.fillRect(0, H - 96, W, 96);
+  text(g, domainOf(sp.url).toUpperCase(), 40, H - 32, 48, field, FONTS.mono, 'left', 0, 600);
+  barcode(g, W - 300, H - 82, 170, 52, field, 7 + i * 13);
+  text(g, `HG-${(400 + i * 23) % 1000}`, W - 40, H - 36, 26, field, FONTS.mono, 'right');
   g.strokeStyle = '#000';
   g.lineWidth = 8;
   g.strokeRect(4, 4, W - 8, H - 8);

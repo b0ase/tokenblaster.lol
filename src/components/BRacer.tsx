@@ -16,8 +16,9 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { DR } from '@/lib/dr/tokens';
 import { GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE } from '@/lib/hyper/brand';
 import { LOGO_FAMILY, Logo } from './bracer-logo';
-import { fmt, HyperEngine, type BRaceCfg, type PayHook, SHIPS, TEAMS, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
+import { fmt, HyperEngine, type BRaceCfg, type PayHook, ALL_TEAMS, SHIPS, teamOf, TRACKS, type Difficulty, type Hud, type LiveRow, type MapData, type Mode, type Phase, type Result, type Toast } from '@/lib/hyper/engine';
 import { setFonts } from '@/lib/hyper/signs';
+import { domainOf, resolveRace, type RaceSetup, type Sponsor } from '@/lib/hyper/registry';
 import { inkTeamColour, parseTheme, type BRacerTheme } from '@/lib/hyper/ink';
 import { type Track, type TrackId } from '@/lib/hyper/track';
 import { bracerScoreGame, DEFAULT_SHIP, DEFAULT_TRACK, isShipId, isTrackId, TRACK_LIST } from '@/lib/hyper/content';
@@ -294,6 +295,8 @@ export function BRacer() {
   const weaponRef = useRef<Weapon | null>(null);
   const [hud] = useState(() => new HudDom());
   const [theme, setTheme] = useState<BRacerTheme>('default');
+  /** Grid and adverts from the URL (?teams=, ?team=, ?sponsors=, ?ads=0). */
+  const [race, setRace] = useState<RaceSetup>(() => resolveRace(''));
   const ui = UI[theme];
   const themeRef = useRef<BRacerTheme>('default');
   const mini = useRef<HTMLCanvasElement>(null);
@@ -314,7 +317,7 @@ export function BRacer() {
         const p = JSON.parse(localStorage.getItem(PREFS) ?? '{}') as { track?: TrackId; ship?: string; team?: string; mode?: Mode; diff?: Difficulty; q?: QualityPref };
         if (isTrackId(p.track)) setTrackId(p.track);
         if (isShipId(p.ship)) setShipId(p.ship);
-        if (p.team && TEAMS.some((t) => t.id === p.team)) setTeamId(p.team);
+        if (p.team && ALL_TEAMS.some((t) => t.id === p.team)) setTeamId(p.team);
         if (p.mode) setMode(p.mode);
         if (p.diff) setDifficulty(p.diff);
         if (p.q) setQualityPref(p.q);
@@ -331,6 +334,9 @@ export function BRacer() {
       else if (qt) console.warn(`[bracer] no track pack "${qt}" (content/bracer/tracks/${qt}/track.json); run pnpm content:check`);
       if (qs && isShipId(qs)) setShipId(qs);
       else if (qs) console.warn(`[bracer] no ship pack "${qs}" (content/bracer/ships/${qs}/ship.json); run pnpm content:check`);
+      const rs = resolveRace(q);
+      setRace(rs);
+      if (rs.player) setTeamId(rs.player.id);
       setReady(true);
     });
   }, []);
@@ -448,6 +454,7 @@ export function BRacer() {
       mp: getLink.current() ?? undefined,
       pay: payHook.current,
       theme,
+      race,
       quality: q,
       touchDevice: isMobileish() && Boolean(window.matchMedia?.('(pointer: coarse)').matches),
       take: (p) => takeRef.current(p),
@@ -513,7 +520,7 @@ export function BRacer() {
       eng.dispose();
       if (engine.current === eng) engine.current = null;
     };
-  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, theme, session, onHud, pushToast, drawMini, bakeMini]);
+  }, [ready, trackId, shipId, teamId, effMode, difficulty, qualityPref, theme, race, session, onHud, pushToast, drawMini, bakeMini]);
 
   useEffect(() => {
     if (phase !== 'menu') return;
@@ -523,7 +530,8 @@ export function BRacer() {
 
   const def = TRACKS[trackId] ?? TRACKS[DEFAULT_TRACK];
   const ship = SHIPS.find((s) => s.id === shipId) ?? SHIPS[1];
-  const team = TEAMS.find((t) => t.id === teamId) ?? TEAMS[0];
+  const team = teamOf(teamId);
+  const teamList = race.customGrid ? race.teams : ALL_TEAMS;
   const bestTime = best[`${trackId}:${mode}`];
   const racing = phase === 'racing' || phase === 'countdown' || phase === 'paused';
   const start = (paid: boolean) => {
@@ -677,7 +685,7 @@ export function BRacer() {
         <div className={`pointer-events-none absolute inset-0 transition-opacity ${racing ? 'opacity-100' : 'opacity-0'}`}>
           {mpOn && xHandle && (
             <div className="absolute left-3 top-24 px-2 py-1 text-xs sm:top-28" style={{ background: ui.panel, color: ui.text }} data-hud-me={xHandle}>
-              <PlayerBadge handle={xHandle} name={xHandle} verified={Boolean(meId && room.verified[meId])} ring={(TEAMS.find((t) => t.id === teamId) ?? TEAMS[0]).base} size={22} />
+              <PlayerBadge handle={xHandle} name={xHandle} verified={Boolean(meId && room.verified[meId])} ring={teamOf(teamId).base} size={22} />
             </div>
           )}
           {/* Position + lap */}
@@ -1010,7 +1018,7 @@ export function BRacer() {
               <div>
                 <p className="mb-1 text-[10px] tracking-widest text-dim">04 / TEAM</p>
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
-                  {TEAMS.map((t) => (
+                  {teamList.map((t) => (
                     <button key={t.id} onClick={() => setTeamId(t.id)} aria-pressed={t.id === teamId} className="relative overflow-hidden p-1 text-left" style={{ background: t.base, outline: t.id === teamId ? `3px solid ${DR.colour.paper}` : '1px solid #000', outlineOffset: -1 }}>
                       {theme === 'white' ? (
                         <span data-ink-chip className="block h-2.5 w-5" style={{ ['--chip' as string]: inkTeamColour(t.base, t.accent).getStyle() }} />
@@ -1019,10 +1027,10 @@ export function BRacer() {
                           <ChevronBar n={6} h={9} colour={t.accent} />
                         </div>
                       )}
-                      <span className="mt-1 block text-[13px] leading-[0.9] sm:text-sm" style={{ ...hudFont, color: t.accent }}>
+                      <span className="mt-1 block text-[13px] leading-[0.9] sm:text-sm" style={{ ...hudFont, color: t.ink ?? t.accent }}>
                         {t.name}
                       </span>
-                      <span className="block text-[8px] tracking-widest" style={{ color: t.trim === '#111111' || t.trim === '#101010' ? t.accent : t.trim, fontFamily: DR.font.mono }}>
+                      <span className="block text-[8px] tracking-widest" style={{ color: t.ink ?? (t.trim === '#111111' || t.trim === '#101010' ? t.accent : t.trim), fontFamily: DR.font.mono }}>
                         {t.code}
                       </span>
                     </button>
@@ -1076,8 +1084,8 @@ export function BRacer() {
                   racingElsewhere={room.ui.players.some((p) => p.st === 'racing') && !meRow?.ready}
                   colours={{ quick: DR.colour.cyan, priv: DR.colour.amber, ok: DR.colour.acid, warn: DR.colour.signal, amber: DR.colour.amber }}
                   titleStyle={hudFont}
-                  teamColour={(x) => (TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).base}
-                  detail={(x) => `${SHIPS.find((sp) => sp.id === x.vehicle)?.name ?? x.vehicle} · ${(TEAMS.find((t) => t.id === x.team) ?? TEAMS[0]).name}`}
+                  teamColour={(x) => teamOf(x.team).base}
+                  detail={(x) => `${SHIPS.find((sp) => sp.id === x.vehicle)?.name ?? x.vehicle} · ${teamOf(x.team).name}`}
                   bar={
                     <div className="mt-1.5 w-[min(90%,22rem)]">
                       <ChevronBar n={22} h={7} colour={room.ui.count !== null ? DR.colour.amber : '#333'} />
@@ -1169,6 +1177,7 @@ export function BRacer() {
                 ))}
                 {perf && <span className="text-dim">· {perf.fps} fps</span>}
               </div>
+              <SponsorStrip sponsors={race.sponsors} label="SPONSORS" />
             </div>
           </div>
         )}
@@ -1251,7 +1260,7 @@ export function BRacer() {
                   <Barcode seed={`${result.score}${result.total}`} w={110} h={22} />
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-center">
-                  {mpOn && <RaceStandings rows={room.ui.standings} final={room.ui.final} teamColour={(t) => (TEAMS.find((x) => x.id === t) ?? TEAMS[0]).base} fmt={fmt} />}
+                  {mpOn && <RaceStandings rows={room.ui.standings} final={room.ui.final} teamColour={(t) => teamOf(t).base} fmt={fmt} />}
                   {result.mode === 'race' && (
                     <div className="inset w-full bg-black/70 p-2 text-left text-xs sm:max-w-sm">
                       <p className="mb-1 text-center font-bold tracking-widest text-dim">THE FIELD (LIVE TXS)</p>
@@ -1281,6 +1290,7 @@ export function BRacer() {
                   <HighScores game={scoreGame} score={result.score} secs={result.total} live={run.paid} txid={run.txid} meta={run.paid ? { ship: result.ship, mode: result.mode, diff: result.difficulty, pos: result.pos, coinop: 1 } : { ship: result.ship, mode: result.mode, diff: result.difficulty, pos: result.pos }} sorts={['score', 'time']} label="SCORE" />
                   )}
                 </div>
+                <SponsorStrip sponsors={race.sponsors} label="SPONSORS" />
                 <div className="flex flex-wrap justify-center gap-2">
                   {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" onPress={enterFs} />}
                   <button onClick={toMenu} className={mpOn ? 'btn-fire px-5 py-2' : 'btn'}>
@@ -1301,5 +1311,35 @@ export function BRacer() {
       {co.chooserEl}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </section>
+  );
+}
+
+/**
+ * The race's sponsors as plain links (garage and results): a colour block, the name and what the site is. New tab,
+ * no referrer, no tracking parameters. Nothing renders with ?ads=0.
+ */
+function SponsorStrip({ sponsors, label }: { sponsors: readonly Sponsor[]; label: string }) {
+  if (!sponsors.length) return null;
+  return (
+    <div data-bracer-sponsors>
+      <p className="mb-1 text-[10px] tracking-widest text-dim">{label}</p>
+      <ul className="flex flex-wrap gap-1.5">
+        {sponsors.map((sp) => (
+          <li key={sp.id}>
+            <a href={sp.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" title={`${sp.name}: ${sp.tagline} (${domainOf(sp.url)})`} className="flex items-stretch border border-black text-left hover:outline hover:outline-2 hover:outline-white" style={{ background: '#07070a' }}>
+              <span className="block w-2 shrink-0" style={{ background: sp.colour, boxShadow: 'inset -1px 0 0 #000' }} />
+              <span className="px-1.5 py-0.5">
+                <span className="block text-sm font-black italic leading-none text-white" style={{ fontFamily: DR.font.display }}>
+                  {sp.name}
+                </span>
+                <span className="block text-[9px] leading-tight text-dim" style={{ fontFamily: DR.font.mono }}>
+                  {sp.tagline}
+                </span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

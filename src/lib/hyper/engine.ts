@@ -21,7 +21,8 @@ import { SnapshotBuffer } from '@/lib/racemp/buffer';
 import { readWire, verifyWire } from '@/lib/identity';
 import { disposeAvatarTag, makeAvatarTag } from '@/lib/avatarTag';
 import type { RaceLink } from '@/lib/racemp/session';
-import { teamOfKind, TEAMS, type Team } from './teams';
+import { ALL_TEAMS, teamOf, teamOfKind, TEAMS, type Decal, type Team } from './teams';
+import { dealTeams, luminance, teamGlow, teamInk, type RaceSetup } from './registry';
 import { addInkAccent, InkPass, inkTeamColour, type BRacerTheme } from './ink';
 import { buildTrack, frameAt, HALF_W, newFrame, STEP, surfaceH, type Frame, type Track, type TrackId } from './track';
 import { CORE_SHIPS, DEFAULT_TRACK, TRACKS } from './content';
@@ -113,6 +114,8 @@ export type Options = {
   pay?: PayHook;
   /** 'white' = light surfaces + black linework (bWalletX White theme). Visual only. */
   theme?: BRacerTheme;
+  /** Grid and adverts from the URL (src/lib/hyper/registry.ts). Unset = transaction-kind teams, no adverts. */
+  race?: RaceSetup;
 };
 
 const BEST_KEY = 'tokenblaster:bracer-laps';
@@ -124,6 +127,7 @@ const POINTS = [3000, 2200, 1600, 1200, 800, 500, 300, 100];
 type RivalRun = {
   spec: RivalSpec;
   team: Team;
+  decal?: Decal;
   rig: Rig;
   trail: Trail | null;
   label: THREE.Sprite;
@@ -340,7 +344,7 @@ export class HyperEngine {
     this.el = el;
     this.opts = opts;
     this.spec = SHIPS.find((s) => s.id === opts.ship) ?? SHIPS[1];
-    this.team = TEAMS.find((t) => t.id === opts.team) ?? TEAMS[0];
+    this.team = teamOf(opts.team);
     this.laps = 3;
     this.hc = opts.difficulty === 'hardcore';
     this.maxDpr = opts.quality === 'ultra' ? 2 : opts.quality === 'high' ? 1.6 : 1.05;
@@ -398,7 +402,7 @@ export class HyperEngine {
     cb.onLoading('Building the megastructure', 0.3);
     await new Promise((r) => setTimeout(r, 0));
     if (this.disposed) return;
-    this.world = buildWorld(tr, q, renderer, this.opts.difficulty !== 'hardcore');
+    this.world = buildWorld(tr, q, renderer, this.opts.difficulty !== 'hardcore', { sponsors: this.opts.race?.sponsors ?? [], grid: this.opts.race?.customGrid ? this.opts.race.teams : [] });
     const sky = this.world.sky;
     // Image-based light from the sky dome.
     const envScene = new THREE.Scene();
@@ -480,9 +484,9 @@ export class HyperEngine {
   }
 
   private buildPlayer() {
-    const accent = this.team.accent === '#ffffff' || this.team.accent === '#f4efe2' || this.team.accent === '#f2f2ee' ? (TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK]).palette.a1 : this.team.accent;
+    const accent = this.team.accent === '#ffffff' || this.team.accent === '#f4efe2' || this.team.accent === '#f2f2ee' ? (TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK]).palette.a1 : teamGlow(this.team);
     const lv = this.spec.livery;
-    const rig = buildShip(this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null }, lv?.accent ?? accent);
+    const rig = buildShip(this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null, decal: this.decalOf(0) }, lv?.accent ?? accent);
     this.playerRig = rig;
     this.scene.add(rig.root);
     const col = new THREE.Color(this.TRAIL_COL(accent)).multiplyScalar(0.45);
@@ -504,6 +508,14 @@ export class HyperEngine {
     return { main: sp.live ? `TX ${sp.tx!.slice(0, 5)}` : 'IDLE TX', meta: null };
   }
 
+  /** Sponsor decal for car `i` (0 = the player): the race's sponsors in rotation, none with ?ads=0. */
+  private decalOf(i: number): Decal | undefined {
+    const sp = this.opts.race?.sponsors ?? [];
+    if (!sp.length) return undefined;
+    const d = sp[i % sp.length];
+    return { text: d.name, bg: d.colour, fg: d.ink };
+  }
+
   private makeRivals(count = COUNT, taken: number[] = [5]) {
     this.rivals = [];
     if (this.opts.mode === 'trial' || count <= 0) return;
@@ -513,13 +525,19 @@ export class HyperEngine {
     rivals.sort((a, b) => b.skill - a.skill);
     let slot = 0;
     const total = this.laps * tr.len;
-    for (const spec of rivals) {
+    // ?teams= grid: the live-chain rivals race in the chosen teams (round-robin, player's team last) instead of
+    // their transaction kind's team. They keep their ticker, logo and tx.
+    const race = this.opts.race;
+    const grid = race?.customGrid ? (race.teams.some((t) => t.id === this.team.id) ? [this.team, ...race.teams.filter((t) => t.id !== this.team.id)] : race.teams) : null;
+    const dealt = grid ? dealTeams(grid, rivals.length) : null;
+    for (const [ri, spec] of rivals.entries()) {
       while (taken.includes(slot)) slot++;
       spec.slot = slot++;
-      const team = teamOfKind(spec.kind);
+      const team = dealt?.[ri] ?? teamOfKind(spec.kind);
+      const decal = this.decalOf(spec.slot + 1);
       const hull = CORE_SHIPS[(spec.slot + 1) % CORE_SHIPS.length];
       const meta = spec.token ? tokenMeta(spec.token) : null;
-      const rig = buildShip(hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null }, team.accent === '#ffffff' ? team.base : team.accent);
+      const rig = buildShip(hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null, decal }, teamGlow(team));
       if (this.opts.theme === 'white') addInkAccent(rig.tilt, inkTeamColour(team.base, team.accent));
       this.scene.add(rig.root);
       const label = this.makeLabel();
@@ -538,7 +556,7 @@ export class HyperEngine {
         vPrev = v;
       }
       const run: RivalRun = {
-        spec, team, rig, trail: this.opts.quality === 'low' ? null : new Trail(14, new THREE.Color(team.accent === '#ffffff' ? team.base : team.accent).multiplyScalar(2), 0.28),
+        spec, team, decal, rig, trail: this.opts.quality === 'low' ? null : new Trail(14, new THREE.Color(teamGlow(team)).multiplyScalar(2), 0.28),
         label: label.sprite, labelCanvas: label.canvas, labelTex: label.tex, labelKey: '',
         tt, s0, tc: 0, idx: 0, S: s0, lat: (spec.slot % 2 ? 1 : -1) * 6, lane: (spec.slot % 2 ? 1 : -1) * (4 + this.rng() * 5), phase: this.rng() * 6.28, stun: 0, spin: 0, finish: 0,
         weaponT: 10 + this.rng() * 18, done: false, v: 0,
@@ -569,7 +587,7 @@ export class HyperEngine {
     const { main, meta } = this.labelText(r);
     const key = main + (meta?.icon?.complete ? '+i' : '');
     if (!force && key === r.labelKey) return;
-    if (!force) r.rig.setLivery({ base: r.team.base, accent: r.team.accent, trim: r.team.trim, ticker: main.slice(0, 8), number: String(((r.spec.slot * 13 + 5) % 97) + 2), team: r.team.name, logo: meta?.icon ?? null });
+    if (!force) r.rig.setLivery({ base: r.team.base, accent: r.team.accent, trim: r.team.trim, ticker: main.slice(0, 8), number: String(((r.spec.slot * 13 + 5) % 97) + 2), team: r.team.name, logo: meta?.icon ?? null, decal: r.decal });
     r.labelKey = key;
     const c = r.labelCanvas;
     const g = c.getContext('2d')!;
@@ -607,7 +625,7 @@ export class HyperEngine {
         /* tainted */
       }
     }
-    g.fillStyle = r.team.trim === '#111111' || r.team.trim === '#101010' ? '#fff' : '#000';
+    g.fillStyle = teamInk(r.team);
     g.font = `900 52px ${FONTS.display}`;
     g.textBaseline = 'alphabetic';
     g.fillText(main.slice(0, 9), x, 90, c.width - x - 14);
@@ -776,7 +794,7 @@ export class HyperEngine {
 
   private addRemote(id: string, info: { name: string; vehicle: string; team: string; gun?: string }, slot: number) {
     const spec = SHIPS.find((s) => s.id === info.vehicle) ?? SHIPS[1];
-    const team = TEAMS.find((t) => t.id === info.team) ?? TEAMS[0];
+    const team = teamOf(info.team);
     const xid = readWire(info);
     const name = xid.x ? `@${xid.x}` : String(info.name || 'PILOT').slice(0, 14);
     const accent = team.accent === '#ffffff' || team.accent === '#f4efe2' || team.accent === '#f2f2ee' ? team.base : team.accent;
@@ -859,7 +877,7 @@ export class HyperEngine {
     g.strokeStyle = '#000';
     g.lineWidth = 6;
     g.strokeRect(3, 3, c.width - 6, c.height - 6);
-    g.fillStyle = r.team.trim === '#111111' || r.team.trim === '#101010' ? '#fff' : '#000';
+    g.fillStyle = teamInk(r.team);
     g.font = `900 50px ${FONTS.display}`;
     g.textBaseline = 'alphabetic';
     g.fillText(r.name.toUpperCase(), 18, 90, c.width - 36);
@@ -1900,7 +1918,7 @@ export class HyperEngine {
       rivals: [
         ...this.rivals.map((r) => {
           const g = frameAt(this.tr, r.S, this.frame2);
-          return { x: g.px + g.rx * r.lat, z: g.pz + g.rz * r.lat, c: r.team.base === '#101015' ? r.team.accent : r.team.base };
+          return { x: g.px + g.rx * r.lat, z: g.pz + g.rz * r.lat, c: luminance(r.team.base) < 0.03 ? r.team.accent : r.team.base };
         }),
         ...this.remotes.filter((r) => !r.gone && !(r.fl & 8)).map((r) => {
           const g = frameAt(this.tr, r.S, this.frame2);
@@ -1993,4 +2011,4 @@ export const fmt = (t: number) => {
   const s = t - m * 60;
   return `${m}:${s < 10 ? '0' : ''}${s.toFixed(2)}`;
 };
-export { SHIPS, TRACKS, TEAMS };
+export { SHIPS, TRACKS, TEAMS, ALL_TEAMS, teamOf };

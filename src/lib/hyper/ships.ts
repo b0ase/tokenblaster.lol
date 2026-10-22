@@ -179,6 +179,21 @@ export function paintLivery(c: HTMLCanvasElement, l: Livery) {
   g.textAlign = 'right';
   g.fillText(l.ticker, 0, 0);
   g.restore();
+  // Sponsor decal across the nose (adverts, src/lib/hyper/registry.ts): a flat block in the sponsor's colour with a
+  // trim keyline, like a works sticker.
+  if (l.decal) {
+    g.save();
+    g.fillStyle = l.trim;
+    g.fillRect(S * 0.19, S * 0.065, S * 0.62, S * 0.105);
+    g.fillStyle = l.decal.bg;
+    g.fillRect(S * 0.2, S * 0.075, S * 0.6, S * 0.085);
+    g.fillStyle = l.decal.fg;
+    g.font = `900 ${S * 0.062}px Impact, "Arial Black", sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(l.decal.text, S * 0.5, S * 0.12, S * 0.56);
+    g.restore();
+  }
   // Token logo roundel.
   const lg = l.logo;
   g.beginPath();
