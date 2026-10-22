@@ -74,7 +74,7 @@ const P = (s: Omit<ClawSpec, 'seed' | 'twist' | 'asym'> & { twist?: number; asym
 /** The named claws. Ids are stable (collectibles key on them); add new ones at the end. */
 export const CLAW_PRESETS: readonly ClawSpec[] = [
   P({ preset: 'grabber', name: 'GRABBER', blurb: 'Three-finger grabber round a hot orb', arms: 3, segments: 2, armLen: 1, armThick: 1, pincer: 'hook', core: 'orb', coreSize: 1, plates: 'armoured', jets: 2, scale: 1, spread: 0.32, layout: 'ring', tint: '#f97316', metal: '#d9dde3' }),
-  P({ preset: 'nipper', name: 'NIPPER', blurb: 'Small, quick scissor claw', arms: 2, segments: 2, armLen: 0.78, armThick: 0.75, pincer: 'scissor', core: 'hex', coreSize: 0.75, plates: 'smooth', jets: 1, scale: 0.82, spread: 0.25, layout: 'flat', tint: '#ffa23a', metal: '#e4e7ec' }),
+  P({ preset: 'nipper', name: 'NIPPER', blurb: 'Small, quick scissor claw', arms: 2, segments: 2, armLen: 0.82, armThick: 0.85, pincer: 'scissor', core: 'hex', coreSize: 0.75, plates: 'smooth', jets: 1, scale: 0.9, spread: 0.25, layout: 'flat', tint: '#ffa23a', metal: '#e4e7ec' }),
   P({ preset: 'crusher', name: 'CRUSHER', blurb: 'Lobster: one crusher, one cutter', asym: true, arms: 2, segments: 2, armLen: 1.05, armThick: 1.45, pincer: 'crusher', core: 'orb', coreSize: 1.35, plates: 'armoured', jets: 3, scale: 1.18, spread: 0.3, layout: 'flat', tint: '#e8590c', metal: '#6b717b' }),
   P({ preset: 'needle', name: 'NEEDLE', blurb: 'Four long needle fingers', arms: 4, segments: 3, armLen: 1.32, armThick: 0.72, pincer: 'needle', core: 'crystal', coreSize: 0.85, plates: 'smooth', jets: 2, scale: 0.95, spread: 0.18, layout: 'ring', twist: Math.PI / 4, tint: '#ff7a1a', metal: '#cfd4db' }),
   P({ preset: 'kingcrab', name: 'KING CRAB', blurb: 'Two wide crab pincers, spiked shell', arms: 2, segments: 3, armLen: 1.1, armThick: 1.25, pincer: 'crab', core: 'hex', coreSize: 1.1, plates: 'spiked', jets: 2, scale: 1.08, spread: 0.42, layout: 'flat', tint: '#ff6a00', metal: '#d4b483' }),
@@ -178,7 +178,9 @@ const metalOf = (sp: ClawSpec): Surf => ({ c: sp.metal, m: 1, r: 0.24, cc: 0.25 
 const paintOf = (sp: ClawSpec): Surf => ({ c: sp.tint, m: 0.5, r: 0.3, cc: 1, pcb: 1.6 });
 const ledOf = (sp: ClawSpec, g = 3.2): Surf => ({ c: sp.tint, m: 0, r: 0.5, g });
 /** Blade steel: brushed, a little darker than chrome so a pair of blades does not flare. */
-const BLADE: Surf = { c: '#9ea5ae', m: 1, r: 0.34, cc: 0.2 };
+const BLADE: Surf = { c: '#6c737c', m: 1, r: 0.3, cc: 0.3 };
+/** The ground cutting edge: a bright line that reads at race distance. */
+const EDGE: Surf = { c: '#fff0d8', m: 0, r: 0.3, g: 2.8 };
 const SPIKE: Surf = { c: '#17181c', m: 0.9, r: 0.28, cc: 0.4 };
 
 /** A curved cone along +Z of length `len`, bending toward `bend` (y) at the tip. */
@@ -332,7 +334,7 @@ function segmentGeo(sp: ClawSpec, p: Pincer, len: number, w0: number, w1: number
 }
 
 /** Pincer hands are built bigger than the arm that carries them (a crusher is mostly hand). */
-const handScale = (p: Pincer) => (p === 'crusher' ? 1.6 : p === 'crab' ? 2.3 : p === 'scissor' ? 2.4 : 1);
+const handScale = (p: Pincer) => (p === 'crusher' ? 1.6 : p === 'crab' ? 2.3 : p === 'scissor' ? 2.6 : 1);
 
 // Crab claw profile (u along, v outward), in units of the hand width w.
 const CRAB = { P: 1.5, H: 1.25, F: 2.1 };
@@ -350,6 +352,8 @@ function tipGeo(out: THREE.BufferGeometry[], sp: ClawSpec, p: Pincer, len: numbe
   switch (p) {
     case 'hook': {
       add(hookGeo(w * 0.62, 0.95 * th, -0.42 * th, lo ? 5 : 7), paint);
+      // A lit tip so the claws read from behind and at distance.
+      add(new THREE.SphereGeometry(w * 0.16, 8, 6).translate(0, -0.42 * th * 0.96, 0.93 * th), ledOf(sp, 5));
       if (!lo) teeth(out, 3, len + 0.12, len + 0.6 * th, -w * 0.32, -1, 0.06 * th);
       break;
     }
@@ -397,7 +401,7 @@ function tipGeo(out: THREE.BufferGeometry[], sp: ClawSpec, p: Pincer, len: numbe
     case 'scissor': {
       // Housing, the fixed blade (a real cross-section: bevelled edges, a ground cutting edge) and the pivot bolt.
       add(rtaper(w * 0.75, w * 0.7, w * 0.62, w * 0.6, w * 0.85, 0.3), paint);
-      add(blade(w).translate(-w * 0.07, 0, w * 0.85), BLADE);
+      blade(out, w, -w * 0.08, len + w * 0.85, false);
       const pin = new THREE.CylinderGeometry(w * 0.16, w * 0.16, w * 0.5, 10);
       pin.rotateZ(Math.PI / 2);
       add(pin.translate(0, 0, w * 0.85), SURF.steel);
@@ -406,20 +410,29 @@ function tipGeo(out: THREE.BufferGeometry[], sp: ClawSpec, p: Pincer, len: numbe
         nut.rotateZ(Math.PI / 2);
         add(nut.translate(sx * w * 0.25, 0, w * 0.85), SURF.chrome, true);
       }
-      if (!lo) add(rtaper(0.025, 0.035, 0.02, 0.02, w * 2.6, 0.4, 1).translate(-w * 0.07, -w * 0.36, w * 1.1), ledOf(sp, 2));
       break;
     }
   }
 }
 
-/** One scissor blade along +Z from the pivot: tang behind, curved spine below, straight cutting edge above. */
-function blade(w: number) {
+/** One scissor blade along +Z from the pivot: tang behind, curved spine below, straight cutting edge above, and a
+ * bright ground edge along the cut. Pushed into `out`; `flip` turns it over (the moving blade). */
+function blade(out: THREE.BufferGeometry[], w: number, x: number, z: number, flip: boolean) {
   const L = w * 3.4;
-  const W = w * 0.9;
+  const W = w * 1.35;
   const pts: [number, number][] = [[-0.22 * L, -0.24 * W], [0, -0.42 * W]];
   pts.push(...quad([0, -0.42 * W], [0.62 * L, -0.5 * W], [L, 0.04 * W], 8));
   pts.push([0.15 * L, 0.3 * W], [-0.22 * L, 0.2 * W]);
-  return profile(pts, w * 0.12, w * 0.05, 4);
+  const body = profile(pts, w * 0.13, w * 0.05, 4);
+  const [u0, v0, u1, v1] = [0.15 * L, 0.3 * W, L * 0.97, 0.06 * W];
+  const len = Math.hypot(u1 - u0, v1 - v0);
+  const edge = rtaper(w * 0.2, 0.035, w * 0.12, 0.025, len, 0.4, 1);
+  edge.rotateX(-Math.atan2(v1 - v0, u1 - u0));
+  edge.translate(0, v0, u0);
+  for (const [g, s] of [[body, BLADE], [edge, EDGE]] as const) {
+    if (flip) g.rotateZ(Math.PI);
+    out.push(part(g.translate(x, 0, z), s));
+  }
 }
 
 /** The moving jaw for pincer types, local frame at its pivot (opens toward +Y). */
@@ -459,8 +472,7 @@ function dactylGeo(sp: ClawSpec, p: Pincer, w0: number, detail: Detail): { g: TH
     }
     case 'scissor': {
       // The fixed blade flipped about its own length: spine above, cutting edge below.
-      out.push(part(blade(w).rotateZ(Math.PI).translate(w * 0.07, 0, 0), BLADE));
-      if (!lo) out.push(part(rtaper(0.025, 0.035, 0.02, 0.02, w * 2.6, 0.4, 1).translate(w * 0.07, w * 0.36, w * 0.25), ledOf(sp, 2)));
+      blade(out, w, w * 0.08, 0, true);
       return { g: merge(out), pivot: new THREE.Vector3(0, 0, w * 0.85) };
     }
     default:
@@ -916,6 +928,8 @@ export function buildClaw(spec: ShipSpec, l: Livery, accentCol: string, cs: Claw
   });
   return {
     root, tilt, flame, flameMat, glow, canvas, tex, bodyMat, trimMat, shield,
+    // Higher and a little further back, looking down: the arms read ahead of the jets from the chase camera.
+    cam: { back: 1.02, up: 1.6, tilt: 0.1 },
     engine: (G.jets.length === 1 ? [G.jets[0], G.jets[0]] : G.jets).map((e) => e.clone().multiplyScalar(k)),
     setLivery(nl) {
       paintClaw(canvas, nl, cs.tint);

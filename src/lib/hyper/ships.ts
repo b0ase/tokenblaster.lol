@@ -227,6 +227,8 @@ export type Rig = {
   trimMat: THREE.MeshBasicMaterial;
   shield: THREE.Mesh;
   engine: THREE.Vector3[];
+  /** Chase-camera framing for this body (multipliers on distance and height; extra downward tilt). Unset = 1, 1, 0. */
+  cam?: { back: number; up: number; tilt?: number };
   setLivery(l: Livery): void;
   dispose(): void;
 };

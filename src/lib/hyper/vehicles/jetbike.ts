@@ -10,14 +10,16 @@ import type { Rig } from '../ships';
 import { buildRider } from './rider';
 import { bare, brushedTex, flameGeo, flameMaterial, kitMaterial, liveryCanvas, merge, mergeBare, onFrame, part, ring, rng, rtaper, shieldMesh, SURF, tube, type Detail, type Surf } from './kit';
 
-const OBSIDIAN: Surf = { c: '#07080b', m: 0.55, r: 0.08, cc: 1 };
+// Obsidian: a near-black dielectric under a mirror clearcoat. All its look comes from crisp reflections (see
+// studioEnv), so it reads as glossy black, never grey.
+const OBSIDIAN: Surf = { c: '#030305', m: 0, r: 0.05, cc: 1 };
 const CHROME: Surf = { c: '#c9ced6', m: 1, r: 0.3, cc: 0 };
 const BRIGHT: Surf = { c: '#e8ecf1', m: 1, r: 0.12, cc: 0.4 };
 const BLUE = '#2f8cff';
 const LED: Surf = { c: BLUE, m: 0, r: 0.5, g: 5 };
 const LEATHER: Surf = { c: '#121214', m: 0.1, r: 0.62, cc: 0.2 };
 
-type BikeGeo = { hull: THREE.BufferGeometry; glass: THREE.BufferGeometry; plates: THREE.BufferGeometry; glow: THREE.BufferGeometry; trim: THREE.BufferGeometry; flame: THREE.BufferGeometry; engine: THREE.Vector3[]; nozzleZ: number; coils: THREE.Vector3[] };
+type BikeGeo = { hull: THREE.BufferGeometry; metal: THREE.BufferGeometry; glass: THREE.BufferGeometry; plates: THREE.BufferGeometry; glow: THREE.BufferGeometry; trim: THREE.BufferGeometry; flame: THREE.BufferGeometry; engine: THREE.Vector3[]; nozzleZ: number; coils: THREE.Vector3[] };
 const cache = new Map<Detail, BikeGeo>();
 
 function bikeGeo(detail: Detail): BikeGeo {
@@ -174,7 +176,9 @@ function bikeGeo(detail: Detail): BikeGeo {
   tp.rotateY(Math.PI);
   plates.push(tp.translate(0, -0.06, zT - 0.02));
   const flame = flameGeo(engine.map((e) => new THREE.Vector3(e.x, e.y, 0)), 0.19, 3.2, lo ? 8 : 14);
-  const g: BikeGeo = { hull: merge(hull), glass: glass, plates: mergeBare(plates.map((p) => bare(p, true))), glow: mergeBare(glow), trim: mergeBare(trim), flame, engine, nozzleZ, coils };
+  // Metal parts (chrome, brushed) and the gloss parts (obsidian, leather, lights) get different materials.
+  const isMetal = (p: THREE.BufferGeometry) => (p.attributes.aSurf as THREE.BufferAttribute).getX(0) >= 0.9;
+  const g: BikeGeo = { hull: merge(hull.filter((p) => !isMetal(p))), metal: merge(hull.filter(isMetal)), glass: glass, plates: mergeBare(plates.map((p) => bare(p, true))), glow: mergeBare(glow), trim: mergeBare(trim), flame, engine, nozzleZ, coils };
   cache.set(detail, g);
   return g;
 }
@@ -210,6 +214,40 @@ let bikeMat: THREE.MeshPhysicalMaterial | null = null;
 let glassMat: THREE.MeshPhysicalMaterial | null = null;
 let bikeGlow: THREE.MeshBasicMaterial | null = null;
 let riderMat: THREE.MeshPhysicalMaterial | null = null;
+let glossMat: THREE.MeshPhysicalMaterial | null = null;
+
+/**
+ * A dark studio for the obsidian to reflect: black, with a few hard softbox strips and a blue accent. Equirectangular;
+ * three.js prefilters it like any environment map. Deterministic, shared.
+ */
+let studio: THREE.CanvasTexture | null = null;
+export function studioEnv() {
+  if (studio) return studio;
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 512;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, 1024, 512);
+  const strip = (x: number, y: number, w: number, h: number, col: string) => {
+    g.fillStyle = col;
+    g.fillRect(x, y, w, h);
+  };
+  strip(0, 70, 1024, 26, '#ffffff'); // overhead softbox ring
+  strip(180, 120, 46, 170, '#f4f7ff'); // tall side strips
+  strip(640, 110, 34, 190, '#ffffff');
+  strip(880, 150, 22, 120, '#cfe0ff');
+  strip(0, 246, 1024, 6, '#3f8cff'); // blue horizon accent
+  const fl = g.createLinearGradient(0, 300, 0, 512);
+  fl.addColorStop(0, '#000');
+  fl.addColorStop(1, '#16181d');
+  g.fillStyle = fl;
+  g.fillRect(0, 300, 1024, 212);
+  studio = new THREE.CanvasTexture(c);
+  studio.mapping = THREE.EquirectangularReflectionMapping;
+  studio.colorSpace = THREE.SRGBColorSpace;
+  return studio;
+}
 
 export function buildJetBike(spec: ShipSpec, l: Livery, _accent: string, detail: Detail = 'high'): Rig {
   const G = bikeGeo(detail);
@@ -235,7 +273,8 @@ export function buildJetBike(spec: ShipSpec, l: Livery, _accent: string, detail:
     model.add(me);
     return me;
   };
-  const hull = mk(G.hull, bikeMat);
+  const hull = mk(G.hull, (glossMat ??= kitMaterial({ envMap: studioEnv(), envMapIntensity: 2.2, clearcoatRoughness: 0.015 }, 'jetbike-gloss')));
+  mk(G.metal, bikeMat);
   mk(G.glass, glassMat);
   mk(G.plates, bodyMat);
   mk(G.trim, trimMat);
@@ -243,7 +282,7 @@ export function buildJetBike(spec: ShipSpec, l: Livery, _accent: string, detail:
   const flame = mk(G.flame, flameMat);
   flame.position.z = G.nozzleZ;
   // The rider: one skinned mesh, posed every frame from the bike's roll, thrust and boost.
-  const rider = buildRider((riderMat ??= kitMaterial({ envMapIntensity: 1.7 }, 'rider')), detail);
+  const rider = buildRider((riderMat ??= kitMaterial({ envMap: studioEnv(), envMapIntensity: 1.5, clearcoatRoughness: 0.05 }, 'rider')), detail, bodyMat);
   model.add(rider.mesh);
   // Tesla arc between the coil tops: a jagged line re-drawn every frame, mostly when boosting.
   const N = 10;

@@ -132,16 +132,20 @@ test('the jet-bike rider is one skinned mesh whose hands stay on the grips and f
     const endOf = (i: number, len: number) => new THREE.Vector3(0, 0, len).applyQuaternion(bones[i].quaternion).add(bones[i].position);
     const near = (a: THREE.Vector3, b: THREE.Vector3, what: string) => assert.ok(a.distanceTo(b) < 0.02, `${what} at lean ${lean}: off by ${a.distanceTo(b).toFixed(3)}`);
     for (const side of [1, -1]) {
-      near(endOf(side > 0 ? RB.faL : RB.faR, RIDER_LIMBS.FA), new THREE.Vector3(side * RIDER_MOUNT.grip.x, RIDER_MOUNT.grip.y, RIDER_MOUNT.grip.z), 'hand');
-      near(endOf(side > 0 ? RB.shL : RB.shR, RIDER_LIMBS.SH), new THREE.Vector3(side * RIDER_MOUNT.peg.x, RIDER_MOUNT.peg.y, RIDER_MOUNT.peg.z), 'foot');
+      const grip = new THREE.Vector3(side * RIDER_MOUNT.grip.x, RIDER_MOUNT.grip.y, RIDER_MOUNT.grip.z);
+      const peg = new THREE.Vector3(side * RIDER_MOUNT.peg.x, RIDER_MOUNT.peg.y, RIDER_MOUNT.peg.z);
+      near(endOf(side > 0 ? RB.faL : RB.faR, RIDER_LIMBS.FA), grip.clone().add(RIDER_MOUNT.wrist), 'wrist');
+      near(bones[side > 0 ? RB.handL : RB.handR].position, grip, 'fist on the grip');
+      near(endOf(side > 0 ? RB.shL : RB.shR, RIDER_LIMBS.SH), peg.clone().add(RIDER_MOUNT.ankle), 'ankle');
+      near(bones[side > 0 ? RB.footL : RB.footR].position, peg.clone().add(RIDER_MOUNT.ankle), 'boot on the peg');
     }
     // Leaning: the head moves toward the low side (positive lean = left side up, so the head goes right, -X).
     if (lean > 0) assert.ok(bones[RB.head].position.x < -0.05, 'rider leans into the turn');
   }
   const bike = V.buildVehicle({ vehicle: 'jetbike' }, wedge, livery, '#3f9bff');
-  let skinned = 0;
-  bike.tilt.traverse((o) => (skinned += (o as THREE.SkinnedMesh).isSkinnedMesh ? 1 : 0));
-  assert.equal(skinned, 1, 'the bike carries exactly one rider');
+  const skeletons = new Set<THREE.Skeleton>();
+  bike.tilt.traverse((o) => (o as THREE.SkinnedMesh).isSkinnedMesh && skeletons.add((o as THREE.SkinnedMesh).skeleton));
+  assert.equal(skeletons.size, 1, 'the bike carries exactly one rider (body and back number share its skeleton)');
 });
 
 test('claw details: rams on high detail only; per-racer seeds give different claws; own paper plane hides its dimensions', () => {
@@ -151,6 +155,10 @@ test('claw details: rams on high detail only; per-racer seeds give different cla
     return n;
   };
   assert.equal(rams('high'), 2);
+  // Claws frame higher in the chase camera so the arms read ahead of the jets; other bodies keep the default.
+  const claw = V.buildVehicle({ vehicle: 'claw', variant: 'nipper' }, wedge, livery, '#f97316');
+  assert.ok(claw.cam && claw.cam.up > 1.2, 'claw chase camera is raised');
+  assert.equal(V.buildVehicle({}, wedge, livery, '#f97316').cam, undefined);
   assert.equal(rams('low'), 0);
   const a = size(V.buildVehicle({ vehicle: 'claw', variant: 'grabber', seed: V.seedOf('rival:1:abc') }, wedge, livery, '#f97316'));
   const b = size(V.buildVehicle({ vehicle: 'claw', variant: 'grabber', seed: V.seedOf('rival:2:def') }, wedge, livery, '#f97316'));

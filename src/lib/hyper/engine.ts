@@ -758,7 +758,7 @@ export class HyperEngine {
     if (this.phase === 'loading') return;
     this.setupMp();
     this.resetRace();
-    this.countT = 0;
+    this.countT = this.simStep ? 2.69 : 0;
     this.lastCount = -1;
     this.setPhase('countdown');
   }
@@ -1064,6 +1064,7 @@ export class HyperEngine {
     if (this.disposed) return;
     let dt = Math.min(0.05, this.clock.running ? this.clock.getDelta() : 0);
     if (!this.clock.running && this.phase === 'paused') dt = 0;
+    else if (this.simStep) dt = this.simStep;
     this.perf(dt);
     this.time += dt;
     const { inp, edges } = this.input.read(this.opts.touchDevice);
@@ -1789,11 +1790,13 @@ export class HyperEngine {
       cam.lookAt(this.v4.copy(this.shipPos).addScaledVector(this.v3, 3));
       this.fov += (52 - this.fov) * Math.min(1, 4 * dt);
     } else {
-      const dist = this.camMode === 0 ? 7.6 : 12;
-      const height = this.camMode === 0 ? 3.0 : 4.8;
+      // Some bodies frame differently (a claw is seen from higher up, so its arms read ahead of the jets).
+      const vc = this.playerRig?.cam;
+      const dist = (this.camMode === 0 ? 7.6 : 12) * (vc?.back ?? 1);
+      const height = (this.camMode === 0 ? 3.0 : 4.8) * (vc?.up ?? 1);
       this.v1.set(0, height, dist).applyQuaternion(this.qCam);
       cam.position.copy(this.v4).add(this.v1);
-      this.qTmp2.setFromAxisAngle(this.v2.set(1, 0, 0), -0.17 - (this.camMode ? 0.05 : 0));
+      this.qTmp2.setFromAxisAngle(this.v2.set(1, 0, 0), -0.17 - (this.camMode ? 0.05 : 0) - (vc?.tilt ?? 0));
       cam.quaternion.copy(this.qCam).multiply(this.qTmp2);
       const asp = cam.aspect;
       const base = asp < 1 ? 92 : 74;
@@ -1826,6 +1829,11 @@ export class HyperEngine {
   }
   private travelled = 0;
   private shotCam = false;
+  /**
+   * Dev-only review hook: ?simstep=<seconds> advances the race by a fixed step per rendered frame (and skips the
+   * countdown), so a slow software-GL browser can capture frames at racing speed. Never set in production builds.
+   */
+  private simStep = process.env.NODE_ENV !== 'production' && typeof location !== 'undefined' ? Math.max(0, Math.min(0.1, Number(new URLSearchParams(location.search).get('simstep')) || 0)) : 0;
 
   // ───────────── FX ─────────────
 
