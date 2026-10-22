@@ -921,21 +921,22 @@ export function BRacer() {
                   <ProductCode code="HG-3000" label="TB" />
                 </div>
                 <div className="-mt-1 flex flex-wrap items-center gap-2">
-                  <Sticker bg={DR.colour.amber} size={15} rot={-2}>
-                    BUY NOW / BLAST MORE
-                  </Sticker>
                   <Sticker bg={DR.colour.paper} size={12} rot={2}>
                     {GAME_TAGLINE}
                   </Sticker>
                 </div>
-                <div className="mt-2 w-[min(90%,22rem)]">
-                  <ChevronBar n={26} h={10} colour={DR.colour.signal} />
-                </div>
               </div>
-              <p className="max-w-md text-xs text-fg">Every rival is a real mainnet transaction. The bigger the move, the faster the ship; token tickers and logos fly as team colours. Hit pads, grab weapons, barrel-roll for boost.</p>
+
+              {/* START first and biggest: the owner couldn't find it under the options (22 Oct 2026). */}
+              {!mpOn && (
+                <div data-bracer-start className="flex flex-wrap items-start gap-3">
+                  <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="START" practiceLabel="▶ PRACTICE" onPress={enterFs} big />
+                  {bestTime ? <span className="pt-3 text-sm" style={{ color: DR.colour.amber }}>BEST {fmt(bestTime)}</span> : null}
+                </div>
+              )}
 
               <div>
-                <p className="mb-1 text-[10px] tracking-widest text-dim">01 / CIRCUIT</p>
+                <p className="mb-1 text-[10px] tracking-widest text-dim">TRACK</p>
                 <div className="grid grid-cols-3 gap-1.5">
                   {TRACK_LIST.map((t, i) => (
                     <button key={t.id} onClick={() => pickTrack(t.id)} disabled={locked} aria-pressed={t.id === trackId} className="relative overflow-hidden border-2 p-1.5 text-left" style={{ borderColor: t.id === trackId ? t.palette.a1 : '#333', background: t.id === trackId ? '#0c0c10' : '#07070a', ...(t.id === trackId ? halftone(t.palette.a2, 10, 0.3) : {}) }}>
@@ -956,7 +957,6 @@ export function BRacer() {
                     </button>
                   ))}
                 </div>
-                <p className="mt-1 text-[11px] text-dim">{def.blurb}</p>
                 {!def.core || def.par?.lapSeconds ? (
                   <p className="mt-0.5 text-[10px] text-dim">
                     {def.core ? null : (
@@ -970,53 +970,8 @@ export function BRacer() {
                 ) : null}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <p className="mb-1 text-[10px] tracking-widest text-dim">02 / MODE</p>
-                  <div className="flex gap-1.5">
-                    {(['race', 'trial'] as const).map((m) => (
-                      <button key={m} onClick={() => setMode(m)} disabled={mpOn && m === 'trial'} aria-pressed={m === effMode} className="flex-1 border-2 px-2 py-1.5 text-lg" style={{ ...hudFont, borderColor: m === effMode ? DR.colour.amber : '#333', background: m === effMode ? DR.colour.amber : '#07070a', color: m === effMode ? '#000' : '#ddd', opacity: mpOn && m === 'trial' ? 0.35 : 1 }}>
-                        {m === 'race' ? 'RACE · 3 LAPS' : 'TIME TRIAL'}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mb-1 mt-2 text-[10px] tracking-widest text-dim">02b / DIFFICULTY</p>
-                  <div className="flex gap-1.5">
-                    {(['normal', 'hardcore'] as const).map((d) => (
-                      <button key={d} onClick={() => pickDiff(d)} disabled={locked || (mpOn && room.info?.quick === true)} aria-pressed={d === difficulty} className="flex-1 border-2 px-2 py-1 text-left" style={{ ...hudFont, borderColor: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : DR.colour.acid) : '#333', background: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : '#10200a') : '#07070a', color: d === difficulty && d === 'hardcore' ? '#fff' : '#ddd' }}>
-                        <span className="block text-base leading-none">{d === 'normal' ? 'NORMAL' : 'HARDCORE'}</span>
-                        <span className="block text-[9px] leading-tight opacity-80" style={{ fontFamily: DR.font.mono, fontStyle: 'normal', textTransform: 'none' }}>
-                          {d === 'normal' ? 'shield + pit lane' : '2.5x damage, no pit, head-on = boom'}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="mb-1 text-[10px] tracking-widest text-dim">03 / HULL</p>
-                  <div className="flex gap-1.5">
-                    {SHIPS.map((s) => (
-                      <button key={s.id} onClick={() => setShipId(s.id)} aria-pressed={s.id === shipId} title={s.blurb} className="flex-1 border-2 px-1.5 py-1 text-left" style={{ borderColor: s.id === shipId ? DR.colour.cyan : '#333', background: s.id === shipId ? '#0a1a1e' : '#07070a' }}>
-                        <span className="block text-base leading-none text-white" style={hudFont}>
-                          {s.name}
-                        </span>
-                        <span className="mt-0.5 block h-1 bg-white/10">
-                          <span className="block h-full" style={{ width: `${((s.vmax - 150) / 40) * 100}%`, background: DR.colour.amber }} />
-                        </span>
-                        <span className="mt-0.5 block h-1 bg-white/10">
-                          <span className="block h-full" style={{ width: `${((s.turn - 50) / 50) * 100}%`, background: DR.colour.cyan }} />
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-0.5 text-[10px] text-dim">
-                    {ship.name}: {ship.blurb}
-                  </p>
-                </div>
-              </div>
-
               <div>
-                <p className="mb-1 text-[10px] tracking-widest text-dim">04 / TEAM</p>
+                <p className="mb-1 text-[10px] tracking-widest text-dim">TEAM</p>
                 <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
                   {teamList.map((t) => (
                     <button key={t.id} onClick={() => setTeamId(t.id)} aria-pressed={t.id === teamId} className="relative overflow-hidden p-1 text-left" style={{ background: t.base, outline: t.id === teamId ? `3px solid ${DR.colour.paper}` : '1px solid #000', outlineOffset: -1 }}>
@@ -1041,33 +996,6 @@ export function BRacer() {
                 </p>
               </div>
 
-              {room.available && !mpOn && (
-                <div className="inset bg-black/60 p-2" data-bracer-mp="menu">
-                  <p className="mb-1 text-[10px] tracking-widest text-dim">05 / MULTIPLAYER · UP TO 8 PILOTS</p>
-                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                    <label className="text-dim" htmlFor="bracer-pilot">
-                      PILOT
-                    </label>
-                    <input id="bracer-pilot" value={pilot} maxLength={14} onChange={(e) => setPilot(e.target.value.replace(/[^\w .·-]/g, '').toUpperCase())} className="w-32 border border-white/25 bg-black px-1.5 py-0.5 text-fg" />
-                    <button onClick={joinQuick} className="btn btn-on px-3 py-1 text-sm" data-bracer-quick>
-                      QUICK RACE · {def.name}
-                    </button>
-                    <button onClick={() => room.joinPrivate()} className="btn px-3 py-1 text-sm" data-bracer-private>
-                      NEW PRIVATE ROOM
-                    </button>
-                  </div>
-                  <div className="mt-1.5">
-                    <IdentityPicker />
-                  </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-                    <input value={joinCode} placeholder="ROOM CODE" maxLength={8} onChange={(e) => setJoinCode(cleanRoomCode(e.target.value))} className="w-28 border border-white/25 bg-black px-1.5 py-0.5 text-fg" aria-label="Room code" />
-                    <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
-                      JOIN
-                    </button>
-                    <span className="text-dim">Empty slots are filled by live-chain AI rivals. Each pilot pays their own credit; practice is free.</span>
-                  </div>
-                </div>
-              )}
               {mpOn && room.info && (
                 <RaceLobby
                   game="bRacer"
@@ -1114,70 +1042,143 @@ export function BRacer() {
                   }
                 />
               )}
-              <div className="inset bg-black/60 p-2">
-                <p className="mb-1 text-[10px] tracking-widest text-dim">ON THE GRID · {rivals.filter((r) => r.live).length} LIVE TXS{rivals.some((r) => !r.live) ? ` + ${rivals.filter((r) => !r.live).length} IDLE` : ''}</p>
-                <div className="grid max-h-20 grid-cols-1 gap-x-3 overflow-y-auto text-[11px] sm:grid-cols-2">
-                  {mode === 'trial' ? <span className="text-dim">Time trial: just you and the clock.</span> : null}
-                  {mode === 'race' && rivals.map((r, i) => (
-                    <div key={i} className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
-                      <span className="inline-block h-2 w-2 shrink-0" style={{ background: r.color }} />
-                      <span className="shrink-0 font-bold text-white">{r.name}</span>
-                      <span className="overflow-hidden text-ellipsis text-dim">{r.detail}</span>
+              <details className="inset bg-black/60 p-2" data-bracer-more>
+                <summary className="cursor-pointer text-[11px] tracking-widest text-fg">MORE OPTIONS</summary>
+                <div className="mt-2 flex flex-col gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="mb-1 text-[10px] tracking-widest text-dim">MODE</p>
+                      <div className="flex gap-1.5">
+                        {(['race', 'trial'] as const).map((m) => (
+                          <button key={m} onClick={() => setMode(m)} disabled={mpOn && m === 'trial'} aria-pressed={m === effMode} className="flex-1 border-2 px-2 py-1.5 text-lg" style={{ ...hudFont, borderColor: m === effMode ? DR.colour.amber : '#333', background: m === effMode ? DR.colour.amber : '#07070a', color: m === effMode ? '#000' : '#ddd', opacity: mpOn && m === 'trial' ? 0.35 : 1 }}>
+                            {m === 'race' ? 'RACE · 3 LAPS' : 'TIME TRIAL'}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mb-1 mt-2 text-[10px] tracking-widest text-dim">DIFFICULTY</p>
+                      <div className="flex gap-1.5">
+                        {(['normal', 'hardcore'] as const).map((d) => (
+                          <button key={d} onClick={() => pickDiff(d)} disabled={locked || (mpOn && room.info?.quick === true)} aria-pressed={d === difficulty} className="flex-1 border-2 px-2 py-1 text-left" style={{ ...hudFont, borderColor: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : DR.colour.acid) : '#333', background: d === difficulty ? (d === 'hardcore' ? DR.colour.signal : '#10200a') : '#07070a', color: d === difficulty && d === 'hardcore' ? '#fff' : '#ddd' }}>
+                            <span className="block text-base leading-none">{d === 'normal' ? 'NORMAL' : 'HARDCORE'}</span>
+                            <span className="block text-[9px] leading-tight opacity-80" style={{ fontFamily: DR.font.mono, fontStyle: 'normal', textTransform: 'none' }}>
+                              {d === 'normal' ? 'shield + pit lane' : '2.5x damage, no pit, head-on = boom'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-                <button onClick={() => void engine.current?.toMenu()} className="btn mt-1.5 px-2 py-0.5 text-[11px]">
-                  ↻ NEW RIVALS FROM THE CHAIN
-                </button>
-              </div>
+                    <div>
+                      <p className="mb-1 text-[10px] tracking-widest text-dim">HULL</p>
+                      <div className="flex gap-1.5">
+                        {SHIPS.map((s) => (
+                          <button key={s.id} onClick={() => setShipId(s.id)} aria-pressed={s.id === shipId} title={s.blurb} className="flex-1 border-2 px-1.5 py-1 text-left" style={{ borderColor: s.id === shipId ? DR.colour.cyan : '#333', background: s.id === shipId ? '#0a1a1e' : '#07070a' }}>
+                            <span className="block text-base leading-none text-white" style={hudFont}>
+                              {s.name}
+                            </span>
+                            <span className="mt-0.5 block h-1 bg-white/10">
+                              <span className="block h-full" style={{ width: `${((s.vmax - 150) / 40) * 100}%`, background: DR.colour.amber }} />
+                            </span>
+                            <span className="mt-0.5 block h-1 bg-white/10">
+                              <span className="block h-full" style={{ width: `${((s.turn - 50) / 50) * 100}%`, background: DR.colour.cyan }} />
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-0.5 text-[10px] text-dim">
+                        {ship.name}: {ship.blurb}
+                      </p>
+                    </div>
+                  </div>
 
-              <details className="inset bg-black/60 p-2" data-bracer-blast>
-                <summary className="cursor-pointer text-[11px] tracking-widest text-fg">
-                  LIVE BLASTING · every shot, boost pad and boost is a tiny real transaction {blastOn && armed ? <span style={{ color: DR.colour.acid }}>· ARMED</span> : null}
-                </summary>
-                <p className="my-1 text-[11px] text-dim">
-                  Fire a weapon or hit a pad in a CREDIT race and one transaction goes out from your loaded gun: 1 sat (or 1 token) to the house plus the network fee. Hit another pilot and your token lands in their gun. PRACTICE sends nothing.
-                </p>
-                <AmmoStrip
-                  b={b}
-                  armed={armed}
-                  title="LIVE AMMO"
-                  tokenPresets={[10, 100, 1_000, 10_000]}
-                  initialTokenLoad={100}
-                  remember
-                  house={BRACER_COIN}
-                  sats={{
-                    picker: <AmmoPicker value={shots} onChange={setShots} bsvUsd={null} />,
-                    label: `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SATS BLASTS`,
-                    onLoad: () => void b.load(packSats(shots), `bRacer: ${formatCount(shots)} blasts`),
-                  }}
-                  playLabel={blastOn ? '● LIVE BLASTING ON (credit races)' : '○ TURN LIVE BLASTING ON'}
-                  onPlay={() => setBlastOn((v) => !v)}
-                />
+                  {room.available && !mpOn && (
+                    <div className="inset bg-black/60 p-2" data-bracer-mp="menu">
+                      <p className="mb-1 text-[10px] tracking-widest text-dim">MULTIPLAYER · UP TO 8 PILOTS</p>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <label className="text-dim" htmlFor="bracer-pilot">
+                          PILOT
+                        </label>
+                        <input id="bracer-pilot" value={pilot} maxLength={14} onChange={(e) => setPilot(e.target.value.replace(/[^\w .·-]/g, '').toUpperCase())} className="w-32 border border-white/25 bg-black px-1.5 py-0.5 text-fg" />
+                        <button onClick={joinQuick} className="btn btn-on px-3 py-1 text-sm" data-bracer-quick>
+                          QUICK RACE · {def.name}
+                        </button>
+                        <button onClick={() => room.joinPrivate()} className="btn px-3 py-1 text-sm" data-bracer-private>
+                          NEW PRIVATE ROOM
+                        </button>
+                      </div>
+                      <div className="mt-1.5">
+                        <IdentityPicker />
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <input value={joinCode} placeholder="ROOM CODE" maxLength={8} onChange={(e) => setJoinCode(cleanRoomCode(e.target.value))} className="w-28 border border-white/25 bg-black px-1.5 py-0.5 text-fg" aria-label="Room code" />
+                        <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
+                          JOIN
+                        </button>
+                        <span className="text-dim">Empty slots are filled by live-chain AI rivals. Each pilot pays their own credit; practice is free.</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="inset bg-black/60 p-2">
+                    <p className="mb-1 text-[10px] tracking-widest text-dim">ON THE GRID · {rivals.filter((r) => r.live).length} LIVE TXS{rivals.some((r) => !r.live) ? ` + ${rivals.filter((r) => !r.live).length} IDLE` : ''}</p>
+                    <div className="grid max-h-20 grid-cols-1 gap-x-3 overflow-y-auto text-[11px] sm:grid-cols-2">
+                      {mode === 'trial' ? <span className="text-dim">Time trial: just you and the clock.</span> : null}
+                      {mode === 'race' && rivals.map((r, i) => (
+                        <div key={i} className="flex items-center gap-1 overflow-hidden whitespace-nowrap">
+                          <span className="inline-block h-2 w-2 shrink-0" style={{ background: r.color }} />
+                          <span className="shrink-0 font-bold text-white">{r.name}</span>
+                          <span className="overflow-hidden text-ellipsis text-dim">{r.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={() => void engine.current?.toMenu()} className="btn mt-1.5 px-2 py-0.5 text-[11px]">
+                      ↻ NEW RIVALS FROM THE CHAIN
+                    </button>
+                  </div>
+
+                  <details className="inset bg-black/60 p-2" data-bracer-blast>
+                    <summary className="cursor-pointer text-[11px] tracking-widest text-fg">
+                      LIVE BLASTING · every shot, boost pad and boost is a tiny real transaction {blastOn && armed ? <span style={{ color: DR.colour.acid }}>· ARMED</span> : null}
+                    </summary>
+                    <p className="my-1 text-[11px] text-dim">
+                      Fire a weapon or hit a pad in a CREDIT race and one transaction goes out from your loaded gun: 1 sat (or 1 token) to the house plus the network fee. Hit another pilot and your token lands in their gun. PRACTICE sends nothing.
+                    </p>
+                    <AmmoStrip
+                      b={b}
+                      armed={armed}
+                      title="LIVE AMMO"
+                      tokenPresets={[10, 100, 1_000, 10_000]}
+                      initialTokenLoad={100}
+                      remember
+                      house={BRACER_COIN}
+                      sats={{
+                        picker: <AmmoPicker value={shots} onChange={setShots} bsvUsd={null} />,
+                        label: `${armed ? 'LOAD MORE' : 'LOAD'} ${formatCount(shots)} SATS BLASTS`,
+                        onLoad: () => void b.load(packSats(shots), `bRacer: ${formatCount(shots)} blasts`),
+                      }}
+                      playLabel={blastOn ? '● LIVE BLASTING ON (credit races)' : '○ TURN LIVE BLASTING ON'}
+                      onPlay={() => setBlastOn((v) => !v)}
+                    />
+                  </details>
+                  <details className="text-[11px] text-dim">
+                    <summary className="cursor-pointer text-fg">CONTROLS</summary>
+                    <p className="mt-1">
+                      <span className="text-fg">Keys:</span> ↑/W thrust · ↓/S brake · ←→/AD steer · <span style={{ color: DR.colour.amber }}>Q / E</span> airbrakes (hairpins) · <span style={{ color: DR.colour.amber }}>Z / X</span> barrel roll (in the air = boost) · <span style={{ color: DR.colour.amber }}>Shift</span> boost meter · <span style={{ color: DR.colour.amber }}>Space</span> fire item · C camera · P pause
+                    </p>
+                    <p>
+                      <span className="text-fg">Pad:</span> RT thrust · LT brake · stick steer · LB/RB airbrakes · X/B roll · A boost · Y fire · Select camera. Touch: thrust is automatic; on-screen buttons. Weapons: rocket, mine, shield, turbo, quake. Chevron pads = boost. Yellow ramps = jump.
+                    </p>
+                  </details>
+                  <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                    <span className="text-dim">GRAPHICS</span>
+                    {(['auto', 'ultra', 'high', 'low'] as const).map((q) => (
+                      <button key={q} onClick={() => setQualityPref(q)} className={`btn px-2 py-0.5 ${qualityPref === q ? 'btn-on' : ''}`}>
+                        {q.toUpperCase()}
+                      </button>
+                    ))}
+                    {perf && <span className="text-dim">· {perf.fps} fps</span>}
+                  </div>
+                </div>
               </details>
-              <div className="flex flex-wrap items-center gap-2">
-                {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" practiceLabel="▶ RACE · PRACTICE" onPress={enterFs} />}
-                {bestTime ? <span className="text-sm" style={{ color: DR.colour.amber }}>BEST {fmt(bestTime)}</span> : null}
-              </div>
-              <details className="text-[11px] text-dim">
-                <summary className="cursor-pointer text-fg">CONTROLS</summary>
-                <p className="mt-1">
-                  <span className="text-fg">Keys:</span> ↑/W thrust · ↓/S brake · ←→/AD steer · <span style={{ color: DR.colour.amber }}>Q / E</span> airbrakes (hairpins) · <span style={{ color: DR.colour.amber }}>Z / X</span> barrel roll (in the air = boost) · <span style={{ color: DR.colour.amber }}>Shift</span> boost meter · <span style={{ color: DR.colour.amber }}>Space</span> fire item · C camera · P pause
-                </p>
-                <p>
-                  <span className="text-fg">Pad:</span> RT thrust · LT brake · stick steer · LB/RB airbrakes · X/B roll · A boost · Y fire · Select camera. Touch: thrust is automatic; on-screen buttons. Weapons: rocket, mine, shield, turbo, quake. Chevron pads = boost. Yellow ramps = jump.
-                </p>
-              </details>
-              <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                <span className="text-dim">GRAPHICS</span>
-                {(['auto', 'ultra', 'high', 'low'] as const).map((q) => (
-                  <button key={q} onClick={() => setQualityPref(q)} className={`btn px-2 py-0.5 ${qualityPref === q ? 'btn-on' : ''}`}>
-                    {q.toUpperCase()}
-                  </button>
-                ))}
-                {perf && <span className="text-dim">· {perf.fps} fps</span>}
-              </div>
-              <SponsorStrip sponsors={race.sponsors} label="SPONSORS" />
+              <SponsorStrip sponsors={race.sponsors} label="SPONSORS" compact />
             </div>
           </div>
         )}
@@ -1318,7 +1319,8 @@ export function BRacer() {
  * The race's sponsors as plain links (garage and results): a colour block, the name and what the site is. New tab,
  * no referrer, no tracking parameters. Nothing renders with ?ads=0.
  */
-function SponsorStrip({ sponsors, label }: { sponsors: readonly Sponsor[]; label: string }) {
+/** `compact`: names only (the title screen, which must stay quiet); the tagline is still the link's title. */
+function SponsorStrip({ sponsors, label, compact = false }: { sponsors: readonly Sponsor[]; label: string; compact?: boolean }) {
   if (!sponsors.length) return null;
   return (
     <div data-bracer-sponsors>
@@ -1332,9 +1334,11 @@ function SponsorStrip({ sponsors, label }: { sponsors: readonly Sponsor[]; label
                 <span className="block text-sm font-black italic leading-none text-white" style={{ fontFamily: DR.font.display }}>
                   {sp.name}
                 </span>
-                <span className="block text-[9px] leading-tight text-dim" style={{ fontFamily: DR.font.mono }}>
-                  {sp.tagline}
-                </span>
+                {compact ? null : (
+                  <span className="block text-[9px] leading-tight text-dim" style={{ fontFamily: DR.font.mono }}>
+                    {sp.tagline}
+                  </span>
+                )}
               </span>
             </a>
           </li>
