@@ -11,7 +11,7 @@
  *
  * URL: ?teams=dnsdex,clawdex,tokenblaster,… picks the grid (first is the player's team; unknown ids are ignored; at
  * most MAX_TEAMS), ?team=<id> picks the player's team, ?sponsors=<ids> overrides the advert set, ?ads=0 removes
- * every advert (the original bRacer track).
+ * every advert (the original bRacer track), ?claw=<preset> picks the player's claw when racing for CLAW-DEX.
  *
  * Pure: no DOM, no imports. Unit-tested in src/lib/bracer-teams.test.ts.
  */
@@ -32,6 +32,11 @@ export type Team = {
   ink?: string;
   /** The team's site (family teams). */
   url?: string;
+  /**
+   * What the team races in (src/lib/hyper/vehicles): 'claw', 'jetbike', 'paperplane'. Unset = the standard bRacer
+   * ship. Cosmetic only: handling comes from the hull the player picks, the same for every team.
+   */
+  vehicle?: string;
 };
 
 export type Sponsor = {
@@ -65,11 +70,11 @@ export const BRACER_TEAMS: readonly Team[] = [
  */
 export const FAMILY_TEAMS: readonly Team[] = [
   { id: 'dnsdex', name: 'DNS-DEX', kana: 'ドメインデックス', code: 'DX-01', base: '#00d26a', accent: '#ffffff', trim: '#0b5d3b', ink: '#010101', motto: 'OWN THE NAME', url: 'https://dns-dex.com' },
-  { id: 'clawdex', name: 'CLAW-DEX', kana: 'クローデックス', code: 'CX-07', base: '#f97316', accent: '#ffffff', trim: '#111111', ink: '#010101', motto: 'MACHINE SPEED', url: 'https://claw-dex.com' },
+  { id: 'clawdex', name: 'CLAW-DEX', kana: 'クローデックス', code: 'CX-07', base: '#f97316', accent: '#ffffff', trim: '#111111', ink: '#010101', motto: 'MACHINE SPEED', url: 'https://claw-dex.com', vehicle: 'claw' },
   { id: 'repodex', name: 'REPO-DEX', kana: 'レポデックス', code: 'RX-02', base: '#3d9cff', accent: '#ffffff', trim: '#0e2a6b', ink: '#010101', motto: 'SHIP IT', url: 'https://repo-dex.com' },
-  { id: 'gitdex', name: 'GITDEX', kana: 'ギットデックス', code: 'GX-03', base: '#d9dce2', accent: '#f05032', trim: '#111111', ink: '#010101', motto: 'MERGE FAST', url: 'https://git-dex.com' },
+  { id: 'gitdex', name: 'GITDEX', kana: 'ギットデックス', code: 'GX-03', base: '#d9dce2', accent: '#f05032', trim: '#111111', ink: '#010101', motto: 'MERGE FAST', url: 'https://git-dex.com', vehicle: 'paperplane' },
   { id: 'bwalletx', name: 'bWalletX', kana: 'ビーアック', code: 'BX-01', base: '#f5b800', accent: '#111111', trim: '#7a5600', ink: '#010101', motto: 'MAKE BITCOIN FASTER', url: 'https://bwalletx.com' },
-  { id: 'vexvoid', name: 'V3XV0ID', kana: 'ヴェクスヴォイド', code: 'VX-00', base: '#0b0b0b', accent: '#ffffff', trim: '#8a8a8a', ink: '#ffffff', motto: 'ACCELERATE', url: 'https://vexvoid.com' },
+  { id: 'vexvoid', name: 'V3XV0ID', kana: 'ヴェクスヴォイド', code: 'VX-00', base: '#0b0b0b', accent: '#ffffff', trim: '#8a8a8a', ink: '#ffffff', motto: 'ACCELERATE', url: 'https://vexvoid.com', vehicle: 'jetbike' },
   { id: 'npg', name: 'NPG', kana: 'ニンジャパンクガールズ', code: 'NP-01', base: '#ff3d8b', accent: '#2de2d0', trim: '#111111', ink: '#0a0a0c', motto: 'NO RULES', url: 'https://ninjapunkgirls.com' },
   { id: 'npgx', name: 'NPGX', kana: 'エヌピージーエックス', code: 'NX-01', base: '#ff2d55', accent: '#ffd400', trim: '#111111', ink: '#0a0a0c', motto: 'NEXT GENERATION', url: 'https://npgx.website' },
 ];
@@ -137,6 +142,8 @@ export type RaceSetup = {
   /** Adverts for this race; empty with ?ads=0. */
   sponsors: Sponsor[];
   ads: boolean;
+  /** ?claw=<preset id> (lower-cased, unchecked here; unknown presets fall back in vehicles/claw.ts). */
+  claw: string | null;
 };
 
 /** Everything the race needs from a query string. */
@@ -152,7 +159,8 @@ export function resolveRace(search: string | URLSearchParams): RaceSetup {
   const ads = q.get('ads') !== '0';
   const sIds = parseIds(q.get('sponsors'), sponsorById, SPONSORS.length);
   const sponsors = ads ? (sIds.length ? sIds.map((i) => sponsorById(i)!) : [...SPONSORS]) : [];
-  return { teams, player, customGrid, sponsors, ads };
+  const claw = q.get('claw')?.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) || null;
+  return { teams, player, customGrid, sponsors, ads, claw };
 }
 
 /** Teams for `count` rivals on a custom grid, dealt round-robin with the player's team last. */
