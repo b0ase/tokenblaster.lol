@@ -3,7 +3,8 @@
 /**
  * bRacer: anti-gravity racing against the live chain. This is the shell (title poster, team select, HUD,
  * results poster, touch controls); the game itself is src/lib/hyper/engine.ts. Visual language: src/components/dr.
- * Coin-op: one credit = one race (src/lib/coinop.ts); PRACTICE is free and sends nothing.
+ * Coin-op: one credit = one race (src/lib/coinop.ts). Paid only: no free practice (owner, 22 Oct 2026). In dev,
+ * ?simstep (the frame-stepped review hook in engine.ts) also allows an unpaid run so races can be screenshotted.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { HighScores } from './HighScores';
@@ -145,6 +146,9 @@ ${M} svg [stroke]:not([stroke="none"]) { stroke: ${u.text}; }
 };
 
 const hudFont = { fontFamily: DR.font.display, fontWeight: 900, fontStyle: 'italic', textTransform: 'uppercase' } as const;
+
+/** Dev-only: an unpaid run for frame-stepped review (?simstep). Never true in a production build. */
+const DEV_REVIEW = process.env.NODE_ENV !== 'production' && typeof location !== 'undefined' && new URLSearchParams(location.search).has('simstep');
 
 export function BRacer() {
   const mount = useRef<HTMLDivElement>(null);
@@ -537,6 +541,7 @@ export function BRacer() {
   const start = (paid: boolean) => {
     const eng = engine.current;
     if (!eng) return;
+    if (!paid && !DEV_REVIEW) return; // paid only
     const txid = paid ? co.consume() : null;
     if (paid && !txid) return;
     setRun({ paid, txid });
@@ -564,6 +569,7 @@ export function BRacer() {
     setDifficulty(d);
   };
   const lobbyReady = (paid: boolean) => {
+    if (!paid && !DEV_REVIEW) return; // paid only
     readyPaid.current = paid;
     room.setReady(true, paid);
   };
@@ -854,7 +860,7 @@ export function BRacer() {
         {racing && (
           <div data-bracer-mode={run.paid ? 'paid' : 'practice'} className={`pointer-events-none absolute left-1/2 top-[4.4rem] -translate-x-1/2 border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest max-sm:hidden sm:top-1 sm:text-xs ${run.paid ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`}>
             {mpOn ? 'ROOM · ' : ''}
-            {run.paid ? 'PAID · 1 CREDIT' : 'PRACTICE'}
+            {run.paid ? 'PAID · 1 CREDIT' : 'DEV REVIEW'}
           </div>
         )}
         {racing && run.paid && (
@@ -930,7 +936,7 @@ export function BRacer() {
               {/* START first and biggest: the owner couldn't find it under the options (22 Oct 2026). */}
               {!mpOn && (
                 <div data-bracer-start className="flex flex-wrap items-start gap-3">
-                  <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="START" practiceLabel="▶ PRACTICE" onPress={enterFs} big />
+                  <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="START" practice={DEV_REVIEW} practiceLabel="▶ DEV REVIEW · UNPAID" onPress={enterFs} big />
                   {bestTime ? <span className="pt-3 text-sm" style={{ color: DR.colour.amber }}>BEST {fmt(bestTime)}</span> : null}
                 </div>
               )}
@@ -1030,14 +1036,14 @@ export function BRacer() {
                     meRow?.ready ? (
                       <>
                         <span className="px-2 py-1 text-sm font-bold" style={{ background: DR.colour.acid, color: '#000' }}>
-                          READY {meRow.paid ? '· CREDIT' : '· PRACTICE'}
+                          READY {meRow.paid ? '· CREDIT' : '· DEV REVIEW'}
                         </span>
                         <button onClick={() => room.setReady(false)} className="btn px-2 py-0.5 text-[11px]">
                           UNREADY
                         </button>
                       </>
                     ) : (
-                      <CoinOpButtons co={co} start={lobbyReady} perCredit="1 credit = 1 race." playLabel="READY" practiceLabel="READY · PRACTICE" />
+                      <CoinOpButtons co={co} start={lobbyReady} perCredit="1 credit = 1 race." playLabel="READY" practice={DEV_REVIEW} practiceLabel="READY · DEV REVIEW" />
                     )
                   }
                 />
@@ -1113,7 +1119,7 @@ export function BRacer() {
                         <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
                           JOIN
                         </button>
-                        <span className="text-dim">Empty slots are filled by live-chain AI rivals. Each pilot pays their own credit; practice is free.</span>
+                        <span className="text-dim">Empty slots are filled by live-chain AI rivals. Each pilot pays their own credit.</span>
                       </div>
                     </div>
                   )}
@@ -1139,7 +1145,7 @@ export function BRacer() {
                       LIVE BLASTING · every shot, boost pad and boost is a tiny real transaction {blastOn && armed ? <span style={{ color: DR.colour.acid }}>· ARMED</span> : null}
                     </summary>
                     <p className="my-1 text-[11px] text-dim">
-                      Fire a weapon or hit a pad in a CREDIT race and one transaction goes out from your loaded gun: 1 sat (or 1 token) to the house plus the network fee. Hit another pilot and your token lands in their gun. PRACTICE sends nothing.
+                      Fire a weapon or hit a pad in a CREDIT race and one transaction goes out from your loaded gun: 1 sat (or 1 token) to the house plus the network fee. Hit another pilot and your token lands in their gun.
                     </p>
                     <AmmoStrip
                       b={b}
@@ -1293,7 +1299,7 @@ export function BRacer() {
                 </div>
                 <SponsorStrip sponsors={race.sponsors} label="SPONSORS" />
                 <div className="flex flex-wrap justify-center gap-2">
-                  {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" onPress={enterFs} />}
+                  {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practice={DEV_REVIEW} practiceLabel="▶ DEV REVIEW · UNPAID" onPress={enterFs} />}
                   <button onClick={toMenu} className={mpOn ? 'btn-fire px-5 py-2' : 'btn'}>
                     {mpOn ? 'BACK TO THE LOBBY' : 'TITLE / NEW RIVALS'}
                   </button>
@@ -1306,7 +1312,7 @@ export function BRacer() {
       </div>
       <HazardBar h={8} colour={DR.colour.amber} />
       <p className="mt-2 text-xs text-muted">
-        {GAME_NAME}: rivals are real transactions sampled from the live BSV chain when you start; tokens race as teams wearing their ticker and logo, the biggest moves are the fastest ships. A credit (10p) buys one race; practice sends nothing. Ships, circuits, signage and the techno are generated in code;
+        {GAME_NAME}: rivals are real transactions sampled from the live BSV chain when you start; tokens race as teams wearing their ticker and logo, the biggest moves are the fastest ships. A credit (10p) buys one race. Ships, circuits, signage and the techno are generated in code;
         no outside assets. The graphic style is an homage to 90s electronic-label design, all layouts original.
       </p>
       {co.chooserEl}

@@ -161,7 +161,7 @@ export type CoinOp = ReturnType<typeof useCoinOp>;
  * the coin and starts the game the moment it lands (owner, 7 Oct 2026: paying then hunting for a
  * separate start button was bad design). Without `start` it only takes a coin (a credit for later).
  */
-export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress, big = false }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void; big?: boolean }) {
+export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress, big = false, practice = true }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void; big?: boolean; practice?: boolean }) {
   const label = !co.enabled
     ? 'COIN SLOT CLOSED'
     : co.paying
@@ -192,7 +192,7 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress, 
           {perCredit ?? `1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} One wallet approval, then the game starts. Plus the network fee. No payouts.
         </p>
       ) : (
-        <p className="text-[10px] text-dim">Paid play is off here: no house address is set (NEXT_PUBLIC_TB_HOUSE_ADDRESS). Practice is free.</p>
+        <p className="text-[10px] text-dim">Paid play is off here: no house address is set (NEXT_PUBLIC_TB_HOUSE_ADDRESS).{practice ? ' Practice is free.' : ''}</p>
       )}
       {co.msg && !co.msg.ok && <p className="text-xs text-accent">{co.msg.text}</p>}
       {co.walletErr && <p className="text-xs text-accent">{co.walletErr}</p>}
@@ -209,6 +209,7 @@ export function CoinOpButtons({
   practiceLabel = '▶ PRACTICE · FREE',
   onPress,
   big = false,
+  practice = true,
 }: {
   co: CoinOp;
   start: (paid: boolean) => void;
@@ -218,10 +219,13 @@ export function CoinOpButtons({
   onPress?: () => void;
   /** The one obvious start button on a title screen. */
   big?: boolean;
+  /** false: paid play only, no free practice button (bRacer, owner 22 Oct 2026). */
+  practice?: boolean;
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
-      <InsertCoin co={co} perCredit={perCredit} start={start} playLabel={playLabel} onPress={onPress} big={big} />
+      <InsertCoin co={co} perCredit={perCredit} start={start} playLabel={playLabel} onPress={onPress} big={big} practice={practice} />
+      {practice && (
       <button
         onClick={() => {
           onPress?.();
@@ -231,6 +235,7 @@ export function CoinOpButtons({
       >
         {practiceLabel}
       </button>
+      )}
     </div>
   );
 }
