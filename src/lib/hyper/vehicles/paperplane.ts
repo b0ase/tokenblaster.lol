@@ -324,7 +324,7 @@ let inkMat: THREE.LineBasicMaterial | null = null;
 let dimMat: THREE.LineBasicMaterial | null = null;
 let planeGlow: THREE.MeshBasicMaterial | null = null;
 
-export function buildPaperPlane(spec: ShipSpec, l: Livery, _accent: string, detail: Detail = 'high'): Rig {
+export function buildPaperPlane(spec: ShipSpec, l: Livery, _accent: string, detail: Detail = 'high', own = false): Rig {
   const G = planeGeo(detail);
   inkMat ??= new THREE.LineBasicMaterial({ color: '#163a80' });
   dimMat ??= new THREE.LineBasicMaterial({ color: new THREE.Color('#5fb0ff').multiplyScalar(1.8), transparent: true, opacity: 0.85 });
@@ -349,7 +349,9 @@ export function buildPaperPlane(spec: ShipSpec, l: Livery, _accent: string, deta
   };
   const paper = add(new THREE.Mesh(G.paper, bodyMat));
   add(new THREE.LineSegments(G.edges, inkMat));
+  // Dimension lines read from outside; on the player's own plane they would frame the chase camera's view.
   const dims = add(new THREE.LineSegments(G.dims, dimMat));
+  dims.visible = !own;
   const glow = add(new THREE.Mesh(G.glow, planeGlow));
   const flame = add(new THREE.Mesh(G.flame, flameMat));
   flame.position.z = G.nozzleZ;

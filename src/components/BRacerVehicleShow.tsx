@@ -2,7 +2,7 @@
 /**
  * bRacer vehicle turntable: every team vehicle (src/lib/hyper/vehicles) and every claw preset on lit turntables.
  * Query: ?spin=0 freezes the turntables, ?yaw=<radians> sets their angle, ?thrust=0..1 opens claws / lights jets,
- * ?boost=1 shows boost (claws wide, Tesla arcs), ?only= limits the line-up (claws, teams, or ids), ?cols=, ?q=low|high|ultra.
+ * ?lean=<radians> banks them as in a turn, ?boost=1 shows boost (claws wide, Tesla arcs), ?only= limits the line-up (claws, teams, or ids), ?cols=, ?zoom=, ?elev=, ?seed=, ?q=low|high|ultra.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -29,6 +29,8 @@ export function BRacerVehicleShow() {
     const yaw0 = Number(q.get('yaw') ?? '0.75');
     const thrust = Math.max(0, Math.min(1, Number(q.get('thrust') ?? '0.6')));
     const boost = q.get('boost') === '1';
+    // ?lean=<radians>: bank the vehicles as in a turn (the jet-bike's rider leans with it).
+    const lean = Number(q.get('lean') ?? '0') || 0;
     const only = q.get('only');
     const detail = (['low', 'high', 'ultra'].includes(q.get('q') ?? '') ? q.get('q') : 'high') as Detail;
     const teams: Item[] = [
@@ -53,9 +55,9 @@ export function BRacerVehicleShow() {
     scene.background = new THREE.Color('#07080c');
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.55;
+    scene.environmentIntensity = 0.42;
     scene.add(new THREE.HemisphereLight('#9fb4ff', '#120a06', 0.6));
-    const key = new THREE.DirectionalLight('#fff3e6', 2.4);
+    const key = new THREE.DirectionalLight('#fff3e6', 1.8);
     key.position.set(8, 14, 10);
     scene.add(key);
     const rim = new THREE.DirectionalLight('#5aa0ff', 1.6);
@@ -67,11 +69,14 @@ export function BRacerVehicleShow() {
 
     const camera = new THREE.PerspectiveCamera(32, el.clientWidth / el.clientHeight, 0.5, 400);
     const sx = 9.5;
-    const sz = 10;
+    const sz = 13;
     const w = (cols - 1) * sx;
     const d = (rows - 1) * sz;
-    camera.position.set(0, 7 + d * 1.05 + w * 0.45, 9 + d * 0.95 + w * 0.85);
-    camera.lookAt(0, -0.5, 0);
+    // ?zoom= moves the camera in (2 = half the distance), ?elev= raises (>1) or lowers (<1) it.
+    const zoom = Math.max(0.3, Number(q.get('zoom') ?? '1') || 1);
+    const elev = Math.max(0.05, Number(q.get('elev') ?? '1') || 1);
+    camera.position.set(0, ((7 + d * 1.05 + w * 0.45) * elev) / zoom, (9 + d * 0.95 + w * 0.85) / zoom);
+    camera.lookAt(0, -0.5 + (zoom > 1.5 ? 0.6 : 0), 0);
 
     const spec = SHIPS.find((s) => s.id === 'wedge') ?? SHIPS[0];
     const rigs: { rig: Rig; table: THREE.Group; pos: THREE.Vector3; item: Item }[] = [];
@@ -92,7 +97,7 @@ export function BRacerVehicleShow() {
       ring.rotation.x = Math.PI / 2;
       ring.position.y = -1.42;
       table.add(ring);
-      const rig = buildVehicle({ vehicle: it.vehicle, variant: it.variant, seed: 0, detail }, spec, { base: t.base, accent: t.accent, trim: t.trim, ticker: `$${t.name.slice(0, 5)}`, number: String(7 + i * 11).padStart(2, '0'), team: t.name, logo: null, decal: { text: 'bAcc', bg: '#f5b800', fg: '#010101' } }, t.accent === '#ffffff' ? t.base : t.accent);
+      const rig = buildVehicle({ vehicle: it.vehicle, variant: it.variant, seed: Number(q.get('seed') ?? '0') || 0, detail }, spec, { base: t.base, accent: t.accent, trim: t.trim, ticker: `$${t.name.slice(0, 5)}`, number: String(7 + i * 11).padStart(2, '0'), team: t.name, logo: null, decal: { text: 'bAcc', bg: '#f5b800', fg: '#010101' } }, t.accent === '#ffffff' ? t.base : t.accent);
       rig.root.rotation.y = yaw0;
       table.add(rig.root);
       rigs.push({ rig, table, pos, item: it });
@@ -114,6 +119,7 @@ export function BRacerVehicleShow() {
       for (const [i, r] of rigs.entries()) {
         if (spin) r.rig.root.rotation.y = yaw0 + t * 0.35;
         r.rig.tilt.position.y = Math.sin(t * 1.8 + i) * 0.08;
+        r.rig.tilt.rotation.z = lean;
         r.rig.flame.scale.set(1, 1, 0.3 + thrust * 0.6 + (boost ? 0.9 : 0) + Math.random() * 0.1);
         r.rig.flameMat.opacity = 0.55 + thrust * 0.4;
       }

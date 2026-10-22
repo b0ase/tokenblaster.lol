@@ -16,7 +16,7 @@ import { HyperAudio } from './audio';
 import { Input, type Touch } from './input';
 import { newShip, noInput, SHIPS, stepShip, WEAPONS, type ShipSpec, type SimInput, type Weapon } from './sim';
 import { Trail, type Rig } from './ships';
-import { buildVehicle, variantFor, type VehicleChoice } from './vehicles';
+import { buildVehicle, seedOf, variantFor, type VehicleChoice } from './vehicles';
 import { FONTS } from './signs';
 import { SnapshotBuffer } from '@/lib/racemp/buffer';
 import { readWire, verifyWire } from '@/lib/identity';
@@ -487,7 +487,7 @@ export class HyperEngine {
   private buildPlayer() {
     const accent = this.team.accent === '#ffffff' || this.team.accent === '#f4efe2' || this.team.accent === '#f2f2ee' ? (TRACKS[this.opts.track] ?? TRACKS[DEFAULT_TRACK]).palette.a1 : teamGlow(this.team);
     const lv = this.spec.livery;
-    const rig = buildVehicle(this.vehicleOf(this.team, this.opts.race?.claw ?? variantFor(this.team.vehicle, 0)), this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null, decal: this.decalOf(0) }, lv?.accent ?? accent);
+    const rig = buildVehicle(this.vehicleOf(this.team, this.opts.race?.claw ?? variantFor(this.team.vehicle, 0), 0, true), this.spec, { base: lv?.base ?? this.team.base, accent: lv?.accent ?? this.team.accent, trim: lv?.trim ?? this.team.trim, ticker: lv?.ticker ?? 'YOU', number: lv?.number ? String(lv.number).padStart(2, '0') : '01', team: this.team.name, logo: null, decal: this.decalOf(0) }, lv?.accent ?? accent);
     this.playerRig = rig;
     this.scene.add(rig.root);
     const col = new THREE.Color(this.TRAIL_COL(accent)).multiplyScalar(0.45);
@@ -497,8 +497,8 @@ export class HyperEngine {
   }
   private playerRig!: Rig;
   /** Body for a car of `team` (src/lib/hyper/vehicles): cosmetic only, the hull spec still decides the physics. */
-  private vehicleOf(team: Team, variant?: string | null): VehicleChoice {
-    return { vehicle: team.vehicle, variant, seed: 0, detail: this.opts.quality === 'low' ? 'low' : this.opts.quality === 'ultra' ? 'ultra' : 'high' };
+  private vehicleOf(team: Team, variant?: string | null, seed = 0, own = false): VehicleChoice {
+    return { vehicle: team.vehicle, variant, seed, own, detail: this.opts.quality === 'low' ? 'low' : this.opts.quality === 'ultra' ? 'ultra' : 'high' };
   }
   /** Variants already on the grid, per vehicle, so several claw racers all get different claws. */
   private variantsUsed = new Map<string, string[]>();
@@ -561,7 +561,7 @@ export class HyperEngine {
       const decal = this.decalOf(spec.slot + 1);
       const hull = CORE_SHIPS[(spec.slot + 1) % CORE_SHIPS.length];
       const meta = spec.token ? tokenMeta(spec.token) : null;
-      const rig = buildVehicle(this.vehicleOf(team, this.nextVariant(team)), hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null, decal }, teamGlow(team));
+      const rig = buildVehicle(this.vehicleOf(team, this.nextVariant(team), seedOf(`rival:${spec.slot}:${spec.tx ?? spec.token ?? ''}`)), hull, { base: team.base, accent: team.accent, trim: team.trim, ticker: (spec.token ? `$${meta?.sym ?? spec.token.slice(0, 4)}` : 'TX').slice(0, 8), number: String(((spec.slot * 13 + 5) % 97) + 2), team: team.name, logo: meta?.icon ?? null, decal }, teamGlow(team));
       if (this.opts.theme === 'white') addInkAccent(rig.tilt, inkTeamColour(team.base, team.accent));
       this.scene.add(rig.root);
       const label = this.makeLabel();
@@ -822,7 +822,7 @@ export class HyperEngine {
     const xid = readWire(info);
     const name = xid.x ? `@${xid.x}` : String(info.name || 'PILOT').slice(0, 14);
     const accent = team.accent === '#ffffff' || team.accent === '#f4efe2' || team.accent === '#f2f2ee' ? team.base : team.accent;
-    const rig = buildVehicle(this.vehicleOf(team, this.nextVariant(team)), spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent);
+    const rig = buildVehicle(this.vehicleOf(team, this.nextVariant(team), seedOf(`pilot:${id}`)), spec, { base: team.base, accent: team.accent, trim: team.trim, ticker: name.toUpperCase().slice(0, 8), number: String(((slot * 7 + 11) % 89) + 10), team: team.name, logo: null }, accent);
     if (this.opts.theme === 'white') addInkAccent(rig.tilt, inkTeamColour(team.base, team.accent));
     this.scene.add(rig.root);
     const label = this.makeLabel();

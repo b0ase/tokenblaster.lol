@@ -7,7 +7,8 @@ import * as THREE from 'three';
 import type { ShipSpec } from '../sim';
 import type { Livery } from '../teams';
 import type { Rig } from '../ships';
-import { bare, flameGeo, flameMaterial, kitMaterial, liveryCanvas, merge, mergeBare, onFrame, part, ring, rng, rtaper, shieldMesh, SURF, tube, type Detail, type Surf } from './kit';
+import { buildRider } from './rider';
+import { bare, brushedTex, flameGeo, flameMaterial, kitMaterial, liveryCanvas, merge, mergeBare, onFrame, part, ring, rng, rtaper, shieldMesh, SURF, tube, type Detail, type Surf } from './kit';
 
 const OBSIDIAN: Surf = { c: '#07080b', m: 0.55, r: 0.08, cc: 1 };
 const CHROME: Surf = { c: '#c9ced6', m: 1, r: 0.3, cc: 0 };
@@ -69,6 +70,13 @@ function bikeGeo(detail: Detail): BikeGeo {
     const grip = new THREE.CylinderGeometry(0.055, 0.055, 0.22, 8);
     grip.rotateZ(Math.PI / 2);
     hull.push(part(grip.translate(sx * 0.6, 0.52, 0.55), SURF.rubber));
+  }
+  // Foot pegs (the rider's boots rest on them).
+  for (const sx of [1, -1]) {
+    const peg = new THREE.CylinderGeometry(0.045, 0.045, 0.32, 8);
+    peg.rotateZ(Math.PI / 2);
+    hull.push(part(peg.translate(sx * 0.42, 0.04, -1.72), BRIGHT));
+    hull.push(part(rtaper(0.06, 0.18, 0.06, 0.12, 0.3, 0.3).translate(sx * 0.3, 0.0, -1.85), CHROME));
   }
   // Front fork + hover ring (the wheel, as light).
   for (const sx of [1, -1]) {
@@ -171,29 +179,6 @@ function bikeGeo(detail: Detail): BikeGeo {
   return g;
 }
 
-/** Brushed metal: fine horizontal streaks (roughness and bump). Deterministic. */
-let brushed: THREE.CanvasTexture | null = null;
-function brushedTex() {
-  if (brushed) return brushed;
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d')!;
-  const r = rng(1337);
-  g.fillStyle = '#d8d8d8';
-  g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 1400; i++) {
-    const v = Math.floor(150 + r() * 105);
-    g.fillStyle = `rgb(${v},${v},${v})`;
-    g.globalAlpha = 0.35 + r() * 0.5;
-    g.fillRect(r() * 256 - 64, r() * 256, 40 + r() * 200, 1);
-  }
-  g.globalAlpha = 1;
-  brushed = new THREE.CanvasTexture(c);
-  brushed.wrapS = brushed.wrapT = THREE.RepeatWrapping;
-  brushed.repeat.set(2, 6);
-  return brushed;
-}
-
 /** Number board: gloss black, chrome-edged, the race number big in white, ticker and team underneath. */
 export function paintBike(c: HTMLCanvasElement, l: Livery) {
   const g = c.getContext('2d')!;
@@ -224,6 +209,7 @@ export function paintBike(c: HTMLCanvasElement, l: Livery) {
 let bikeMat: THREE.MeshPhysicalMaterial | null = null;
 let glassMat: THREE.MeshPhysicalMaterial | null = null;
 let bikeGlow: THREE.MeshBasicMaterial | null = null;
+let riderMat: THREE.MeshPhysicalMaterial | null = null;
 
 export function buildJetBike(spec: ShipSpec, l: Livery, _accent: string, detail: Detail = 'high'): Rig {
   const G = bikeGeo(detail);
@@ -256,6 +242,9 @@ export function buildJetBike(spec: ShipSpec, l: Livery, _accent: string, detail:
   const glow = mk(G.glow, bikeGlow);
   const flame = mk(G.flame, flameMat);
   flame.position.z = G.nozzleZ;
+  // The rider: one skinned mesh, posed every frame from the bike's roll, thrust and boost.
+  const rider = buildRider((riderMat ??= kitMaterial({ envMapIntensity: 1.7 }, 'rider')), detail);
+  model.add(rider.mesh);
   // Tesla arc between the coil tops: a jagged line re-drawn every frame, mostly when boosting.
   const N = 10;
   const arcPos = new Float32Array(N * 3 * 2);
@@ -268,6 +257,7 @@ export function buildJetBike(spec: ShipSpec, l: Livery, _accent: string, detail:
   const [a, b] = G.coils;
   const R = rng(Math.floor(Math.random() * 1e9));
   onFrame(hull, tilt, flame, (m) => {
+    rider.pose(m.roll, m.boost, m.thrust, m.t);
     const p = m.boost > 0.5 ? 0.85 : 0.08 + m.thrust * 0.12;
     arc.visible = R() < p;
     if (!arc.visible) return;

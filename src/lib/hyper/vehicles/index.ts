@@ -15,10 +15,10 @@ import { buildShip, type Rig } from '../ships';
 import { buildClaw, clawPresetFor, clawSpec, CLAW_PRESETS } from './claw';
 import { buildJetBike } from './jetbike';
 import { buildPaperPlane } from './paperplane';
-import type { Detail } from './kit';
+import { seedOf, type Detail } from './kit';
 
 export type { Detail };
-export { CLAW_PRESETS, clawSpec, clawPresetFor };
+export { CLAW_PRESETS, clawSpec, clawPresetFor, seedOf };
 
 /** Which body to build, and which version of it. */
 export type VehicleChoice = {
@@ -29,6 +29,8 @@ export type VehicleChoice = {
   /** Deterministic variation seed (claws). 0 = the variant exactly. */
   seed?: number;
   detail?: Detail;
+  /** The player's own car (seen from the chase camera): drops clutter that only reads from outside. */
+  own?: boolean;
 };
 
 type Builder = (spec: ShipSpec, l: Livery, accent: string, c: VehicleChoice) => Rig;
@@ -36,7 +38,7 @@ type Builder = (spec: ShipSpec, l: Livery, accent: string, c: VehicleChoice) => 
 export const VEHICLES: Record<string, { name: string; build: Builder }> = {
   claw: { name: 'Jet claw', build: (s, l, a, c) => buildClaw(s, l, a, clawSpec(c.variant, c.seed ?? 0), c.detail) },
   jetbike: { name: 'Tesla jet-bike', build: (s, l, a, c) => buildJetBike(s, l, a, c.detail) },
-  paperplane: { name: 'Blueprint paper plane', build: (s, l, a, c) => buildPaperPlane(s, l, a, c.detail) },
+  paperplane: { name: 'Blueprint paper plane', build: (s, l, a, c) => buildPaperPlane(s, l, a, c.detail, c.own) },
 };
 
 export const isVehicleId = (id: unknown): id is string => typeof id === 'string' && Object.prototype.hasOwnProperty.call(VEHICLES, id);

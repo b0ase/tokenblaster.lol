@@ -7,6 +7,7 @@ import { CORE_SHIPS } from './hyper/content';
 import { hullFor } from './hyper/ships';
 import * as V from './hyper/vehicles';
 import { CLAW_LIMITS, CLAW_PRESETS, clawSpec } from './hyper/vehicles/claw';
+import { B as RB, buildRider, RIDER_LIMBS, RIDER_MOUNT } from './hyper/vehicles/rider';
 
 // Minimal DOM for the livery canvases (only touched when a rig is built): a 2D context that accepts every call.
 const ctx: unknown = new Proxy({}, { get: (_t, k) => (k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}), set: () => true });
@@ -121,4 +122,44 @@ test('several claw racers on a grid all get different claws', () => {
   assert.equal(new Set(picks).size, CLAW_PRESETS.length);
   assert.equal(V.variantFor('jetbike', 3), undefined);
   assert.equal(V.variantFor(undefined, 0), undefined);
+});
+
+test('the jet-bike rider is one skinned mesh whose hands stay on the grips and feet on the pegs, leaning or not', () => {
+  for (const [lean, boost] of [[0, 0], [0.5, 1], [-0.6, 0.3]]) {
+    const r = buildRider(new THREE.MeshStandardMaterial(), 'high');
+    r.pose(lean, boost, 1, 0);
+    const bones = r.mesh.skeleton.bones;
+    const endOf = (i: number, len: number) => new THREE.Vector3(0, 0, len).applyQuaternion(bones[i].quaternion).add(bones[i].position);
+    const near = (a: THREE.Vector3, b: THREE.Vector3, what: string) => assert.ok(a.distanceTo(b) < 0.02, `${what} at lean ${lean}: off by ${a.distanceTo(b).toFixed(3)}`);
+    for (const side of [1, -1]) {
+      near(endOf(side > 0 ? RB.faL : RB.faR, RIDER_LIMBS.FA), new THREE.Vector3(side * RIDER_MOUNT.grip.x, RIDER_MOUNT.grip.y, RIDER_MOUNT.grip.z), 'hand');
+      near(endOf(side > 0 ? RB.shL : RB.shR, RIDER_LIMBS.SH), new THREE.Vector3(side * RIDER_MOUNT.peg.x, RIDER_MOUNT.peg.y, RIDER_MOUNT.peg.z), 'foot');
+    }
+    // Leaning: the head moves toward the low side (positive lean = left side up, so the head goes right, -X).
+    if (lean > 0) assert.ok(bones[RB.head].position.x < -0.05, 'rider leans into the turn');
+  }
+  const bike = V.buildVehicle({ vehicle: 'jetbike' }, wedge, livery, '#3f9bff');
+  let skinned = 0;
+  bike.tilt.traverse((o) => (skinned += (o as THREE.SkinnedMesh).isSkinnedMesh ? 1 : 0));
+  assert.equal(skinned, 1, 'the bike carries exactly one rider');
+});
+
+test('claw details: rams on high detail only; per-racer seeds give different claws; own paper plane hides its dimensions', () => {
+  const rams = (detail: 'low' | 'high') => {
+    let n = 0;
+    V.buildVehicle({ vehicle: 'claw', variant: 'hydra', detail }, wedge, livery, '#f97316').tilt.traverse((o) => (n += (o as THREE.InstancedMesh).isInstancedMesh ? 1 : 0));
+    return n;
+  };
+  assert.equal(rams('high'), 2);
+  assert.equal(rams('low'), 0);
+  const a = size(V.buildVehicle({ vehicle: 'claw', variant: 'grabber', seed: V.seedOf('rival:1:abc') }, wedge, livery, '#f97316'));
+  const b = size(V.buildVehicle({ vehicle: 'claw', variant: 'grabber', seed: V.seedOf('rival:2:def') }, wedge, livery, '#f97316'));
+  assert.notDeepEqual(a.toArray().map((x) => x.toFixed(3)), b.toArray().map((x) => x.toFixed(3)), 'two seeded grabbers differ');
+  assert.equal(V.seedOf('pilot:x'), V.seedOf('pilot:x'));
+  const lines = (own: boolean) => {
+    let vis = 0;
+    V.buildVehicle({ vehicle: 'paperplane', own }, wedge, livery, '#f05032').tilt.traverse((o) => (vis += (o as THREE.LineSegments).isLineSegments && o.visible ? 1 : 0));
+    return vis;
+  };
+  assert.equal(lines(false) - lines(true), 1, 'only the dimension lines hide');
 });

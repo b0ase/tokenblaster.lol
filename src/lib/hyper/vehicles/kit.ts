@@ -13,8 +13,11 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 /** Detail level, from the engine's quality setting. */
 export type Detail = 'low' | 'high' | 'ultra';
 
-/** Surface of a part: colour (sRGB hex), metalness, roughness, glow (emissive gain of the colour), clearcoat. */
-export type Surf = { c: string; m: number; r: number; g?: number; cc?: number };
+/**
+ * Surface of a part: colour (sRGB hex), metalness, roughness, glow (emissive gain of the colour), clearcoat, and pcb:
+ * how strongly the material's PCB-trace map lights up in the part's colour (0 = none).
+ */
+export type Surf = { c: string; m: number; r: number; g?: number; cc?: number; pcb?: number };
 
 export const SURF = {
   chrome: { c: '#d9dde3', m: 1, r: 0.16, cc: 0.3 },
@@ -22,6 +25,7 @@ export const SURF = {
   steel: { c: '#5d636c', m: 1, r: 0.34 },
   dark: { c: '#16181d', m: 0.85, r: 0.38 },
   rubber: { c: '#0d0d0f', m: 0, r: 0.8 },
+  carbon: { c: '#1b1d22', m: 0.35, r: 0.42, cc: 0.6 },
 } satisfies Record<string, Surf>;
 
 /** Non-indexed copy with exactly position, normal, uv, color and aSurf (merge-safe). */
@@ -32,10 +36,18 @@ export function part(g: THREE.BufferGeometry, s: Surf, flat = false): THREE.Buff
     x.deleteAttribute('normal');
     x.computeVertexNormals();
   }
+  // Degenerate triangles (a serrated profile can make some) leave zero normals, which shade as NaN and, through
+  // bloom, black out the whole frame. Give them a harmless normal.
+  const nm = x.attributes.normal;
+  for (let i = 0; i < nm.count; i++) {
+    const l = Math.hypot(nm.getX(i), nm.getY(i), nm.getZ(i));
+    if (!(l > 1e-6)) nm.setXYZ(i, 0, 1, 0);
+  }
   if (!x.attributes.uv) x.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(x.attributes.position.count * 2), 2));
   const n = x.attributes.position.count;
   const col = new Float32Array(n * 3);
   const surf = new Float32Array(n * 4);
+  const pcb = new Float32Array(n).fill(s.pcb ?? 0);
   const c = new THREE.Color(s.c);
   for (let i = 0; i < n; i++) {
     col[i * 3] = c.r;
@@ -48,6 +60,7 @@ export function part(g: THREE.BufferGeometry, s: Surf, flat = false): THREE.Buff
   }
   x.setAttribute('color', new THREE.BufferAttribute(col, 3));
   x.setAttribute('aSurf', new THREE.BufferAttribute(surf, 4));
+  x.setAttribute('aPcb', new THREE.BufferAttribute(pcb, 1));
   return x;
 }
 
@@ -76,20 +89,27 @@ export function mergeBare(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
  * The kit material: MeshPhysicalMaterial whose metalness, roughness, clearcoat and an extra emissive term come from
  * the part's vertex attributes. Texture maps (a brushed roughness map, say) still multiply on top.
  */
-export function kitMaterial(p: THREE.MeshPhysicalMaterialParameters = {}, key = 'kit'): THREE.MeshPhysicalMaterial {
+export function kitMaterial(p: THREE.MeshPhysicalMaterialParameters = {}, key = 'kit', pcbMap: THREE.Texture | null = null): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 1, roughness: 1, clearcoat: 1, clearcoatRoughness: 0.06, envMapIntensity: 1.6, ...p });
+  if (pcbMap) m.defines = { ...m.defines, USE_UV: '' };
   m.onBeforeCompile = (s) => {
     s.vertexShader = s.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec4 aSurf;\nvarying vec4 vSurf;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurf = aSurf;');
+      .replace('#include <common>', '#include <common>\nattribute vec4 aSurf;\nvarying vec4 vSurf;\nattribute float aPcb;\nvarying float vPcb;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurf = aSurf;\nvPcb = aPcb;');
+    if (pcbMap) {
+      s.uniforms.pcbMap = { value: pcbMap };
+      s.fragmentShader = s.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform sampler2D pcbMap;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * texture2D( pcbMap, vUv * 1.5 ).r * vPcb;');
+    }
     s.fragmentShader = s.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec4 vSurf;')
+      .replace('#include <common>', '#include <common>\nvarying vec4 vSurf;\nvarying float vPcb;')
       .replace('#include <roughnessmap_fragment>', THREE.ShaderChunk.roughnessmap_fragment.replace('float roughnessFactor = roughness;', 'float roughnessFactor = vSurf.y;'))
       .replace('#include <metalnessmap_fragment>', THREE.ShaderChunk.metalnessmap_fragment.replace('float metalnessFactor = metalness;', 'float metalnessFactor = vSurf.x;'))
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * vSurf.z;')
       .replace('material.clearcoat = clearcoat;', 'material.clearcoat = clearcoat * vSurf.w;');
   };
-  m.customProgramCacheKey = () => `bracer-${key}`;
+  m.customProgramCacheKey = () => `bracer-${key}${pcbMap ? '-pcb' : ''}`;
   return m;
 }
 
@@ -205,4 +225,37 @@ export function onFrame(anchor: THREE.Object3D, tilt: THREE.Object3D, flame: THR
     m.yaw += (2 * Math.asin(Math.max(-1, Math.min(1, q.y))) - m.yaw) * k;
     fn(m);
   };
+}
+
+/** Brushed metal: fine streaks, for a roughness/bump map. Deterministic. Shared. */
+let brushed: THREE.CanvasTexture | null = null;
+export function brushedTex() {
+  if (brushed) return brushed;
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  const r = rng(1337);
+  g.fillStyle = '#d8d8d8';
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1400; i++) {
+    const v = Math.floor(150 + r() * 105);
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    g.globalAlpha = 0.35 + r() * 0.5;
+    g.fillRect(r() * 256 - 64, r() * 256, 40 + r() * 200, 1);
+  }
+  g.globalAlpha = 1;
+  brushed = new THREE.CanvasTexture(c);
+  brushed.wrapS = brushed.wrapT = THREE.RepeatWrapping;
+  brushed.repeat.set(2, 6);
+  return brushed;
+}
+
+/** Stable non-zero 31-bit seed from a string (FNV-1a): the same racer always gets the same variation. */
+export function seedOf(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 1) || 1;
 }
