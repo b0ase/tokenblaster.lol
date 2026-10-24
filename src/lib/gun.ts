@@ -307,6 +307,10 @@ export class Gun {
     onProgress: (sent: number, last?: string) => void,
     stop: () => boolean = () => false,
     onStatus: (s: string) => void = () => undefined,
+    /** The <game> push (default 'bsvgun') and short pushes after it, e.g. the player's handle. */
+    tag: { game?: string; extra?: string[] } = {},
+    /** Sats each blast needs (default STORM_FEE); a longer tag needs more. */
+    perBlast: number = STORM_FEE,
   ): Promise<number> {
     return this.exclusive(async () => {
       this.refresh();
@@ -333,13 +337,13 @@ export class Gun {
       const lanesN = Math.max(1, Math.min(100, Math.ceil(total / 300)));
       const perLane = Math.ceil(total / lanesN);
       const budget = this.sats - 300 - lanesN * 40; // leave room for the split tx fee (~34 bytes per lane output)
-      if (budget < lanesN * STORM_FEE) throw new Error('Not enough sats loaded for a storm.');
+      if (budget < lanesN * perBlast) throw new Error('Not enough sats loaded for a storm.');
       // Split into lanes.
       onStatus(`Splitting the gun into ${lanesN} lanes…`);
       const split = new Transaction();
       split.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
       // Each lane gets what its blasts need (+ margin); the rest stays in the gun as change.
-      const each = Math.min(Math.floor(budget / lanesN), perLane * (STORM_FEE + 2) + 100);
+      const each = Math.min(Math.floor(budget / lanesN), perLane * (perBlast + 2) + 100);
       for (let i = 0; i < lanesN; i++) split.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
       split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
       await split.fee(new SatoshisPerKilobyte(FEE_RATE));
@@ -394,6 +398,8 @@ export class Gun {
               wif: this.key.toWif(),
               token,
               step: 50,
+              game: tag.game,
+              extra: tag.extra,
               lanes: mine.map((l, k) => ({ hex: base.toHex(), vout: l.vout, count: l.left, n: (w + k * cores) * perLane + 1 })),
             });
           });

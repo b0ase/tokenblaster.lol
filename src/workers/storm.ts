@@ -1,7 +1,8 @@
 /**
  * BSVGun storm worker: signs and broadcasts its share of lanes on its own CPU core.
  * Each lane is an unconfirmed chain: coin → blast → blast → … (one OP_RETURN tag + change each).
- * Messages in:  { type: 'start', wif, token, lanes: [{ hex, vout, count }], startN, step }
+ * Messages in:  { type: 'start', wif, token, lanes: [{ hex, vout, count }], startN, step, game?, extra? }
+ *               game: the <game> push (default 'bsvgun'); extra: short pushes after it (e.g. the player's handle)
  *               { type: 'stop' }
  * Messages out: { type: 'sent', n, last }   n = newly accepted blasts
  *               { type: 'why', text }       a rejection reason (for the UI)
@@ -40,6 +41,8 @@ self.onmessage = async (e: MessageEvent) => {
     n: l.n,
   }));
   const step: number = m.step;
+  const game: string = typeof m.game === 'string' && m.game ? m.game : 'bsvgun';
+  const extra: string[] = Array.isArray(m.extra) ? (m.extra as unknown[]).filter((x): x is string => typeof x === 'string').slice(0, 2) : [];
   let fee = 0; // worked out once (every blast is the same size, give or take a digit)
 
   while (lanes.length && !stopped) {
@@ -53,7 +56,7 @@ self.onmessage = async (e: MessageEvent) => {
         const have = prev.outputs[vout].satoshis ?? 0;
         const tx = new Transaction();
         tx.addInput({ sourceTransaction: prev, sourceOutputIndex: vout, unlockingScriptTemplate: unlock });
-        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token, String(lane.n + chain.length), 'bsvgun'].map(hex).join(' ')}`), satoshis: 0 });
+        tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token, String(lane.n + chain.length), game, ...extra].map(hex).join(' ')}`), satoshis: 0 });
         if (!fee) {
           tx.addOutput({ lockingScript: lock, change: true });
           await tx.fee(new SatoshisPerKilobyte(FEE_RATE));

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#060b1a"/><stop offset=".6" stop-color="#12284d"/><stop offset=".85" stop-color="#3a2440"/><stop offset="1" stop-color="#0a0608"/></linearGradient>
+    <linearGradient id="chrome" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f4f8ff"/><stop offset=".3" stop-color="#8a96a8"/><stop offset=".55" stop-color="#e6edf6"/><stop offset=".8" stop-color="#5d6878"/><stop offset="1" stop-color="#c9d3e0"/></linearGradient>
+    <radialGradient id="flash" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fffbe0"/><stop offset=".35" stop-color="#ffaa3c" stop-opacity=".8"/><stop offset="1" stop-color="#ff5a14" stop-opacity="0"/></radialGradient>
+    <radialGradient id="eye" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff2c0"/><stop offset=".35" stop-color="#ff3a2a"/><stop offset="1" stop-color="#5a0000"/></radialGradient>
+    <radialGradient id="vig" cx=".5" cy=".5" r=".75"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".7"/></radialGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#sky)"/>
+  <g fill="#0a1226">
+    <rect x="0" y="300" width="110" height="200"/><rect x="118" y="250" width="80" height="250"/><rect x="206" y="320" width="120" height="180"/>
+    <rect x="900" y="270" width="90" height="230"/><rect x="996" y="330" width="120" height="170"/><rect x="1122" y="240" width="90" height="260"/>
+  </g>
+  <polygon points="430,40 600,-20 770,40" fill="#121b30"/>
+  <rect x="440" y="40" width="320" height="460" fill="#16213a"/>
+  <g fill="#9fd2ff" opacity=".7">
+    <rect x="462" y="120" width="30" height="22"/><rect x="502" y="120" width="30" height="22"/><rect x="582" y="120" width="30" height="22" fill="#ffd7a0"/><rect x="662" y="120" width="30" height="22"/><rect x="702" y="120" width="30" height="22"/>
+    <rect x="462" y="160" width="30" height="22" fill="#ffd7a0"/><rect x="542" y="160" width="30" height="22"/><rect x="622" y="160" width="30" height="22"/><rect x="702" y="160" width="30" height="22"/>
+    <rect x="502" y="200" width="30" height="22"/><rect x="582" y="200" width="30" height="22"/><rect x="662" y="200" width="30" height="22" fill="#ffd7a0"/>
+    <rect x="462" y="240" width="30" height="22"/><rect x="542" y="240" width="30" height="22" fill="#ffd7a0"/><rect x="702" y="240" width="30" height="22"/>
+  </g>
+  <g filter="url(#glow)"><ellipse cx="490" cy="76" rx="24" ry="13" fill="#1a0306" stroke="#ff3030" stroke-width="3"/><circle cx="490" cy="76" r="8" fill="url(#eye)"/></g>
+  <text x="522" y="80" font-family="Arial Black, Impact, sans-serif" font-size="26" font-weight="900" fill="#e8edf6">OMNICORE</text>
+  <text x="524" y="98" font-family="Arial, sans-serif" font-size="11" letter-spacing="5" fill="#ff5a4a">DYNAMICS</text>
+  <!-- Liquid Unit -->
+  <g transform="translate(760 500) scale(1.05)" fill="url(#chrome)" filter="url(#glow)">
+    <path d="M-26,-150 L-34,-4 L-12,-4 L-4,-150 Z M4,-150 L12,-4 L34,-4 L26,-150 Z"/>
+    <path d="M-34,-150 Q-54,-230 -46,-262 L46,-262 Q54,-230 34,-150 Z"/>
+    <path d="M-46,-258 L-62,-168 L-48,-166 L-36,-240 Z"/>
+    <path d="M46,-258 L64,-180 L60,-100 L52,-178 L36,-240 Z"/>
+    <ellipse cx="0" cy="-292" rx="22" ry="28"/>
+  </g>
+  <g fill="none" stroke="#f0f8ff" stroke-width="2"><circle cx="752" cy="380" r="8"/><circle cx="772" cy="330" r="7"/><circle cx="744" cy="300" r="6"/></g>
+  <rect x="0" y="500" width="1200" height="130" fill="#0c0a10"/>
+  <!-- tracers -->
+  <g stroke="#ffdc8c" stroke-width="4" stroke-linecap="round">
+    <line x1="420" y1="470" x2="500" y2="440"/><line x1="560" y1="420" x2="640" y2="390"/><line x1="660" y1="380" x2="730" y2="352"/><line x1="470" y1="462" x2="540" y2="420"/>
+  </g>
+  <!-- the Gunner + minigun -->
+  <g transform="translate(250 560)">
+    <path d="M-120,90 Q-130,-60 -64,-120 L54,-126 Q118,-70 108,90 Z" fill="#14100e"/>
+    <path d="M-62,-118 Q-104,-50 -110,80" stroke="#ff9a50" stroke-opacity=".35" stroke-width="3" fill="none"/>
+    <ellipse cx="-4" cy="-160" rx="34" ry="40" fill="#1a1310"/>
+    <rect x="-36" y="-200" width="66" height="22" fill="#0b0807"/>
+    <rect x="14" y="-168" width="26" height="9" fill="#05070c"/><rect x="30" y="-167" width="8" height="2" fill="#ff7850"/>
+    <g transform="rotate(-21)">
+      <rect x="-40" y="-22" width="90" height="44" fill="#20232b"/>
+      <rect x="50" y="-14" width="150" height="6" fill="#9aa2b3"/><rect x="50" y="-4" width="150" height="6" fill="#5e6575"/><rect x="50" y="6" width="150" height="6" fill="#868e9f"/>
+      <ellipse cx="230" cy="0" rx="60" ry="28" fill="url(#flash)"/>
+    </g>
+  </g>
+  <rect width="1200" height="630" fill="url(#vig)"/>
+  <text x="60" y="210" font-family="Arial Black, Impact, sans-serif" font-size="22" letter-spacing="6" fill="#ffd27a">TOKENBLASTER</text>
+  <text x="56" y="268" font-family="Arial Black, Impact, sans-serif" font-size="60" font-weight="900" fill="#ffffff">SHOOTING</text>
+  <text x="56" y="330" font-family="Arial Black, Impact, sans-serif" font-size="60" font-weight="900" fill="#ffffff">GALLERY</text>
+  <text x="1140" y="80" text-anchor="end" font-family="Arial Black, Impact, sans-serif" font-size="40" font-weight="900" fill="#ff3b3b">FIRE A MILLION</text>
+  <text x="1140" y="124" text-anchor="end" font-family="Arial Black, Impact, sans-serif" font-size="40" font-weight="900" fill="#ff3b3b">TRANSACTIONS</text>
+  <text x="1140" y="160" text-anchor="end" font-family="Arial, sans-serif" font-size="20" fill="#d8e2f0">every bullet is a real BSV tx</text>
+  <rect x="860" y="540" width="300" height="56" fill="#ffd27a"/>
+  <text x="1010" y="566" text-anchor="middle" font-family="Arial Black, Impact, sans-serif" font-size="20" fill="#120a00">31 OCT STRESS TEST</text>
+  <text x="1010" y="588" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#120a00">1 BSV TO THE TOP BLASTER</text>
+  <text x="60" y="600" font-family="Arial, sans-serif" font-size="18" fill="#9fb0c8">tokenblaster.lol/arcade/gallery</text>
+</svg>
