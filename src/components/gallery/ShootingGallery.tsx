@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
+import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
@@ -94,7 +95,7 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 export function ShootingGallery() {
   const b = useBlaster();
   const { storm, fireBatch } = b;
-  const [name, setName] = useState('');
+  const [name, setName] = usePlayerName();
   // The NAME typed at the cabinet is the on-chain handle tag and the board name.
   const handle = cleanName(name);
   const weapons = useMemo(() => {
