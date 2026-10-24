@@ -4,7 +4,10 @@ import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
 import { Barcode, Pictogram } from '@/components/dr';
 import { SectionHead } from '@/components/dr/site';
-import { HeroShowcase } from '@/components/HeroShowcase';
+import { HeroShowcase, HeroTitle } from '@/components/HeroShowcase';
+
+// Production runs free play unless NEXT_PUBLIC_GALLERY_PAID=1; only paid play spends a real tx per bullet.
+const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID === '1';
 import { HeroSound } from '@/components/HeroSound';
 import { ArcadeGrid } from '@/components/ArcadeGrid';
 import { HeroLive } from '@/components/HeroLive';
@@ -50,6 +53,7 @@ export default function Home() {
                 トークン発射
               </span>
             </div>
+            <HeroTitle />
             <h1 className="dr-display dr-mega dr-skew text-hot [text-shadow:0_2px_0_var(--panel),0_0_18px_var(--panel)]">
               <span className="dr-line" style={{ ['--d' as string]: '0.05s' }}>
                 Load your
@@ -65,7 +69,7 @@ export default function Home() {
               </span>
             </h1>
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="dr-sticker text-base sm:text-xl">Every bullet = 1 real BSV tx</span>
+              <span className="dr-sticker text-base sm:text-xl">{PAID ? 'Every bullet = 1 real BSV tx' : 'Every bullet = 1 real BSV tx in paid play'}</span>
               <span className="dr-sticker dr-sticker-red text-xs sm:text-sm">No fake coins</span>
             </div>
             <div className="mt-4"><HeroSound /></div>
