@@ -11,7 +11,6 @@ import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils
 import { dim, red } from './banner';
 import { fetchTx, unspent } from './turbo';
 
-const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const GP = 'https://ordinals.gorillapool.io/api';
 const ARC_URL = process.env.BLASTER_ARC_URL || 'https://arc.gorillapool.io';
 export const BURN_ADDRESS = '1BitcoinEaterAddressDontSendf59kuE';
