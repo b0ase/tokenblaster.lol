@@ -50,7 +50,7 @@ async function fanOut(key: PrivateKey, chains: number, per: (c: number) => numbe
   // an unconfirmed parent that ARC hasn't seen relayed stalls the fan-out (1M run, 24 Oct).
   const need = Array.from({ length: chains }, (_, c) => per(c)).reduce((a, b) => a + b, 0) + chains * 34 + 10_000;
   const pool = (await unspent(address))
-    .filter((c) => c.value >= 100 && (c as { status?: string }).status !== 'unconfirmed' && !c.isSpentInMempoolTx)
+    .filter((c) => c.value >= 100 && !(arg('exclude-tx', '') || '').split(',').filter(Boolean).includes(c.tx_hash) && (flag('allow-unconfirmed') || (c as { status?: string }).status !== 'unconfirmed') && !c.isSpentInMempoolTx)
     .sort((a, b) => b.value - a.value);
   const coins: typeof pool = [];
   let have = 0;
@@ -131,7 +131,7 @@ async function main() {
   const jwk = jwkOf(key);
   const W = Math.min(workers, heads.length);
   await Promise.all(Array.from({ length: W }, (_, w) => new Promise<void>((resolve, reject) => {
-    const worker = new Worker(new URL('./stress/worker.mjs', import.meta.url), { workerData: { stress: true, jwk, heads: heads.filter((_, i) => i % W === w), fee: p.feePerTx, token, seg, game } });
+    const worker = new Worker(new URL('./stress/worker.mjs', import.meta.url), { workerData: { stress: true, jwk, heads: heads.filter((_, i) => i % W === w), fee: p.feePerTx, token, seg, game, tag: arg('tag', 'tokenblaster.lol') } });
     const done = () => { worker.terminate(); resolve(); };
     worker.on('error', reject);
     worker.on('message', async (m: { end?: boolean; ab?: ArrayBuffer; meta?: number[] }) => {
