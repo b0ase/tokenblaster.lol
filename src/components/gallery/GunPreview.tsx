@@ -9,7 +9,9 @@ import { loadGunModel } from '@/lib/ordnanceModels';
 export function GunPreview({ url, active }: { url: string; active: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const activeRef = useRef(active);
-  activeRef.current = active;
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   useEffect(() => {
     const cv = ref.current;

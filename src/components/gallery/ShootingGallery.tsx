@@ -34,7 +34,6 @@ import {
   PLATFORM_FEE,
   PRIZE,
   chainHandle,
-  cleanAmmo,
   paymailFor,
   fmtBsv,
   fmtUsd,
