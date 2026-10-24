@@ -36,6 +36,9 @@ export function Hud(p: {
   const pk = Math.max(0, Math.min(1, php / pmax));
   const low = pk < 0.3;
   const push = s?.bossPush ?? 0;
+  // THE BLOCK CLOCK: ten minutes, one block; counts down to the finale
+  const left = s ? Math.max(0, Math.ceil(s.runMax - s.runSecs)) : 600;
+  const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
   return (
     <>
       {/* PLAYER HEALTH: bottom left, above the hint */}
@@ -78,6 +81,9 @@ export function Hud(p: {
           </span>
           <span className="flex items-center gap-1.5 text-[var(--tbx-text)]">
             <Icon name="wave" size={12} className="text-[var(--tbx-teal)]" /> STAGE <span className="tbx-num">{s?.stage ?? 1}</span>/4
+            <span className="tbx-num text-[var(--tbx-amber)]" data-block-clock>
+              · BLOCK {clock}
+            </span>
           </span>
         </div>
         <div className="relative mt-1.5 h-[10px] overflow-hidden rounded-[3px] border border-white/15 bg-black/60">
@@ -88,7 +94,7 @@ export function Hud(p: {
         </div>
         <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--tbx-dim)]">
           <span className="truncate">{bossBar ? (push > 0.45 ? 'PUSHED BACK. Keep firing!' : p.bossNote) : p.stageNote}</span>
-          <span className="tbx-num shrink-0">{s ? (goal?.kind === 'jam' ? `${hp}%` : `${hp.toLocaleString('en-US')} / ${max.toLocaleString('en-US')}`) : ''}</span>
+          <span className="tbx-num shrink-0">{s ? (goal?.kind === 'block' ? clock : `${hp.toLocaleString('en-US')} / ${max.toLocaleString('en-US')}`) : ''}</span>
         </div>
       </div>
 

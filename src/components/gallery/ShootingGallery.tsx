@@ -59,10 +59,10 @@ import { PrizeBanner } from './PrizeBanner';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
-import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, TRANSITION, forPractice, stageBrief } from '@/lib/gallery/story';
+import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
-import { BannerStage, LiftOverlay, RescuedBeat, useBanners } from './Banners';
+import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { Results, type RunSummary } from './Results';
 import { DamageFx, type DamageFxHandle } from './DamageFx';
@@ -586,9 +586,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     if (live && !dry && run.sent) void reportRef.current(!sending);
   }, [live, dry, run.sent, sending]);
 
-  // STAGE FLOW (from the engine): the lift closes (black, floor counter, Dr Wong's line), the new stage opens with its
-  // banner, the Liquid Unit goes down, the hostage is free and the RESCUED beat plays before the results.
-  const [lift, setLift] = useState<{ shown: boolean; label: string; line: string }>({ shown: false, label: '', line: '' });
+  // STAGE FLOW (from the engine): ONE seamless ten-minute walk (owner, 24 Oct). A new stage opens under a fog
+  // surge with a non-blocking banner and a new song while the fire never stops; the Liquid Unit walks in for the
+  // last minutes, goes down, the hostage is free and the RESCUED beat plays before the results.
   const [rescued, setRescued] = useState(false);
   const rescuedRef = useRef(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -596,18 +596,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const stageEvent = useRef<(e: StageEvent) => void>(() => undefined);
   useEffect(() => {
     stageEvent.current = (e) => {
-      if (e.kind === 'leave') {
-        setLift({ shown: true, label: TRANSITION.floors[Math.min(3, e.to - 1)], line: forPractice(e.line) });
-        return;
-      }
       if (e.kind === 'enter') {
         hudWave.current = e.stage;
         skipTrack(); // a new stage, a new song
-        later(() => setLift((l) => ({ ...l, shown: false })), TUNING_FLOW.holdMs - 500);
-        later(() => {
-          pushBanner({ kind: 'stage', n: e.stage });
-          if (e.stage === 4) pushBanner({ kind: 'boss' });
-        }, TUNING_FLOW.holdMs + 300);
+        pushBanner({ kind: 'stage', n: e.stage });
+        return;
+      }
+      if (e.kind === 'boss') {
+        pushBanner({ kind: 'boss' });
         return;
       }
       if (e.kind === 'rescued') {
@@ -695,7 +691,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       engine.current?.startRun();
       rescuedRef.current = false;
       setRescued(false);
-      setLift((l) => ({ ...l, shown: false }));
       skipTrack();
     }
     unlockAudio();
@@ -962,7 +957,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </div>
         )}
         {!loadout && !over && <BannerStage item={bannerCur} practice={simulated} />}
-        <LiftOverlay shown={lift.shown} label={lift.label} line={lift.line} />
         {rescued && !over && <RescuedBeat />}
         {queueNote && !simulated && !loadout && !jammed && !over && !flat && (
           <div className="tbx-glass pointer-events-none absolute bottom-[96px] left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-white/85" role="status">
