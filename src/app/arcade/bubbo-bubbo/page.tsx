@@ -1,13 +1,14 @@
 import { GameShell } from '@/components/GameShell';
 import { HighScoresPanel } from '@/components/HighScores';
 import { PixiOpenGame } from '@/components/PixiOpenGame';
+import { COIN_POP_CARD, shareImages } from '@/lib/og';
 
 const description = 'Coin Pop: the PixiJS open-source bubble shooter Bubbo Bubbo, reskinned with token coins. Aim, match three coins of a kind and clear the board. 10p a game, or practice free.';
 export const metadata = {
   title: 'Coin Pop · TokenBlaster.lol',
   description,
-  openGraph: { title: 'Coin Pop', description, url: '/arcade/bubbo-bubbo' },
-  twitter: { card: 'summary_large_image', title: 'Coin Pop', description },
+  openGraph: { title: 'Coin Pop', description, url: '/arcade/bubbo-bubbo', images: shareImages(COIN_POP_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'Coin Pop', description, images: shareImages(COIN_POP_CARD).twitter },
 };
 
 export default function CoinPopPage() {

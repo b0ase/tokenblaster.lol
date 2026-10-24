@@ -1,13 +1,14 @@
 import { GameShell } from '@/components/GameShell';
 import { HighScoresPanel } from '@/components/HighScores';
 import { PixiOpenGame } from '@/components/PixiOpenGame';
+import { TOKEN_POTIONS_CARD, shareImages } from '@/lib/og';
 
 const description = 'Token Potions: the PixiJS open-source match-3 Puzzling Potions, brewed for TokenBlaster. Swap potions, chain combos and beat the 60-second clock. 10p a game, or practice free.';
 export const metadata = {
   title: 'Token Potions · TokenBlaster.lol',
   description,
-  openGraph: { title: 'Token Potions', description, url: '/arcade/puzzling-potions' },
-  twitter: { card: 'summary_large_image', title: 'Token Potions', description },
+  openGraph: { title: 'Token Potions', description, url: '/arcade/puzzling-potions', images: shareImages(TOKEN_POTIONS_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'Token Potions', description, images: shareImages(TOKEN_POTIONS_CARD).twitter },
 };
 
 export default function TokenPotionsPage() {

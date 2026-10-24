@@ -1,6 +1,6 @@
 import { GameShell } from '@/components/GameShell';
+import { FROGGER_CARD, shareImages } from '@/lib/og';
 
-const FROGGER_CARD = { url: '/arcade/frogger.jpg', width: 1200, height: 630, alt: 'Chain Frogger on TokenBlaster.lol: cross a 3D city avenue where every vehicle is a live BSV transaction' };
 import { HighScoresPanel } from '@/components/HighScores';
 import { Frogger3D as Frogger } from '@/components/Frogger3D';
 
@@ -9,8 +9,8 @@ export const metadata = {
   title: 'Chain Frogger · TokenBlaster.lol',
   description,
   // Its own card: it used to inherit /arcade's old file-convention image, which is gone.
-  openGraph: { title: 'Chain Frogger', description, url: '/arcade/frogger', images: [FROGGER_CARD] },
-  twitter: { card: 'summary_large_image', title: 'Chain Frogger', description, images: [FROGGER_CARD] },
+  openGraph: { title: 'Chain Frogger', description, url: '/arcade/frogger', images: shareImages(FROGGER_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'Chain Frogger', description, images: shareImages(FROGGER_CARD).twitter },
 };
 
 export default function FroggerPage() {

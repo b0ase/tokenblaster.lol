@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { OrdnanceStore } from '@/components/OrdnanceStore';
+import { ORDNANCE_STORE_CARD, shareImages } from '@/lib/og';
 
 const description = 'The 1Sat Ordnance store: buy game weapons as real 1Sat ordinals, inscribed straight into your wallet. Hold one and it unlocks in Double-O Satoshi and the Arena.';
 export const metadata = {
   title: 'Store · 1Sat Ordnance · TokenBlaster.lol',
   description,
-  openGraph: { title: '1SAT ORDNANCE STORE: draw your weapon.', description, url: '/1satordnance/store' },
-  twitter: { card: 'summary_large_image', title: '1SAT ORDNANCE STORE: draw your weapon.', description },
+  openGraph: { title: '1SAT ORDNANCE STORE: draw your weapon.', description, url: '/1satordnance/store', images: shareImages(ORDNANCE_STORE_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: '1SAT ORDNANCE STORE: draw your weapon.', description, images: shareImages(ORDNANCE_STORE_CARD).twitter },
 };
 
 export default function OrdnanceStorePage() {
