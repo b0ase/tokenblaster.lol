@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // next/image: AVIF first (smallest), WebP fallback. The home page's arcade art and hero posters are 1200-1920px JPGs.
+  images: { formats: ['image/avif', 'image/webp'], qualities: [75, 80] },
   // bWalletX opens bGames inside its own frame: the web and desktop wallets, and capacitor://localhost on iOS.
   // Allow exactly those, plus ourselves (owner-approved 15 Oct 2026). Android (https://localhost) opens games
   // full-screen instead. No X-Frame-Options: it can't list origins.

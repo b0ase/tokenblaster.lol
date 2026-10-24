@@ -4,7 +4,8 @@ import { useEffect } from 'react';
 
 /**
  * Home page effects, no library: arms CSS scroll-reveal for every [data-reveal] element (they show immediately without
- * JS, or when reduced motion is on) and feeds the cursor spotlight (--mx / --my) to glass panels and cards.
+ * JS, or when reduced motion is on), feeds the cursor spotlight (--mx / --my) to glass panels and cards, and marks the
+ * animated hero / gallery / chevron blocks data-off while off-screen so their CSS loops pause.
  */
 export function HomeFx() {
   useEffect(() => {
@@ -37,7 +38,16 @@ export function HomeFx() {
       t.style.setProperty('--my', `${e.clientY - r.top}px`);
     };
     document.addEventListener('pointermove', move, { passive: true });
+    // Pause the decorative CSS loops (hero light, tape, ticker, gallery Ken Burns + scan, chevrons) while out of view.
+    let off: IntersectionObserver | undefined;
+    if ('IntersectionObserver' in window) {
+      off = new IntersectionObserver((entries) => {
+        for (const e of entries) e.target.toggleAttribute('data-off', !e.isIntersecting);
+      });
+      for (const el of document.querySelectorAll('.dr-hero, .hp-gal, .dr-chev-march')) off.observe(el);
+    }
     return () => {
+      off?.disconnect();
       io?.disconnect();
       root.classList.remove('hp-armed');
       document.removeEventListener('pointermove', move);

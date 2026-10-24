@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { PreviewButton, previewHandlers } from '@/components/PreviewButton';
 
@@ -19,8 +20,8 @@ export function ArcadeGrid({ games }: { games: Tile[] }) {
         <div key={g.title} className="group/card relative flex" data-reveal style={{ ['--i' as string]: i % 5 }} {...previewHandlers(g.href)}>
           <Link href={g.href} className="hp-card group">
             <div className="hp-card-art">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={g.img} alt={`${g.title}`} loading="lazy" />
+              {/* 1200x630 sources, served resized (AVIF/WebP) for the card's real width: 1 column on phones, ~290-420px above */}
+              <Image src={g.img} alt={`${g.title}`} width={1200} height={630} sizes="(max-width: 640px) 100vw, (max-width: 1100px) 50vw, 420px" />
               <span className="hp-card-n">{pad(i + 1)}</span>
               <span className="hp-card-kind">{g.kind}</span>
             </div>

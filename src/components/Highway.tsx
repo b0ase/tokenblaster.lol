@@ -5,6 +5,7 @@ import type { ChainStats } from '@/lib/chain';
 import { subscribeStatus, subscribeTx, type StreamStatus } from '@/lib/chainStream';
 import { KINDS, type FeedTx, type TxKind } from '@/lib/feed';
 import { tokenMeta } from '@/lib/tokenMeta';
+import { useOnScreen } from '@/lib/useOnScreen';
 
 const WINDOW_MS = 60_000;
 const LANE: Record<TxKind, number> = Object.fromEntries(KINDS.map((k, i) => [k.id, i])) as Record<TxKind, number>;
@@ -27,6 +28,7 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
   const [tip, setTip] = useState<ChainStats | null>(null);
   const [status, setStatus] = useState<StreamStatus>('connecting');
   const [counts, setCounts] = useState<{ rate: number; byKind: Record<TxKind, number>; now: number } | null>(null);
+  const onScreen = useOnScreen(canvas);
 
   // Chain tip from GorillaPool.
   useEffect(() => {
@@ -62,6 +64,7 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
     const t = setInterval(() => {
       const cutoff = Date.now() - WINDOW_MS;
       seen.current = seen.current.filter((s) => s.at >= cutoff);
+      if (!onScreen.current) return; // off-screen / hidden tab: keep the window rolling, skip the re-render
       const byKind = Object.fromEntries(KINDS.map((k) => [k.id, 0])) as Record<TxKind, number>;
       for (const s of seen.current) byKind[s.kind]++;
       setCounts({ rate: seen.current.length / (WINDOW_MS / 1000), byKind, now: Date.now() });
@@ -81,7 +84,7 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
       setMovers([...by].map(([id, v]) => ({ id, ...v })).sort((a, b) => b.n - a.n).slice(0, 12));
     }, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [onScreen]);
 
   // Draw loop.
   useEffect(() => {
@@ -91,10 +94,19 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
     type Car = FeedTx & { x: number; y: number; w: number; h: number; speed: number };
     const cars: Car[] = [];
     let raf = 0;
+    let running = false;
     const draw = () => {
+      // Off-screen or hidden tab: stop the loop (the observers below restart it); cars waiting in the queue keep.
+      if (!visible()) {
+        running = false;
+        return;
+      }
       const dpr = devicePixelRatio;
-      const w = (c.width = c.clientWidth * dpr);
-      const h = (c.height = c.clientHeight * dpr);
+      // Resize the backing store only when the box changes: assigning width/height reallocates and clears the canvas.
+      const w = Math.round(c.clientWidth * dpr);
+      const h = Math.round(c.clientHeight * dpr);
+      if (c.width !== w) c.width = w;
+      if (c.height !== h) c.height = h;
       const lane = h / KINDS.length;
       ctx.fillStyle = '#050202';
       ctx.fillRect(0, 0, w, h);
@@ -154,9 +166,23 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
       else if (hit) window.open(`https://whatsonchain.com/tx/${hit.id}`, '_blank', 'noopener');
     };
     c.addEventListener('click', click);
-    raf = requestAnimationFrame(draw);
+    let inView = true;
+    const visible = () => inView && document.visibilityState !== 'hidden';
+    const start = () => {
+      if (running || !visible()) return;
+      running = true;
+      // Coming back: drop the backlog that piled up while nobody watched, so the road doesn't jam.
+      if (queue.current.length > 60) queue.current.splice(0, queue.current.length - 60);
+      raf = requestAnimationFrame(draw);
+    };
+    const io = typeof IntersectionObserver === 'undefined' ? undefined : new IntersectionObserver(([e]) => ((inView = e.isIntersecting), start()));
+    io?.observe(c);
+    document.addEventListener('visibilitychange', start);
+    start();
     return () => {
       cancelAnimationFrame(raf);
+      io?.disconnect();
+      document.removeEventListener('visibilitychange', start);
       c.removeEventListener('click', click);
     };
   }, []);

@@ -583,16 +583,25 @@ main > header.panel:first-child h1 .blink {
     mask-position: 10px 0;
   }
 }
-/* scrolling hazard tape */
+/* scrolling hazard tape: the stripes sit on a pseudo-element one tile (34px) wider than the strip and slide by one
+   tile, a transform (compositor only) that looks the same as the old background-position scroll (a repaint per frame) */
 .dr-tape {
+  position: relative;
   height: 10px;
+  overflow: hidden;
+}
+.dr-tape::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 -34px;
   background: repeating-linear-gradient(-45deg, var(--accent-2) 0 12px, var(--stripe-ink) 12px 24px);
   background-size: 34px 34px;
   animation: dr-tape 0.9s linear infinite;
+  will-change: transform;
 }
 @keyframes dr-tape {
   to {
-    background-position: 34px 0;
+    transform: translateX(34px);
   }
 }
 /* headline: staggered line reveal, skew on hover */
@@ -719,7 +728,7 @@ main > header.panel:first-child h1 .blink {
 
 @media (prefers-reduced-motion: reduce) {
   .dr-chev-march,
-  .dr-tape,
+  .dr-tape::before,
   .dr-line,
   .dr-slide[data-active="true"],
   .dr-slide[data-active="true"] img,
@@ -1130,19 +1139,23 @@ body:has([data-game-shell]) > footer {
     linear-gradient(0deg, rgb(3 7 12 / 0.9) 0%, transparent 45%),
     radial-gradient(70% 60% at 85% 30%, color-mix(in srgb, var(--tbx-red) 20%, transparent), transparent 70%);
 }
-/* a faint scan sweep and four HUD corner brackets */
+/* a faint scan sweep and four HUD corner brackets. The sweep is a 6x-tall strip of two 3x tiles slid with transform
+   (compositor only), the same motion as the old background-position sweep without repainting the card every frame:
+   tile offset -2H..+2H (mod the 3H tile) = translateY -5H..-H = -83.333%..-16.667% of the 6H strip. */
 .hp-gal-main::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 0 0 auto 0;
+  height: 600%;
   pointer-events: none;
   background: linear-gradient(180deg, transparent 0 46%, rgb(63 216 232 / 0.08) 50%, transparent 54% 100%);
-  background-size: 100% 300%;
+  background-size: 100% 50%;
   animation: hp-scan 7s linear infinite;
+  will-change: transform;
 }
 @keyframes hp-scan {
-  from { background-position: 0 100%; }
-  to { background-position: 0 -100%; }
+  from { transform: translateY(-83.3333%); }
+  to { transform: translateY(-16.6667%); }
 }
 .hp-gal-corner {
   position: absolute;
@@ -1483,4 +1496,18 @@ body:has([data-game-shell]) > footer {
   .hp a.panel:hover {
     transform: none;
   }
+}
+
+/* Decorative loops pause while scrolled out of view (HomeFx sets data-off); on screen nothing changes. The hero's
+   scroll-linked parallax is left alone. */
+.dr-hero[data-off] .hp-hero-fx i,
+.dr-hero[data-off] .dr-tape::before,
+.dr-hero[data-off] .ticker-track,
+.dr-hero[data-off] .blink,
+.dr-hero[data-off] .dr-scroll,
+.dr-hero[data-off] .dr-scroll *,
+.hp-gal[data-off] *,
+.hp-gal[data-off] .hp-gal-main::after,
+.dr-chev-march[data-off] {
+  animation-play-state: paused;
 }

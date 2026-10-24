@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
@@ -117,8 +118,7 @@ export default function Home() {
           <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-1.5">
             {TILES.map((g) => (
               <span key={g.href} className="hp-tile" title={g.title}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={g.img} alt={g.title} loading="lazy" />
+                <Image src={g.img} alt={g.title} width={1200} height={630} sizes="128px" />
               </span>
             ))}
           </div>
@@ -126,8 +126,7 @@ export default function Home() {
       </Link>
 
       <Link href="/1satordnance/store" className="dr-band dr-band-grid group flex flex-wrap items-stretch !p-0" data-reveal>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/ordnance/cards/safu-blaster.webp" alt="" className="h-28 w-28 shrink-0 border-r border-[var(--border-dim)] object-cover transition duration-700 group-hover:scale-110 sm:h-36 sm:w-36 lg:h-44 lg:w-44" />
+        <Image src="/ordnance/cards/safu-blaster.webp" alt="" width={176} height={176} sizes="176px" className="h-28 w-28 shrink-0 border-r border-[var(--border-dim)] object-cover transition duration-700 group-hover:scale-110 sm:h-36 sm:w-36 lg:h-44 lg:w-44" />
         <div className="flex min-w-[14rem] flex-1 flex-col justify-center gap-1 px-[clamp(12px,2.6vw,64px)] py-3 sm:py-5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="dr-sticker text-xs">New</span>

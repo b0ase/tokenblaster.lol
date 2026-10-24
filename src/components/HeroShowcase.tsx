@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { PreviewButton } from '@/components/PreviewButton';
@@ -52,6 +53,25 @@ const motionServer = () => false;
 export function HeroShowcase() {
   const motion = useSyncExternalStore(subscribeMotion, motionSnapshot, motionServer);
   const [failed, setFailed] = useState<number[]>([]);
+  // The loops (2-6 MB each) wait for the page's load event plus an idle moment, so they never compete with the
+  // HTML, CSS, fonts and JS for bandwidth. Until then the poster (the loop's first frame) is what's on screen anyway.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    let idle = 0;
+    let t = 0;
+    const arm = () => {
+      const ric = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      if (ric) idle = ric(() => setArmed(true), { timeout: 1500 });
+      else t = window.setTimeout(() => setArmed(true), 200);
+    };
+    if (document.readyState === 'complete') arm();
+    else window.addEventListener('load', arm, { once: true });
+    return () => {
+      window.removeEventListener('load', arm);
+      window.clearTimeout(t);
+      (window as Window & { cancelIdleCallback?: (n: number) => void }).cancelIdleCallback?.(idle);
+    };
+  }, []);
   const [inView, setInView] = useState(true);
   const stage = useRef<HTMLDivElement>(null);
   const vids = useRef<(HTMLVideoElement | null)[]>([]);
@@ -90,7 +110,7 @@ export function HeroShowcase() {
   }, []);
   useEffect(() => {
     const v = vids.current[i];
-    if (motion && inView && v) {
+    if (motion && armed && inView && v) {
       if (lastI.current !== i && v.currentTime > 0.05) v.currentTime = 0; // each slide's loop starts from its first frame under the wipe
       void v.play().catch(() => undefined); // muted, so allowed; a refusal (battery saver) just leaves the poster up
     }
@@ -104,7 +124,7 @@ export function HeroShowcase() {
       });
     }, motion && inView ? 800 : 0);
     return () => window.clearTimeout(t);
-  }, [i, motion, inView]);
+  }, [i, motion, armed, inView]);
   const next = (i + 1) % SLIDES.length;
   // While the label is hovered/focused its game's music plays, following the slide as it changes.
   useEffect(() => {
@@ -116,19 +136,32 @@ export function HeroShowcase() {
       {/* Full-bleed art, behind the headline (the hero supplies the scrim). */}
       <div ref={stage} className="pointer-events-none absolute inset-0 overflow-hidden bg-black" aria-hidden>
         {SLIDES.map((x, n) => {
-          const live = motion && !failed.includes(n); // loop playing; else the poster (reduced motion / Save-Data) or the old card (video failed)
+          const vid = motion && !failed.includes(n); // a loop slide; else the poster (reduced motion / Save-Data) or the old card (video failed)
+          const live = vid && armed; // its <video> is mounted (after load + idle)
+          const near = n === i || n === next || n === prev; // only these slides need their still decoded
           return (
-            <div key={x.href} className="dr-slide" data-active={n === i} data-prev={n === prev && n !== i} data-first={first && n === i} data-video={live} style={{ ['--kx' as string]: KB[n][0], ['--ky' as string]: KB[n][1] }}>
+            <div key={x.href} className="dr-slide" data-active={n === i} data-prev={n === prev && n !== i} data-first={first && n === i} data-video={vid} style={{ ['--kx' as string]: KB[n][0], ['--ky' as string]: KB[n][1] }}>
               {/* The poster (first frame of the loop) sits under the video, so there is never a blank frame; the card is the fallback. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={motion && failed.includes(n) ? x.img : `${x.vid}.jpg`} alt="" loading={n === 0 ? 'eager' : 'lazy'} fetchPriority={n === 0 ? 'high' : 'auto'} decoding="async" className="object-[68%_center]" />
+              {/* Optimised AVIF/WebP sized for the cover crop; only the first slide is the LCP (priority), the next one preloads. */}
+              {near && (
+                <Image
+                  src={motion && failed.includes(n) ? x.img : `${x.vid}.jpg`}
+                  alt=""
+                  fill
+                  sizes="(max-aspect-ratio: 16/9) 178vh, 100vw" /* object-fit cover: rendered width = max(100vw, 100vh x 16/9) */
+                  quality={80}
+                  priority={n === 0}
+                  loading={n === 0 ? undefined : 'eager'}
+                  fetchPriority={n === 0 ? undefined : 'low'}
+                  className="object-[68%_center]"
+                />
+              )}
               {live && (
                 <video
                   ref={(el) => {
                     vids.current[n] = el;
                   }}
                   className="absolute inset-0 h-full w-full object-cover object-[68%_center]"
-                  poster={`${x.vid}.jpg`}
                   muted
                   loop
                   playsInline
