@@ -50,7 +50,7 @@ async function fanOut(key: PrivateKey, chains: number, per: (c: number) => numbe
   // an unconfirmed parent that ARC hasn't seen relayed stalls the fan-out (1M run, 24 Oct).
   const need = Array.from({ length: chains }, (_, c) => per(c)).reduce((a, b) => a + b, 0) + chains * 34 + 10_000;
   const pool = (await unspent(address))
-    .filter((c) => c.value >= 100 && (c as { status?: string }).status !== 'unconfirmed' && !c.isSpentInMempoolTx)
+    .filter((c) => c.value >= 100 && !(arg('exclude-tx', '') || '').split(',').filter(Boolean).includes(c.tx_hash) && (flag('allow-unconfirmed') || (c as { status?: string }).status !== 'unconfirmed') && !c.isSpentInMempoolTx)
     .sort((a, b) => b.value - a.value);
   const coins: typeof pool = [];
   let have = 0;
