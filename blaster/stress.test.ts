@@ -4,12 +4,12 @@ import { P2PKH, PrivateKey, Spend, Transaction, Utils } from '@bsv/sdk';
 import { Guard, RateLimiter, blastFee, checkPlan, costOf, plan, quota } from './stress/plan';
 import { makeSigner, opReturnFor } from './signer.mjs';
 
-test('fee per blast at 100 sat/kB is 24 sats; 1M txs ≈ 0.24 BSV', () => {
-  assert.equal(blastFee(100), 24);
+test('fee per blast at 100 sat/kB is 26 sats; 1M txs ≈ 0.26 BSV', () => {
+  assert.equal(blastFee(100), 26);
   assert.equal(blastFee(1), 1);
   const c = costOf(1_000_000, 100, 17.4);
-  assert.equal(c.sats, 24_000_000);
-  assert.ok(Math.abs(c.usd - 4.176) < 0.01);
+  assert.equal(c.sats, 26_000_000);
+  assert.ok(Math.abs(c.usd - 4.524) < 0.01);
 });
 
 test('plan splits count over chains and respects max depth', () => {
