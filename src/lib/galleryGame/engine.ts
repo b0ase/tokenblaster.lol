@@ -132,7 +132,10 @@ export class GalleryEngine {
     if (this.disposed) return;
     this.city = buildCity({ renderer: r, scene: this.scene, high, look: this.look });
     this.boss = new LiquidUnit(this.opts.bossBase, high);
+    this.boss.setEnv(r, this.look.env);
     this.scene.add(this.boss.group);
+    await this.boss.ready; // the rigged model (a fallback figure stands in if it can't load)
+    if (this.disposed) return;
     this.fx = new Fx(this.scene, high);
     this.scene.add(this.camera);
     this.camera.position.set(0, EYE, 0);
