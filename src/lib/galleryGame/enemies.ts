@@ -20,13 +20,16 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { halo } from '../bsvgun/targets';
 import type { Fx } from '../bsvgun/fx';
 import { TOWER } from './city';
+import type { Bolts } from './combat';
+import { TUNING, ramp, roleWeights } from './tuning';
 
 const ROOT = '/gallery/erobots';
 const IDS = ['bot', 'tech', 'frog-bot', 'stripey-bot', 'graf-bot'] as const;
 type Id = (typeof IDS)[number];
 /** Standing height in metres: menacing, a head taller than a person. */
 const HEIGHT = 2.2;
-const HP = 120;
+const HP = TUNING.erobots.hp;
+const rand = (r: readonly [number, number]) => r[0] + Math.random() * (r[1] - r[0]);
 
 // ── Retarget (port of rigMocap.ts) ───────────────────────────────────────────────────────────────────────
 
@@ -127,13 +130,14 @@ const PROXIES: [string, string | null, number][] = [
   ['RightArm', 'RightForeArm', 0.05],
 ];
 
-type State = 'off' | 'boot' | 'run' | 'aim' | 'dying' | 'down';
+type State = 'off' | 'boot' | 'run' | 'aim' | 'melee' | 'dying' | 'down';
+type Role = 'shooter' | 'rusher' | 'flanker';
 type Slot = {
   id: Id;
   root: THREE.Group;
   model: THREE.Object3D;
   mixer: THREE.AnimationMixer;
-  act: Record<'walk' | 'run' | 'aim' | 'shoot' | 'hurt' | 'death' | 'knock', THREE.AnimationAction>;
+  act: Record<'walk' | 'run' | 'aim' | 'shoot' | 'hurt' | 'death' | 'knock' | 'punch' | 'hook', THREE.AnimationAction>;
   cur: THREE.AnimationAction | null;
   mats: THREE.MeshStandardMaterial[];
   proxies: { bone: THREE.Object3D; local: THREE.Vector3; r: number }[];
@@ -153,6 +157,19 @@ type Slot = {
   hurtT: number;
   boot: number;
   burst: boolean;
+  role: Role;
+  /** Flankers: which side they swing out to, and how far. */
+  side: number;
+  flankX: number;
+  startZ: number;
+  /** Seconds of palm charge left before a bolt leaves (telegraph), and until the next one starts. */
+  charge: number;
+  /** Melee: seconds to the next swing, and to the damage of the swing in progress (-1 none). */
+  swingIn: number;
+  swingHit: number;
+  meleeX: number;
+  /** Knock-back velocity while dying. */
+  dv: THREE.Vector3;
 };
 
 export type ErHit = { slot: Slot; point: THREE.Vector3; dist: number; head: boolean };
@@ -176,11 +193,17 @@ export class ErobotWave {
   /** Camera shake the engine should add this frame (0..1), read-and-clear. */
   impulse = 0;
   kills = 0;
+  /** The boss's wave number: everything here scales with it. */
+  wave = 1;
+  /** Seconds of grace left: nobody fires or swings until it runs out (the opening, and after Continue). */
+  grace: number = TUNING.player.openingGrace;
+  /** False while the player is down: nobody attacks. */
+  playerAlive = true;
 
   constructor(
     private scene: THREE.Scene,
     private fx: Fx,
-    private opts: { high: boolean; canvas: HTMLCanvasElement; reticle: () => { x: number; y: number }; light?: THREE.PointLight; flash?: (at: THREE.Vector3, color: string, intensity: number, ms: number) => void },
+    private opts: { high: boolean; canvas: HTMLCanvasElement; reticle: () => { x: number; y: number }; light?: THREE.PointLight; flash?: (at: THREE.Vector3, color: string, intensity: number, ms: number) => void; bolts: Bolts; melee: (from: THREE.Vector3, dmg: number) => void },
   ) {
     this.cap = opts.high ? 10 : 6;
     this.group.name = 'erobots';
@@ -275,6 +298,8 @@ export class ErobotWave {
       hurt: mk('Hit_Chest', false, 1.5),
       death: mk('Death01', false, 1.1),
       knock: mk('Hit_Knockback', false, 1.1),
+      punch: mk('Punch_Jab', false, 1.5),
+      hook: mk('Melee_Hook', false, 1.4),
     };
     const glow = halo('#ff3a22', 1.3, 0);
     this.group.add(glow);
@@ -285,7 +310,7 @@ export class ErobotWave {
       d.userData.noAO = true;
       decals.push(d);
     }
-    return { id, root, model, mixer, act, cur: null, mats, proxies, hand, decals, decalI: 0, glow, state: 'off', t: 0, hp: HP, flash: 0, stopZ: -14, strafe: 0, baseX: 0, speed: 6, nextShot: 0, hurtT: 0, boot: 0, burst: false };
+    return { id, root, model, mixer, act, cur: null, mats, proxies, hand, decals, decalI: 0, glow, state: 'off', t: 0, hp: HP, flash: 0, stopZ: -14, strafe: 0, baseX: 0, speed: 6, nextShot: 0, hurtT: 0, boot: 0, burst: false, role: 'shooter', side: 1, flankX: 12, startZ: 0, charge: 0, swingIn: 0, swingHit: -1, meleeX: 0, dv: new THREE.Vector3() };
   }
 
   // ── Spawning ──
@@ -298,19 +323,32 @@ export class ErobotWave {
   }
 
   private spawn(s: Slot) {
+    const T = TUNING.erobots;
+    const w = this.wave;
+    const rw = roleWeights(w);
+    const r = Math.random();
+    s.role = r < rw.shooter ? 'shooter' : r < rw.shooter + rw.rusher ? 'rusher' : 'flanker';
     s.state = 'boot';
     s.t = 0;
     s.boot = 0;
-    s.hp = HP;
+    s.hp = HP * ramp(TUNING.waveRamp.erobotHp, w);
     s.flash = 0;
     s.burst = false;
-    s.speed = 5 + Math.random() * 2.5;
-    s.stopZ = -12 - Math.random() * 12;
-    s.strafe = (Math.random() - 0.5) * 2.2;
-    s.nextShot = 1.5 + Math.random() * 2;
+    s.charge = 0;
+    s.swingIn = 0;
+    s.swingHit = -1;
+    s.dv.set(0, 0, 0);
+    s.speed = rand(T.runSpeed) * ramp(TUNING.waveRamp.erobotSpeed, w);
+    s.stopZ = rand(T.stopZ);
+    s.strafe = (Math.random() < 0.5 ? -1 : 1) * T.strafeSpeed * (0.6 + Math.random() * 0.6);
+    s.nextShot = (1.0 + Math.random() * 1.5) / ramp(TUNING.waveRamp.erobotRate, w);
+    s.side = Math.random() < 0.5 ? -1 : 1;
+    s.flankX = rand(T.flankX);
+    s.meleeX = (Math.random() - 0.5) * 3.2;
     const x = (Math.random() - 0.5) * (TOWER.w - 10);
     s.baseX = x;
-    s.root.position.set(x, 0, TOWER.z + 6.5);
+    s.startZ = TOWER.z + 6.5;
+    s.root.position.set(x, 0, s.startZ);
     s.root.rotation.set(0, 0, 0);
     s.root.scale.set(1, 0.05, 1);
     s.root.visible = true;
@@ -326,20 +364,38 @@ export class ErobotWave {
     this.opts.flash?.(V.a, '#27c8e0', 70, 400); // teleport-in
   }
 
+  /** Drop everything on the street (Continue): the wave starts again from nothing. */
+  clearAll() {
+    for (const s of this.slots) {
+      s.state = 'off';
+      s.root.visible = false;
+      s.cur = null;
+      s.mixer.stopAllAction();
+      for (const d of s.decals) d.parent?.remove(d);
+    }
+    this.spawnT = 1.5;
+    this.hold = 0;
+  }
+
   // ── Frame ──
 
   update(dt: number, camera: THREE.Camera, trigger: boolean) {
     if (!this.slots.length) return;
+    const T = TUNING.erobots;
+    const w = this.wave;
+    this.grace = Math.max(0, this.grace - dt);
     // Hold the trigger and the lobby disgorges more of them; let go and the wave thins to a trickle.
     this.hold = trigger ? Math.min(14, this.hold + dt) : Math.max(0, this.hold - dt * 1.5);
-    const want = Math.min(this.cap, 2 + Math.floor(this.hold * 0.9));
+    const capW = Math.min(this.cap, Math.round(T.liveCap + T.liveCapPerWave * (w - 1)));
+    const want = Math.min(capW, Math.round(T.liveBase + TUNING.waveRamp.erobotLive * (w - 1)) + Math.floor(this.hold * T.holdBonusPerSec));
     this.spawnT -= dt;
     if (this.spawnT <= 0 && this.live < want) {
       const free = this.slots.find((s) => s.state === 'off');
       if (free) this.spawn(free);
-      this.spawnT = Math.max(0.35, 1.6 - this.hold * 0.12);
+      this.spawnT = Math.max(T.spawnMin, (T.spawnEvery - this.hold * 0.05) / ramp(TUNING.waveRamp.erobotRate, w));
     }
     const cx = camera.position.x;
+    const rate = ramp(TUNING.waveRamp.erobotRate, w);
     for (const s of this.slots) {
       if (s.state === 'off') continue;
       s.t += dt;
@@ -348,10 +404,12 @@ export class ErobotWave {
       s.flash = Math.max(0, s.flash - dt * 6);
       const e = s.flash;
       const boot = s.state === 'boot' ? Math.max(0, 1 - s.t / 0.5) : 0;
+      const burn = s.state === 'dying' ? Math.max(0, 1 - s.t / 1.6) : 0;
       for (const m of s.mats) {
-        if (e > 0.01) m.emissive.setRGB(1, 0.45, 0.15);
+        if (burn > 0.01) m.emissive.setRGB(1, 0.32, 0.08);
+        else if (e > 0.01) m.emissive.setRGB(1, 0.45, 0.15);
         else m.emissive.setRGB(0.15 * boot, 0.9 * boot, 1 * boot);
-        m.emissiveIntensity = e > 0.01 ? e * 1.4 : boot * 1.6;
+        m.emissiveIntensity = burn > 0.01 ? burn * 2.2 : e > 0.01 ? e * 1.4 : boot * 1.6;
       }
       const p = s.root.position;
       switch (s.state) {
@@ -368,27 +426,57 @@ export class ErobotWave {
         }
         case 'run': {
           p.z += s.speed * dt;
-          p.x = s.baseX + Math.sin(s.t * 1.7 + s.baseX) * 0.8;
-          this.face(s, cx, p.z, dt, 6);
-          if (p.z >= s.stopZ) {
-            s.state = 'aim';
-            s.t = 0;
-            this.play(s, s.act.aim, 0.3);
+          const stop = s.role === 'shooter' ? s.stopZ : TUNING.erobots.melee.stopZ;
+          const u = THREE.MathUtils.clamp((p.z - s.startZ) / (stop - s.startZ), 0, 1);
+          if (s.role === 'flanker') {
+            // swing wide along an arc, then cut in on the player
+            p.x = s.baseX * (1 - u) + s.side * s.flankX * Math.sin(Math.PI * Math.min(1, u * 1.15)) * (1 - u * u) + s.meleeX * u * u * u;
+            // and snipe on the way in
+            s.nextShot -= dt;
+            if (s.nextShot <= 0 && Math.abs(p.x) > 5 && this.grace <= 0 && this.playerAlive) {
+              s.nextShot = (1.6 + Math.random() * 1.4) / rate;
+              this.fireBolt(s, camera);
+            }
+          } else if (s.role === 'rusher') {
+            p.x = s.baseX * (1 - u) + s.meleeX * u + Math.sin(s.t * 3.1 + s.baseX) * 0.9 * (1 - u);
+          } else p.x = s.baseX + Math.sin(s.t * 1.7 + s.baseX) * 0.8;
+          this.face(s, cx, p.z, dt, 7);
+          if (p.z >= stop) {
+            if (s.role === 'shooter') {
+              s.state = 'aim';
+              s.t = 0;
+              this.play(s, s.act.aim, 0.3);
+            } else {
+              s.state = 'melee';
+              s.t = 0;
+              s.swingIn = 0.15;
+              this.play(s, s.act.aim, 0.15);
+            }
           }
           break;
         }
         case 'aim': {
-          p.x += s.strafe * dt * 0.5;
+          // keep the pressure on: strafe fast and creep in
+          p.x += s.strafe * dt;
+          if (Math.abs(p.x) > 14) s.strafe = -s.strafe;
           p.x = THREE.MathUtils.clamp(p.x, -15, 15);
+          p.z = Math.min(-6, p.z + T.creepSpeed * dt);
           this.face(s, cx, p.z, dt, 8);
-          s.nextShot -= dt;
-          if (s.nextShot <= 0) {
-            s.nextShot = 1.6 + Math.random() * 2.2;
-            s.act.shoot.reset().setEffectiveWeight(1).fadeIn(0.1).play();
-            s.act.shoot.crossFadeTo?.(s.act.aim, 0, false);
-            s.cur = s.act.shoot;
-            this.fireBolt(s, camera);
-            s.hurtT = 0.7; // returns to aim after the cast
+          if (s.charge > 0) {
+            s.charge -= dt;
+            if (s.charge <= 0 && this.playerAlive) {
+              s.act.shoot.reset().setEffectiveWeight(1).fadeIn(0.1).play();
+              s.act.shoot.crossFadeTo?.(s.act.aim, 0, false);
+              s.cur = s.act.shoot;
+              this.fireBolt(s, camera);
+              s.hurtT = 0.55; // returns to aim after the cast
+            }
+          } else if (this.grace <= 0 && this.playerAlive) {
+            s.nextShot -= dt;
+            if (s.nextShot <= 0) {
+              s.nextShot = rand(T.bolt.every) / rate;
+              s.charge = 0.28; // the palm lights up first: a fair warning
+            }
           }
           if (s.cur === s.act.shoot || s.cur === s.act.hurt) {
             s.hurtT -= dt;
@@ -396,14 +484,40 @@ export class ErobotWave {
           }
           break;
         }
-        case 'dying': {
-          if (!s.burst && s.t > 1.5) {
-            s.burst = true;
-            this.fx.sparks(V.a.copy(p).setY(0.9), '#ff6a2a', 26, 9);
-            this.fx.shatter(V.a, '#566074', 14, 6, 0.7);
-            this.opts.flash?.(V.a, '#ff6a2a', 60, 1500); // the wreck burns on
+        case 'melee': {
+          // right in the player's face: swing, wind-up first, then the damage
+          p.x += (s.meleeX - p.x) * Math.min(1, dt * 3);
+          this.face(s, cx, p.z, dt, 10);
+          if (s.swingHit >= 0) {
+            s.swingHit -= dt;
+            if (s.swingHit <= 0) {
+              s.swingHit = -1;
+              if (this.playerAlive && this.grace <= 0) this.opts.melee(V.a.copy(p).setY(1.4), T.melee.damage * ramp(TUNING.waveRamp.erobotDamage, w));
+            }
+          } else {
+            s.swingIn -= dt;
+            if (s.swingIn <= 0 && this.grace <= 0 && this.playerAlive) {
+              s.swingIn = T.melee.every / Math.sqrt(rate);
+              s.swingHit = T.melee.windup;
+              const a = Math.random() < 0.5 ? s.act.punch : s.act.hook;
+              a.reset().setEffectiveWeight(1).fadeIn(0.06).play();
+              s.cur = a;
+            }
           }
-          if (s.t > 2.1) {
+          if (s.swingHit < 0 && s.cur !== s.act.aim && s.cur !== s.act.hurt && s.swingIn < T.melee.every * 0.35) this.play(s, s.act.aim, 0.2);
+          break;
+        }
+        case 'dying': {
+          p.addScaledVector(s.dv, dt);
+          s.dv.multiplyScalar(Math.exp(-dt * 3.2));
+          if (!s.burst && s.t > 0.4) {
+            s.burst = true;
+            this.fx.sparks(V.a.copy(p).setY(0.9), '#ff6a2a', 40, 11);
+            this.fx.shatter(V.a, '#566074', 20, 8, 0.9);
+            this.fx.ring(V.a, '#ff9a4a', 3.4, 0.45);
+            this.opts.flash?.(V.a, '#ff6a2a', 90, 1300); // the wreck goes up and burns on
+          }
+          if (s.t > 2.0) {
             s.state = 'down';
             s.t = 0;
           }
@@ -422,8 +536,9 @@ export class ErobotWave {
           break;
         }
       }
-      // heat glow at the palm while shooting
-      s.glow.material.opacity = s.state === 'aim' && s.cur === s.act.shoot ? Math.max(0, s.hurtT - 0.2) * 1.6 : 0;
+      // heat glow at the palm while charging or shooting
+      const charging = s.charge > 0 ? 1 - s.charge / 0.28 : 0;
+      s.glow.material.opacity = s.state === 'aim' ? Math.max(charging * 1.4, s.cur === s.act.shoot ? Math.max(0, s.hurtT - 0.2) * 1.6 : 0) : 0;
       if (s.glow.material.opacity > 0 && s.hand) s.glow.position.setFromMatrixPosition(s.hand.matrixWorld);
     }
     // hit-marker fade
@@ -441,14 +556,18 @@ export class ErobotWave {
   }
 
   private fireBolt(s: Slot, camera: THREE.Camera) {
-    const from = s.hand ? V.b.setFromMatrixPosition(s.hand.matrixWorld) : V.b.copy(s.root.position).setY(1.6);
-    // a visual shot that whips past the player's head
-    V.c.copy(camera.position).add(V.d.set((Math.random() - 0.5) * 3.5, (Math.random() - 0.3) * 1.8, -0.5));
-    this.fx.tracer(from, V.c, '#ff4a30', 0.03, 0.12);
+    const B = TUNING.erobots.bolt;
+    const w = this.wave;
+    const from = (s.hand ? V.b.setFromMatrixPosition(s.hand.matrixWorld) : V.b.copy(s.root.position).setY(1.6)).clone();
+    const miss = Math.random() < Math.max(B.missMin, B.miss - B.missPerWave * (w - 1));
+    // a true bolt is aimed at the player's head; a wide one whips past to either side
+    const target = V.c.copy(camera.position);
+    if (miss) target.add(V.d.set((Math.random() < 0.5 ? -1 : 1) * (1.4 + Math.random() * 1.6), (Math.random() - 0.4) * 1.2, 0));
+    else target.add(V.d.set((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.4, 0));
+    this.opts.bolts.fire(from, target, B.speed * ramp(TUNING.waveRamp.erobotSpeed, w), B.damage * ramp(TUNING.waveRamp.erobotDamage, w), '#ff4a30', !miss);
     this.fx.sparks(from, '#ff7a50', 6, 4);
     this.opts.flash?.(from, '#ff3a2a', 55, 110); // muzzle flash on the robot's arm
-    this.opts.flash?.(V.c, '#ff4a30', 25, 90); // the bolt cracks past the player
-    if (Math.random() < 0.6) this.impulse = Math.max(this.impulse, 0.1);
+    if (miss) this.impulse = Math.max(this.impulse, 0.08);
   }
 
   // ── Hits ──
