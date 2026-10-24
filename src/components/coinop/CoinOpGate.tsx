@@ -12,6 +12,7 @@ import { HOUSE } from '@/lib/usePaidPlay';
 import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } from '@/lib/coinop/credit';
 import { WalletChooser } from '../WalletChooser';
 import { CoinCabinet } from './CoinCabinet';
+import { HazardBar } from '../dr';
 import { coinStore } from './store';
 import { useCabinet } from './useCabinet';
 
@@ -45,7 +46,7 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
     return () => coinStore.setPayer(null);
   }, [payPlay]);
 
-  const start = async () => {
+  const startNow = async () => {
     cab.setErr(null);
     setStarting(true);
     try {
@@ -58,13 +59,22 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
     }
   };
 
+  // START = the bill: pay the pending coins (one approval), then pay this play and open the game by itself.
+  const startRef = useRef(startNow);
+  useEffect(() => {
+    startRef.current = startNow;
+  });
+  const start = () => cab.payThen(() => void startRef.current());
+  const buys = (usd: number) => (cab.bsvUsd ? Math.floor((usd + 1e-9) / price) : null);
+
   return (
     <>
       {open ? (
         children
       ) : (
-        <div className="coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_top,#1a1420,#05060c_70%)] px-4 py-5 sm:items-center">
-          <div className="w-full max-w-[720px]">
+        <div className="coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_top,#1a1420,#05060c_70%)] px-4 py-3 sm:items-center">
+          <HazardBar h={6} className="absolute inset-x-0 top-0" />
+          <div className="w-full max-w-[720px] pt-2">
             <CoinCabinet
               title={title}
               creditUsd={cab.creditUsd}
@@ -72,7 +82,6 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
               bsvUsd={cab.bsvUsd}
               onCoin={cab.onCoin}
               onClear={cab.onClear}
-              onPay={() => void cab.pay()}
               stage={cab.stage}
               stageText={cab.stageText}
               name={name}
@@ -80,17 +89,11 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
               priceUsd={price}
               priceNote={`One play costs ${fmtCredit(price)} of credit, paid to the house on chain.`}
               startLabel="Start ▶"
-              onStart={() => void start()}
+              onStart={start}
+              buys={price > 0 ? buys : undefined}
+              unit="plays"
               starting={starting}
-              walletLabel={b.wallet?.name ?? null}
               error={cab.err}
-              footer={
-                b.wallet && b.ammo > 0 ? (
-                  <button type="button" data-fs-skip onClick={() => void b.unload()} disabled={!!b.busy} className="btn px-3 py-1 text-xs">
-                    UNLOAD (return unused credit to your wallet)
-                  </button>
-                ) : null
-              }
             />
           </div>
         </div>

@@ -29,7 +29,7 @@ export function AmmoPicker({ value, onChange, bsvUsd }: { value: number; onChang
         <span className="text-xs text-dim">shots</span>
       </div>
       <span className="text-xs text-dim">
-        {sats.toLocaleString()} sats{bsvUsd ? ` · ${formatUsd(usd(sats, bsvUsd))}` : ''} · unused ammo comes back on Unload
+        {sats.toLocaleString()} sats{bsvUsd ? ` · ${formatUsd(usd(sats, bsvUsd))}` : ''} · no refunds: unused ammo stays as credit
       </span>
     </div>
   );

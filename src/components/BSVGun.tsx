@@ -157,11 +157,6 @@ export function BSVGun() {
                 {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `LOAD ${need.toLocaleString()} sats`}
               </button>
             )}
-            {b.ammo > 0 && !firing && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn px-4 py-2">
-                UNLOAD
-              </button>
-            )}
           </div>
         )}
       </section>

@@ -460,11 +460,6 @@ export function MempoolInvaders() {
                 {b.busy ? 'APPROVE…' : `LOAD ${n.toLocaleString()} ${payTok ? `$${b.token?.sym}` : 'sats'}`}
               </button>
             ))}
-            {(b.ammo > 0 || b.gunTokens.length > 0) && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn">
-                UNLOAD
-              </button>
-            )}
           </div>
           {payTok && b.tokenAmmo < 1 && <p className="font-bold text-hot">Load some ${b.token?.sym} first (and a few sats for fees), then press START LIVE.</p>}
         </>

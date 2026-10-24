@@ -133,19 +133,8 @@ export function GunApp() {
     setChooser({ note: 'The wallet you used last time is not available any more.' });
   };
 
-  /** Unload any ammo back to the wallet, then forget it. Revoking access happens in the wallet. */
+  /** Forget the wallet. Coin-op (owner, 24 Oct 2026): no refunds, the ammo stays in the gun as credit. */
   const disconnect = async () => {
-    if (wallet && ammo > 0) {
-      setPhase('unloading');
-      try {
-        await gun.current?.unload(wallet.address);
-        setAmmo(0);
-      } catch (e) {
-        setPhase('idle');
-        return fail(e);
-      }
-      setPhase('idle');
-    }
     rememberWallet(null);
     disconnectPhone();
     setWallet(null);
@@ -216,19 +205,7 @@ export function GunApp() {
     }
   };
 
-  const doUnload = async () => {
-    if (!wallet || !gun.current) return;
-    setError(null);
-    setPhase('unloading');
-    try {
-      await gun.current.unload(wallet.address);
-      setAmmo(0);
-    } catch (e) {
-      fail(e);
-    } finally {
-      setPhase('idle');
-    }
-  };
+
 
   const loaded = ammo >= cost * 0.8; // enough for the pack at the real fee (~23 sats each)
   const busy = phase !== 'idle';
@@ -292,11 +269,6 @@ export function GunApp() {
           <Readout label="AMMO" value={`${ammo.toLocaleString()} sats`} />
           <Readout label="FIRED" value={fired.toLocaleString()} />
           <Readout label="LANDED" value={landed.toLocaleString()} />
-          {wallet && ammo > 0 && !busy && (
-            <button onClick={doUnload} className="btn text-xs">
-              UNLOAD → wallet
-            </button>
-          )}
         </div>
       </div>
 

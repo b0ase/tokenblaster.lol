@@ -171,11 +171,6 @@ export function PaidPanel({ pp, game, action, actions }: { pp: Paid; game: strin
                 </button>
               ))
             )}
-            {b.wallet && b.ammo > 0 && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn">
-                UNLOAD
-              </button>
-            )}
             <span className="text-dim">
               on chain: <span className="text-hot">{onChain.toLocaleString()}</span>
               {lastTx && (

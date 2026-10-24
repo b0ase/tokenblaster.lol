@@ -41,8 +41,12 @@ export const PLATFORM_FEE = 0.05;
 /** The stress test is free (network cost only) up to and including 31 Oct 2026 UTC; the fee starts here. */
 export const FEE_FROM = '2026-11-01T00:00:00Z';
 /** The platform fee in force at `now`: 0 during the stress test, PLATFORM_FEE from FEE_FROM on. */
-export const platformFeeAt = (now = Date.now()) => (now < Date.parse(FEE_FROM) ? 0 : PLATFORM_FEE);
+/** Ammo premium on top of network cost (owner, 24 Oct 2026: 0 for now; ammo is sold at the minimum network cost). */
+export const AMMO_PREMIUM = 0;
+export const platformFeeAt = (now = Date.now()) => (now < Date.parse(FEE_FROM) ? 0 : PLATFORM_FEE) + AMMO_PREMIUM;
 export const freeForStressTest = (now = Date.now()) => platformFeeAt(now) === 0 && PLATFORM_FEE > 0;
+/** Rounds a sat budget buys at `perShotSats` (network cost + fee). */
+export const roundsFor = (sats: number, perShotSats: number) => (perShotSats > 0 ? Math.max(0, Math.floor(sats / perShotSats)) : 0);
 
 /** Session packs (shots). The pack size is also the hard cap: the gun fires at most this many. */
 export const PACKS = [10_000, 100_000, 1_000_000] as const;

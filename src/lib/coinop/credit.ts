@@ -6,7 +6,8 @@
  *  2. PAY sends ONE wallet request for the whole total (dollars first, turned into sats at the live
  *     /api/price BSV/USD rate). That one approval funds the player's own in-browser gun (src/lib/gun.ts).
  *  3. The CREDIT counter is the gun's balance in dollars. It lives on chain, at the player's own gun key in
- *     this browser: non-custodial, no server ledger, nothing for the server to trust. UNLOAD returns it.
+ *     this browser: non-custodial, no server ledger, nothing for the server to trust. No refunds (owner, 24 Oct 2026):
+ *     unused credit stays in the gun for later plays.
  *  4. Each play then pays its price from the gun to the HOUSE address in one transaction with an OP_RETURN
  *     tag ("tokenblaster.lol" … "coinop" <game> <name>), so every play is verifiable on chain.
  */

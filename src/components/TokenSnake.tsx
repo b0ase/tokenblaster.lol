@@ -839,11 +839,6 @@ export function TokenSnake() {
                     </button>
                   ))}
               {payTok && b.tokenAmmo < 1 && <span className="font-bold text-hot">Press LOAD … ${sym}, approve it, then START LIVE.</span>}
-              {(b.ammo > 0 || b.gunTokens.length > 0) && (
-                <button onClick={b.unload} disabled={!!b.busy} className="btn">
-                  UNLOAD
-                </button>
-              )}
             </>
           )}
           <span className="text-dim">
