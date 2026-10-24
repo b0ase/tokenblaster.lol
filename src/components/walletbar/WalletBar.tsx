@@ -136,6 +136,7 @@ export function WalletBarChip() {
           </span>
         ) : (
           <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- remote avatar from the paymail profile */}
             {wallet?.avatar && <img src={wallet.avatar} alt="" className="h-5 w-5 shrink-0 rounded-full" />}
             <span className="truncate" title={`${wallet?.name ?? ''} · ${wallet?.paymail ?? wallet?.publicKey ?? ''}`}>
               {wallet?.publicKey || wallet?.paymail ? idLabel(wallet) : state.label}
