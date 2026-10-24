@@ -3,14 +3,14 @@
  * so the loading screen, the loadout ("MISSION BRIEFING"), the wave banners, the game-over screen and the
  * tests all read the same words.
  *
- * Settled by the owner (24 Oct 2026): Neo-Tokyo, 2048. DR KWEG WONG, a mad scientist and CEO of the megacorp
- * nSLAVE, invented the EROBOTS (bot, frog-bot, graf-bot, stripey-bot, tech) and wants the whole city. THE TWIST:
- * the silver liquid-metal boss, the LIQUID UNIT, IS Dr Kweg Wong himself, changed when one of his own experiments
- * went wrong. He still thinks he is the CEO and still peer-reviews everything. The NINJA PUNK GIRLS fight him and
- * the player joins them. bCorp (not evil, just corporate: Project EROBOT was its security experiment that went
- * wrong) versus nSLAVE (the rival megacorp whose black tower Kweg runs). Original, PG-13.
- * nSLAVE's corporate slogans are deadpan satire and appear on the street ads too: "a revolutionary new patent…
- * for your soul", and open source "on any chain you like… as long as it's BSV".
+ * Settled by the owner (24 Oct 2026). DR KWEG WONG: brilliant, devastatingly so, loved by everyone. Then THE FALL,
+ * deliberately vague and never explained: the accident, the hacking, the incident with the cow, the trial. He was never
+ * the same. He patented the SOUL CHAIN, founded nSLAVE (founder and CEO), built the EROBOTS (bot, frog-bot, graf-bot,
+ * stripey-bot, tech) and turned them on Neo-Tokyo 2048 from the nSLAVE HQ tower. THE TWIST: the silver liquid-metal
+ * boss, the LIQUID UNIT, IS Kweg himself, after an experiment went wrong; he still thinks he is the CEO and still
+ * peer-reviews everything. The NINJA PUNK GIRLS are just trying to help: the city's defenders, and the player fights
+ * with them. There is no other company in the story. Light, deadpan, original, PG-13. nSLAVE's slogans are satire and
+ * show on the street ads too: a patent "for your soul", the SOUL CHAIN, open source "as long as it's BSV".
  * In-world conceit for the 31 Oct stress test: every round the player fires goes on the record and jams
  * Kweg's robot network. Plain words for players: no tech terms.
  *
@@ -26,7 +26,7 @@ export const SETTING = 'NEO-TOKYO · 2048';
 
 /** One paragraph. What the player is doing and why. */
 export const PREMISE =
-  'Neo-Tokyo, 2048. Rain on neon, hover traffic stacked twelve lanes high, and one mad professor with the keys to a robot army. DR KWEG WONG built the EROBOTS for bCorp as a security experiment. It went wrong, so he became CEO of the megacorp nSLAVE, took over its black tower, and now he wants the whole city. Then one of his own experiments went wrong too: the silver liquid giant stalking the street is Kweg himself. The NINJA PUNK GIRLS are the only ones fighting back, and you have just joined them with a rotary gun and a pocket of coins. Every round you fire goes on the record and jams his robot network. Fire enough, and the tower goes dark. Stop firing, and you are dead.';
+  'Neo-Tokyo, 2048. Rain on neon, hover traffic stacked twelve lanes high, and one mad professor with a robot army. DR KWEG WONG was brilliant, devastatingly so, and everyone loved him. Then came the accident, the hacking, the cow and the trial, and he was never the same. He patented his SOUL CHAIN, founded nSLAVE, built the EROBOTS and turned them on the city from his black glass tower. Now one of his own experiments has gone wrong, and the silver liquid giant stalking the street is Kweg himself. The NINJA PUNK GIRLS are just trying to help, and you have joined them with a rotary gun and a pocket of coins. Every round you fire goes on the record and jams his robot network. Fire enough, and the tower goes dark. Stop firing, and you are dead.';
 
 /** Short lines for banners, shares and the lobby. */
 export const TAGLINES = [
@@ -52,10 +52,10 @@ export const KWEG = {
   id: 'kweg',
   name: 'DR KWEG WONG',
   fullName: 'Professor Doctor Sir Kweg S Wong esq.',
-  role: 'Mad scientist · CEO of nSLAVE',
+  role: 'Mad scientist · Founder and CEO of nSLAVE',
   look: 'Round spectacles, a striped engineer’s cap, a red bow tie and a knitted vest under a lab coat. A tablet in one hand, a magnifying glass in the other. Now and then: a chrome giant with one red eye.',
-  bio: 'Professor Doctor Sir Kweg S Wong esq. designed the EROBOTS for bCorp, marked his own work ACCEPTED and kept it, then took the top floor of the nSLAVE tower as its CEO. He is polite, precise and completely certain that he established all of this in 2009. He peer-reviews everything, including you, and he has never once been seen to smile. Lately he is also silver, seven metres tall and made of liquid metal, after Experiment 31. He calls this a temporary state change.',
-  threat: 'Runs every Erobot from the top floor, reviews your rounds as they land, and, in his new body, walks down the street to review you in person.',
+  bio: 'Professor Doctor Sir Kweg S Wong esq. was brilliant, devastatingly so, and everyone loved him. But after the accident, and the hacking, and the incident with the cow, and the trial, he was never the same. Ugly situation. He patented the SOUL CHAIN, founded nSLAVE as its founder and CEO, built the Erobots and turned them on Neo-Tokyo. He is polite, precise, certain he established all of this in 2009, and has never once been seen to smile. Lately he is also silver, seven metres tall and made of liquid metal, after Experiment 31. He calls this a temporary state change.',
+  threat: 'Runs nSLAVE and every Erobot from the top floor, reviews your rounds as they land, and, in his new body, walks down the street to review you in person.',
   /** Spoken on the loading screen, briefing and banners. */
   intro: 'I established this tower in 2009. You are, regrettably, trespassing on a peer-reviewed building.',
   boss: 'Please do not be alarmed by my appearance. It is a temporary state change, pending review.',
@@ -64,7 +64,7 @@ export const KWEG = {
     'Your first rounds have been received. Verdict: accepted with required revisions.',
     'I have reassembled myself. The process was reviewed, by me, and found excellent.',
     'nSLAVE has developed a revolutionary new patent… for your soul. Please sign here.',
-    'You are hitting my robots very hard. Please note that they are also peer reviewed.',
+    'You are hitting my robots very hard. I have sued them for it. They are, in fairness, mine.',
     'Your soul is safe on SOUL CHAIN™. Our software is open source: build on any chain you like, as long as it is BSV.',
     'My tower is going dark. I would like it noted that I predicted this, in 2009.',
   ],
@@ -74,6 +74,9 @@ export const KWEG = {
   /** And as he pulls himself back up. */
   reform: 'Revision accepted. I am, in the peer-review sense, reformed.',
   /** The player is flatlined. */
+  /** Satire, kept fictional and comic: the lawsuits and the paperwork. */
+  sue: 'I have taken the liberty of suing your gun. The paperwork is, on review, paperwork.',
+  proof: 'My claims are fully verifiable. Verification is available on request. Requests are not.',
   flatlined: 'Cause of death: insufficient peer review. Insert coin to appeal.',
   /** Game over. */
   over: 'Peer review verdict: your gun is empty. REJECTED, pending further coins.',
@@ -87,14 +90,15 @@ export const KWEG = {
 export type LoreBeat = { id: string; title: string; line: string; /** The CHARACTERS id whose bio card sits beside this beat. */ focus: string };
 export const LORE: LoreBeat[] = [
   { id: 'city', title: 'NEO-TOKYO, 2048', line: 'Rain on neon. Hover traffic stacked twelve lanes high. Ninety million people, and every one of them is being counted.', focus: 'gunner' },
-  { id: 'bcorp', title: 'PROJECT EROBOT', line: 'bCorp built a robot guard for the city. Nothing evil, just corporate. One consultant wrote the code, and he kept a copy.', focus: 'bot' },
-  { id: 'kweg', title: 'DR KWEG WONG', line: KWEG.intro, focus: 'kweg' },
-  { id: 'nslave', title: 'THE nSLAVE TOWER', line: 'nSLAVE, bCorp’s richest rival, needed a miracle. Kweg sold it one, then made himself CEO of the whole black glass tower.', focus: 'kweg' },
+  { id: 'kweg', title: 'DR KWEG WONG', line: 'Brilliant. Devastatingly so. Everyone loved him. ' + KWEG.intro, focus: 'kweg' },
+  { id: 'fall', title: 'THE FALL', line: 'After the accident, and the hacking, and the incident with the cow, and the trial, and all that, he was never the same. Ugly situation.', focus: 'kweg' },
+  { id: 'lawsuits', title: 'THE LAWSUITS', line: 'Kweg has sued the rain, two competitors and a seahorse. A number of his documents turned out to be… documents. He maintains that all of it was established in 2009.', focus: 'kweg' },
+  { id: 'nslave', title: 'nSLAVE', line: 'He patented the SOUL CHAIN and founded nSLAVE. He is its founder and CEO, and its black glass tower is where the Erobots come from.', focus: 'kweg' },
   { id: 'patent', title: 'THE PATENT', line: NSLAVE_SLOGANS[0].en + ' It is stored on SOUL CHAIN™ (chain of tools). ' + NSLAVE_SLOGANS[1].en, focus: 'kweg' },
-  { id: 'army', title: 'THE EROBOT ARMY', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the street and techs on the roof to fix them all. Every one rushes you, and every one is his.', focus: 'frog' },
-  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'Neon hair, sharp blades and no patience. The only crew in Neo-Tokyo who will say no to a professor. They need a gunner who can keep the trigger down and the gun moving.', focus: 'npg' },
+  { id: 'army', title: 'THE EROBOT ARMY', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the street and techs on the roof. Every one rushes you, and every one is his.', focus: 'frog' },
+  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'They are just trying to help. The city’s defenders, with neon hair, sharp blades and no patience. They need a gunner who keeps the trigger down and the gun moving.', focus: 'npg' },
   { id: 'experiment', title: 'EXPERIMENT 31', line: 'Kweg tested his newest machine on himself. It went wrong. The thing walking up the street in chrome, with one red eye and a very polite voice, is the CEO.', focus: 'liquid' },
-  { id: 'record', title: 'THE RECORD', line: 'Every round you fire is written where nobody can erase it. Put enough on the record at once and Kweg’s robot network chokes. Fire at him and he is pushed back. Stop, and he walks right through you.', focus: 'liquid' },
+  { id: 'record', title: 'THE RECORD', line: 'Every round you fire is written where nobody can erase it. Fire at him and he is pushed back. Stop, and he walks right through you.', focus: 'liquid' },
 ];
 
 // ── Characters ──────────────────────────────────────────────────────────────────────────
@@ -126,7 +130,7 @@ export const CHARACTERS: Character[] = [
     name: 'THE GUNNER',
     role: 'You · newest of the crew',
     kind: 'hero',
-    bio: 'Used to fix hover-trams for bCorp. Let go by a text message. Kept the keys to the old armoury and one very big gun. The Ninja Punk Girls took one look and said the trigger is yours.',
+    bio: 'Used to fix hover-trams across Neo-Tokyo. Let go by a text message. Kept the keys to the old armoury and one very big gun. The Ninja Punk Girls took one look and said the trigger is yours.',
     threat: 'You. A rotary gun that never jams while there are rounds in it.',
     colour: '#ffb21a',
     portrait: '/gallery/characters/gunner.webp',
@@ -134,7 +138,7 @@ export const CHARACTERS: Character[] = [
   {
     id: 'npg',
     name: 'THE NINJA PUNK GIRLS',
-    role: 'Neo-Tokyo’s last street crew',
+    role: 'The city’s defenders',
     kind: 'hero',
     bio: 'Neon hair, sharp blades and a van with no brakes. They know every back alley and every way into the tower. They get you to the glass; you keep the guns loud so they can reach the top floor.',
     threat: 'On your side. They keep the street clear while you hold the trigger.',
@@ -229,7 +233,7 @@ export const characterById = (id: string) => CHARACTERS.find((c) => c.id === id)
 export type LoadingShot = { src: string; beat: string; focus?: string; pos?: string; caption?: string };
 export const LOADING_SHOTS: LoadingShot[] = [
   { src: '/gallery/loading/street-left.webp', beat: 'city', focus: 'gunner', pos: '50% 50%', caption: 'Neo-Tokyo, 01:14' },
-  { src: '/gallery/loading/tower.webp', beat: 'nslave', focus: 'kweg', pos: '50% 50%', caption: 'The nSLAVE tower' },
+  { src: '/gallery/loading/tower.webp', beat: 'nslave', focus: 'kweg', pos: '50% 50%', caption: 'Kweg’s nSLAVE tower' },
   { src: '/gallery/loading/street-right.webp', beat: 'army', focus: 'frog', pos: '60% 50%', caption: 'The Erobots wake' },
   { src: '/gallery/loading/boss.webp', beat: 'experiment', focus: 'liquid', pos: '55% 50%', caption: 'Dr Kweg, after Experiment 31' },
   { src: '/gallery/loading/boss-fire.webp', beat: 'record', focus: 'npg', pos: '60% 50%', caption: 'Open fire' },
@@ -242,7 +246,7 @@ export const LOADING_SHOTS: LoadingShot[] = [
   { src: '/gallery/loading/tech.webp', beat: 'army', focus: 'tech', pos: '50% 50%', caption: 'Tech on the roof' },
   { src: '/gallery/loading/stripey-bot.webp', beat: 'army', focus: 'stripey', pos: '50% 50%', caption: 'Stripey-bot holds the line' },
   { src: '/gallery/loading/liquid-melt.webp', beat: 'record', focus: 'liquid', pos: '50% 60%', caption: 'He melts. He returns.' },
-  { src: '/gallery/loading/bcorp.webp', beat: 'bcorp', pos: '50% 50%', caption: 'Project EROBOT' },
+  { src: '/gallery/loading/nslave-hq.webp', beat: 'nslave', focus: 'kweg', pos: '50% 50%', caption: 'nSLAVE HQ' },
 ];
 
 // ── Waves ───────────────────────────────────────────────────────────────────────────────
@@ -285,7 +289,7 @@ export const BANNERS = {
 
 export const BRIEFING = {
   heading: 'MISSION BRIEFING',
-  code: 'OPERATION BLACKOUT · NEO-TOKYO 2048',
+  code: 'OPERATION BLACKOUT · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTS',
   from: 'The Ninja Punk Girls',
   objective: 'Fight your way up the nSLAVE tower, jam Dr Kweg Wong’s robot network, and keep the Liquid Unit (that is Kweg) down. You have 100 health: stay alive.',
   rules: [

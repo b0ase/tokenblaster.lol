@@ -4,8 +4,8 @@ import { KWEG, BANNERS, BRIEFING, CHARACTERS, LORE, LOADING_SHOTS, PREMISE, RANK
 
 const all = () => JSON.stringify({ KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, waves: Array.from({ length: 8 }, (_, i) => waveBrief(i + 1)) });
 
-test('story: 5 to 10 lore beats, all with text', () => {
-  assert.ok(LORE.length >= 5 && LORE.length <= 10);
+test('story: 5 to 12 lore beats, all with text', () => {
+  assert.ok(LORE.length >= 5 && LORE.length <= 12);
   for (const b of LORE) assert.ok(b.title && b.line.length > 20);
 });
 
@@ -51,13 +51,13 @@ test('story: share text carries the numbers', () => {
   assert.match(t, /@rich/);
 });
 
-test('story: Neo-Tokyo 2048, Kweg Wong, the Ninja Punk Girls, bCorp vs nSLAVE', () => {
+test('story: Neo-Tokyo 2048, Kweg Wong, the Ninja Punk Girls, nSLAVE', () => {
   const a = all();
   assert.match(a, /Neo-Tokyo/);
   assert.match(a, /2048/);
   assert.match(a, /KWEG WONG/i);
   assert.match(a, /NINJA PUNK GIRLS/i);
-  assert.match(a, /bCorp/);
+  assert.doesNotMatch(a, /bCorp/i, 'bCorp is out of the story');
   assert.match(a, /nSLAVE/);
   assert.doesNotMatch(a, /OMNICORE/i);
   assert.doesNotMatch(a, /London|1991|\bX Corp/i);

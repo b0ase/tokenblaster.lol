@@ -430,7 +430,7 @@ export function adAtlas(S = 1) {
       center(g, 'NOW PATENTED:', 214, 40, '#ff5646', '800 40px Arial, sans-serif', 10);
       center(g, 'YOUR SOUL.', 290, 84, '#ff2a3a', '900 84px "Arial Black", Impact, sans-serif', 24);
       center(g, 'あなたの魂に特許を', 400, 44, '#ffb0a8', `800 44px ${JP}`, 10);
-      center(g, 'terms apply', 462, 22, '#8a98a8', '600 22px Arial, sans-serif', 0);
+      center(g, 'terms apply · see you in court', 462, 22, '#8a98a8', '600 22px Arial, sans-serif', 0);
     });
     panel(6, (g) => {
       // nSLAVE's product: the chain your patented soul is stored on
