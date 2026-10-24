@@ -1,22 +1,25 @@
 'use client';
 /**
  * Game over / results: rounds fired, score, the on-chain proof link, and share (owner, 24 Oct 2026). Copy from
- * src/lib/gallery/story.ts (rank by rounds fired, Dr Kweg Wong's verdict). Numbers count up on open.
+ * src/lib/gallery/story.ts (rank by rounds fired, Dr Wong's verdict, or the RESCUED ending). Numbers count up on open.
  * Nothing here is free: PLAY AGAIN goes back to the cabinet to put a coin in.
  */
 import { useState } from 'react';
-import { GAME_OVER, GAME_TITLE, KWEG, rankFor, shareText } from '@/lib/gallery/story';
+import { GAME_OVER, GAME_TITLE, KWEG, PRACTICE, RESCUED, forPractice, rankFor, shareText } from '@/lib/gallery/story';
 import { Icon, Ticker } from '../coinop/ui';
 
-export type RunSummary = { fired: number; sent: number; score: number; wave: number; kills: number; secs: number; spent: string; last: string | null; handle: string | null; simulated: boolean };
+export type RunSummary = { fired: number; sent: number; score: number; wave: number; rescued?: boolean; kills: number; secs: number; spent: string; last: string | null; handle: string | null; simulated: boolean };
 
-const SITE = 'https://www.tokenblaster.lol/arcade/gallery';
+const SITE = 'https://www.tokenblaster.lol/arcade/assault';
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () => void; onBoard: () => void }) {
-  const rank = rankFor(r.fired);
+  const rank0 = rankFor(r.fired);
+  const rank = r.simulated ? { ...rank0, line: forPractice(rank0.line) } : rank0;
+  const end = r.rescued ? RESCUED : GAME_OVER;
   const [copied, setCopied] = useState(false);
-  const text = shareText({ rounds: r.fired, score: r.score, waves: r.wave, name: r.handle });
+  const text0 = shareText({ rounds: r.fired, score: r.score, stage: r.wave, rescued: r.rescued, name: r.handle });
+  const text = r.simulated ? forPractice(text0) : text0;
   const share = async () => {
     try {
       if (navigator.share) return await navigator.share({ text, url: SITE });
@@ -38,7 +41,7 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
     { label: 'Rounds fired', value: r.fired, icon: 'bullet' },
     { label: r.simulated ? 'Practice rounds' : 'On the record', value: r.sent, icon: 'chain' },
     { label: 'Score', value: r.score, icon: 'flame' },
-    { label: 'Wave reached', value: r.wave, icon: 'wave' },
+    { label: r.rescued ? 'Stage cleared' : 'Stage reached', value: r.wave, icon: 'wave' },
     { label: 'Kills', value: r.kills, icon: 'skull' },
     { label: 'Time', value: r.secs, icon: 'target', fmt: fmtTime },
   ];
@@ -47,10 +50,10 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
       <div className="mx-auto flex min-h-full max-w-[920px] flex-col justify-center gap-5 px-4 py-8 sm:py-10">
         <header className="tbx-rise text-center">
           <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{GAME_TITLE}</p>
-          <h2 className="tbx-display mt-2 text-[clamp(48px,10vw,120px)] text-[var(--tbx-red)]" style={{ textShadow: '0 0 60px rgba(255,59,59,.5)' }}>
-            {GAME_OVER.title}
+          <h2 className="tbx-display mt-2 text-[clamp(48px,10vw,120px)] " style={{ color: r.rescued ? 'var(--tbx-ok)' : 'var(--tbx-red)', textShadow: r.rescued ? '0 0 60px rgba(60,255,150,.45)' : '0 0 60px rgba(255,59,59,.5)' }}>
+            {end.title}
           </h2>
-          <p className="mx-auto mt-3 max-w-[560px] text-[clamp(14px,1.5vw,18px)] text-white/80">{GAME_OVER.line}</p>
+          <p className="mx-auto mt-3 max-w-[560px] text-[clamp(14px,1.5vw,18px)] text-white/80">{end.line}</p>
         </header>
 
         <section className="tbx-glass tbx-pop flex flex-col items-center gap-1 px-5 py-4 text-center" style={{ ['--d' as string]: '0.15s' }}>
@@ -71,9 +74,15 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
         </section>
 
         <p className="tbx-fade text-center text-sm italic text-white/70" style={{ ['--d' as string]: '0.7s' }}>
-          “{KWEG.over}” <span className="not-italic text-white/45">· {KWEG.name}</span>
+          “{end.kweg}” <span className="not-italic text-white/45">· {KWEG.name}</span>
         </p>
 
+        {r.simulated ? (
+          <section className="tbx-glass tbx-rise px-4 py-4" style={{ ['--d' as string]: '0.8s' }} data-practice-results>
+            <p className="tbx-eyebrow flex items-center gap-2"><Icon name="shield" size={13} /> Practice rounds</p>
+            <p className="mt-1 text-sm text-[var(--tbx-dim)]">{PRACTICE.results}</p>
+          </section>
+        ) : (
         <section className="tbx-glass tbx-rise flex flex-col gap-3 px-4 py-4" style={{ ['--d' as string]: '0.8s' }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -94,6 +103,7 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
           </div>
           <p className="text-xs text-[var(--tbx-mute)]">{r.simulated ? '' : `Spent ${r.spent}. `}Anyone can check the last round on the record. Unused credit stays in your gun.</p>
         </section>
+        )}
 
         <div className="tbx-rise flex flex-col items-stretch gap-2.5 sm:flex-row sm:justify-center" style={{ ['--d' as string]: '0.9s' }}>
           <button type="button" data-fs-skip onClick={onAgain} className="tbx-btn tbx-btn-red !min-h-[52px] !px-7 !text-base">
@@ -109,7 +119,7 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
             <Icon name="trophy" size={16} /> Top blasters
           </button>
         </div>
-        <p className="text-center text-xs text-[var(--tbx-mute)]">{GAME_OVER.next} {KWEG.signoff}</p>
+        <p className="text-center text-xs text-[var(--tbx-mute)]">{end.next} {KWEG.signoff}</p>
       </div>
     </div>
   );

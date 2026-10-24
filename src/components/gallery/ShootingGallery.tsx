@@ -2,7 +2,7 @@
 
 /**
  * TokenBlaster Shooting Gallery (3D). First person behind the BSVGun arsenal on a rain-wet night street,
- * against the nSLAVE tower and its LIQUID UNIT (src/lib/galleryGame/*). Every round that lands
+ * against the TERRORNODE tower and its LIQUID UNIT (src/lib/galleryGame/*). Every round that lands
  * is a real BSV transaction: "tokenblaster.lol" <ammo> <chain:n> "gallery" [<handle>].
  *
  * How each weapon spends transactions (src/lib/gallery.ts txPattern):
@@ -26,10 +26,10 @@ import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { cachedProof } from '@/lib/xproof';
-import { minigun, sfx, unlockAudio } from '@/lib/sfx';
+import { minigun, sfx, skipTrack, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
-import { GalleryEngine, type Hooks, type Quality, type Stats } from '@/lib/galleryGame/engine';
+import { GalleryEngine, type Hooks, type Quality, type StageEvent, type Stats } from '@/lib/galleryGame/engine';
 import {
   DEFAULT_AMMO,
   overheadSats,
@@ -57,10 +57,10 @@ import { PrizeBanner } from './PrizeBanner';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
-import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, SETTING, TIPS } from '@/lib/gallery/story';
+import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, TRANSITION, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
-import { BannerStage, useBanners } from './Banners';
+import { BannerStage, LiftOverlay, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { Results, type RunSummary } from './Results';
 import { DamageFx, type DamageFxHandle } from './DamageFx';
@@ -75,6 +75,7 @@ import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit'
 const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
 const FALLBACK_USD = 17.4;
 const PREFS = 'tb:gallery-prefs';
+const TUNING_FLOW = TUNING.stageFlow;
 const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before the clock is read
 
 type Run = { sent: number; started: number; last: string | null; tps: number; status: string | null };
@@ -121,7 +122,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const { cur: bannerCur, push: pushBanner, clear: clearBanners } = useBanners();
   const [hud, setHud] = useState<Stats | null>(null);
   const hudWave = useRef(1);
-  const waveSeen = useRef(1);
+  const finishRef = useRef<() => void>(() => undefined); // set below, once finish exists
   const [over, setOver] = useState<RunSummary | null>(null);
   // FLATLINED: the player's health hit zero. The CONTINUE? countdown runs on this screen (src/components/gallery/Flatlined.tsx).
   const [flat, setFlat] = useState<FlatStats | null>(null);
@@ -201,6 +202,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
 
   // ── Hooks the engine calls (refs, so the engine never needs re-creating) ──
   const diedRef = useRef<() => void>(() => undefined);
+  const stageRef = useRef<(e: StageEvent) => void>(() => undefined);
   const pullRef = useRef<(w: RangeWeapon) => boolean>(() => false);
   const triggerRef = useRef<(down: boolean) => void>(() => undefined);
   const hooks = useRef<Hooks>({
@@ -213,6 +215,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     trigger: (d) => triggerRef.current(d),
     hurt: (h) => dmgFx.current?.hit(h.angle, h.dmg),
     died: () => diedRef.current(),
+    stage: (e) => stageRef.current(e),
   });
 
   // ── Engine ──
@@ -341,7 +344,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       engine.current?.accept(p.n);
       return true;
     };
-  }, [loadout]);
+  }, [loadout, freePlay]);
 
   // ── Sender ──
   // Dry run (dev): a fake network with a delay and failures (?sendrate= tx/s, ?sendfail= 0..1 chance a second
@@ -492,11 +495,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   useEffect(() => {
     const i = setInterval(() => {
       let msg: string | null = null;
-      if (held.current && !loadout && modeRef.current === 'live' && boughtRef.current - firedRef.current <= 0) msg = 'Out of rounds. Press LOADOUT and put another coin in.';
+      if (held.current && !loadout && modeRef.current === 'live' && boughtRef.current - firedRef.current <= 0) msg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
       setStall((m) => (m === msg ? m : msg));
     }, 400);
     return () => clearInterval(i);
-  }, [loadout]);
+  }, [loadout, freePlay]);
 
   useEffect(() => {
     const e = engine.current;
@@ -506,7 +509,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   }, [locked, autofire]);
   useEffect(() => {
     if (loadout) engine.current?.setTrigger(false);
-  }, [loadout]);
+  }, [loadout, freePlay]);
 
   // Leaving the page: stop the trigger. Rounds already fired still finish sending while the page is open.
   useEffect(() => {
@@ -582,18 +585,51 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     if (live && !dry && run.sent) void reportRef.current(!sending);
   }, [live, dry, run.sent, sending]);
 
-  // A new wave (the Liquid Unit melted and re-formed): banner it, then warn that the boss is coming.
+  // STAGE FLOW (from the engine): the lift closes (black, floor counter, Dr Wong's line), the new stage opens with its
+  // banner, the Liquid Unit goes down, the hostage is free and the RESCUED beat plays before the results.
+  const [lift, setLift] = useState<{ shown: boolean; label: string; line: string }>({ shown: false, label: '', line: '' });
+  const [rescued, setRescued] = useState(false);
+  const rescuedRef = useRef(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
+  const stageEvent = useRef<(e: StageEvent) => void>(() => undefined);
   useEffect(() => {
-    const w = hud?.wave ?? 1;
-    hudWave.current = w;
-    if (mode !== 'live' || w <= waveSeen.current) return;
-    waveSeen.current = w;
-    pushBanner({ kind: 'wave', n: w });
-    pushBanner({ kind: 'boss' });
-  }, [hud?.wave, mode, pushBanner]);
+    stageEvent.current = (e) => {
+      if (e.kind === 'leave') {
+        setLift({ shown: true, label: TRANSITION.floors[Math.min(3, e.to - 1)], line: forPractice(e.line) });
+        return;
+      }
+      if (e.kind === 'enter') {
+        hudWave.current = e.stage;
+        skipTrack(); // a new stage, a new song
+        later(() => setLift((l) => ({ ...l, shown: false })), TUNING_FLOW.holdMs - 500);
+        later(() => {
+          pushBanner({ kind: 'stage', n: e.stage });
+          if (e.stage === 4) pushBanner({ kind: 'boss' });
+        }, TUNING_FLOW.holdMs + 300);
+        return;
+      }
+      if (e.kind === 'rescued') {
+        rescuedRef.current = true;
+        setRescued(true);
+        clearBanners();
+        held.current = false;
+        simRef.current.on = false;
+        engine.current?.setTrigger(false);
+        setLocked(false);
+        later(() => finishRef.current(), TUNING_FLOW.cutsceneSecs * 1000);
+      }
+    };
+  });
+  useEffect(() => {
+    stageRef.current = (e) => stageEvent.current(e);
+    const t = timers.current;
+    return () => t.forEach(clearTimeout);
+  }, []);
 
   // GAME OVER: out of rounds and everything fired has been sent (or the player pressed RESULTS).
   const finish = useCallback(() => {
+    setRescued(false);
     held.current = false;
     simRef.current.on = false;
     engine.current?.setTrigger(false);
@@ -606,11 +642,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       fired: firedRef.current,
       sent: sentRef.current,
       score: hud?.score ?? 0,
-      wave: hud?.wave ?? 1,
+      wave: hud?.stage ?? 1,
+      rescued: rescuedRef.current,
       kills: hud?.kills ?? 0,
       secs: run.started ? Math.max(1, Math.round((Date.now() - run.started) / 1000)) : 0,
       spent: dry ? '$0.00' : fmtUsd(usdOf(run.sent * perShot, bsvUsd)),
-      last: run.last,
+      last: dry ? null : run.last,
       handle,
       simulated: dry,
     });
@@ -618,10 +655,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     boughtRef.current = firedRef.current;
     setBought(firedRef.current);
   }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought, setFlat]);
-  const finishRef = useRef(finish);
   useEffect(() => {
     finishRef.current = finish;
   });
+  useEffect(() => {
+    hudWave.current = hud?.stage ?? 1;
+  }, [hud?.stage]);
   useEffect(() => {
     if (mode !== 'live' || loadedRounds <= 0 || bought - fired > 0 || run.sent < fired) return;
     const t = setTimeout(() => finishRef.current(), 1600);
@@ -642,16 +681,22 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       setLoad(null);
       setOver(null);
       sfx('coin');
-      waveSeen.current = Math.max(1, hudWave.current);
-      if (continued) return; // play resumes where it stopped: no new wave banners
-      pushBanner({ kind: 'loaded', practice: simulated });
-      pushBanner({ kind: 'wave', n: waveSeen.current });
-      pushBanner({ kind: 'boss' });
+      if (continued) return; // play resumes on the same stage: no new banners
+      pushBanner({ kind: 'loaded' });
+      pushBanner({ kind: 'stage', n: 1 });
     },
-    [simulated, setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
+    [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
   const lockAndLoad = async (continued = false) => {
     setErr(null);
+    if (!continued) {
+      // a fresh attempt: back to the street, the doors open, a new song
+      engine.current?.startRun();
+      rescuedRef.current = false;
+      setRescued(false);
+      setLift((l) => ({ ...l, shown: false }));
+      skipTrack();
+    }
     unlockAudio();
     const stream = pattern.kind === 'stream';
     setLoadout(false);
@@ -662,9 +707,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     setLoad({ kind: 'loading', pct: 5, slowSecs: 0 });
     if (dry) {
       // Dev dry run: a realistic split delay (?splitms=, default 8 s) so the warm-up can be seen.
-      const sats = usdToSats(cab.creditUsd, bsvUsd) ?? 0;
+      // Free play: the same pack $1 would buy, fixed, no waiting. (Nothing is paid.)
+      const sats = usdToSats(freePlay ? 1 : cab.creditUsd, bsvUsd) ?? 0;
       const n = roundsFor(sats, perShotAll);
-      const ms = Number(new URLSearchParams(location.search).get('splitms') ?? 2500) || 0;
+      const ms = freePlay ? 300 : Number(new URLSearchParams(location.search).get('splitms') ?? 2500) || 0;
       for (const pct of [15, 30, 45, 60, 75, 90]) {
         setLoad({ kind: 'loading', pct, slowSecs: 0 });
         await new Promise((r) => setTimeout(r, ms / 6));
@@ -744,7 +790,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   useEffect(() => {
     lockRef.current = lockAndLoad;
   });
-  const startCabinet = () => cab.payThen(() => void lockRef.current());
+  const startCabinet = () => (freePlay ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
 
   // ── FLATLINED: health at zero ──
   useEffect(() => {
@@ -797,7 +843,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const spent = simulated ? 0 : run.sent * perShot;
   const names = useMemo(() => new Map(weapons.map((w) => [w.id, w.name])), [weapons]);
 
-  const hint = mode === 'warm' ? 'WARM-UP: practice rounds while your gun loads. HOLD to fire.' : (stall ?? (packLeft <= 0 ? 'Out of rounds. Press LOADOUT and put another coin in.' : `${patternLabel(pattern)} · HOLD to fire (or SPACE).`));
+  const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
+  const hint = mode === 'warm' ? (simulated ? 'Getting your practice rounds ready. HOLD to fire.' : 'WARM-UP: practice rounds while your gun loads. HOLD to fire.') : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). A / D to strafe.`));
   const toBoard = () => {
     setOver(null);
     setLoadout(true);
@@ -806,7 +853,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
 
   return (
     <div className={`game-root flex flex-col gap-3 ${drFontClass} ${tbxFontClass}`}>
-      <GameAudio track="arena" />
+      <GameAudio track="terror" />
       <section className="game-stage panel relative overflow-hidden p-0" style={{ background: '#04080d' }}>
         <canvas ref={canvas} className="block h-full min-h-[420px] w-full touch-none select-none" style={{ cursor: 'none' }} aria-label="Shooting Gallery: hold to fire" />
         <div ref={reticle} className="pointer-events-none absolute left-0 top-0 h-11 w-11" aria-hidden>
@@ -831,9 +878,34 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </div>
         )}
 
+        {!loadout && !over && !rescued && !flat && (
+          <div className="pointer-events-none absolute bottom-[104px] left-1/2 z-10 flex -translate-x-1/2 gap-3 sm:hidden" data-strafe-pad>
+            {([-1, 1] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                data-fs-skip
+                aria-label={d < 0 ? 'Strafe left' : 'Strafe right'}
+                className="tbx-btn pointer-events-auto !min-h-[48px] !min-w-[64px] !px-3 !text-lg"
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  if (engine.current) engine.current.padMove = d;
+                }}
+                onPointerUp={() => engine.current && (engine.current.padMove = 0)}
+                onPointerCancel={() => engine.current && (engine.current.padMove = 0)}
+              >
+                {d < 0 ? '◀' : '▶'}
+              </button>
+            ))}
+          </div>
+        )}
         {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
-        {/* Honesty (owner, 24 Oct): no ON CHAIN panel or fake txids when nothing goes on chain. */}
-        {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={simulated} />}
+        {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={false} />}
+        {!loadout && !over && simulated && (
+          <div className="tbx-glass pointer-events-none absolute bottom-[150px] right-1.5 z-10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-[var(--tbx-amber)] sm:bottom-[88px] sm:right-3" data-practice-badge>
+            {PRACTICE.badge.toUpperCase()}
+          </div>
+        )}
         {stall && !loadout && !over && !flat && (
           <div className="pointer-events-none absolute inset-x-0 top-[42%] z-10 flex justify-center px-4">
             <p className="tbx-glass tbx-pop flex max-w-[560px] items-center gap-2 px-4 py-2.5 text-center text-base font-semibold" style={{ borderColor: 'var(--tbx-red)' }} role="status">
@@ -841,16 +913,16 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             </p>
           </div>
         )}
-        {((cab.stage === 'approve' && !flat) || load?.kind === 'failed') && (
+        {((cab.stage === 'approve' && !flat && !freePlay) || load?.kind === 'failed') && (
           <LoadingScreen
             title={GAME_TITLE}
             kicker={GAME_KICKER}
             setting={SETTING}
             shots={LOADING_SHOTS}
-            track="arena"
-            lore={LORE}
+            track="terror"
+            lore={simulated ? LORE.map((l) => ({ ...l, line: forPractice(l.line) })) : LORE}
             characters={CHARACTERS}
-            tips={TIPS}
+            tips={simulated ? TIPS.map(forPractice) : TIPS}
             state={load?.kind === 'failed' ? load : { kind: 'approve' }}
           />
         )}
@@ -866,12 +938,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
               <div className="tbx-bar mt-2">
                 <i style={{ transform: `scaleX(${warmPct / 100})`, transition: 'transform 0.25s linear' }} />
               </div>
-              <p className="mt-1.5 text-[11px] text-white/65">Practice rounds: nothing is sent, nothing is scored. Live rounds start when the gun is loaded.</p>
+              <p className="mt-1.5 text-[11px] text-white/65">{simulated ? PRACTICE.nothing : 'Practice rounds: nothing is sent, nothing is scored. Live rounds start when the gun is loaded.'}</p>
             </div>
           </div>
         )}
-        {!loadout && !over && <BannerStage item={bannerCur} />}
-        {queueNote && !loadout && !jammed && !over && !flat && (
+        {!loadout && !over && <BannerStage item={bannerCur} practice={simulated} />}
+        <LiftOverlay shown={lift.shown} label={lift.label} line={lift.line} />
+        {rescued && !over && <RescuedBeat />}
+        {queueNote && !simulated && !loadout && !jammed && !over && !flat && (
           <div className="tbx-glass pointer-events-none absolute bottom-[96px] left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-white/85" role="status">
             Rounds are queueing, the network is catching up.
           </div>
@@ -907,8 +981,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             stats={hud}
             handle={handle}
             packLeft={packLeft}
+            freePlay={freePlay}
             bossName="THE LIQUID UNIT"
-            bossNote="Dr Kweg. Fire to push him back; stop and he closes in."
+            bossNote="Fire to push it back; stop and it closes in."
+            stageNote={stageBrief(hud?.stage ?? 1).goal}
           />
         )}
         {!loadout && !over && (
@@ -934,9 +1010,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             hold={cab.stage === 'approve' || cab.stage === 'loading' || locking || cab.modal !== null}
             onCoin={cab.onCoin}
             onClear={cab.onClear}
-            onContinue={() => cab.payThen(() => void resumeAfterPay(cab.pending))}
+            onContinue={() => (freePlay ? void resumeAfterPay(1) : cab.payThen(() => void resumeAfterPay(cab.pending)))}
             onGameOver={() => finishRef.current()}
             walletName={cab.walletName}
+            freePlay={freePlay}
           />
         )}
 
@@ -950,6 +1027,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             weaponId={weaponId}
             setWeaponId={setWeaponId}
             canUse={canUse}
+            practice={simulated}
             paymail={paymail}
             cabinet={
               <CoinCabinet
@@ -974,6 +1052,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 error={err ?? cab.err}
                 note={cab.pending <= 0 && b.ammo > 0 && !dry ? leftoverNote(fmtCredit(cab.creditUsd)) : null}
                 walletLive={cab.walletLive}
+                freePlay={freePlay}
                 walletName={cab.walletName}
               />
             }
@@ -981,8 +1060,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
       </section>
 
-      <PrizeBanner />
+      {!simulated && <PrizeBanner />}
 
+      {freePlay ? (
+        <section className="tbx-glass p-4" data-freeplay-note>
+          <p className="text-sm font-semibold text-[var(--tbx-text)]">{PRACTICE.nothing}</p>
+          <p className="mt-1 text-xs text-[var(--tbx-dim)]">Practice rounds are not scored on the board. The paid game puts every round on the record.</p>
+        </section>
+      ) : (
       <section className="tbx-glass p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="coin" size={14} /> Credit</span>
@@ -1012,8 +1097,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         </div>
         {(err || b.error) && <p className="mt-2 text-sm font-semibold text-[#ff7a70]">{err ?? b.error}</p>}
       </section>
+      )}
 
-      <section className="tbx-glass p-4">
+      {!simulated && <section className="tbx-glass p-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="chain" size={14} /> See them land</span>
           <span className="text-xs text-[var(--tbx-dim)]">{simulated ? 'practice numbers, not on the record' : 'live'}</span>
@@ -1029,7 +1115,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           )}
           {run.last && simulated && <span className="font-mono text-xs text-[var(--tbx-mute)]">sim {run.last.slice(0, 16)}…</span>}
         </div>
-      </section>
+      </section>}
 
       <section id="gallery-board" className="tbx-glass p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">

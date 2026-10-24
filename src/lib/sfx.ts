@@ -19,7 +19,7 @@ export type SfxName =
   | 'shot' | 'laser' | 'coin' | 'token' | 'jump' | 'spring' | 'stomp' | 'explosion' | 'rekt' | 'hit'
   | 'hurt' | 'gameover' | 'level' | 'click' | 'sonar' | 'stamp' | 'pickup' | 'start'
   | 'shotgun' | 'beam' | 'plasma' | 'rocket' | 'grenade';
-export type Track = 'doubleo' | 'arena' | 'gun' | 'hopper' | 'invaders' | 'snake' | 'kweg' | 'frogger' | 'city' | 'bracer';
+export type Track = 'doubleo' | 'arena' | 'gun' | 'hopper' | 'invaders' | 'snake' | 'kweg' | 'frogger' | 'city' | 'bracer' | 'terror';
 
 const LS = 'tb.audio';
 type Prefs = { muted: boolean; music: number; sfx: number };
@@ -446,7 +446,7 @@ function killMinigun() {
 type Loop = { bpm: number; lead: number[]; bass: number[]; drums: string; leadWave: OscillatorType; bassWave: OscillatorType; leadVol?: number; swing?: number };
 const N = (s: string) => s.trim().split(/\s+/).map((x) => (x === '.' ? 0 : Number(x)));
 
-const SONGS: Record<Track, Loop> = {
+const SONGS: Record<Exclude<Track, 'terror'>, Loop> = {
   // Original spy-surf style: twangy minor riff with chromatic slides over a driving beat.
   doubleo: {
     bpm: 140, leadWave: 'sawtooth', bassWave: 'triangle', leadVol: 0.1,
@@ -534,7 +534,7 @@ function tick() {
     nextT = c.currentTime + 0.05;
     return;
   }
-  const s = SONGS[wantTrack];
+  const s = SONGS[wantTrack === 'terror' ? 'arena' : wantTrack];
   const sp = 60 / s.bpm / 4;
   if (nextT < c.currentTime) nextT = c.currentTime + 0.05;
   while (nextT < c.currentTime + 0.12) {
@@ -598,14 +598,18 @@ const CITY = [
 ];
 /** bRacer: the fastest tracks on the site (180-196 BPM). */
 const BRACER = [ARCADE[2], ARCADE[3], PUNK[2], PUNK[3], CITY[1], CITY[0], ARCADE[1]];
+/** ASSAULT ON TERRORNODE: the hard NPG-X rock only (no Harajuku Chainsaw). The game skips to the next song on every new attempt and stage. */
+const TERROR = [PUNK[0], PUNK[1], PUNK[3], CITY[2]];
 export const PLAYLISTS: Record<Track, Song[]> = {
   bracer: BRACER,
+  terror: TERROR,
   doubleo: SPY, arena: PUNK, gun: PUNK, hopper: ARCADE, invaders: ARCADE, snake: ARCADE, kweg: QUIRKY, frogger: CITY, city: CITY,
 };
 
 /** Stations a player can switch to, whatever game they are in. */
 export const STATIONS: { id: Track; name: string }[] = [
   { id: 'doubleo', name: 'Spy · VexVoid' },
+  { id: 'terror', name: 'Hard rock · NPG-X' },
   { id: 'arena', name: 'Punk · NPG-X' },
   { id: 'hopper', name: 'Arcade' },
   { id: 'kweg', name: 'Quirky' },

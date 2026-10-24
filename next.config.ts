@@ -24,6 +24,9 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      // ASSAULT ON TERRORNODE lives at /arcade/assault (the on-chain game tag stays "gallery"); old links and shares keep working.
+      { source: '/arcade/gallery/:path*', destination: '/arcade/assault/:path*', permanent: true },
+      { source: '/arcade/gallery', destination: '/arcade/assault', permanent: true },
       { source: '/arcade/doubleo', destination: '/arcade/doubleosatoshi', permanent: true },
       { source: '/arcade/doubleokweg', destination: '/arcade/doubleosatoshi', permanent: true },
     ];

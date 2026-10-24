@@ -1,5 +1,6 @@
 /**
- * The LIQUID UNIT: Dr Kweg Wong after Experiment 31, nSLAVE's chrome giant, an original faceless design.
+ * The LIQUID UNIT: the FINAL boss of ASSAULT ON TERRORNODE. One of Dr Kweg S Wong's inventions gone mad (it is NOT
+ * Kweg), a seven-metre chrome giant guarding the roof of TERRORNODE HQ, an original faceless design.
  *
  * A properly rigged humanoid (Mixamo's faceless "X Bot" mannequin, `public/arena/models/liquid/xbot.glb`, see
  * public/arena/CREDITS.md) carrying one red visor slit and plated in mirror-polished liquid metal: MeshPhysical,
@@ -14,7 +15,8 @@
  * DEATH IS FULLY 3D: no flat puddle. At zero the liquid-metal skin melts by vertex displacement (every vertex
  * slides toward a domed mound, legs first), the mound slumps and spreads into a thick, rippling pool (a lathed
  * 3D lens with a beaded rim) while mercury droplets fly and splash, then the whole mass rises back up the same
- * way, head first, as a fresh, tougher Kweg further down the street.
+ * way, head first, as a fresh, tougher unit further down the street. As the FINAL boss (`final = true`, the rooftop
+ * stage) it melts once and stays down: it pools, `onDown` fires, and the rescue begins.
  *
  * Animation: the clips (idle, walk) are blended by speed; posture, breathing, head scan, roar, wind-ups and hit
  * flinch are layered on top by nudging the spine, head and arm bones after the mixer runs.
@@ -286,6 +288,11 @@ export class LiquidUnit {
   private attackDone = false;
   /** Dev only: stands still and attacks nothing (screenshots). */
   calmed = false;
+  /** The final boss: melts once and stays a pool on the floor (the rooftop stage). */
+  final = false;
+  /** Fired once when a final boss has pooled for good. */
+  onDown: (() => void) | null = null;
+  private downFired = false;
   /** Seconds before he breaks into the fast advance (the opening, and after he is shoved back). */
   private openT = 6;
   private body = new THREE.Group(); // holds the model (or the fallback figure); melted by scaling
@@ -724,6 +731,31 @@ export class LiquidUnit {
     return v;
   }
 
+  /** Set the level (1+): health x1.5 and damage scale per level above 1 (see TUNING.waveRamp). Full health. */
+  setLevel(n: number) {
+    this.wave = Math.max(1, Math.round(n));
+    this.max = this.base * Math.pow(1.5, this.wave - 1);
+    this.hp = this.max;
+  }
+
+  /** Stand him up fresh at `z` for a new fight (Continue-from-scratch or a new run). */
+  reset(z = -36) {
+    this.melt = 0;
+    this.downFired = false;
+    this.waved = false;
+    this.pool.visible = false;
+    this.pool.scale.set(0.001, 0.001, 0.001);
+    this.uniforms.uMelt.value = 0;
+    this.uniforms.uRise.value = 0;
+    this.hp = this.max;
+    this.x = 0;
+    this.z = z;
+    this.setPhase('stalk');
+    this.cd = { swipe: 2.5, lunge: 6, slam: 9, shard: 3, roar: 8 };
+    this.openT = 4;
+    this.group.position.set(this.x, 0, this.z);
+  }
+
   setBase(n: number) {
     this.base = n;
     this.max = n * Math.pow(1.5, this.wave - 1);
@@ -1031,13 +1063,15 @@ export class LiquidUnit {
       k = 1;
       U.uRise.value = 0;
       if (!this.waved) {
-        // the mass is down: count the wave, scale him up, pick where he rises
+        // the mass is down: count the wave, scale him up, pick where he rises (the final boss does not rise)
         this.waved = true;
-        this.wave++;
-        this.max = this.base * Math.pow(1.5, this.wave - 1);
-        this.hp = this.max;
+        if (!this.final) {
+          this.wave++;
+          this.max = this.base * Math.pow(1.5, this.wave - 1);
+          this.hp = this.max;
+        }
         this.glideFrom.set(this.x, this.z);
-        this.glideTo.set((Math.random() - 0.5) * 10, -27 - Math.random() * 5);
+        this.glideTo.set(this.final ? this.x : (Math.random() - 0.5) * 10, this.final ? this.z - 1.5 : -27 - Math.random() * 5);
         this.emit('pooled', 0.6, this.tv.set(this.x, 0.4, this.z));
       }
       // the pool slides down the street, sheeting and rippling
@@ -1054,6 +1088,15 @@ export class LiquidUnit {
       if (this.dropT <= 0) {
         this.dropT = 0.2;
         this.splashDrops(2, 2.2, 3.5, 0.6);
+      }
+    } else if (this.final) {
+      // the final boss stays a pool: hold the pooled pose, tell the engine once
+      this.melt = tPooled - 0.001;
+      k = 1;
+      U.uRise.value = 0;
+      if (!this.downFired) {
+        this.downFired = true;
+        this.onDown?.();
       }
     } else if (t < tEnd) {
       const u = (t - tPooled) / M.rise;

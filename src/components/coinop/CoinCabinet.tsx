@@ -60,12 +60,14 @@ export function CoinCabinet(p: {
   /** False: the wallet stopped answering (a badge shows at once). */
   walletLive?: boolean;
   walletName?: string | null;
+  /** Free play: no coins, no price, no name needed; the button just starts a practice run. */
+  freePlay?: boolean;
 }) {
   const total = addCoin(p.creditUsd, p.pendingUsd);
   const busy = p.stage === 'approve' || p.stage === 'loading' || Boolean(p.starting);
   const nameOk = hasCredit(total, MIN_CREDIT_USD);
   const enough = hasCredit(total, p.priceUsd);
-  const startOk = nameOk && enough && cleanName(p.name) !== null && !busy && !p.blocked && Boolean(p.bsvUsd);
+  const startOk = p.freePlay ? !busy && !p.blocked : nameOk && enough && cleanName(p.name) !== null && !busy && !p.blocked && Boolean(p.bsvUsd);
   const nameRef = useRef<HTMLInputElement>(null);
   const [miss, setMiss] = useState<Missing | null>(null);
   // The minimum to play is a total, not one coin (owner, 24 Oct: put 3¢ in and was told "put a coin in first").
@@ -94,6 +96,11 @@ export function CoinCabinet(p: {
   const [down, setDown] = useState(false);
   /** START is always clickable: say plainly what is missing (owner, 24 Oct 2026: no silent failures). */
   const press = () => {
+    if (p.freePlay) {
+      sfx(p.blocked ? 'hurt' : 'click');
+      if (!p.blocked) p.onStart();
+      return;
+    }
     const why: Missing | null = !nameOk ? 'coin' : !enough ? 'more' : !p.name ? 'name' : !cleanName(p.name) ? 'bad' : !p.bsvUsd ? 'price' : p.blocked ? 'wait' : null;
     setMiss(why);
     sfx(why ? 'hurt' : 'click');
@@ -123,11 +130,16 @@ export function CoinCabinet(p: {
             <p className="tbx-eyebrow">Coin-op</p>
             <p className="tbx-display text-[clamp(22px,3.4vw,30px)]">{p.title}</p>
           </div>
-          <CreditCounter usd={total} />
+          {p.freePlay ? <SevenSeg text="FREE" label="FREE PLAY" /> : <CreditCounter usd={total} />}
         </div>
 
         {/* INSERT COIN: each press adds to the total. The big red button below is the one wallet approval. */}
-        <section aria-label="Insert coin" className="flex flex-col items-center gap-3">
+        {p.freePlay && (
+          <p className="w-full rounded-lg border border-[var(--tbx-teal)]/40 bg-[var(--tbx-teal)]/10 px-3 py-2.5 text-sm font-semibold text-[var(--tbx-text)]" data-freeplay>
+            Free play: nothing is paid. These are practice rounds and nothing goes on chain.
+          </p>
+        )}
+        {!p.freePlay && <section aria-label="Insert coin" className="flex flex-col items-center gap-3">
           <div className="flex w-full items-center gap-3">
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[var(--tbx-line-hi)]" />
             <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
@@ -176,12 +188,12 @@ export function CoinCabinet(p: {
             <Icon name="shield" size={16} className="mt-px shrink-0 text-[var(--tbx-red)]" />
             No refunds. Only put in what you want to spend. Playing multiplayer? Put in as much as you&apos;ll need.
           </p>
-        </section>
+        </section>}
 
         {/* NAME: always editable; the button checks everything and says plainly what is missing. */}
         <label className="flex w-full flex-col gap-2">
           <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
-            <Icon name="user" size={14} /> Your name <span className="text-[var(--tbx-red)]">· required</span>
+            <Icon name="user" size={14} /> Your name {p.freePlay ? <span className="text-[var(--tbx-dim)]">· optional</span> : <span className="text-[var(--tbx-red)]">· required</span>}
           </span>
           <input
             ref={nameRef}
@@ -253,7 +265,7 @@ export function CoinCabinet(p: {
             </button>
           </div>
           <p className={`text-center text-sm ${miss ? 'font-semibold' : 'text-[var(--tbx-dim)]'}`} style={miss ? { color: '#ff7a70' } : undefined} data-start-reason>
-            {miss && !nameMiss ? missText(miss) : nameMiss ? '' : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, type your name, then press the button.'}
+            {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss && !nameMiss ? missText(miss) : nameMiss ? '' : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, type your name, then press the button.'}
           </p>
           {p.error && (
             <p className="text-center text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">

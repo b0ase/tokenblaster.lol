@@ -1,5 +1,5 @@
 /**
- * EROBOTS: nSLAVE's foot soldiers, our own Tripo characters (bot, frog-bot, graf-bot, stripey-bot, tech) in
+ * EROBOTS: TERRORNODE's foot soldiers, our own Tripo characters (bot, frog-bot, graf-bot, stripey-bot, tech) in
  * Neo-Tokyo 2048. They step out of the tower lobby, run down the street, plant themselves and fire palm-bolts
  * at the player; take hits with a recoil flash, scorch decals and sparks; and die on a Mixamo-style death clip
  * followed by a debris burst.
@@ -19,7 +19,6 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { halo } from '../bsvgun/targets';
 import type { Fx } from '../bsvgun/fx';
-import { TOWER } from './city';
 import type { Bolts } from './combat';
 import { TUNING, ramp, roleWeights } from './tuning';
 
@@ -175,6 +174,9 @@ type Slot = {
 export type ErHit = { slot: Slot; point: THREE.Vector3; dist: number; head: boolean };
 export type ErResult = { killed: boolean; heavy: boolean; score: number };
 
+/** Where the Erobots come from and how they move in the current stage's set (tuned per stage in tuning.ts). */
+export type Lane = { spawnZ: number; halfW: number; stopZ: readonly [number, number]; flankX: readonly [number, number]; strafeX: number; snipeX: number; liveBase: number; liveCap: number; wallX: number };
+
 export class ErobotWave {
   /** Resolves when the models are in and enemies can spawn (the game doesn't wait for it). */
   ready: Promise<void>;
@@ -193,8 +195,10 @@ export class ErobotWave {
   /** Camera shake the engine should add this frame (0..1), read-and-clear. */
   impulse = 0;
   kills = 0;
-  /** The boss's wave number: everything here scales with it. */
+  /** The stage's level: damage, fire rate, speed and health scale with it (tuning.ts waveRamp). */
   wave = 1;
+  /** The current stage's lane (spawn line, plant depth, widths, live caps). */
+  lane: Lane = TUNING.stages[0].lane;
   /** Seconds of grace left: nobody fires or swings until it runs out (the opening, and after Continue). */
   grace: number = TUNING.player.openingGrace;
   /** False while the player is down: nobody attacks. */
@@ -357,15 +361,15 @@ export class ErobotWave {
     s.swingHit = -1;
     s.dv.set(0, 0, 0);
     s.speed = rand(T.runSpeed) * ramp(TUNING.waveRamp.erobotSpeed, w);
-    s.stopZ = rand(T.stopZ);
+    s.stopZ = rand(this.lane.stopZ);
     s.strafe = (Math.random() < 0.5 ? -1 : 1) * T.strafeSpeed * (0.6 + Math.random() * 0.6);
     s.nextShot = (1.0 + Math.random() * 1.5) / ramp(TUNING.waveRamp.erobotRate, w);
     s.side = Math.random() < 0.5 ? -1 : 1;
-    s.flankX = rand(T.flankX);
+    s.flankX = rand(this.lane.flankX);
     s.meleeX = (Math.random() - 0.5) * 3.2;
-    const x = (Math.random() - 0.5) * (TOWER.w - 10);
+    const x = (Math.random() - 0.5) * 2 * this.lane.halfW;
     s.baseX = x;
-    s.startZ = TOWER.z + 6.5;
+    s.startZ = this.lane.spawnZ;
     s.root.position.set(x, 0, s.startZ);
     s.root.rotation.set(0, 0, 0);
     s.root.scale.set(1, 0.05, 1);
@@ -376,10 +380,17 @@ export class ErobotWave {
     }
     for (const m of s.mats) m.emissive.set('#27e6ff');
     this.play(s, s.act.walk, 0.05);
-    V.a.set(x, 1.2, TOWER.z + 6.5);
+    V.a.set(x, 1.2, this.lane.spawnZ);
     this.fx.ring(V.a, '#27e6ff', 3.2, 0.5);
     this.fx.sparks(V.a, '#7cf9ff', 24, 7);
     this.opts.flash?.(V.a, '#27c8e0', 70, 400); // teleport-in
+  }
+
+  /** Switch to a stage's lane and level. Anything still on the floor is cleared. */
+  setStage(lane: Lane, level: number) {
+    this.lane = lane;
+    this.wave = level;
+    this.clearAll();
   }
 
   /** Drop everything on the street (Continue): the wave starts again from nothing. */
@@ -404,8 +415,9 @@ export class ErobotWave {
     this.grace = Math.max(0, this.grace - dt);
     // Hold the trigger and the lobby disgorges more of them; let go and the wave thins to a trickle.
     this.hold = trigger ? Math.min(14, this.hold + dt) : Math.max(0, this.hold - dt * 1.5);
-    const capW = Math.min(this.cap, Math.round(T.liveCap + T.liveCapPerWave * (w - 1)));
-    const want = Math.min(capW, Math.round(T.liveBase + TUNING.waveRamp.erobotLive * (w - 1)) + Math.floor(this.hold * T.holdBonusPerSec));
+    const L = this.lane;
+    const capW = Math.min(this.cap, L.liveCap);
+    const want = Math.min(capW, L.liveBase + Math.floor(this.hold * T.holdBonusPerSec));
     this.spawnT -= dt;
     if (this.spawnT <= 0 && this.live < want && this.spawning) {
       const free = this.slots.find((s) => s.state === 'off');
@@ -451,7 +463,7 @@ export class ErobotWave {
             p.x = s.baseX * (1 - u) + s.side * s.flankX * Math.sin(Math.PI * Math.min(1, u * 1.15)) * (1 - u * u) + s.meleeX * u * u * u;
             // and snipe on the way in
             s.nextShot -= dt;
-            if (s.nextShot <= 0 && Math.abs(p.x) > 5 && this.grace <= 0 && this.playerAlive) {
+            if (s.nextShot <= 0 && Math.abs(p.x) > this.lane.snipeX && this.grace <= 0 && this.playerAlive) {
               s.nextShot = (1.6 + Math.random() * 1.4) / rate;
               this.fireBolt(s, camera);
             }
@@ -476,8 +488,8 @@ export class ErobotWave {
         case 'aim': {
           // keep the pressure on: strafe fast and creep in
           p.x += s.strafe * dt;
-          if (Math.abs(p.x) > 14) s.strafe = -s.strafe;
-          p.x = THREE.MathUtils.clamp(p.x, -15, 15);
+          if (Math.abs(p.x) > this.lane.strafeX) s.strafe = -s.strafe;
+          p.x = THREE.MathUtils.clamp(p.x, -this.lane.wallX, this.lane.wallX);
           p.z = Math.min(-6, p.z + T.creepSpeed * dt);
           this.face(s, cx, p.z, dt, 8);
           if (s.charge > 0) {

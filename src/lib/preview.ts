@@ -28,6 +28,7 @@ const GAME_TRACK: Record<string, Track> = {
   doubleosatoshi: 'doubleo',
   bsvgun: 'gun',
   arena: 'arena',
+  assault: 'terror',
   frogger: 'frogger',
   hopper: 'hopper',
   invaders: 'invaders',

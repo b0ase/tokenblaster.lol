@@ -1,7 +1,12 @@
 /**
- * Shooting Gallery 3D engine. First person behind the BSVGun weapons (same GLB models, buildGun, aim
+ * ASSAULT ON TERRORNODE 3D engine. First person behind the BSVGun weapons (same GLB models, buildGun, aim
  * follow, recoil, spin-up, muzzle flash and minigun audio as src/lib/bsvgun/engine.ts), in a night city
  * (./city.ts) rendered the Arena way: ACES filmic, soft shadows, GTAO on desktop, bloom, colour grade.
+ *
+ * FOUR STAGES in one engine (tuning in ./tuning.ts `stages`, sets in ./city.ts and ./stages.ts):
+ *   1 STREET (Erobots only) -> 2 HQ FLOORS (Erobots) -> 3 SERVER CORE (jam it with sustained fire) -> 4 ROOFTOP
+ *   (the LIQUID UNIT, once, then the RESCUED beat). A stage ends on its goal; a lift transition swaps the set.
+ *   Death and CONTINUE stay on the stage. Nothing here decides how many rounds are fired.
  *
  * Transactions drive damage. The engine never decides how many bullets land: the page calls
  * `accept(n)` with newly accepted (or, in practice, simulated) transactions, and each one is one round of
@@ -24,13 +29,42 @@ import { Fx } from '../bsvgun/fx';
 import { glowTexture, halo } from '../bsvgun/targets';
 import type { RangeWeapon } from '../bsvgun/weapons';
 import { buildCity, EYE, TOWER, type City, type Rack, type Window } from './city';
+import { buildCore, buildFloors, buildRoof, type StageSet, type World } from './stages';
 import { LiquidUnit } from './boss';
+import { KWEG } from '../gallery/story';
 import { ErobotWave } from './enemies';
 import { Bolts, type HurtKind } from './combat';
 import { TUNING } from './tuning';
 
 export type Quality = 'low' | 'high';
-export type Stats = { score: number; bossHp: number; bossMax: number; wave: number; windowsLeft: number; windows: number; racksLeft: number; drones: number; kills: number; hover: string; hp: number; hpMax: number; dead: boolean; bossPush: number; bossDist: number };
+export type Stats = {
+  score: number;
+  bossHp: number;
+  bossMax: number;
+  /** The stage, 1 to 4 (kept as `wave` too for the results). */
+  wave: number;
+  stage: number;
+  /** The stage goal: label, progress and size (kills, or the core jam as a percentage). */
+  goal: { kind: 'kills' | 'jam' | 'boss'; label: string; now: number; max: number };
+  /** The core's jam 0..1 (stage 3). */
+  jam: number;
+  windowsLeft: number;
+  windows: number;
+  racksLeft: number;
+  racks: number;
+  drones: number;
+  kills: number;
+  hover: string;
+  hp: number;
+  hpMax: number;
+  dead: boolean;
+  bossPush: number;
+  bossDist: number;
+  /** The Liquid Unit is in play (stage 4). */
+  bossOn: boolean;
+};
+/** Stage flow events for the page: the lift closes (`leave`), a stage opens (`enter`), the boss is down, the hostage is free. */
+export type StageEvent = { kind: 'leave'; from: number; to: number; line: string } | { kind: 'enter'; stage: number } | { kind: 'down' } | { kind: 'rescued' };
 /** The player was hurt. `angle`: where it came from relative to the view (0 ahead, + right, +-PI behind). */
 export type Hurt = { angle: number; dmg: number; kind: HurtKind; hp: number; hpMax: number };
 export type Hooks = {
@@ -44,6 +78,8 @@ export type Hooks = {
   hurt: (h: Hurt) => void;
   /** Health hit zero. */
   died: () => void;
+  /** Stage flow: the lift, a new stage, the final boss down, the rescue. */
+  stage: (e: StageEvent) => void;
 };
 
 type Drone = { g: THREE.Group; rotors: THREE.Mesh[]; hp: number; dead: number; t: number; v: THREE.Vector3; base: THREE.Vector3; body: THREE.Mesh };
@@ -63,6 +99,20 @@ export class GalleryEngine {
   private shaftP = new THREE.Vector3();
   private look!: Look;
   private city!: City;
+  /** The set being played in: the street (`city`) or a stage set from ./stages.ts. */
+  private world!: World;
+  private sets: Partial<Record<'floors' | 'core' | 'roof', StageSet>> = {};
+  private setMood = { fog: '#071420', density: 0.0066, bg: '#05060f' };
+  /** 0..3 = street, floors, core, roof. */
+  stageIdx = 0;
+  private stageKills = 0;
+  private jamRounds = 0;
+  private coreHitAcc = 0;
+  private coreHit = 0;
+  private sinceCoreHit = 99;
+  private trans: { t: number; to: number; swapped: boolean } | null = null;
+  private rescue: { t: number; freed: boolean; sent: boolean } | null = null;
+  private bossOn = false;
   private boss!: LiquidUnit;
   private erobots!: ErobotWave;
   private fx!: Fx;
@@ -83,6 +133,11 @@ export class GalleryEngine {
   /** Dev only: the boss counts as the nearest threat inside this many metres. */
   autoBossRange = 0;
   private threatT = 0;
+  /** Strafe input: held keys and the touch pad (-1 left .. 1 right). */
+  private keyL = false;
+  private keyR = false;
+  padMove = 0;
+  private px = 0;
 
   // gun
   weapon: RangeWeapon | null = null;
@@ -165,8 +220,14 @@ export class GalleryEngine {
     this.look = await loadLook(r, high ? 'high' : 'low', (p) => onProgress(0.05 + p * 0.45));
     if (this.disposed) return;
     this.city = buildCity({ renderer: r, scene: this.scene, high, look: this.look });
+    this.world = this.city;
+    const fg = this.scene.fog as THREE.FogExp2;
+    this.setMood = { fog: '#' + fg.color.getHexString(), density: fg.density, bg: '#05060f' };
     this.boss = new LiquidUnit(this.opts.bossBase, high);
+    this.boss.final = true;
+    this.boss.onDown = () => this.bossDown();
     this.boss.setEnv(r, this.look.env);
+    this.boss.group.visible = false;
     this.scene.add(this.boss.group);
     await this.boss.ready; // the rigged model (a fallback figure stands in if it can't load)
     if (this.disposed) return;
@@ -198,6 +259,7 @@ export class GalleryEngine {
       this.scene.add(l);
       this.pool.push({ l, t: 0, dur: 0, peak: 0 });
     }
+    this.applyStage(0);
     if (!high) {
       // Low: no lights to spare, so the muzzle throws an emissive glow on the wet street instead
       const dg = new THREE.PlaneGeometry(1, 1);
@@ -217,6 +279,7 @@ export class GalleryEngine {
     for (let i = 0; i < 160; i++) this.brass.setMatrixAt(i, this.m4.makeScale(0, 0, 0));
     this.scene.add(this.brass);
     for (let i = 0; i < 2; i++) this.spawnDrone(i);
+    this.droneGroupVisible(true);
     onProgress(0.65);
 
     // Arena-grade post: render, GTAO (desktop High), bloom, grade, output.
@@ -365,6 +428,14 @@ export class GalleryEngine {
         e.preventDefault();
         if (!e.repeat) this.setTrigger(d);
       }
+      // strafe: A / D or the arrow keys (dodging bolts is a skill)
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
+        e.preventDefault();
+        this.keyL = d;
+      } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        this.keyR = d;
+      }
     };
     const kd = (e: KeyboardEvent) => key(e, true);
     const ku = (e: KeyboardEvent) => key(e, false);
@@ -373,7 +444,10 @@ export class GalleryEngine {
     window.addEventListener('pointerup', up);
     window.addEventListener('keydown', kd);
     window.addEventListener('keyup', ku);
+    const blur = () => (this.keyL = this.keyR = false);
+    window.addEventListener('blur', blur);
     this.cleanup.push(
+      () => window.removeEventListener('blur', blur),
       () => c.removeEventListener('pointermove', setNdc),
       () => c.removeEventListener('pointerdown', down),
       () => window.removeEventListener('pointerup', up),
@@ -429,23 +503,25 @@ export class GalleryEngine {
       const a = Math.random() * Math.PI * 2;
       const rr = spread * Math.sqrt(Math.random());
       jd.addScaledVector(u, Math.cos(a) * rr).addScaledVector(vv, Math.sin(a) * rr).normalize();
-      const end = this.landRound(org, jd, per * w.damage, w);
+      const end = this.landRound(org, jd, per * w.damage, w, per);
       if (tracers === 0) this.flash(this.tC.copy(mz).lerp(end, 0.35), w.bolt, 22, 90); // the round lights the wet street as it passes
       if (tracers++ < (w.auto ? 3 : 9)) this.fx.tracer(mz, end, w.bolt, w.ammo === 'laser' ? 0.09 : w.ammo === 'pellet' ? 0.035 : 0.05, w.ammo === 'laser' ? 0.15 : 0.08);
     }
   }
 
   private hittables: THREE.Object3D[] = [];
-  private landRound(org: THREE.Vector3, dir: THREE.Vector3, dmg: number, w: RangeWeapon): THREE.Vector3 {
-    const c = this.city;
+  private landRound(org: THREE.Vector3, dir: THREE.Vector3, dmg: number, w: RangeWeapon, rounds: number): THREE.Vector3 {
+    const c = this.world;
     this.ray.set(org, dir);
     this.ray.far = 400;
     const list = this.hittables;
     list.length = 0;
-    if (this.boss.alive) list.push(...this.boss.parts);
-    for (const d of this.drones) if (!d.dead) list.push(d.body);
+    if (this.bossOn && this.boss.alive) list.push(...this.boss.parts);
+    for (const d of this.drones) if (!d.dead && d.g.visible) list.push(d.body);
     for (const rk of c.racks) if (!rk.broke) list.push(rk.mesh);
-    list.push(c.windows, c.towerBody, c.ground);
+    const core = this.setNow()?.core;
+    if (core && this.jamRounds < this.jamGoal()) list.push(core.mesh);
+    list.push(c.windows, ...c.solids, c.ground);
     const hit = this.ray.intersectObjects(list, false)[0];
     // a red bolt in the way is shot out of the air (a small target: it takes aim)
     const bolt = this.bolts.shoot(org, dir, hit ? hit.distance : 400);
@@ -462,6 +538,7 @@ export class GalleryEngine {
       this.score += r.score;
       if (r.killed) {
         this.kills++;
+        this.stageKills++;
         this.heal(TUNING.player.healOnKill);
         sfx('explosion', 0.5);
       }
@@ -471,6 +548,16 @@ export class GalleryEngine {
     const end = hit ? hit.point.clone() : org.clone().addScaledVector(dir, 300);
     if (!hit) return end;
     const o = hit.object;
+    if (core && o === core.mesh) {
+      // the core: sustained fire jams it (the stage goal)
+      this.coreHitAcc += rounds;
+      this.sinceCoreHit = 0;
+      this.jamRounds = Math.min(this.jamGoal(), this.jamRounds + rounds);
+      this.score += Math.round(dmg * 0.2);
+      if (Math.random() < 0.5) this.fx.sparks(end, '#7cf9ff', 2, 7);
+      if (Math.random() < 0.3) this.flash(end, '#7cf9ff', 40, 90);
+      return end;
+    }
     if (w.splash > 0) {
       this.fx.ring(end, w.bolt, w.splash, 0.4);
       this.fx.sparks(end, w.bolt, 10, 10);
@@ -478,8 +565,9 @@ export class GalleryEngine {
     if (this.boss.parts.includes(o as THREE.Mesh)) {
       this.erobots.mark(false);
       if (this.boss.hit(dmg, end)) {
-        this.score += 5000 * this.boss.wave;
+        this.score += 5000 * this.boss.wave + 20_000;
         this.kills++;
+        this.bossMelted();
         this.fx.shatter(end, '#e8eef6', 36, 9, 1.0);
         this.flash(end, '#cfe4ff', 150, 600); // he melts: a big flash, then a cold glow as he pools
         this.flash(this.tA.set(end.x, 0.8, end.z), '#27c8e0', 60, 2200);
@@ -516,7 +604,7 @@ export class GalleryEngine {
       this.hurtRack(rack, dmg, end);
       return end;
     }
-    if (o === c.windows && hit.instanceId != null) {
+    if (o === c.windows && c.windows.visible && hit.instanceId != null) {
       const win = c.wins[hit.instanceId];
       if (win && !win.broke) this.hurtWindow(win, dmg, end);
       else this.fx.sparks(end, '#ffd27a', 1, 3);
@@ -530,14 +618,14 @@ export class GalleryEngine {
   private hurtWindow(win: Window, dmg: number, at: THREE.Vector3) {
     win.hp -= dmg;
     if (win.hp <= 0) {
-      this.city.breakWindow(win);
+      this.world.breakWindow(win);
       this.score += 50;
       this.fx.shatter(at, '#cfeaff', 16, 7, 0.6, true);
       this.flash(at, '#cfeaff', 55, 140);
       if (Math.random() < 0.3) sfx('hit', 0.3);
-      if (this.city.wins.every((w) => w.broke) && this.city.racks.every((r) => r.broke)) {
+      if (this.world.wins.length > 1 && this.world.wins.every((w) => w.broke) && this.world.racks.every((r) => r.broke)) {
         this.score += 10_000;
-        this.city.rebuild(); // nSLAVE has deep pockets (and a patent on them)
+        this.world.rebuild(); // TERRORNODE has deep pockets (and a patent on them)
       }
     } else this.fx.sparks(at, '#cfeaff', 1, 3);
   }
@@ -547,16 +635,16 @@ export class GalleryEngine {
     this.fx.sparks(at, '#7cf9ff', 3, 6);
     if (Math.random() < 0.5) this.flash(at, '#7cf9ff', 35, 80);
     if (rk.hp <= 0) {
-      this.city.breakRack(rk);
+      this.world.breakRack(rk);
       this.score += 500;
       this.kills++;
       this.fx.sparks(at, '#7cf9ff', 60, 11);
       this.fx.ring(at, '#27e6ff', 4, 0.5);
       this.flash(at, '#7cf9ff', 150, 600);
       this.flash(this.tA.copy(at), '#ff6a2a', 45, 1800); // the rack burns on
-      this.city.hitLight.position.copy(at);
-      this.city.hitLight.color.set('#27e6ff');
-      this.city.hitLight.intensity = 160;
+      this.world.hitLight.position.copy(at);
+      this.world.hitLight.color.set('#27e6ff');
+      this.world.hitLight.intensity = 160;
       this.shake = Math.max(this.shake, 0.5);
       sfx('explosion', 0.5);
     }
@@ -674,18 +762,13 @@ export class GalleryEngine {
       this.threatT -= dt;
       if (this.threatT <= 0) {
         this.threatT = 0.4; // human reaction time
-        if ((!this.boss.alive || this.boss.dist > this.autoBossRange) && this.erobots.nearest(this.tA)) {
+        if ((!(this.bossOn && this.boss.alive) || this.boss.dist > this.autoBossRange) && this.erobots.nearest(this.tA)) {
           this.tA.project(this.camera);
           this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
-        } else if (this.boss.alive) {
-          this.boss.chest(this.tA).project(this.camera);
-          this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
-        }
+        } else this.autoTarget();
       }
-    } else if (this.autoAim && this.boss.alive) {
-      this.boss.chest(this.tA).project(this.camera);
-      this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
-    }
+    } else if (this.autoAim) this.autoTarget();
+    if (this.rescue?.freed) this.lookAtHostage(dt);
     // the world slows to a crawl while the player is down
     const sd = this.dead ? dt * 0.18 : dt;
     this.sinceHurt += dt;
@@ -693,16 +776,17 @@ export class GalleryEngine {
     this.invuln -= dt;
     if (!this.dead && this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
     if (this.dead) this.deadT += dt;
-    this.boss.update(sd);
-    this.erobots.wave = this.boss.wave;
+    if (this.bossOn) this.boss.update(sd);
+    this.stageTick(dt);
     this.erobots.playerAlive = !this.dead;
     this.erobots.update(sd, this.camera, this.trigger);
     this.bolts.update(sd, this.camera.position, (from, dmg, kind) => this.hurt(from, dmg, kind));
-    this.shake = Math.min(1, this.shake + this.boss.takeImpulse() + this.erobots.impulse);
+    this.shake = Math.min(1, this.shake + (this.bossOn ? this.boss.takeImpulse() : 0) + this.erobots.impulse);
     this.erobots.impulse = 0;
-    this.updateDrones(dt);
+    if (this.stageIdx === 0) this.updateDrones(dt);
     this.updateBrass(dt);
-    this.city.update(dt, this.t, this.camera);
+    this.world.update(dt, this.t, this.camera);
+    this.setNow()?.core?.set(this.jamRounds / this.jamGoal(), this.coreHit, this.t);
     this.fx.update(sd, this.camera);
     this.updateCamera(dt);
     this.flashT -= dt;
@@ -714,12 +798,12 @@ export class GalleryEngine {
     this.shake *= Math.pow(0.02, dt);
     this.updateFlash(dt);
     this.grade.tick(this.t, 0);
-    this.city.beforeRender(this.renderer, this.scene, this.camera);
+    if (this.stageIdx === 0) this.city.beforeRender(this.renderer, this.scene, this.camera);
     if (this.shafts) {
       const p = this.shaftP.copy(this.city.lightWorld).project(this.camera);
       const u = this.shafts.uniforms as { uPos: { value: THREE.Vector2 }; uK: { value: number } };
       u.uPos.value.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
-      u.uK.value = p.z < 1 ? 0.1 : 0;
+      u.uK.value = p.z < 1 && this.stageIdx === 0 ? 0.1 : 0;
     }
     this.composer.render();
     this.statsT -= dt;
@@ -730,24 +814,212 @@ export class GalleryEngine {
   };
 
   stats(): Stats {
-    const c = this.city;
+    const w = this.world;
+    const G = TUNING.stages[this.stageIdx].goal;
+    const goal: Stats['goal'] =
+      G.kind === 'kills'
+        ? { kind: 'kills', label: this.stageIdx === 0 ? 'EROBOTS STOPPED' : 'EROBOTS CLEARED', now: Math.min(G.n, this.stageKills), max: G.n }
+        : G.kind === 'jam'
+          ? { kind: 'jam', label: 'CORE JAM', now: Math.round((this.jamRounds / G.rounds) * 100), max: 100 }
+          : { kind: 'boss', label: 'THE LIQUID UNIT', now: Math.ceil(this.boss.hp), max: Math.ceil(this.boss.max) };
     return {
       score: this.score,
       bossHp: Math.ceil(this.boss.hp),
       bossMax: Math.ceil(this.boss.max),
-      wave: this.boss.wave,
-      windows: c.wins.length,
-      windowsLeft: c.wins.filter((w) => !w.broke).length,
-      racksLeft: c.racks.filter((r) => !r.broke).length,
-      drones: this.drones.filter((d) => !d.dead).length + this.erobots.live,
+      wave: this.stageIdx + 1,
+      stage: this.stageIdx + 1,
+      goal,
+      jam: this.jamRounds / this.jamGoal(),
+      windows: w.wins.length,
+      windowsLeft: w.wins.filter((x) => !x.broke).length,
+      racksLeft: w.racks.filter((r) => !r.broke).length,
+      racks: w.racks.length,
+      drones: this.drones.filter((d) => !d.dead && d.g.visible).length + this.erobots.live,
       kills: this.kills,
       hover: this.hover,
       hp: Math.ceil(this.hp),
       hpMax: TUNING.player.hp,
       dead: this.dead,
-      bossPush: this.boss.pushNorm,
-      bossDist: this.boss.alive ? this.boss.dist : 99,
+      bossPush: this.bossOn ? this.boss.pushNorm : 0,
+      bossDist: this.bossOn && this.boss.alive ? this.boss.dist : 99,
+      bossOn: this.bossOn,
     };
+  }
+
+  // ── Stages ──
+
+  private setNow(): StageSet | null {
+    return this.stageIdx === 0 ? null : (this.sets[(['street', 'floors', 'core', 'roof'] as const)[this.stageIdx] as 'floors' | 'core' | 'roof'] ?? null);
+  }
+
+  private jamGoal() {
+    const g = TUNING.stages[2].goal;
+    return g.kind === 'jam' ? g.rounds : 1;
+  }
+
+  private droneGroupVisible(v: boolean) {
+    for (const d of this.drones) d.g.visible = v;
+  }
+
+  private autoTarget() {
+    if (this.bossOn && this.boss.alive) this.boss.chest(this.tA).project(this.camera);
+    else if (this.setNow()?.core) this.tA.copy(this.setNow()!.core!.at).project(this.camera);
+    else return;
+    this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
+  }
+
+  private lookAtHostage(dt: number) {
+    const h = this.sets.roof?.hostage;
+    if (!h) return;
+    h.head.getWorldPosition(this.tA);
+    this.tA.project(this.camera);
+    const k = Math.min(1, dt * 3);
+    this.ndc.x += (THREE.MathUtils.clamp(this.tA.x, -0.8, 0.8) - this.ndc.x) * k;
+    this.ndc.y += (THREE.MathUtils.clamp(this.tA.y, -0.6, 0.6) - this.ndc.y) * k;
+  }
+
+  /** Show stage `i` (0..3): build its set the first time, swap what is visible, set the mood and the Erobot lane. */
+  private applyStage(i: number) {
+    const ids = ['street', 'floors', 'core', 'roof'] as const;
+    const ctx = { scene: this.scene, high: this.high, look: this.look };
+    this.stageIdx = i;
+    this.px = 0;
+    this.stageKills = 0;
+    this.city.group.visible = i === 0;
+    for (const k of ['floors', 'core', 'roof'] as const) {
+      const st = this.sets[k];
+      if (st) st.group.visible = ids[i] === k;
+    }
+    if (i === 1 && !this.sets.floors) this.sets.floors = buildFloors(ctx);
+    if (i === 2 && !this.sets.core) this.sets.core = buildCore(ctx);
+    if (i === 3 && !this.sets.roof) this.sets.roof = buildRoof(ctx);
+    const st = this.setNow();
+    if (st) st.group.visible = true;
+    this.world = st ?? this.city;
+    const mood = st ? st.mood : this.setMood;
+    const fg = this.scene.fog as THREE.FogExp2;
+    fg.color.set(mood.fog);
+    fg.density = mood.density;
+    (this.scene.background as THREE.Color).set(mood.bg);
+    this.droneGroupVisible(i === 0);
+    if (this.decal) this.decal.visible = i === 0;
+    this.bossOn = i === 3;
+    this.boss.group.visible = this.bossOn;
+    if (this.bossOn) {
+      const T = TUNING.stages[3];
+      this.boss.final = true;
+      this.boss.setLevel('bossLevel' in T ? T.bossLevel : 1);
+      this.boss.reset(-36);
+    }
+    this.jamRounds = i === 2 ? 0 : this.jamRounds;
+    const T = TUNING.stages[i];
+    this.erobots.setStage(T.lane, T.level);
+    this.erobots.spawning = true;
+    this.resize();
+  }
+
+  /** A fresh run: back to the street, everything rebuilt, the hostage tied up again. */
+  startRun() {
+    this.trans = null;
+    this.rescue = null;
+    this.jamRounds = 0;
+    this.sinceCoreHit = 99;
+    this.coreHit = 0;
+    this.city.rebuild();
+    for (const k of ['floors', 'core', 'roof'] as const) this.sets[k]?.rebuild();
+    this.sets.roof?.hostage?.reset();
+    this.applyStage(0);
+    this.px = 0;
+    this.hp = TUNING.player.hp;
+    this.invuln = 0;
+    this.erobots.grace = TUNING.player.openingGrace;
+  }
+
+  /** The stage goal is met: close the lift doors (or, on the roof, nothing: the boss has to melt). */
+  private completeStage() {
+    if (this.trans || this.rescue || this.stageIdx >= 3) return;
+    const from = this.stageIdx;
+    this.trans = { t: 0, to: from + 1, swapped: false };
+    this.invuln = 99;
+    this.erobots.clearAll();
+    this.erobots.spawning = false;
+    this.bolts.clear();
+    sfx('level', 0.8);
+    this.score += 2500 * (from + 1);
+    this.hooks.current.stage({ kind: 'leave', from: from + 1, to: from + 2, line: KWEG.clear[from] });
+  }
+
+  private stageTick(dt: number) {
+    const F = TUNING.stageFlow;
+    // the lift
+    if (this.trans) {
+      const tr = this.trans;
+      tr.t += dt;
+      if (!tr.swapped && tr.t >= F.leaveMs / 1000) {
+        tr.swapped = true;
+        this.applyStage(tr.to);
+        this.heal(F.healBetween * TUNING.player.hp);
+        this.erobots.spawning = false;
+        this.hooks.current.stage({ kind: 'enter', stage: tr.to + 1 });
+      }
+      if (tr.swapped && tr.t >= (F.leaveMs + F.holdMs) / 1000) {
+        this.trans = null;
+        this.invuln = F.openGraceSecs;
+        this.erobots.grace = F.openGraceSecs + 0.5;
+        this.erobots.spawning = true;
+      }
+      return;
+    }
+    // the rescue
+    if (this.rescue) {
+      const r = this.rescue;
+      r.t += dt;
+      if (r.freed && !r.sent && r.t >= F.downToFreeSecs + 0.2) {
+        r.sent = true;
+        this.hooks.current.stage({ kind: 'rescued' });
+      }
+      return;
+    }
+    if (this.dead) return;
+    const G = TUNING.stages[this.stageIdx].goal;
+    if (G.kind === 'kills' && this.stageKills >= G.n) this.completeStage();
+    if (G.kind === 'jam') {
+      this.sinceCoreHit += dt;
+      const rate = this.coreHitAcc / Math.max(dt, 0.001);
+      this.coreHitAcc = 0;
+      this.coreHit += (THREE.MathUtils.clamp(rate / 1200, 0, 1) - this.coreHit) * Math.min(1, dt * 8);
+      if (this.sinceCoreHit > G.holdSecs && this.jamRounds < G.rounds) this.jamRounds = Math.max(0, this.jamRounds - G.drainPerSec * dt);
+      if (this.jamRounds >= G.rounds) {
+        this.flash(this.setNow()!.core!.at, '#7cf9ff', 160, 900);
+        this.completeStage();
+      }
+    }
+  }
+
+  /** The Liquid Unit has just gone down (its melt begins): the street is cleared, nothing more can hurt. */
+  private bossMelted() {
+    if (!this.bossOn || this.rescue) return;
+    this.rescue = { t: 0, freed: false, sent: false };
+    this.invuln = 999;
+    this.erobots.clearAll();
+    this.erobots.spawning = false;
+    this.bolts.clear();
+    this.hooks.current.stage({ kind: 'down' });
+  }
+
+  /** The Liquid Unit has pooled for good: free the hostage. */
+  private bossDown() {
+    const r = this.rescue;
+    if (!r || r.freed) return;
+    r.freed = true;
+    r.t = 0;
+    const h = this.sets.roof?.hostage;
+    h?.free(-9);
+    if (h) {
+      h.group.getWorldPosition(this.tA);
+      this.fx.ring(this.tA.setY(0.3), '#ffb21a', 5, 0.8);
+    }
+    sfx('level', 1);
   }
 
   /**
@@ -907,7 +1179,7 @@ export class GalleryEngine {
     this.bolts.clear();
     this.erobots.clearAll();
     this.erobots.grace = TUNING.player.reviveGrace + 0.5;
-    this.boss.shove();
+    if (this.bossOn) this.boss.shove();
     this.flash(this.camera.position.clone().add(new THREE.Vector3(0, 0.5, -3)), '#7cf9ff', 100, 500);
     this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: TUNING.player.hp });
   }
@@ -917,12 +1189,26 @@ export class GalleryEngine {
     hurt: (n: number, angle = 0) => this.hurt(this.tD.set(Math.sin(angle) * 6, 1.6, -Math.cos(angle) * 6).clone(), n, 'bolt'),
     kill: () => this.hurt(this.tD.set(0, 1.6, -5).clone(), this.hp + 1, 'swipe'),
     meltBoss: () => {
-      if (this.boss.alive) this.boss.hit(this.boss.hp + 1, this.boss.chest(new THREE.Vector3()));
+      if (this.bossOn && this.boss.alive && this.boss.hit(this.boss.hp + 1, this.boss.chest(new THREE.Vector3()))) this.bossMelted();
     },
+    stage: () => this.stageIdx + 1,
+    setStage: (n: number) => {
+      this.trans = null;
+      this.rescue = null;
+      this.applyStage(Math.max(0, Math.min(3, n - 1)));
+      this.invuln = 0;
+    },
+    complete: () => this.completeStage(),
+    kills: (n: number) => (this.stageKills = n),
+    jam: (k: number) => (this.jamRounds = k * this.jamGoal()),
+    cutscene: () => this.sets.roof?.hostage?.group.position.z,
     boss: () => ({ z: this.boss.dist, alive: this.boss.alive, phase: this.boss.phaseName, push: this.boss.pushNorm, melt: this.boss.melt }),
     setInvuln: (s: number) => (this.invuln = s),
     stats: () => this.stats(),
     bossAt: (z: number) => this.boss.placeAt(z),
+    hostageAt: (z: number) => this.sets.roof?.hostage?.group.position.set(0, 0, z),
+    hostageNear: () => (this.sets.roof?.hostage?.group.position.set(0, 0, -9), this.lookAtHostage(1)),
+    noSpawn: () => this.erobots.setStage(TUNING.stages[this.stageIdx].lane, TUNING.stages[this.stageIdx].level),
     calm: (on: boolean) => (this.boss.calmed = on),
     look: (x: number, y: number) => this.ndc.set(x, y),
     clearEnemies: () => (this.erobots.clearAll(), this.bolts.clear()),
@@ -1001,7 +1287,12 @@ export class GalleryEngine {
     hk.p *= kd;
     hk.y *= kd;
     hk.r *= kd;
-    cam.position.set((Math.random() - 0.5) * s * 0.05, EYE + Math.sin(this.t * 1.1) * 0.006, 0);
+    // STRAFE: slide left and right inside the set's walls; the Erobots' bolts aim at where you are
+    const dir = THREE.MathUtils.clamp((this.keyR ? 1 : 0) - (this.keyL ? 1 : 0) + this.padMove, -1, 1);
+    const lim = TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange;
+    const frozen = this.dead || !!this.rescue || !!this.trans;
+    this.px = THREE.MathUtils.clamp(this.px + (frozen ? 0 : dir * TUNING.player.strafeSpeed * dt), -lim, lim);
+    cam.position.set(this.px + (Math.random() - 0.5) * s * 0.05, EYE + Math.sin(this.t * 1.1) * 0.006, 0);
     cam.updateMatrixWorld();
     if (this.held && this.weapon) {
       this.aimRay(this.tA, this.tC);
@@ -1032,6 +1323,7 @@ export class GalleryEngine {
     this.cleanup.forEach((f) => f());
     this.ro?.disconnect();
     this.city?.dispose();
+    for (const k of ['floors', 'core', 'roof'] as const) this.sets[k]?.dispose();
     this.boss?.dispose();
     this.erobots?.dispose();
     this.bolts?.dispose();

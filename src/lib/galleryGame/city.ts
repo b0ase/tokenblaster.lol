@@ -1,10 +1,10 @@
 /**
- * Shooting Gallery set: NEO-TOKYO, 2048. A rain-wet night street running up to the nSLAVE tower
+ * Shooting Gallery set: NEO-TOKYO, 2048. A rain-wet night street running up to the TERRORNODE HQ tower
  * (glass curtain wall, lit lobby, a huge animated eye, 8 x 10 smashable windows, a lobby of server racks),
  * walled by dense stepped towers with vertical neon signage, shopfronts, narrow alleys with lanterns and
  * vending machines, fire escapes and rooftop clutter, crossed by an elevated rail line and an expressway,
  * with hover traffic, a giant hologram idol on a rooftop, overhead cables, steam, puddles and rain.
- * All names and brands are invented, apart from our own (nSLAVE, TOKENBLASTER, bWalletX, NPG).
+ * All names and brands are invented, apart from our own (TERRORNODE, TOKENBLASTER, bWalletX, NPG).
  *
  * Performance: facades are merged into one mesh per material, every repeated prop is an InstancedMesh, the
  * blade signs are one instanced draw with a texture atlas, rain / ripples / signs / steam / mist animate on the
@@ -37,6 +37,8 @@ export type City = {
   wins: Window[];
   racks: Rack[];
   towerBody: THREE.Mesh;
+  /** Solid surfaces the rounds spark on (the tower). */
+  solids: THREE.Mesh[];
   ground: THREE.Mesh;
   eye: THREE.Group;
   hitLight: THREE.PointLight;
@@ -623,7 +625,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     tall.slice(0, 3).forEach((r, i) => addAd([5, 6, 0][i], (r.xa + r.xb) / 2 - 10, r.y + 9, r.za - 2, 22, -0.4, '#ffffff'));
   }
 
-  // ── The mega-tower hologram: a giant idol on the left rooftop beside nSLAVE ──
+  // ── The mega-tower hologram: a giant idol on the left rooftop beside TERRORNODE ──
   const heroRoof =
     roofs
       .filter((r) => r.xb > -40 && r.xb < -20 && r.za > -96 && r.zb < -68)
@@ -983,7 +985,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     group.add(im);
   }
 
-  // ── nSLAVE tower ──
+  // ── TERRORNODE HQ tower ──
   const cwT = curtainWall(S);
   disp.push(cwT.map, cwT.em);
   const glass = track(new THREE.MeshPhysicalMaterial({ color: '#0b1222', metalness: 0.9, roughness: 0.16, envMapIntensity: 1.8, clearcoat: 1, clearcoatRoughness: 0.08 }));
@@ -1112,25 +1114,25 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     if (Math.random() < 0.35) burning.push(w);
   };
 
-  // logo: nSLAVE / SYSTEMS to the right of the huge animated eye
+  // logo: TERRORNODE / HEADQUARTERS to the right of the huge animated eye
   const logoTex = track(
     tex(
       canvas(1024, 300, (g) => {
         g.clearRect(0, 0, 1024, 300);
-        g.font = '900 150px "Arial Black", Impact, sans-serif';
+        g.font = '900 118px "Arial Black", Impact, sans-serif';
         g.textBaseline = 'middle';
         g.textAlign = 'center';
         g.fillStyle = '#eef3fb';
         g.shadowColor = '#9fc0ff';
         g.shadowBlur = 0;
-        g.fillText('nSLAVE', 512, 118);
-        g.font = '700 54px Arial, sans-serif';
+        g.fillText('TERRORNODE', 512, 118);
+        g.font = '700 44px Arial, sans-serif';
         g.fillStyle = '#ff4a3a';
         g.shadowColor = '#ff2020';
-        g.fillText('S  Y  S  T  E  M  S', 512, 224);
+        g.fillText('H  E  A  D  Q  U  A  R  T  E  R  S', 512, 224);
         g.font = `700 28px ${JP}`;
         g.fillStyle = '#ff9a8a';
-        g.fillText('エヌスレイブ・システムズ', 512, 275);
+        g.fillText('テラーノード本社', 512, 275);
       }),
     ),
   );
@@ -1403,6 +1405,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     wins,
     racks,
     towerBody,
+    solids: [towerBody],
     ground,
     eye,
     hitLight,

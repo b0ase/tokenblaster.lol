@@ -31,6 +31,8 @@ export function Flatlined(p: {
   onContinue: () => void;
   onGameOver: () => void;
   walletName?: string | null;
+  /** Free play: no coins; CONTINUE is free. */
+  freePlay?: boolean;
 }) {
   const [count, setCount] = useState<number>(TUNING.continueSecs);
   const tick = useRef(0);
@@ -68,7 +70,7 @@ export function Flatlined(p: {
   const stats: { label: string; value: number; fmt?: (n: number) => string }[] = [
     { label: 'Rounds fired', value: p.stats.fired },
     { label: 'Score', value: p.stats.score },
-    { label: 'Wave', value: p.stats.wave },
+    { label: 'Stage', value: p.stats.wave },
     { label: 'Kills', value: p.stats.kills },
     { label: 'Time', value: p.stats.secs, fmt: fmtTime },
   ];
@@ -107,7 +109,15 @@ export function Flatlined(p: {
           {p.hold && <p className="text-xs font-semibold text-[var(--tbx-teal)]">Waiting for your wallet. The count is held.</p>}
         </div>
 
-        <section aria-label="Insert coin to continue" className="flex w-full max-w-[560px] flex-col items-center gap-2">
+        {p.freePlay && (
+          <section aria-label="Continue" className="flex w-full max-w-[560px] flex-col items-center gap-2">
+            <button type="button" data-fs-skip onClick={p.onContinue} className="tbx-btn tbx-btn-red !min-h-[52px] !px-7 !text-base" data-free-continue>
+              Continue (free play)
+            </button>
+            <p className="text-[11px] text-white/55">Free play: nothing is paid.</p>
+          </section>
+        )}
+        {!p.freePlay && <section aria-label="Insert coin to continue" className="flex w-full max-w-[560px] flex-col items-center gap-2">
           <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
             <Icon name="coin" size={14} /> {FLATLINED.coin}
           </p>
@@ -136,7 +146,7 @@ export function Flatlined(p: {
             {FLATLINED.keep}
             {p.walletName ? ` One approval in ${p.walletName}.` : ''}
           </p>
-        </section>
+        </section>}
       </div>
     </div>
   );
