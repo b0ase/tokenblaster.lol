@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BANNERS, BRIEFING, CHARACTERS, LORE, LOADING_SHOTS, PREMISE, RANKS, TAGLINES, TIPS, WAVE_COUNT, characterById, rankFor, shareText, waveBrief } from './gallery/story';
+import { KWEG, BANNERS, BRIEFING, CHARACTERS, LORE, LOADING_SHOTS, PREMISE, RANKS, TAGLINES, TIPS, WAVE_COUNT, characterById, rankFor, shareText, waveBrief } from './gallery/story';
 
-const all = () => JSON.stringify({ PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, waves: Array.from({ length: 8 }, (_, i) => waveBrief(i + 1)) });
+const all = () => JSON.stringify({ KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, waves: Array.from({ length: 8 }, (_, i) => waveBrief(i + 1)) });
 
 test('story: 5 to 7 lore beats, all with text', () => {
   assert.ok(LORE.length >= 5 && LORE.length <= 7);
@@ -10,7 +10,7 @@ test('story: 5 to 7 lore beats, all with text', () => {
 });
 
 test('story: required characters and erobot types exist', () => {
-  for (const id of ['gunner', 'liquid', 'bot', 'frog', 'graf', 'stripey', 'tech']) assert.ok(characterById(id), id);
+  for (const id of ['gunner', 'npg', 'kweg', 'liquid', 'bot', 'frog', 'graf', 'stripey', 'tech']) assert.ok(characterById(id), id);
   for (const c of CHARACTERS) assert.ok(c.bio && c.threat && c.portrait.startsWith('/gallery/'));
 });
 
@@ -41,7 +41,7 @@ test('story: waves escalate and never run out', () => {
 
 test('story: ranks cover every count', () => {
   assert.equal(rankFor(0).title, 'ROOKIE');
-  assert.equal(rankFor(1_000_000).title, 'GRID BREAKER');
+  assert.equal(rankFor(1_000_000).title, 'NETWORK BREAKER');
   assert.equal(rankFor(5_000).title, 'NEON HERO');
 });
 
@@ -51,8 +51,20 @@ test('story: share text carries the numbers', () => {
   assert.match(t, /@rich/);
 });
 
-test('story: set in Neo-Tokyo, 2048 (not London 1991)', () => {
-  assert.match(all(), /Neo-Tokyo/);
-  assert.match(all(), /2048/);
-  assert.doesNotMatch(all(), /London|1991/);
+test('story: Neo-Tokyo 2048, Kweg Wong, the Ninja Punk Girls, bCorp vs OMNICORE', () => {
+  const a = all();
+  assert.match(a, /Neo-Tokyo/);
+  assert.match(a, /2048/);
+  assert.match(a, /KWEG WONG/i);
+  assert.match(a, /NINJA PUNK GIRLS/i);
+  assert.match(a, /bCorp/);
+  assert.match(a, /OMNICORE/);
+  assert.doesNotMatch(a, /London|1991|\bX Corp/i);
+});
+
+test('story: Kweg is the villain and his text lives in KWEG', () => {
+  assert.equal(characterById('kweg')?.kind, 'villain');
+  assert.equal(characterById('kweg')?.bio, KWEG.bio);
+  assert.equal(waveBrief(2).kweg, KWEG.waves[1]);
+  assert.equal(waveBrief(99).kweg, KWEG.overtime);
 });
