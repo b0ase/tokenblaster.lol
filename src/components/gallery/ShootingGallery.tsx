@@ -187,7 +187,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     });
     const i = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(i);
-  }, []);
+  }, [freePlay]);
   useEffect(() => {
     if (cab.bsvUsd) void Promise.resolve().then(() => setBsvUsd(cab.bsvUsd!));
   }, [cab.bsvUsd]);
@@ -816,7 +816,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             <circle cx="22" cy="22" r="1.8" fill="#ff3b3b" />
           </svg>
         </div>
-        {!ready && (
+        {/* The city builds quietly behind the loadout; this only shows if play starts before it's ready (owner, 24 Oct). */}
+        {!ready && !loadout && (
           <div className="absolute inset-0 z-[5] grid place-items-center bg-[#03070c]/90">
             <div className="tbx-glass tbx-pop w-[min(300px,80vw)] p-4 text-center">
               <p className="tbx-eyebrow mb-3 flex items-center justify-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
