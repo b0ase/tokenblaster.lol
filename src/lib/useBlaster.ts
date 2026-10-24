@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
-import { Gun, TOKEN_FEE } from './gun';
+import { Gun, TOKEN_FEE, loadMark } from './gun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { connect, fund, type Wallet } from './wallet';
@@ -106,7 +106,11 @@ export function useBlaster() {
       setError(null);
       setBusy('loading');
       try {
-        await g.load(await fund(wallet, g.address, sats, label));
+        loadMark('approve start');
+        const funding = await fund(wallet, g.address, sats, label); // the wallet signs and broadcasts
+        loadMark('approved + paid (wallet answered)');
+        await g.load(funding); // the gun takes the paid output straight from the wallet's own response
+        loadMark('gun has the coin');
         setAmmo(g.sats);
         return true;
       } catch (e) {
@@ -144,11 +148,12 @@ export function useBlaster() {
       tokenLabel?: string,
       /** True while the trigger is released: hold fire but keep the session (lanes) alive. */
       paused?: () => boolean,
+      step?: number,
     ) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
       try {
-        return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused);
+        return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused, step);
       } finally {
         setAmmo(g.sats);
       }
