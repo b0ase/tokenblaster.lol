@@ -58,7 +58,7 @@ import { PrizeBanner } from './PrizeBanner';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
-import { GALLERY_STORY, GALLERY_TIPS } from './story';
+import { GALLERY_ART_CROP, GALLERY_STORY, GALLERY_TIPS } from './story';
 import { CoinCabinet } from '../coinop/CoinCabinet';
 import { useCabinet } from '../coinop/useCabinet';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
@@ -559,6 +559,8 @@ export function ShootingGallery() {
         {(load || cab.stage === 'approve' || cab.stage === 'loading') && (
           <LoadingScreen
             title="Shooting Gallery"
+            art="/gallery/share.jpg"
+            artCrop={GALLERY_ART_CROP}
             story={GALLERY_STORY}
             tips={GALLERY_TIPS}
             state={load ?? (cab.stage === 'approve' ? { kind: 'approve' } : { kind: 'paid' })}
