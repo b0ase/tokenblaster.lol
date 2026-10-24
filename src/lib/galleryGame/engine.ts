@@ -1,0 +1,692 @@
+/**
+ * Shooting Gallery 3D engine. First person behind the BSVGun weapons (same GLB models, buildGun, aim
+ * follow, recoil, spin-up, muzzle flash and minigun audio as src/lib/bsvgun/engine.ts), in a night city
+ * (./city.ts) rendered the Arena way: ACES filmic, soft shadows, GTAO on desktop, bloom, colour grade.
+ *
+ * Transactions drive damage. The engine never decides how many bullets land: the page calls
+ * `accept(n)` with newly accepted (or, in practice, simulated) transactions, and each one is one round of
+ * the held weapon's damage along the aim ray (with its spread). The trigger itself only drives the look:
+ * barrel spin, muzzle flash, tracers and brass, and `hooks.pull()` for burst weapons (one batch per pull).
+ */
+import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { buildGun, type HeldGun } from '../arenaHD';
+import { loadGunModel } from '../ordnanceModels';
+import { brandGun, tintAmount, tintGun } from '../ordnanceGun';
+import { loadLook, makeGradePass, type Look } from '../visuals/look';
+import { AMMO_SFX, minigun, sfx, unlockAudio } from '../sfx';
+import { Fx } from '../bsvgun/fx';
+import { halo } from '../bsvgun/targets';
+import type { RangeWeapon } from '../bsvgun/weapons';
+import { buildCity, EYE, TOWER, type City, type Rack, type Window } from './city';
+import { LiquidUnit } from './boss';
+
+export type Quality = 'low' | 'high';
+export type Stats = { score: number; bossHp: number; bossMax: number; wave: number; windowsLeft: number; windows: number; racksLeft: number; drones: number; kills: number; hover: string };
+export type Hooks = {
+  /** A burst weapon's trigger pull: return false to refuse (no ammo / pack spent / one in flight). */
+  pull: (w: RangeWeapon) => boolean;
+  /** Is the stream flowing? (Stream weapons only show fire while transactions are being accepted.) */
+  flowing: () => boolean;
+  stats: (s: Stats) => void;
+  trigger: (down: boolean) => void;
+};
+
+type Drone = { g: THREE.Group; rotors: THREE.Mesh[]; hp: number; dead: number; t: number; v: THREE.Vector3; base: THREE.Vector3; body: THREE.Mesh };
+
+const v3 = () => new THREE.Vector3();
+const BASE_FOV = 60;
+
+export class GalleryEngine {
+  private renderer!: THREE.WebGLRenderer;
+  private scene = new THREE.Scene();
+  private camera = new THREE.PerspectiveCamera(BASE_FOV, 16 / 9, 0.05, 900);
+  private composer!: EffectComposer;
+  private bloom!: UnrealBloomPass;
+  private ao: GTAOPass | null = null;
+  private grade!: ReturnType<typeof makeGradePass>;
+  private look!: Look;
+  private city!: City;
+  private boss!: LiquidUnit;
+  private fx!: Fx;
+  private raf = 0;
+  private last = 0;
+  private t = 0;
+  private disposed = false;
+  private ro: ResizeObserver | null = null;
+  private cleanup: (() => void)[] = [];
+
+  // input
+  private ndc = new THREE.Vector2(0, 0.1);
+  trigger = false;
+  autoAim = false;
+
+  // gun
+  weapon: RangeWeapon | null = null;
+  private mount = new THREE.Group();
+  private kickG = new THREE.Group();
+  private guns = new Map<string, HeldGun>();
+  private held: HeldGun | null = null;
+  private gunReq = 0;
+  private flash!: THREE.Sprite;
+  private flashLight!: THREE.PointLight;
+  private flashT = 0;
+  private recoil = 0;
+  private nextShot = 0;
+  private mgOn = false;
+  private shake = 0;
+  private yaw = 0;
+  private pitch = 0.16;
+
+  // brass
+  private brass!: THREE.InstancedMesh;
+  private bp = new Float32Array(160 * 3);
+  private bv = new Float32Array(160 * 3);
+  private br = new Float32Array(160 * 3);
+  private bl = new Float32Array(160);
+  private bCursor = 0;
+
+  // world
+  private drones: Drone[] = [];
+  private droneGeo: THREE.BufferGeometry[] = [];
+  private droneMat: THREE.Material[] = [];
+  private score = 0;
+  private kills = 0;
+  private statsT = 0;
+  private hover = '';
+
+  // temps
+  private ray = new THREE.Raycaster();
+  private tA = v3();
+  private tB = v3();
+  private tC = v3();
+  private tD = v3();
+  private tQ = new THREE.Quaternion();
+  private m4 = new THREE.Matrix4();
+
+  constructor(
+    private canvas: HTMLCanvasElement,
+    private hooks: { current: Hooks },
+    private opts: { quality: Quality; weapons: RangeWeapon[]; bossBase: number },
+  ) {}
+
+  get high() {
+    return this.opts.quality === 'high';
+  }
+
+  async init(onProgress: (p: number) => void) {
+    const high = this.high;
+    const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !high, powerPreference: 'high-performance', stencil: false }));
+    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, high ? 1.5 : 1));
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+    r.toneMappingExposure = 1.15;
+    r.outputColorSpace = THREE.SRGBColorSpace;
+    r.shadowMap.enabled = high;
+    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    onProgress(0.05);
+    this.look = await loadLook(r, high ? 'high' : 'low', (p) => onProgress(0.05 + p * 0.45));
+    if (this.disposed) return;
+    this.city = buildCity({ renderer: r, scene: this.scene, high, look: this.look });
+    this.boss = new LiquidUnit(this.opts.bossBase, high);
+    this.scene.add(this.boss.group);
+    this.fx = new Fx(this.scene, high);
+    this.scene.add(this.camera);
+    this.camera.position.set(0, EYE, 0);
+    this.camera.add(this.mount);
+    this.mount.add(this.kickG);
+    this.flash = halo('#ffd9a0', 1.2, 0);
+    this.flash.material.opacity = 0;
+    this.scene.add(this.flash);
+    this.flashLight = new THREE.PointLight('#ffb870', 0, 16, 1.8);
+    this.scene.add(this.flashLight);
+    // brass casings
+    const bg = new THREE.CylinderGeometry(0.008, 0.008, 0.045, 8);
+    bg.rotateZ(Math.PI / 2);
+    this.brass = new THREE.InstancedMesh(bg, new THREE.MeshStandardMaterial({ color: '#c99a3e', metalness: 1, roughness: 0.25 }), 160);
+    this.brass.frustumCulled = false;
+    this.brass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (let i = 0; i < 160; i++) this.brass.setMatrixAt(i, this.m4.makeScale(0, 0, 0));
+    this.scene.add(this.brass);
+    for (let i = 0; i < 4; i++) this.spawnDrone(i);
+    onProgress(0.65);
+
+    // Arena-grade post: render, GTAO (desktop High), bloom, grade, output.
+    const size = r.getDrawingBufferSize(new THREE.Vector2());
+    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: high ? 4 : 0 });
+    const comp = new EffectComposer(r, rt);
+    comp.addPass(new RenderPass(this.scene, this.camera));
+    if (high) {
+      const ao = new GTAOPass(this.scene, this.camera, size.x, size.y);
+      ao.updateGtaoMaterial({ radius: 1.4, distanceExponent: 1.4, thickness: 1.5, scale: 1.1, samples: 12 });
+      const aoRender = ao.render.bind(ao);
+      const hid: THREE.Object3D[] = [];
+      ao.render = (...args: Parameters<GTAOPass['render']>) => {
+        this.scene.traverse((o) => {
+          if (((o as THREE.Sprite).isSprite || (o as THREE.LineSegments).isLineSegments) && o.visible) {
+            o.visible = false;
+            hid.push(o);
+          }
+        });
+        aoRender(...args);
+        for (const o of hid.splice(0)) o.visible = true;
+      };
+      comp.addPass(ao);
+      this.ao = ao;
+    }
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), high ? 0.75 : 0.55, 0.7, 0.82);
+    comp.addPass(this.bloom);
+    comp.addPass(new OutputPass());
+    this.grade = makeGradePass();
+    // night-shift grade: teal shadows, sodium highlights, crushed blacks
+    this.grade.apply({ shadow: [0.82, 0.98, 1.16], high: [1.12, 1.0, 0.88], sat: 1.12, contrast: 1.12, vignette: 0.62 });
+    comp.addPass(this.grade.pass);
+    this.composer = comp;
+
+    this.bindInput();
+    this.ro = new ResizeObserver(() => this.resize());
+    this.ro.observe(this.canvas.parentElement ?? this.canvas);
+    this.resize();
+    onProgress(0.8);
+    const first = this.opts.weapons[0];
+    if (first) await this.setWeapon(first.id);
+    if (this.disposed) return;
+    onProgress(1);
+    this.last = performance.now();
+    this.raf = requestAnimationFrame(this.frame);
+  }
+
+  resize() {
+    const el = this.canvas.parentElement ?? this.canvas;
+    const w = Math.max(2, el.clientWidth);
+    const h = Math.max(2, el.clientHeight);
+    this.renderer.setSize(w, h, false);
+    this.canvas.style.width = '100%';
+    this.canvas.style.height = '100%';
+    this.camera.aspect = w / h;
+    // Portrait phones: widen the view so the tower and the boss both fit.
+    this.camera.fov = w / h >= 1.3 ? BASE_FOV : THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(BASE_FOV / 2)) * (1.3 / (w / h)))), BASE_FOV, 96);
+    this.camera.updateProjectionMatrix();
+    this.composer?.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer?.setSize(w, h);
+    this.ao?.setSize(w, h);
+  }
+
+  setBossBase(n: number) {
+    this.boss?.setBase(n);
+  }
+
+  async setWeapon(id: string) {
+    const w = this.opts.weapons.find((x) => x.id === id);
+    if (!w || w === this.weapon) return;
+    this.weapon = w;
+    const req = ++this.gunReq;
+    let h = this.guns.get(id);
+    if (!h) {
+      const gltf = await loadGunModel(w.def.url).catch(() => null);
+      if (!gltf || this.disposed) return;
+      h = buildGun(w.def, gltf);
+      if (w.ordnance) {
+        tintGun(h.group, w.ordnance.tint, tintAmount(w.ordnance));
+        void brandGun(h.group, w.ordnance.id);
+      }
+      h.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) {
+          const mats = (Array.isArray(m.material) ? m.material : [m.material]) as THREE.MeshStandardMaterial[];
+          for (const mt of mats) if (mt && 'envMapIntensity' in mt) mt.envMapIntensity = 1.8;
+        }
+      });
+      this.guns.set(id, h);
+    }
+    if (req !== this.gunReq) return;
+    if (this.held) this.kickG.remove(this.held.group);
+    this.held = h;
+    this.mount.position.set(...w.def.pos);
+    this.mount.position.x += 0.04;
+    this.kickG.add(h.group);
+    if (this.mgOn) {
+      minigun(false);
+      this.mgOn = false;
+    }
+  }
+
+  // ── Input ──
+  private bindInput() {
+    const c = this.canvas;
+    const setNdc = (e: PointerEvent) => {
+      const r = c.getBoundingClientRect();
+      this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    };
+    const down = (e: PointerEvent) => {
+      unlockAudio();
+      setNdc(e);
+      if (e.pointerType === 'touch') c.setPointerCapture(e.pointerId);
+      this.setTrigger(true);
+    };
+    const up = () => this.setTrigger(false);
+    const key = (e: KeyboardEvent, d: boolean) => {
+      if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (!e.repeat) this.setTrigger(d);
+      }
+    };
+    const kd = (e: KeyboardEvent) => key(e, true);
+    const ku = (e: KeyboardEvent) => key(e, false);
+    c.addEventListener('pointermove', setNdc);
+    c.addEventListener('pointerdown', down);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('keydown', kd);
+    window.addEventListener('keyup', ku);
+    this.cleanup.push(
+      () => c.removeEventListener('pointermove', setNdc),
+      () => c.removeEventListener('pointerdown', down),
+      () => window.removeEventListener('pointerup', up),
+      () => window.removeEventListener('keydown', kd),
+      () => window.removeEventListener('keyup', ku),
+    );
+  }
+
+  setTrigger(down: boolean) {
+    if (down === this.trigger) return;
+    this.trigger = down;
+    this.hooks.current.trigger(down);
+    if (down && this.weapon && !this.weapon.auto) this.tryPull();
+    if (!down && this.mgOn) {
+      minigun(false);
+      this.mgOn = false;
+    }
+  }
+
+  private tryPull() {
+    const w = this.weapon;
+    if (!w) return;
+    const now = performance.now();
+    if (now < this.nextShot) return;
+    this.nextShot = now + w.fireMs;
+    if (!this.hooks.current.pull(w)) {
+      sfx('click', 0.7);
+      return;
+    }
+    this.muzzleFx(w, Math.max(1, w.pellets));
+  }
+
+  // ── Transactions land ──
+  /** `n` newly accepted transactions: each one is a round of the held weapon's damage at the crosshair. */
+  accept(n: number) {
+    const w = this.weapon;
+    if (!w || n <= 0 || !this.city) return;
+    const org = this.tA;
+    const dir = this.tB;
+    this.aimRay(org, dir);
+    // Rays to trace this frame: cheap enough at 40; the rest of the rounds land on what the centre ray hits.
+    const rays = Math.min(n, 40);
+    const per = n / rays;
+    const mz = this.muzzleWorld(this.tD).clone();
+    const u = new THREE.Vector3().crossVectors(dir, this.tC.set(0, 1, 0)).normalize();
+    const vv = new THREE.Vector3().crossVectors(u, dir);
+    const jd = new THREE.Vector3();
+    let tracers = 0;
+    for (let i = 0; i < rays; i++) {
+      jd.copy(dir);
+      const spread = Math.max(0.006, w.spread);
+      const a = Math.random() * Math.PI * 2;
+      const rr = spread * Math.sqrt(Math.random());
+      jd.addScaledVector(u, Math.cos(a) * rr).addScaledVector(vv, Math.sin(a) * rr).normalize();
+      const end = this.landRound(org, jd, per * w.damage, w);
+      if (tracers++ < (w.auto ? 3 : 9)) this.fx.tracer(mz, end, w.bolt, w.ammo === 'laser' ? 0.09 : w.ammo === 'pellet' ? 0.035 : 0.05, w.ammo === 'laser' ? 0.15 : 0.08);
+    }
+  }
+
+  private hittables: THREE.Object3D[] = [];
+  private landRound(org: THREE.Vector3, dir: THREE.Vector3, dmg: number, w: RangeWeapon): THREE.Vector3 {
+    const c = this.city;
+    this.ray.set(org, dir);
+    this.ray.far = 400;
+    const list = this.hittables;
+    list.length = 0;
+    if (this.boss.alive) list.push(...this.boss.parts);
+    for (const d of this.drones) if (!d.dead) list.push(d.body);
+    for (const rk of c.racks) if (!rk.broke) list.push(rk.mesh);
+    list.push(c.windows, c.towerBody, c.ground);
+    const hit = this.ray.intersectObjects(list, false)[0];
+    const end = hit ? hit.point.clone() : org.clone().addScaledVector(dir, 300);
+    if (!hit) return end;
+    const o = hit.object;
+    if (w.splash > 0) {
+      this.fx.ring(end, w.bolt, w.splash, 0.4);
+      this.fx.sparks(end, w.bolt, 10, 10);
+    }
+    if (this.boss.parts.includes(o as THREE.Mesh)) {
+      if (this.boss.hit(dmg, end)) {
+        this.score += 5000 * this.boss.wave;
+        this.kills++;
+        this.fx.shatter(end, '#e8eef6', 60, 9, 1.2);
+        this.shake = 1;
+        sfx('explosion', 0.8);
+      } else this.score += Math.round(dmg);
+      if (Math.random() < 0.3) this.fx.sparks(end, '#eef4ff', 1, 4);
+      return end;
+    }
+    const drone = this.drones.find((d) => d.body === o);
+    if (drone) {
+      drone.hp -= dmg;
+      this.fx.sparks(end, '#ffb347', 3, 6);
+      if (drone.hp <= 0) {
+        drone.dead = 0.001;
+        this.score += 250;
+        this.kills++;
+        this.fx.ring(end, '#ff6a2a', 3.2, 0.4);
+        this.fx.shatter(end, '#2b3550', 24, 8, 0.8);
+        this.fx.sparks(end, '#ff6a2a', 40, 12);
+        c.hitLight.position.copy(end);
+        c.hitLight.color.set('#ff7a30');
+        c.hitLight.intensity = 140;
+        sfx('explosion', 0.6);
+      }
+      return end;
+    }
+    const rack = c.racks.find((r) => r.mesh === o);
+    if (rack) {
+      this.hurtRack(rack, dmg, end);
+      return end;
+    }
+    if (o === c.windows && hit.instanceId != null) {
+      const win = c.wins[hit.instanceId];
+      if (win && !win.broke) this.hurtWindow(win, dmg, end);
+      else this.fx.sparks(end, '#ffd27a', 1, 3);
+      return end;
+    }
+    this.fx.sparks(end, o === c.ground ? '#ffd27a' : '#9fc6ff', 1, 4);
+    return end;
+  }
+
+  private hurtWindow(win: Window, dmg: number, at: THREE.Vector3) {
+    win.hp -= dmg;
+    if (win.hp <= 0) {
+      this.city.breakWindow(win);
+      this.score += 50;
+      this.fx.shatter(at, '#cfeaff', 16, 7, 0.6, true);
+      if (Math.random() < 0.3) sfx('hit', 0.3);
+      if (this.city.wins.every((w) => w.broke) && this.city.racks.every((r) => r.broke)) {
+        this.score += 10_000;
+        this.city.rebuild(); // OMNICORE has deep pockets
+      }
+    } else this.fx.sparks(at, '#cfeaff', 1, 3);
+  }
+
+  private hurtRack(rk: Rack, dmg: number, at: THREE.Vector3) {
+    rk.hp -= dmg;
+    this.fx.sparks(at, '#7cf9ff', 3, 6);
+    if (rk.hp <= 0) {
+      this.city.breakRack(rk);
+      this.score += 500;
+      this.kills++;
+      this.fx.sparks(at, '#7cf9ff', 60, 11);
+      this.fx.ring(at, '#27e6ff', 4, 0.5);
+      this.city.hitLight.position.copy(at);
+      this.city.hitLight.color.set('#27e6ff');
+      this.city.hitLight.intensity = 160;
+      this.shake = Math.max(this.shake, 0.5);
+      sfx('explosion', 0.5);
+    }
+  }
+
+  // ── Look ──
+  private muzzleWorld(out: THREE.Vector3) {
+    if (this.held) {
+      this.held.group.updateWorldMatrix(true, false);
+      return out.copy(this.held.muzzle).applyMatrix4(this.held.group.matrixWorld);
+    }
+    return out.set(0.3, EYE - 0.3, -0.8);
+  }
+
+  private aimRay(origin: THREE.Vector3, dir: THREE.Vector3) {
+    this.camera.updateMatrixWorld();
+    this.ray.setFromCamera(this.ndc, this.camera);
+    origin.copy(this.ray.ray.origin);
+    dir.copy(this.ray.ray.direction);
+  }
+
+  private muzzleFx(w: RangeWeapon, rounds = 1) {
+    const mz = this.muzzleWorld(this.tD);
+    this.recoil = Math.min(1.6, this.recoil + 0.5 + w.kick * 0.25);
+    this.shake = Math.min(1, this.shake + 0.06 + w.kick * 0.05);
+    this.flashT = 0.06;
+    this.flash.position.copy(mz);
+    this.flash.scale.setScalar(0.22 + Math.random() * 0.2 + (rounds > 3 ? 0.2 : 0));
+    this.flash.material.color.set(w.bolt);
+    this.flash.material.opacity = 1;
+    this.flashLight.position.copy(mz);
+    this.flashLight.color.set(w.bolt);
+    this.flashLight.intensity = 5;
+    if (w.def.id === 'minigun' || w.ordnance?.id === 'minigun-of-the-mempool') {
+      if (!this.mgOn) {
+        this.mgOn = true;
+        minigun(true);
+      }
+    } else sfx(AMMO_SFX[w.ammo], w.auto ? 0.55 : 0.9);
+    if (w.ammo === 'bullet' || w.ammo === 'pellet') this.ejectBrass(rounds > 3 ? 3 : 1);
+  }
+
+  private ejectBrass(n: number) {
+    if (!this.held) return;
+    const at = this.muzzleWorld(this.tC);
+    const right = this.tA.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    const back = this.tB.set(0, 0, 1).applyQuaternion(this.camera.quaternion);
+    for (let k = 0; k < n; k++) {
+      const i = this.bCursor++ % 160;
+      const j = i * 3;
+      const p = at.clone().addScaledVector(back, 0.35).addScaledVector(right, 0.05);
+      this.bp.set([p.x, p.y, p.z], j);
+      this.bv.set([right.x * (1.6 + Math.random()) + (Math.random() - 0.5) * 0.4, 2 + Math.random() * 1.4, right.z * (1.6 + Math.random()) + back.z * 0.4], j);
+      this.br.set([Math.random() * 6, Math.random() * 6, Math.random() * 6], j);
+      this.bl[i] = 1.6;
+    }
+  }
+
+  private spawnDrone(i: number) {
+    const g = new THREE.Group();
+    const hull = new THREE.MeshPhysicalMaterial({ color: '#1c2232', metalness: 0.9, roughness: 0.28, clearcoat: 0.6 });
+    const red = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ff2a1a').multiplyScalar(4), toneMapped: false });
+    const rotorM = new THREE.MeshBasicMaterial({ color: '#9fb4d0', transparent: true, opacity: 0.25, depthWrite: false });
+    this.droneMat.push(hull, red, rotorM);
+    const bodyG = new THREE.CapsuleGeometry(0.45, 0.6, 6, 16);
+    bodyG.rotateZ(Math.PI / 2);
+    const armG = new THREE.BoxGeometry(2.6, 0.08, 0.12);
+    const rotorG = new THREE.CylinderGeometry(0.55, 0.55, 0.02, 20);
+    const eyeG = new THREE.SphereGeometry(0.16, 16, 10);
+    this.droneGeo.push(bodyG, armG, rotorG, eyeG);
+    const body = new THREE.Mesh(bodyG, hull);
+    body.castShadow = true;
+    g.add(body);
+    const rotors: THREE.Mesh[] = [];
+    for (const rot of [Math.PI / 4, -Math.PI / 4]) {
+      const arm = new THREE.Mesh(armG, hull);
+      arm.rotation.y = rot;
+      g.add(arm);
+      for (const s of [-1, 1]) {
+        const rm = new THREE.Mesh(rotorG, rotorM);
+        rm.position.set(Math.cos(rot) * 1.3 * s, 0.12, -Math.sin(rot) * 1.3 * s);
+        g.add(rm);
+        rotors.push(rm);
+      }
+    }
+    const eye = new THREE.Mesh(eyeG, red);
+    eye.position.set(0, -0.15, 0.42);
+    g.add(eye);
+    const glow = halo('#ff2a1a', 1.6, 0.8);
+    glow.position.copy(eye.position);
+    g.add(glow);
+    const base = new THREE.Vector3((Math.random() - 0.5) * 30, 10 + Math.random() * 18, -26 - Math.random() * 30 - i * 4);
+    g.position.copy(base);
+    this.scene.add(g);
+    this.drones.push({ g, rotors, hp: 40, dead: 0, t: Math.random() * 10, v: new THREE.Vector3(), base, body });
+  }
+
+  // ── Frame ──
+  private frame = (now: number) => {
+    if (this.disposed) return;
+    this.raf = requestAnimationFrame(this.frame);
+    const dt = Math.max(0, Math.min(0.05, (now - this.last) / 1000));
+    this.last = now;
+    this.t += dt;
+    const w = this.weapon;
+    // stream weapons show fire while held AND the chain is flowing
+    if (w && this.trigger && w.auto && this.hooks.current.flowing() && now >= this.nextShot) {
+      this.nextShot = now + w.fireMs;
+      this.muzzleFx(w);
+    }
+    if (this.autoAim && this.boss.alive) {
+      this.boss.chest(this.tA).project(this.camera);
+      this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
+    }
+    this.boss.update(dt);
+    this.updateDrones(dt);
+    this.updateBrass(dt);
+    this.city.update(dt, this.t, this.camera);
+    this.fx.update(dt, this.camera);
+    this.updateCamera(dt);
+    this.flashT -= dt;
+    if (this.flashT <= 0) {
+      this.flash.material.opacity *= 0.5;
+      this.flashLight.intensity *= 0.4;
+    }
+    this.recoil *= Math.pow(0.0008, dt);
+    this.shake *= Math.pow(0.02, dt);
+    this.grade.tick(this.t, 0);
+    this.composer.render();
+    this.statsT -= dt;
+    if (this.statsT <= 0) {
+      this.statsT = 0.12;
+      this.hooks.current.stats(this.stats());
+    }
+  };
+
+  stats(): Stats {
+    const c = this.city;
+    return {
+      score: this.score,
+      bossHp: Math.ceil(this.boss.hp),
+      bossMax: Math.ceil(this.boss.max),
+      wave: this.boss.wave,
+      windows: c.wins.length,
+      windowsLeft: c.wins.filter((w) => !w.broke).length,
+      racksLeft: c.racks.filter((r) => !r.broke).length,
+      drones: this.drones.filter((d) => !d.dead).length,
+      kills: this.kills,
+      hover: this.hover,
+    };
+  }
+
+  private updateDrones(dt: number) {
+    for (const d of this.drones) {
+      d.t += dt;
+      for (const r of d.rotors) r.rotation.y += dt * 60;
+      if (d.dead) {
+        d.dead += dt;
+        d.v.y -= 18 * dt;
+        d.g.position.addScaledVector(d.v, dt);
+        d.g.rotation.x += dt * 6;
+        d.g.rotation.z += dt * 4;
+        if (d.g.position.y < 0.5 || d.dead > 3) {
+          if (d.dead < 3) this.fx.sparks(d.g.position, '#ff6a2a', 20, 8);
+          // a fresh one flies in from behind the tower
+          d.dead = 0;
+          d.hp = 40;
+          d.v.set(0, 0, 0);
+          d.g.rotation.set(0, 0, 0);
+          d.base.set((Math.random() - 0.5) * 30, 10 + Math.random() * 18, -30 - Math.random() * 30);
+          d.g.position.set(d.base.x, d.base.y + 20, TOWER.z - 10);
+        }
+        continue;
+      }
+      // patrol: figure-eights around their post, drifting in toward the street
+      const target = this.tC.set(d.base.x + Math.sin(d.t * 0.6) * 8, d.base.y + Math.sin(d.t * 1.3) * 2, d.base.z + Math.sin(d.t * 0.3) * 6);
+      d.g.position.lerp(target, Math.min(1, dt * 0.8));
+      d.g.lookAt(this.camera.position);
+      d.g.rotateX(Math.sin(d.t * 2) * 0.05);
+    }
+  }
+
+  private updateBrass(dt: number) {
+    const q = this.tQ;
+    const e = new THREE.Euler();
+    const s = this.tD;
+    for (let i = 0; i < 160; i++) {
+      if (this.bl[i] <= 0) continue;
+      const j = i * 3;
+      this.bl[i] -= dt;
+      this.bv[j + 1] -= 9.8 * dt;
+      this.bp[j] += this.bv[j] * dt;
+      this.bp[j + 1] += this.bv[j + 1] * dt;
+      this.bp[j + 2] += this.bv[j + 2] * dt;
+      if (this.bp[j + 1] < 0.02) {
+        this.bp[j + 1] = 0.02;
+        this.bv[j + 1] *= -0.35;
+        this.bv[j] *= 0.6;
+        this.bv[j + 2] *= 0.6;
+      }
+      this.br[j] += dt * 14;
+      this.br[j + 2] += dt * 9;
+      e.set(this.br[j], this.br[j + 1], this.br[j + 2]);
+      q.setFromEuler(e);
+      s.setScalar(this.bl[i] > 0 ? 1 : 0);
+      this.m4.compose(this.tA.set(this.bp[j], this.bp[j + 1], this.bp[j + 2]), q, s);
+      this.brass.setMatrixAt(i, this.m4);
+    }
+    this.brass.instanceMatrix.needsUpdate = true;
+  }
+
+  private updateCamera(dt: number) {
+    const cam = this.camera;
+    const ty = -this.ndc.x * 0.32;
+    const tp = this.ndc.y * 0.24 + 0.2;
+    this.yaw += (ty - this.yaw) * Math.min(1, dt * 8);
+    this.pitch += (tp - this.pitch) * Math.min(1, dt * 8);
+    const s = this.shake * this.shake;
+    cam.rotation.set(this.pitch + (Math.random() - 0.5) * s * 0.03 + this.recoil * 0.004, this.yaw + (Math.random() - 0.5) * s * 0.03, 0, 'YXZ');
+    cam.position.set((Math.random() - 0.5) * s * 0.05, EYE + Math.sin(this.t * 1.1) * 0.006, 0);
+    cam.updateMatrixWorld();
+    if (this.held && this.weapon) {
+      this.aimRay(this.tA, this.tC);
+      const aimPt = this.tB.copy(this.tA).addScaledVector(this.tC, 40);
+      cam.worldToLocal(aimPt);
+      const to = aimPt.sub(this.mount.position).normalize();
+      to.lerp(this.tD.set(0, 0.02, -1), 0.4).normalize();
+      this.tQ.setFromUnitVectors(this.tD.set(0, 0, -1), to);
+      this.mount.quaternion.slerp(this.tQ, Math.min(1, dt * 14));
+      const k = this.weapon.kick;
+      this.kickG.position.z = this.recoil * 0.06 * (0.4 + k * 0.5);
+      this.kickG.rotation.x = this.recoil * 0.05 * (0.4 + k * 0.5);
+      this.held.mixer?.update(dt);
+      if (this.held.spin) this.held.spin.timeScale = this.trigger ? 14 : this.held.spin.timeScale * 0.92;
+    }
+  }
+
+  /** The crosshair in CSS px, for the DOM reticle. */
+  reticle(): { x: number; y: number } {
+    const r = this.canvas.getBoundingClientRect();
+    return { x: ((this.ndc.x + 1) / 2) * r.width, y: ((1 - this.ndc.y) / 2) * r.height };
+  }
+
+  dispose() {
+    this.disposed = true;
+    cancelAnimationFrame(this.raf);
+    if (this.mgOn) minigun(false);
+    this.cleanup.forEach((f) => f());
+    this.ro?.disconnect();
+    this.city?.dispose();
+    this.boss?.dispose();
+    this.fx?.dispose();
+    this.look?.dispose();
+    this.droneGeo.forEach((g) => g.dispose());
+    this.droneMat.forEach((m) => m.dispose());
+    this.composer?.dispose();
+    this.renderer?.dispose();
+  }
+}

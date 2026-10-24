@@ -140,11 +140,13 @@ export function useBlaster() {
       onStatus?: (s: string) => void,
       tag?: { game?: string; extra?: string[] },
       perBlast?: number,
+      /** The <token> push instead of the picked token (the Shooting Gallery's free-text ammo label). */
+      tokenLabel?: string,
     ) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
       try {
-        return await g.storm(token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast);
+        return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast);
       } finally {
         setAmmo(g.sats);
       }
@@ -154,10 +156,10 @@ export function useBlaster() {
 
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
-    async (startN: number, extras: string[][], pay?: { address: string; sats: number }) => {
+    async (startN: number, extras: string[][], pay?: { address: string; sats: number }, tokenLabel?: string) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
-      const txids = await g.fireBatch(token?.id ?? '', startN, extras, pay);
+      const txids = await g.fireBatch(tokenLabel ?? token?.id ?? '', startN, extras, pay);
       setAmmo(g.sats);
       return txids;
     },
