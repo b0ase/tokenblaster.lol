@@ -14,6 +14,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { buildGun, type HeldGun } from '../arenaHD';
 import { loadGunModel } from '../ordnanceModels';
 import { brandGun, tintAmount, tintGun } from '../ordnanceGun';
@@ -49,6 +50,8 @@ export class GalleryEngine {
   private bloom!: UnrealBloomPass;
   private ao: GTAOPass | null = null;
   private grade!: ReturnType<typeof makeGradePass>;
+  private shafts: ShaderPass | null = null;
+  private shaftP = new THREE.Vector3();
   private look!: Look;
   private city!: City;
   private boss!: LiquidUnit;
@@ -138,6 +141,7 @@ export class GalleryEngine {
     if (this.disposed) return;
     this.fx = new Fx(this.scene, high);
     this.scene.add(this.camera);
+    this.camera.layers.enable(1); // layer 1: rain, ripples and the held gun (hidden from the street reflection)
     this.camera.position.set(0, EYE, 0);
     this.camera.add(this.mount);
     this.mount.add(this.kickG);
@@ -169,7 +173,7 @@ export class GalleryEngine {
       const hid: THREE.Object3D[] = [];
       ao.render = (...args: Parameters<GTAOPass['render']>) => {
         this.scene.traverse((o) => {
-          if (((o as THREE.Sprite).isSprite || (o as THREE.LineSegments).isLineSegments) && o.visible) {
+          if (((o as THREE.Sprite).isSprite || (o as THREE.LineSegments).isLineSegments || (o as THREE.Points).isPoints || o.userData.noAO) && o.visible) {
             o.visible = false;
             hid.push(o);
           }
@@ -180,7 +184,30 @@ export class GalleryEngine {
       comp.addPass(ao);
       this.ao = ao;
     }
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), high ? 0.75 : 0.55, 0.7, 0.82);
+    if (high) {
+      // light shafts: a radial blur of the tower's eye, so the red glow bleeds through the rain and the neon haze
+      this.shafts = new ShaderPass({
+        uniforms: { tDiffuse: { value: null }, uPos: { value: new THREE.Vector2(0.5, 0.7) }, uK: { value: 0.5 } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: /* glsl */ `
+          uniform sampler2D tDiffuse; uniform vec2 uPos; uniform float uK; varying vec2 vUv;
+          void main(){
+            vec3 base = texture2D(tDiffuse, vUv).rgb;
+            vec2 d = (uPos - vUv) * (1.0 / 28.0) * 0.95;
+            vec2 uv = vUv; float w = 1.0; vec3 acc = vec3(0.0);
+            for (int i = 0; i < 28; i++) {
+              uv += d;
+              vec3 s = texture2D(tDiffuse, uv).rgb;
+              float l = dot(s, vec3(0.2126, 0.7152, 0.0722));
+              acc += s * smoothstep(1.0, 3.5, l) * smoothstep(0.42, 0.0, length(uv - uPos)) * w;
+              w *= 0.955;
+            }
+            gl_FragColor = vec4(base + acc * uK * (1.0 / 28.0) * 3.0, 1.0);
+          }`,
+      });
+      comp.addPass(this.shafts);
+    }
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), high ? 0.35 : 0.3, 0.4, high ? 1.6 : 1.5);
     comp.addPass(this.bloom);
     comp.addPass(new OutputPass());
     this.grade = makeGradePass();
@@ -216,6 +243,8 @@ export class GalleryEngine {
     this.composer?.setPixelRatio(this.renderer.getPixelRatio());
     this.composer?.setSize(w, h);
     this.ao?.setSize(w, h);
+    const bs = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+    this.city?.resize(bs.x, bs.y);
   }
 
   setBossBase(n: number) {
@@ -243,6 +272,7 @@ export class GalleryEngine {
           for (const mt of mats) if (mt && 'envMapIntensity' in mt) mt.envMapIntensity = 1.8;
         }
       });
+      h.group.traverse((o) => o.layers.set(1));
       this.guns.set(id, h);
     }
     if (req !== this.gunReq) return;
@@ -562,6 +592,13 @@ export class GalleryEngine {
     this.recoil *= Math.pow(0.0008, dt);
     this.shake *= Math.pow(0.02, dt);
     this.grade.tick(this.t, 0);
+    this.city.beforeRender(this.renderer, this.scene, this.camera);
+    if (this.shafts) {
+      const p = this.shaftP.copy(this.city.lightWorld).project(this.camera);
+      const u = this.shafts.uniforms as { uPos: { value: THREE.Vector2 }; uK: { value: number } };
+      u.uPos.value.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
+      u.uK.value = p.z < 1 ? 0.1 : 0;
+    }
     this.composer.render();
     this.statsT -= dt;
     if (this.statsT <= 0) {
