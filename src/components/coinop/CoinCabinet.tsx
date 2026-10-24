@@ -103,7 +103,8 @@ export function CoinCabinet(p: {
     <ControlPanel>
     <div className="flex w-full flex-col items-center gap-2 text-center" style={{ fontFamily: DR.font.mono }} onKeyDown={(e) => e.stopPropagation()}>
       <p className="text-[10px] tracking-[0.3em] text-dim">TOKENBLASTER COIN-OP · {p.title.toUpperCase()}</p>
-      <CreditCounter usd={p.creditUsd} />
+      {/* Coins show in CREDIT the moment they drop in (owner, 24 Oct: "I put pennies in and it says $0.00"). */}
+      <CreditCounter usd={total} />
 
       {/* INSERT COIN: each press adds to the total. START below is the one wallet approval. */}
       <div className="flex w-full max-w-[680px] flex-col items-center gap-2">
