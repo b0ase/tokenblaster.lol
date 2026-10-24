@@ -162,8 +162,14 @@ export function useBlaster() {
         // A real approval can take a while; a wallet that never answers at all counts as disconnected.
         const funding = await withTimeout(fund(wallet, g.address, sats, label), 180_000, 'WALLET_TIMEOUT');
         loadMark('approved + paid (wallet answered)');
-        await g.load(funding);
-        loadMark('gun has the coin');
+        // The wallet has paid the gun's address: from here the money is in the gun whatever happens next,
+        // so never report this as "payment not made" (owner, 24 Oct: paid $0.05, then told to reconnect).
+        try {
+          await g.load(funding);
+          loadMark('gun has the coin');
+        } catch (e) {
+          loadMark(`paid, but saving the coin failed (${e instanceof Error ? e.message : e}); reading the balance instead`);
+        }
         setAmmo(await g.balance().catch(() => g.sats));
         return 'ok';
       } catch (e) {
