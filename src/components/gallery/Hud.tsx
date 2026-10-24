@@ -53,11 +53,11 @@ export function Hud(p: {
       <div className="tbx-in-l tbx-glass min-w-[132px] px-3 py-2 sm:min-w-[188px] sm:px-4">
         <p className="flex items-center gap-1.5 text-[9px] font-bold tracking-[0.28em] text-[var(--tbx-dim)]">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)', boxShadow: `0 0 8px ${p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)'}`, animation: 'tbx-breathe 1.2s ease-in-out infinite' }} />
-          {p.dry ? 'DRY RUN · DEV' : 'LIVE · ON CHAIN'}
+          {p.dry ? 'FREE PLAY' : 'LIVE · ON CHAIN'}
         </p>
         <Ticker value={p.fired} ease={0.3} className="tbx-display block text-[clamp(32px,5.4vw,56px)] leading-none" style={{ color: 'var(--tbx-text)' }} />
         <p className="text-[10px] text-[var(--tbx-dim)]">
-          rounds fired · <span className="tbx-num">{p.sent.toLocaleString('en-US')}</span> {p.dry ? 'sent (dry run)' : 'on the record'}
+          rounds fired · <span className="tbx-num">{p.sent.toLocaleString('en-US')}</span> {p.dry ? 'practice rounds' : 'on the record'}
         </p>
         <p className="mt-1 hidden text-[10px] sm:block">
           <span className="font-bold tracking-wider text-[var(--tbx-teal)]">{p.weaponName.toUpperCase()}</span>

@@ -2,7 +2,7 @@ import { GameShell } from '@/components/GameShell';
 import { ShootingGallery } from '@/components/gallery/ShootingGallery';
 
 const description =
-  'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the nSLAVE tower and its liquid-metal robot: every bullet is a real BSV transaction from your own wallet. Free practice, or LIVE packs from about $0.05.';
+  'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the nSLAVE tower and its liquid-metal robot: every bullet is a real BSV transaction from your own wallet. Free play while we finish the coin-op.';
 export const metadata = {
   title: '31 Oct BSV Stress Test · TokenBlaster Shooting Gallery',
   description,
@@ -10,21 +10,12 @@ export const metadata = {
   twitter: { card: 'summary_large_image', title: 'TokenBlaster Shooting Gallery', description },
 };
 
-// Closed on production while the payment flow is fixed (owner, 24 Oct 2026: "the game is eating my money").
-// It still runs on a local dev server, or anywhere NEXT_PUBLIC_GALLERY_OPEN=1 is set.
-const OPEN = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_GALLERY_OPEN === '1';
+// FREE PLAY on production while the payment flow is fixed (owner, 24 Oct 2026: "keep it online but let everyone
+// play for free"): the game runs on the simulated network, no wallet, nothing paid or broadcast. Real payments
+// come back with NEXT_PUBLIC_GALLERY_PAID=1 (and always run on a local dev server).
+const PAID = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_GALLERY_PAID === '1';
 
 export default function GalleryPage() {
-  if (!OPEN)
-    return (
-      <GameShell title="Shooting Gallery">
-        <div className="panel flex min-h-[50vh] flex-col items-center justify-center gap-3 p-8 text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-[var(--accent)]">Temporarily closed</p>
-          <h1 className="text-[clamp(28px,5vw,48px)] font-black uppercase leading-none">The Shooting Gallery is offline for repairs</h1>
-          <p className="max-w-xl text-dim">We&apos;re fixing how coins load the gun. No payments are taken while it&apos;s closed. Any ammo already in your gun stays there and will be usable when it reopens.</p>
-        </div>
-      </GameShell>
-    );
   return (
     <GameShell
       title="31 Oct Stress Test · Shooting Gallery"
@@ -36,7 +27,7 @@ export default function GalleryPage() {
         </p>
       }
     >
-      <ShootingGallery />
+      <ShootingGallery freePlay={!PAID} />
     </GameShell>
   );
 }

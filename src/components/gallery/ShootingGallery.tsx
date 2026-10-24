@@ -92,7 +92,7 @@ function simTick(s: Sim, dt: number) {
 }
 const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
 
-export function ShootingGallery() {
+export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
   const b = useBlaster();
   const { storm, fireBatch } = b;
   const [name, setName] = usePlayerName();
@@ -171,7 +171,7 @@ export function ShootingGallery() {
       /* storage blocked */
     }
     void Promise.resolve().then(() => {
-      setDry(qs.get('dryrun') === '1');
+      setDry(freePlay || qs.get('dryrun') === '1');
       setNow(Date.now());
       if (p.w) setWeaponId(p.w);
       if (qs.get('autofire') === '1') {
@@ -654,7 +654,7 @@ export function ShootingGallery() {
       // Dev dry run: a realistic split delay (?splitms=, default 8 s) so the warm-up can be seen.
       const sats = usdToSats(cab.creditUsd, bsvUsd) ?? 0;
       const n = roundsFor(sats, perShotAll);
-      const ms = Number(new URLSearchParams(location.search).get('splitms') ?? 8000) || 0;
+      const ms = Number(new URLSearchParams(location.search).get('splitms') ?? 2500) || 0;
       for (const pct of [15, 30, 45, 60, 75, 90]) {
         setLoad({ kind: 'loading', pct, slowSecs: 0 });
         await new Promise((r) => setTimeout(r, ms / 6));
@@ -952,7 +952,7 @@ export function ShootingGallery() {
                 name={name}
                 setName={setName}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
-                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${dry ? 'Dry run (dev): nothing is broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
+                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
                 buys={buys}
                 unit="shots"
                 startLabel={ready ? 'Lock & load' : 'Loading…'}
