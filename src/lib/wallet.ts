@@ -13,11 +13,38 @@ export const hasCwi = () => typeof window !== 'undefined' && Boolean((window as 
 export const inBwallet = () =>
   typeof navigator !== 'undefined' && /(?:bWallet|YoursWalletMobile)\//.test(navigator.userAgent) && hasCwi();
 
+/**
+ * One wallet request at a time (bWalletX, 24 Oct 2026): a different request sent while a sheet is open joins it as
+ * an unticked "risky" line, and "I trust it, allow" then DENIES it, leaving the site looking disconnected. So every
+ * call to a wallet goes through one queue per wallet object.
+ */
+const queues = new WeakMap<object, { tail: Promise<unknown>; inFlight: number }>();
+export const walletBusy = (client: object) => (queues.get(client)?.inFlight ?? 0) > 0;
+export function serialised(client: WalletInterface): WalletInterface {
+  const q = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0 };
+  queues.set(client, q);
+  const proxy: WalletInterface = new Proxy(client, {
+    get(target, prop, recv) {
+      const v = Reflect.get(target, prop, recv);
+      if (typeof v !== 'function') return v;
+      return (...args: unknown[]) => {
+        q.inFlight++;
+        const run = q.tail.then(() => (v as (...a: unknown[]) => unknown).apply(target, args));
+        q.tail = run.catch(() => undefined).finally(() => q.inFlight--);
+        return run;
+      };
+    },
+  });
+  queues.set(proxy, q);
+  return proxy;
+}
+
 /** Connect the wallet the player picked in the chooser. */
 export async function connect(entry: WalletEntry): Promise<Wallet> {
+  const client = serialised(entry.wallet);
   try {
-    const { publicKey } = await entry.wallet.getPublicKey({ identityKey: true });
-    return { client: entry.wallet, publicKey, address: PublicKey.fromString(publicKey).toAddress(), id: entry.id, name: entry.name };
+    const { publicKey } = await client.getPublicKey({ identityKey: true });
+    return { client, publicKey, address: PublicKey.fromString(publicKey).toAddress(), id: entry.id, name: entry.name };
   } catch (e) {
     // A locked wallet refuses getPublicKey: that means "unlock me", not "not installed".
     throw new Error(`${entry.name} did not answer: ${e instanceof Error ? e.message : e}. Unlock it and try again.`);
@@ -25,13 +52,24 @@ export async function connect(entry: WalletEntry): Promise<Wallet> {
 }
 
 /** Pay `sats` to `address` in one approval. Returns the funding transaction (with its proofs). */
+// Only one payment request may be open in the wallet at a time (a second createAction while one is pending
+// can wedge an extension wallet's prompt queue).
+let paying: Promise<unknown> | null = null;
 export async function fund(w: Wallet, address: string, sats: number, description: string): Promise<Transaction> {
-  const r = await w.client.createAction({
+  if (paying) throw new Error('A payment is already waiting in your wallet. Approve or cancel it first.');
+  const req = w.client.createAction({
     description,
     outputs: [{ lockingScript: new P2PKH().lock(address).toHex(), satoshis: sats, outputDescription: description }],
     labels: ['tokenblaster'],
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
   });
+  paying = req;
+  let r: Awaited<typeof req>;
+  try {
+    r = await req;
+  } finally {
+    paying = null;
+  }
   if (!r.tx) throw new Error('bWallet returned no transaction.');
   return Transaction.fromAtomicBEEF(r.tx);
 }
@@ -47,12 +85,20 @@ export function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<
   });
 }
 
-/** Is the wallet connection live? A cheap getPublicKey with a short timeout (no prompt on a connected wallet). */
-export async function walletAlive(w: Wallet, ms = 6000): Promise<boolean> {
-  try {
-    const { publicKey } = await withTimeout(w.client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT');
-    return publicKey === w.publicKey;
-  } catch {
-    return false;
+/**
+ * Is the wallet connection live? A cheap getPublicKey with a ~15 s timeout (no prompt on a connected wallet).
+ * Chrome extension wallets sleep their worker (MV3, ~30 s idle): the first call can fail just by waking it, so
+ * on a timeout or error we retry ONCE after a short pause before calling the wallet gone (bWalletX advice, 24 Oct).
+ */
+export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean> {
+  if (walletBusy(w.client)) return true; // a request is open in the wallet: it is alive, just waiting on the player
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { publicKey } = await withTimeout(w.client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT');
+      return publicKey === w.publicKey;
+    } catch {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+    }
   }
+  return false;
 }
