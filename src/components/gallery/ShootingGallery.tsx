@@ -901,6 +901,24 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
         {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
         {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={false} />}
+        {/* Free play with no coin in (owner, 24 Oct): a big flashing INSERT COIN over the game, like a real cabinet. */}
+        {!loadout && !over && simulated && (
+          <div className="pointer-events-none absolute inset-x-0 top-[18%] z-10 flex flex-col items-center px-4 text-center" data-insert-coin>
+            {/* the button: no wallet → connect one; with a wallet → back to the cabinet to put a coin in */}
+            <style>{`@keyframes tbx-coin-blink{0%,49%{opacity:1}50%,100%{opacity:.12}}@media (prefers-reduced-motion:reduce){[data-insert-coin] button{animation:none!important}}`}</style>
+            <button
+              type="button"
+              onClick={() => (barWallet ? setLoadout(true) : b.setChooser({ note: 'Connect a wallet to put a coin in.' }))}
+              className="pointer-events-auto cursor-pointer bg-transparent font-black tracking-[0.12em] text-[var(--tbx-red)]"
+              style={{ fontSize: 'clamp(40px, 9vw, 112px)', lineHeight: 1, textShadow: '0 0 24px rgba(255,59,48,.75), 0 4px 0 #000', animation: 'tbx-coin-blink 1.1s steps(1) infinite' }}
+            >
+              INSERT COIN
+            </button>
+            <span className="mt-2 text-xs font-bold tracking-[0.25em] text-white/80 sm:text-sm">
+              {barWallet ? 'PRACTICE ROUNDS · NOTHING ON CHAIN' : 'CONNECT WALLET · PRACTICE ROUNDS · NOTHING ON CHAIN'}
+            </span>
+          </div>
+        )}
         {!loadout && !over && simulated && (
           <div className="tbx-glass pointer-events-none absolute bottom-[150px] right-1.5 z-10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-[var(--tbx-amber)] sm:bottom-[88px] sm:right-3" data-practice-badge>
             {PRACTICE.badge.toUpperCase()}
