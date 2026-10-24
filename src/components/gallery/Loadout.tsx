@@ -5,14 +5,14 @@
  * src/lib/gallery/story.ts.
  */
 import { useState, type ReactNode } from 'react';
-import { patternLabel, txPattern } from '@/lib/gallery';
+import { liveCeiling, liveRate, patternLabel, roundsForFullRate, txPattern, type TxPattern } from '@/lib/gallery';
 import type { RangeWeapon } from '@/lib/bsvgun/weapons';
 import { BRIEFING, CHARACTERS, GAME_TITLE, SETTING, PRACTICE, TAGLINE, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Icon, useExisting } from '../coinop/ui';
 import { CharacterCard } from '../coinop/LoadingScreen';
 import { GunPreview } from './GunPreview';
 
-export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabinet, practice = false }: { practice?: boolean; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
+export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabinet, practice = false, rounds = 0 }: { practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
   const have = useExisting(CHARACTERS.map((c) => c.portrait));
   const c = CHARACTERS.find((x) => x.id === who) ?? CHARACTERS[0];
@@ -82,8 +82,9 @@ export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabin
                     <GunPreview url={w.def.url} active={on} />
                     <span className="tbx-display text-[clamp(22px,2.4vw,30px)]" style={{ color: on ? '#fff' : '#cfdbe3' }}>{w.name}</span>
                     <span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: p.kind === 'stream' ? 'var(--tbx-teal)' : 'var(--tbx-amber)' }}>
-                      <Icon name={p.kind === 'stream' ? 'bolt' : 'stack'} size={12} /> {practice ? (p.kind === 'stream' ? `PRACTICE · up to ${p.rate.toLocaleString()} rounds/s` : `PRACTICE · ${p.n} rounds per pull`) : patternLabel(p)}
+                      <Icon name={p.kind === 'stream' ? 'bolt' : 'stack'} size={12} /> {practice ? (p.kind === 'stream' ? `PRACTICE · ${p.rate.toLocaleString()} rounds/s, simulated` : `PRACTICE · ${p.n} rounds per pull`) : patternLabel(p)}
                     </span>
+                    <span className="text-[10px] leading-snug text-[var(--tbx-dim)]" data-live-rate>{rateNote(p, rounds, practice)}</span>
                     {(['rate', 'spread', 'power'] as const).map((key) => (
                       <span key={key} className="flex items-center gap-2 text-[10px] text-[var(--tbx-dim)]">
                         <span className="w-11 font-semibold uppercase tracking-wider">{key}</span>
@@ -116,4 +117,13 @@ export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabin
       </div>
     </div>
   );
+}
+
+/** The honest tx/s line under each gun (src/lib/gallery.ts liveCeiling): free play never claims on chain. */
+function rateNote(p: TxPattern, rounds: number, practice: boolean) {
+  if (p.kind !== 'stream') return null;
+  if (practice) return 'Practice only: nothing is sent on chain.';
+  const full = roundsForFullRate(p.rate);
+  if (rounds > 0) return `LIVE with ${rounds.toLocaleString()} rounds loaded: up to ${liveRate(p, rounds).toLocaleString()} tx/s (sender ceiling ${liveCeiling(rounds).toLocaleString()}; network-limited).`;
+  return `LIVE: up to ${p.rate.toLocaleString()} tx/s once ${full.toLocaleString()}+ rounds are loaded (10,000 rounds: up to ${liveRate(p, 10_000).toLocaleString()} tx/s). Network-limited.`;
 }

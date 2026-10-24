@@ -12,6 +12,9 @@ const nextConfig: NextConfig = {
       // 1Sat Ordnance models and art, loadable by wallets' 3D display cabinets (bWalletX).
       { source: '/arena/models/guns/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
       { source: '/ordnance/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
+      // bWalletX site theme (+ the Assault sub-theme proposal) and its images: the wallet fetches them cross-origin.
+      { source: '/.well-known/:file(bwalletx-theme.*)', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }, { key: 'Content-Type', value: 'application/json' }] },
+      { source: '/brand/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
       // BlastPad's API for wallets (bWalletX's Market lists and trades the coins). No cookies or sessions:
       // every trade is checked by wallet signatures and the client's own quote, so any origin may call it.
       {

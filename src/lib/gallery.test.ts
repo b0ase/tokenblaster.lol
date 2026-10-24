@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_SHOT_SATS, aggregateBoard, cleanAmmo, shotBytes, chainHandle, galleryPushes, platformFeeAt, quote, shotSats, shotsPerBsv, txPattern } from './gallery';
+import { MAX_SHOT_SATS, aggregateBoard, cleanAmmo, shotBytes, chainHandle, galleryPushes, platformFeeAt, quote, shotSats, shotsPerBsv, txPattern, ASSAULT_GUNS, liveCeiling, liveRate, roundsForFullRate } from './gallery';
 
 test('shot cost: 26 sat anonymous, more for a handle/paymail and long ammo, 33 sat worst case', () => {
   assert.equal(shotSats(false), 26);
@@ -48,7 +48,7 @@ test('free for the stress test up to and including 31 Oct UTC, 5% from 1 Nov', (
 });
 
 test('weapons map to tx patterns: the minigun streams, a shotgun bursts its pellets', () => {
-  assert.deepEqual(txPattern({ id: 'minigun', auto: true, fireMs: 70, pellets: 1 }), { kind: 'stream', rate: 1500 });
+  assert.deepEqual(txPattern({ id: 'minigun', auto: true, fireMs: 70, pellets: 1 }), { kind: 'stream', rate: 2000 });
   assert.deepEqual(txPattern({ id: 'sawedoff', auto: false, fireMs: 720, pellets: 9 }), { kind: 'burst', n: 9 });
   assert.equal(txPattern({ id: 'plasmarifle', auto: true, fireMs: 115, pellets: 1 }).kind, 'stream');
 });
@@ -67,4 +67,20 @@ test('the name can be a handle or the full paymail', () => {
   assert.equal(chainHandle('@Gunner_01'), 'gunner_01');
   assert.equal(chainHandle('not a name!'), null);
   assert.equal(chainHandle('a'.repeat(35) + '@x.com'), null);
+});
+
+test('assault rack: volume streams only, honest LIVE ceiling', async () => {
+  const { buildWeapons } = await import('./bsvgun/weapons');
+  const all = buildWeapons();
+  for (const id of ASSAULT_GUNS) {
+    const w = all.find((x) => x.id === id);
+    assert.ok(w, id);
+    const p = txPattern(w);
+    assert.equal(p.kind, 'stream', `${id} streams`);
+    assert.ok(p.kind === 'stream' && p.rate >= 2000, `${id} ~2000 tx/s`);
+  }
+  assert.equal(liveCeiling(10_000), 680); // 34 lanes x 20
+  assert.equal(liveCeiling(1_000_000), 2000); // 100 lanes x 20
+  assert.equal(liveRate({ kind: 'stream', rate: 2000 }, 30_000), 2000);
+  assert.equal(roundsForFullRate(2000), 30_000);
 });

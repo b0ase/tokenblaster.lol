@@ -1,0 +1,12 @@
+{
+  "v": 2,
+  "name": "Assault on Terrornode",
+  "mode": "dark",
+  "accent": "#FF3B3B",
+  "accentHi": "#3FD8E8",
+  "bg": "#05090F",
+  "surface": "#0A121C",
+  "text": "#E8F1F6",
+  "logo": "/brand/assault-logo.svg",
+  "cardArt": "/brand/assault-card.jpg"
+}

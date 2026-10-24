@@ -44,6 +44,8 @@ import {
   platformFeeAt,
   shotSats,
   txPattern,
+  ASSAULT_GUNS,
+  STREAM_STEP,
   usdOf,
   type BoardRow,
 } from '@/lib/gallery';
@@ -80,7 +82,6 @@ const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before
 
 type Run = { sent: number; started: number; last: string | null; tps: number; status: string | null };
 
-const BLASTERS = ['minigun', 'plasmarifle', 'quadplasma'];
 
 /** A pretend chain for practice / dry run: ramps to the weapon's stream rate while the trigger is held. */
 type Sim = { on: boolean; rate: number; target: number; carry: number };
@@ -100,9 +101,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // The NAME typed at the cabinet is the on-chain handle tag and the board name.
   const handle = cleanName(name);
   const weapons = useMemo(() => {
-    // A short rack of heavy hitters built to stream millions of rounds (owner, 24 Oct).
+    // Volume guns only: sustained ~2,000 tx/s streams, no single shots or bursts (owner, 24 Oct: stress test).
     const all = buildWeapons();
-    return BLASTERS.map((id) => all.find((w) => w.id === id)).filter((w): w is RangeWeapon => !!w);
+    return ASSAULT_GUNS.map((id) => all.find((w) => w.id === id)).filter((w): w is RangeWeapon => !!w);
   }, []);
   const { owned } = useOrdnance(b.wallet);
   const [dry, setDry] = useState(false);
@@ -137,7 +138,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const canvas = useRef<HTMLCanvasElement>(null);
   const reticle = useRef<HTMLDivElement>(null);
   const engine = useRef<GalleryEngine | null>(null);
-  const simRef = useRef<Sim>({ on: false, rate: 0, target: 1500, carry: 0 });
+  const simRef = useRef<Sim>({ on: false, rate: 0, target: 2000, carry: 0 });
   const stop = useRef(false);
   const held = useRef(false);
   const sentRef = useRef(0);
@@ -437,7 +438,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         perShot,
         ammo,
         () => sentRef.current >= firedRef.current, // nothing queued: hold, keep the lanes
-        5,
+        STREAM_STEP, // blasts per lane per ARC round: 100 lanes x 20 = 2,000 a round
       )
         .catch((e) => {
           sendErrors.current++;
@@ -1028,6 +1029,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             setWeaponId={setWeaponId}
             canUse={canUse}
             practice={simulated}
+            rounds={bought}
             paymail={paymail}
             cabinet={
               <CoinCabinet
