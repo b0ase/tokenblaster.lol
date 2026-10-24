@@ -26,9 +26,13 @@ import type { RangeWeapon } from '../bsvgun/weapons';
 import { buildCity, EYE, TOWER, type City, type Rack, type Window } from './city';
 import { LiquidUnit } from './boss';
 import { ErobotWave } from './enemies';
+import { Bolts, type HurtKind } from './combat';
+import { TUNING } from './tuning';
 
 export type Quality = 'low' | 'high';
-export type Stats = { score: number; bossHp: number; bossMax: number; wave: number; windowsLeft: number; windows: number; racksLeft: number; drones: number; kills: number; hover: string };
+export type Stats = { score: number; bossHp: number; bossMax: number; wave: number; windowsLeft: number; windows: number; racksLeft: number; drones: number; kills: number; hover: string; hp: number; hpMax: number; dead: boolean; bossPush: number; bossDist: number };
+/** The player was hurt. `angle`: where it came from relative to the view (0 ahead, + right, +-PI behind). */
+export type Hurt = { angle: number; dmg: number; kind: HurtKind; hp: number; hpMax: number };
 export type Hooks = {
   /** A burst weapon's trigger pull: return false to refuse (no ammo / pack spent / one in flight). */
   pull: (w: RangeWeapon) => boolean;
@@ -36,6 +40,10 @@ export type Hooks = {
   flowing: () => boolean;
   stats: (s: Stats) => void;
   trigger: (down: boolean) => void;
+  /** The player took damage (HUD: vignette, direction marker). */
+  hurt: (h: Hurt) => void;
+  /** Health hit zero. */
+  died: () => void;
 };
 
 type Drone = { g: THREE.Group; rotors: THREE.Mesh[]; hp: number; dead: number; t: number; v: THREE.Vector3; base: THREE.Vector3; body: THREE.Mesh };
@@ -58,6 +66,7 @@ export class GalleryEngine {
   private boss!: LiquidUnit;
   private erobots!: ErobotWave;
   private fx!: Fx;
+  private bolts!: Bolts;
   private raf = 0;
   private last = 0;
   private t = 0;
@@ -69,6 +78,11 @@ export class GalleryEngine {
   private ndc = new THREE.Vector2(0, 0.1);
   trigger = false;
   autoAim = false;
+  /** Dev only: with `autoAim`, shoot the nearest Erobot first (a sweeping player), else the boss. */
+  autoThreats = false;
+  /** Dev only: the boss counts as the nearest threat inside this many metres. */
+  autoBossRange = 0;
+  private threatT = 0;
 
   // gun
   weapon: RangeWeapon | null = null;
@@ -110,6 +124,15 @@ export class GalleryEngine {
   private statsT = 0;
   private hover = '';
 
+  // the player's body
+  hp: number = TUNING.player.hp;
+  dead = false;
+  private sinceHurt = 99;
+  private hitCd = 0;
+  private invuln = 0;
+  private hitKick = { p: 0, y: 0, r: 0 };
+  private deadT = 0;
+
   // temps
   private ray = new THREE.Raycaster();
   private tA = v3();
@@ -148,8 +171,18 @@ export class GalleryEngine {
     await this.boss.ready; // the rigged model (a fallback figure stands in if it can't load)
     if (this.disposed) return;
     this.fx = new Fx(this.scene, high);
-    this.erobots = new ErobotWave(this.scene, this.fx, { high, canvas: this.canvas, reticle: () => this.reticle(), light: this.city.hitLight, flash: (at, c, i, ms) => this.flash(at, c, i, ms) });
+    this.bolts = new Bolts(this.scene);
+    this.erobots = new ErobotWave(this.scene, this.fx, {
+      high,
+      canvas: this.canvas,
+      reticle: () => this.reticle(),
+      light: this.city.hitLight,
+      flash: (at, c, i, ms) => this.flash(at, c, i, ms),
+      bolts: this.bolts,
+      melee: (from, dmg) => this.hurt(from, dmg, 'melee'),
+    });
     this.boss.onEvent = (k, at) => this.bossEvent(k, at);
+    this.boss.onAttack = (a) => this.bossAttack(a);
     this.scene.add(this.camera);
     this.camera.layers.enable(1); // layer 1: rain, ripples and the held gun (hidden from the street reflection)
     this.camera.position.set(0, EYE, 0);
@@ -350,6 +383,7 @@ export class GalleryEngine {
   }
 
   setTrigger(down: boolean) {
+    if (this.dead) down = false;
     if (down === this.trigger) return;
     this.trigger = down;
     this.hooks.current.trigger(down);
@@ -377,7 +411,7 @@ export class GalleryEngine {
   /** `n` newly accepted transactions: each one is a round of the held weapon's damage at the crosshair. */
   accept(n: number) {
     const w = this.weapon;
-    if (!w || n <= 0 || !this.city) return;
+    if (!w || n <= 0 || !this.city || this.dead) return;
     const org = this.tA;
     const dir = this.tB;
     this.aimRay(org, dir);
@@ -413,12 +447,22 @@ export class GalleryEngine {
     for (const rk of c.racks) if (!rk.broke) list.push(rk.mesh);
     list.push(c.windows, c.towerBody, c.ground);
     const hit = this.ray.intersectObjects(list, false)[0];
-    const er = this.erobots.raycast(org, dir, hit ? hit.distance : 400);
+    // a red bolt in the way is shot out of the air (a small target: it takes aim)
+    const bolt = this.bolts.shoot(org, dir, hit ? hit.distance : 400);
+    const er = this.erobots.raycast(org, dir, bolt ? bolt.dist : hit ? hit.distance : 400);
+    if (bolt && !er) {
+      this.fx.sparks(bolt.point, '#ffd0a0', 14, 9);
+      this.fx.ring(bolt.point, '#ff6a40', 1.4, 0.25);
+      this.flash(bolt.point, '#ff7a50', 45, 120);
+      this.score += 40;
+      return bolt.point;
+    }
     if (er) {
       const r = this.erobots.hit(er, dmg, dir);
       this.score += r.score;
       if (r.killed) {
         this.kills++;
+        this.heal(TUNING.player.healOnKill);
         sfx('explosion', 0.5);
       }
       if (r.heavy) this.shake = Math.max(this.shake, r.killed ? 0.5 : 0.3);
@@ -436,10 +480,11 @@ export class GalleryEngine {
       if (this.boss.hit(dmg, end)) {
         this.score += 5000 * this.boss.wave;
         this.kills++;
-        this.fx.shatter(end, '#e8eef6', 60, 9, 1.2);
-        this.flash(end, '#cfe4ff', 150, 600); // the boss melts: a big flash, then a cold glow as it pools
+        this.fx.shatter(end, '#e8eef6', 36, 9, 1.0);
+        this.flash(end, '#cfe4ff', 150, 600); // he melts: a big flash, then a cold glow as he pools
         this.flash(this.tA.set(end.x, 0.8, end.z), '#27c8e0', 60, 2200);
         this.shake = 1;
+        this.heal(TUNING.player.healOnBossMelt * TUNING.player.hp);
         sfx('explosion', 0.8);
       } else this.score += Math.round(dmg);
       if (Math.random() < 0.3) this.fx.sparks(end, '#eef4ff', 1, 4);
@@ -492,7 +537,7 @@ export class GalleryEngine {
       if (Math.random() < 0.3) sfx('hit', 0.3);
       if (this.city.wins.every((w) => w.broke) && this.city.racks.every((r) => r.broke)) {
         this.score += 10_000;
-        this.city.rebuild(); // OMNICORE has deep pockets
+        this.city.rebuild(); // nSLAVE has deep pockets (and a patent on them)
       }
     } else this.fx.sparks(at, '#cfeaff', 1, 3);
   }
@@ -621,22 +666,44 @@ export class GalleryEngine {
     this.t += dt;
     const w = this.weapon;
     // stream weapons show fire while held AND the chain is flowing
-    if (w && this.trigger && w.auto && this.hooks.current.flowing() && now >= this.nextShot) {
+    if (w && this.trigger && !this.dead && w.auto && this.hooks.current.flowing() && now >= this.nextShot) {
       this.nextShot = now + w.fireMs;
       this.muzzleFx(w);
     }
-    if (this.autoAim && this.boss.alive) {
+    if (this.autoAim && this.autoThreats) {
+      this.threatT -= dt;
+      if (this.threatT <= 0) {
+        this.threatT = 0.4; // human reaction time
+        if ((!this.boss.alive || this.boss.dist > this.autoBossRange) && this.erobots.nearest(this.tA)) {
+          this.tA.project(this.camera);
+          this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
+        } else if (this.boss.alive) {
+          this.boss.chest(this.tA).project(this.camera);
+          this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
+        }
+      }
+    } else if (this.autoAim && this.boss.alive) {
       this.boss.chest(this.tA).project(this.camera);
       this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
     }
-    this.boss.update(dt);
-    this.erobots.update(dt, this.camera, this.trigger);
+    // the world slows to a crawl while the player is down
+    const sd = this.dead ? dt * 0.18 : dt;
+    this.sinceHurt += dt;
+    this.hitCd -= dt;
+    this.invuln -= dt;
+    if (!this.dead && this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
+    if (this.dead) this.deadT += dt;
+    this.boss.update(sd);
+    this.erobots.wave = this.boss.wave;
+    this.erobots.playerAlive = !this.dead;
+    this.erobots.update(sd, this.camera, this.trigger);
+    this.bolts.update(sd, this.camera.position, (from, dmg, kind) => this.hurt(from, dmg, kind));
     this.shake = Math.min(1, this.shake + this.boss.takeImpulse() + this.erobots.impulse);
     this.erobots.impulse = 0;
     this.updateDrones(dt);
     this.updateBrass(dt);
     this.city.update(dt, this.t, this.camera);
-    this.fx.update(dt, this.camera);
+    this.fx.update(sd, this.camera);
     this.updateCamera(dt);
     this.flashT -= dt;
     if (this.flashT <= 0) {
@@ -675,6 +742,11 @@ export class GalleryEngine {
       drones: this.drones.filter((d) => !d.dead).length + this.erobots.live,
       kills: this.kills,
       hover: this.hover,
+      hp: Math.ceil(this.hp),
+      hpMax: TUNING.player.hp,
+      dead: this.dead,
+      bossPush: this.boss.pushNorm,
+      bossDist: this.boss.alive ? this.boss.dist : 99,
     };
   }
 
@@ -729,7 +801,7 @@ export class GalleryEngine {
     u.uAberr.value = 0.0012 + this.flashK * 0.003;
   }
 
-  private bossEvent(kind: 'roar' | 'stomp' | 'lunge' | 'stagger', at: THREE.Vector3) {
+  private bossEvent(kind: 'roar' | 'stomp' | 'lunge' | 'stagger' | 'skid' | 'melt' | 'splash' | 'pooled' | 'rise', at: THREE.Vector3) {
     if (kind === 'roar') {
       this.fx.ring(at, '#ff3a22', 9, 0.8);
       this.fx.sparks(at, '#ff6a2a', 30, 10);
@@ -737,8 +809,122 @@ export class GalleryEngine {
       this.kick = Math.min(0.2, this.kick + 0.06);
       sfx('explosion', 0.4);
     } else if (kind === 'lunge') this.fx.ring(at, '#27e6ff', 7, 0.5);
-    else if (kind === 'stagger') this.fx.sparks(at, '#eef4ff', 24, 9);
+    else if (kind === 'stagger') {
+      this.fx.sparks(at, '#eef4ff', 34, 11);
+      this.fx.ring(at, '#eef4ff', 8, 0.5);
+      this.flash(at, '#cfe4ff', 90, 300);
+    } else if (kind === 'skid') this.fx.sparks(at, '#ffd27a', 5, 5);
+    else if (kind === 'melt') {
+      this.flash(at, '#cfe4ff', 150, 700);
+      this.shake = 1;
+      sfx('explosion', 0.8);
+    } else if (kind === 'splash') {
+      this.fx.sparks(at, '#dff0ff', 8, 6);
+      if (Math.random() < 0.4) this.flash(at, '#9fe8ff', 40, 160);
+    } else if (kind === 'pooled') {
+      this.fx.ring(at, '#27e6ff', 7, 0.9);
+      this.flash(at, '#27c8e0', 70, 1400);
+    } else if (kind === 'rise') {
+      this.fx.ring(at, '#cfe4ff', 8, 0.8);
+      this.flash(at, '#cfe4ff', 80, 800);
+      this.kick = Math.min(0.2, this.kick + 0.05);
+    }
   }
+
+  /** The boss's attacks: swipe / lunge / slam hurt the player if they landed; shards are real projectiles. */
+  private bossAttack(a: { kind: 'swipe' | 'lunge' | 'slam' | 'shards'; dmg: number; from: THREE.Vector3; landed: boolean }) {
+    if (a.kind === 'shards') {
+      const B = TUNING.boss.shards;
+      const n = B.count + Math.floor((this.boss.wave - 1) / 2);
+      for (let i = 0; i < n; i++) {
+        const from = new THREE.Vector3(a.from.x + (Math.random() - 0.5) * 4, a.from.y + (Math.random() - 0.5) * 1.5, a.from.z + 1);
+        const hits = Math.random() > 0.2;
+        const to = this.camera.position.clone().add(new THREE.Vector3((Math.random() - 0.5) * (hits ? 0.6 : 5), (Math.random() - 0.5) * (hits ? 0.4 : 2), 0));
+        this.bolts.fire(from, to, B.speed, a.dmg, '#bfe6ff', hits, 'shard');
+      }
+      this.flash(a.from, '#bfe6ff', 70, 200);
+      return;
+    }
+    this.shake = Math.max(this.shake, a.kind === 'slam' ? 0.9 : 0.6);
+    const at = this.tC.set(a.from.x, 0.4, a.from.z + 3);
+    this.fx.ring(at, a.kind === 'slam' ? '#ff6a2a' : '#cfe4ff', a.kind === 'slam' ? 12 : 7, 0.5);
+    this.fx.sparks(at, '#ffd27a', 18, 9);
+    if (a.landed) this.hurt(a.from, a.dmg, a.kind);
+  }
+
+  // ── The player's body ──
+  /** Damage from a world position. No effect while down or in the grace after Continue. */
+  hurt(from: THREE.Vector3, dmg: number, kind: HurtKind) {
+    if (this.dead || this.invuln > 0 || dmg <= 0) return;
+    if (kind === 'bolt' && this.hitCd > 0) return;
+    this.hitCd = TUNING.player.hitCooldown;
+    this.hp = Math.max(0, this.hp - dmg);
+    this.sinceHurt = 0;
+    // where did it come from? local position relative to the view
+    this.camera.updateMatrixWorld();
+    const l = this.tA.copy(from);
+    this.camera.worldToLocal(l);
+    const angle = Math.atan2(l.x, -l.z);
+    // camera kick: a jolt away from the blow, a roll, and a shake
+    const k = (dmg / 10) * TUNING.player.kickPer10;
+    this.hitKick.p += k * (0.6 + Math.random() * 0.5);
+    this.hitKick.y += -Math.sin(angle) * k * 1.4;
+    this.hitKick.r += -Math.sin(angle) * k * 2.2;
+    this.shake = Math.min(1, this.shake + 0.25 + dmg / 60);
+    this.kick = Math.min(0.2, this.kick + 0.04);
+    this.flashK = Math.min(1, this.flashK + 0.4);
+    sfx('hurt', 0.9);
+    this.hooks.current.hurt({ angle, dmg, kind, hp: this.hp, hpMax: TUNING.player.hp });
+    if (this.hp <= 0) this.die();
+  }
+
+  private heal(n: number) {
+    if (!this.dead) this.hp = Math.min(TUNING.player.hp, this.hp + n);
+  }
+
+  private die() {
+    this.dead = true;
+    this.deadT = 0;
+    this.bolts.clear();
+    this.setTrigger(false);
+    this.shake = 1;
+    this.kick = 0.2;
+    this.flashK = 1;
+    sfx('gameover', 0.9);
+    this.hooks.current.died();
+  }
+
+  /** Continue: back on your feet with full health and a few seconds of grace; the street is cleared of attackers. */
+  revive() {
+    this.dead = false;
+    this.hp = TUNING.player.hp;
+    this.invuln = TUNING.player.reviveGrace;
+    this.hitCd = 0;
+    this.sinceHurt = 99;
+    this.bolts.clear();
+    this.erobots.clearAll();
+    this.erobots.grace = TUNING.player.reviveGrace + 0.5;
+    this.boss.shove();
+    this.flash(this.camera.position.clone().add(new THREE.Vector3(0, 0.5, -3)), '#7cf9ff', 100, 500);
+    this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: TUNING.player.hp });
+  }
+
+  /** Dev only (dry run): poke the combat from the console / screenshot scripts. */
+  debug = {
+    hurt: (n: number, angle = 0) => this.hurt(this.tD.set(Math.sin(angle) * 6, 1.6, -Math.cos(angle) * 6).clone(), n, 'bolt'),
+    kill: () => this.hurt(this.tD.set(0, 1.6, -5).clone(), this.hp + 1, 'swipe'),
+    meltBoss: () => {
+      if (this.boss.alive) this.boss.hit(this.boss.hp + 1, this.boss.chest(new THREE.Vector3()));
+    },
+    boss: () => ({ z: this.boss.dist, alive: this.boss.alive, phase: this.boss.phaseName, push: this.boss.pushNorm, melt: this.boss.melt }),
+    setInvuln: (s: number) => (this.invuln = s),
+    stats: () => this.stats(),
+    bossAt: (z: number) => this.boss.placeAt(z),
+    calm: (on: boolean) => (this.boss.calmed = on),
+    look: (x: number, y: number) => this.ndc.set(x, y),
+    clearEnemies: () => (this.erobots.clearAll(), this.bolts.clear()),
+    spawning: (on: boolean) => (this.erobots.spawning = on),
+  };
 
   private updateDrones(dt: number) {
     for (const d of this.drones) {
@@ -806,7 +992,12 @@ export class GalleryEngine {
     this.yaw += (ty - this.yaw) * Math.min(1, dt * 8);
     this.pitch += (tp - this.pitch) * Math.min(1, dt * 8);
     const s = this.shake * this.shake;
-    cam.rotation.set(this.pitch + (Math.random() - 0.5) * s * 0.03 + this.recoil * 0.004, this.yaw + (Math.random() - 0.5) * s * 0.03, 0, 'YXZ');
+    const hk = this.hitKick;
+    cam.rotation.set(this.pitch + (Math.random() - 0.5) * s * 0.03 + this.recoil * 0.004 + hk.p, this.yaw + (Math.random() - 0.5) * s * 0.03 + hk.y, hk.r, 'YXZ');
+    const kd = Math.exp(-dt * 9);
+    hk.p *= kd;
+    hk.y *= kd;
+    hk.r *= kd;
     cam.position.set((Math.random() - 0.5) * s * 0.05, EYE + Math.sin(this.t * 1.1) * 0.006, 0);
     cam.updateMatrixWorld();
     if (this.held && this.weapon) {
@@ -840,6 +1031,7 @@ export class GalleryEngine {
     this.city?.dispose();
     this.boss?.dispose();
     this.erobots?.dispose();
+    this.bolts?.dispose();
     this.fx?.dispose();
     this.look?.dispose();
     this.droneGeo.forEach((g) => g.dispose());

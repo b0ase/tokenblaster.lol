@@ -1,16 +1,23 @@
 /**
- * The LIQUID UNIT: OMNICORE's chrome android, an original faceless design.
+ * The LIQUID UNIT: Dr Kweg Wong after Experiment 31, nSLAVE's chrome giant, an original faceless design.
  *
  * A properly rigged humanoid (Mixamo's faceless "X Bot" mannequin, `public/arena/models/liquid/xbot.glb`, see
  * public/arena/CREDITS.md) carrying one red visor slit and plated in mirror-polished liquid metal: MeshPhysical,
- * metal 1, low roughness, clearcoat, lit by a dedicated night-street environment (the Arena HDRI plus neon
- * softboxes) with cyan and amber rim lights and a red eye light. Its joints are dark gunmetal. The surface keeps moving (slow mercury wobble), takes a crater plus a spreading ripple ring at
- * every hit that heals over in about a second (displacement in the vertex shader, ripple normals in the fragment
- * shader), and only sustained fire takes it down: let up and it regenerates. At zero it melts into a puddle,
- * then pulls itself back up, 1.5x tougher, further down the street.
+ * metal 1, low roughness, clearcoat, lit by a dedicated night-street environment. The surface keeps moving (slow
+ * mercury wobble) and takes a crater plus a spreading ripple ring at every hit.
  *
- * Animation: the clips (idle, walk) are blended by speed; a menacing posture, breathing, head scan, a periodic
- * roar and a hit flinch are layered on top by nudging the spine, head and arm bones after the mixer runs.
+ * COMBAT (owner, 24 Oct 2026; numbers in ./tuning.ts): he charges, lunges, swipes, slams and throws liquid shards.
+ * Sustained fire pushes him BACK (the push follows the smoothed damage rate) and staggers him; stop firing and he
+ * closes the gap fast. His melee only lands inside `reach`; beyond it he throws shards. Hard to kill: he
+ * regenerates the moment the fire stops.
+ *
+ * DEATH IS FULLY 3D: no flat puddle. At zero the liquid-metal skin melts by vertex displacement (every vertex
+ * slides toward a domed mound, legs first), the mound slumps and spreads into a thick, rippling pool (a lathed
+ * 3D lens with a beaded rim) while mercury droplets fly and splash, then the whole mass rises back up the same
+ * way, head first, as a fresh, tougher Kweg further down the street.
+ *
+ * Animation: the clips (idle, walk) are blended by speed; posture, breathing, head scan, roar, wind-ups and hit
+ * flinch are layered on top by nudging the spine, head and arm bones after the mixer runs.
  * If the model can't load, a primitive-shape figure stands in so the game still works.
  */
 import * as THREE from 'three';
@@ -18,6 +25,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { halo } from '../bsvgun/targets';
+import { TUNING, ramp } from './tuning';
 
 const HITS = 12;
 const MODEL_URL = '/arena/models/liquid/xbot.glb';
@@ -25,12 +33,38 @@ const MODEL_URL = '/arena/models/liquid/xbot.glb';
 const HEIGHT = 7;
 /** World metres per metre of a 1.8 m source character. */
 const AM = HEIGHT / 1.8;
+/** The melted mound: radius and height in metres. */
+const MELT_R = 2.9;
+const MELT_H = 1.5;
+const DROPS = 72;
 
 // ── Liquid-metal surface (shared by the vertex and fragment stages, in world metres) ─────────────────────
 
 const SURF_GLSL = /* glsl */ `
   varying vec3 vWP;
   uniform float uTime; uniform float uAgitate; uniform float uBump; uniform float uRim; uniform vec4 uHits[${HITS}];
+  uniform float uMelt; uniform float uRise; uniform vec3 uMeltC;
+  // MELT: every vertex slides from where it is toward a dome on the ground. Height picks the ring (feet far out,
+  // head at the apex); legs go first when collapsing, the head first when rising. w is how far this vertex has gone.
+  vec3 meltAt(vec3 p, out float wOut, out vec3 nOut){
+    wOut = 0.0; nOut = vec3(0.0, 1.0, 0.0);
+    if (uMelt <= 0.0005) return p;
+    float h = clamp(p.y / ${HEIGHT.toFixed(1)}, 0.0, 1.0);
+    vec2 r0 = p.xz - uMeltC.xz;
+    float rl = length(r0);
+    vec2 dir = rl > 1e-3 ? r0 / rl : vec2(0.0, 1.0);
+    float ang = atan(dir.y, dir.x) + 0.35 * sin(p.y * 9.0 + p.x * 5.0 + uTime * 1.3);
+    dir = vec2(cos(ang), sin(ang));
+    float order = mix(h, 1.0 - h, uRise);
+    float w = smoothstep(0.0, 1.0, uMelt * 1.55 - order * 0.55);
+    float rho = ${MELT_R.toFixed(2)} * pow(1.0 - h, 0.65) * (1.0 + 0.08 * sin(ang * 3.0 + uTime * 2.1 + h * 6.0));
+    float y = ${MELT_H.toFixed(2)} * (1.0 - pow(rho / ${MELT_R.toFixed(2)}, 2.0)) * (1.0 + 0.05 * sin(uTime * 3.0 + rho * 4.0)) + 0.07;
+    vec3 target = vec3(uMeltC.x + dir.x * rho, y, uMeltC.z + dir.y * rho);
+    float slope = 2.0 * ${MELT_H.toFixed(2)} * rho / (${MELT_R.toFixed(2)} * ${MELT_R.toFixed(2)});
+    nOut = normalize(vec3(dir.x * slope, 1.0, dir.y * slope));
+    wOut = w;
+    return mix(p, target, w);
+  }
   // Height (w) and gradient (xyz) of the liquid skin at p, in world metres: a slow wobble everywhere, plus a
   // crater and a ripple ring per recent hit. fine > 0.5 adds small, quick surface shimmer (fragment stage only).
   vec4 surfG(vec3 p, float fine, int n){
@@ -66,7 +100,7 @@ const SURF_GLSL = /* glsl */ `
   }`;
 
 /** `flat`: no vertex displacement (the puddle: ripples come from the fragment shader only, so it never dips under the street). */
-function liquidMaterial(high: boolean, uniforms: Record<string, THREE.IUniform>, joint = false, flat = false) {
+function liquidMaterial(high: boolean, uniforms: Record<string, THREE.IUniform>, joint = false, flat = false, melts = true) {
   const mat = new THREE.MeshPhysicalMaterial({
     color: joint ? '#2c323c' : '#b4c0cf',
     metalness: 1,
@@ -83,7 +117,19 @@ function liquidMaterial(high: boolean, uniforms: Record<string, THREE.IUniform>,
       {
         vec3 wp0 = (modelMatrix * vec4(transformed, 1.0)).xyz;
         float sc = length(modelMatrix[0].xyz);
-        ${flat ? '' : `transformed += normalize(objectNormal) * (surfG(wp0, 0.0, ${high ? HITS : 6}).w / sc);`}
+        vec3 wp1 = wp0;
+        float mw = 0.0;
+        ${
+          melts
+            ? `vec3 mn;
+        wp1 = meltAt(wp0, mw, mn);
+        transformed += inverse(mat3(modelMatrix)) * (wp1 - wp0);
+        #ifndef FLAT_SHADED
+        vNormal = normalize(mix(vNormal, normalize((viewMatrix * vec4(mn, 0.0)).xyz), mw));
+        #endif`
+            : ''
+        }
+        ${flat ? '' : `transformed += normalize(objectNormal) * (surfG(wp1, 0.0, ${high ? HITS : 6}).w / sc) * (1.0 - 0.7 * mw);`}
         vWP = (modelMatrix * vec4(transformed, 1.0)).xyz;
       }`,
     );
@@ -110,7 +156,7 @@ function liquidMaterial(high: boolean, uniforms: Record<string, THREE.IUniform>,
         }`,
       );
   };
-  mat.customProgramCacheKey = () => `liquid-unit-${high ? 'h' : 'l'}${joint ? 'j' : ''}${flat ? 'f' : ''}`;
+  mat.customProgramCacheKey = () => `liquid-unit-v2-${high ? 'h' : 'l'}${joint ? 'j' : ''}${flat ? 'f' : ''}${melts ? 'm' : ''}`;
   return mat;
 }
 
@@ -189,7 +235,8 @@ export class LiquidUnit {
   hp: number;
   max: number;
   wave = 1;
-  melt = 0; // 0 standing; 0..1 melting; 1..2 reforming
+  /** Seconds since he went down: 0 = standing (alive). Collapse, then pooled, then rise (see TUNING.boss.melt). */
+  melt = 0;
   /** Resolves once the model is in (or the fallback figure is standing). */
   ready: Promise<void>;
   private lastHit = -10;
@@ -205,13 +252,42 @@ export class LiquidUnit {
     uAgitate: { value: 0 },
     uBump: { value: 1.2 },
     uRim: { value: 0.7 },
+    uMelt: { value: 0 },
+    uRise: { value: 0 },
+    uMeltC: { value: new THREE.Vector3() },
   };
   private hitCursor = 0;
   private ringT = 0;
   private mat: THREE.MeshPhysicalMaterial;
   private jointMat: THREE.MeshPhysicalMaterial;
-  private puddleMat: THREE.MeshPhysicalMaterial;
-  private puddle: THREE.Mesh;
+  private poolMat: THREE.MeshPhysicalMaterial;
+  private pool: THREE.Mesh;
+  private dropMat: THREE.MeshPhysicalMaterial;
+  private drops: THREE.InstancedMesh;
+  private dp = new Float32Array(DROPS * 3);
+  private dv = new Float32Array(DROPS * 3);
+  private dr = new Float32Array(DROPS);
+  private dl = new Float32Array(DROPS); // seconds left; 0 = free; negative = squashing into the pool
+  private dCursor = 0;
+  private dropT = 0;
+  private visor: THREE.Mesh | null = null;
+  private meltBurst = 0;
+  private glideFrom = new THREE.Vector2();
+  private glideTo = new THREE.Vector2();
+  private waved = false;
+  /** Smoothed damage per second, and damage taken this frame. */
+  private dps = 0;
+  private dmgAcc = 0;
+  private hotT = 0;
+  private push = 0;
+  private kickV = 0;
+  private skidT = 0;
+  private cd = { swipe: 2, lunge: 5, slam: 8, shard: 2, roar: 4 };
+  private attackDone = false;
+  /** Dev only: stands still and attacks nothing (screenshots). */
+  calmed = false;
+  /** Seconds before he breaks into the fast advance (the opening, and after he is shoved back). */
+  private openT = 6;
   private body = new THREE.Group(); // holds the model (or the fallback figure); melted by scaling
   private geos: THREE.BufferGeometry[] = [];
   private envTex: THREE.Texture | null = null;
@@ -228,10 +304,8 @@ export class LiquidUnit {
   private moveBlend = 0;
   private flinch = 0;
   private hitSide = 0;
-  private phase: 'stalk' | 'windup' | 'lunge' | 'recover' | 'roar' | 'stagger' = 'stalk';
+  private phase: 'stalk' | 'windup' | 'lunge' | 'recover' | 'roar' | 'stagger' | 'swipe' | 'slam' | 'cast' = 'stalk';
   private phaseT = 0;
-  private nextLunge = 9;
-  private nextRoar = 4;
   private heavyAcc = 0;
   private staggerCd = 0;
   private stepPh = 0;
@@ -240,9 +314,11 @@ export class LiquidUnit {
   /** Shape of the current pose, eased toward each phase's target. */
   private P = { lean: 0, crouch: 0, swing: 0, flare: 0, back: 0, chest: 0, shove: 0 };
   /** Armour plates that follow a bone (pauldrons, head blades). */
-  private orn: { mesh: THREE.Mesh; bone: THREE.Object3D; restRel: THREE.Quaternion; off: THREE.Vector3 }[] = [];
+  private orn: { mesh: THREE.Mesh; bone: THREE.Object3D; restRel: THREE.Quaternion; off: THREE.Vector3; base: THREE.Vector3 }[] = [];
   /** Fired on big moments so the engine can add rings, sparks and shake. */
-  onEvent: ((kind: 'roar' | 'stomp' | 'lunge' | 'stagger', at: THREE.Vector3) => void) | null = null;
+  onEvent: ((kind: 'roar' | 'stomp' | 'lunge' | 'stagger' | 'skid' | 'melt' | 'splash' | 'pooled' | 'rise', at: THREE.Vector3) => void) | null = null;
+  /** The boss's attacks, for the engine to turn into damage / projectiles. `dmg` already includes the wave scaling. */
+  onAttack: ((a: { kind: 'swipe' | 'lunge' | 'slam' | 'shards'; dmg: number; from: THREE.Vector3; landed: boolean }) => void) | null = null;
   private eyeMat: THREE.MeshBasicMaterial | null = null;
   private eyeGlow: THREE.Sprite | null = null;
   private eyeLight: THREE.PointLight;
@@ -263,14 +339,34 @@ export class LiquidUnit {
     this.hp = this.max = base;
     this.mat = liquidMaterial(high, this.uniforms);
     this.jointMat = liquidMaterial(high, this.uniforms, true);
-    this.puddleMat = liquidMaterial(high, this.uniforms, false, true);
-    const pgeo = new THREE.CircleGeometry(1, 64);
+    this.poolMat = liquidMaterial(high, this.uniforms, false, false, false);
+    // the pool: a thick lens (lathed profile, rounded top, beaded rim), a real 3D volume that spreads and rises again
+    const prof = [
+      [0, 1],
+      [0.25, 0.98],
+      [0.55, 0.9],
+      [0.8, 0.72],
+      [0.93, 0.5],
+      [0.985, 0.32],
+      [1.0, 0.18],
+      [0.99, 0.07],
+      [0.96, 0.0],
+    ].map(([r, y]) => new THREE.Vector2(r, y));
+    const pgeo = new THREE.LatheGeometry(prof, high ? 72 : 40);
     this.geos.push(pgeo);
-    this.puddle = new THREE.Mesh(pgeo, this.puddleMat);
-    this.puddle.rotation.x = -Math.PI / 2;
-    this.puddle.position.y = 0.05;
-    this.puddle.visible = false;
-    this.group.add(this.body, this.puddle);
+    this.pool = new THREE.Mesh(pgeo, this.poolMat);
+    this.pool.visible = false;
+    this.pool.castShadow = false;
+    this.pool.frustumCulled = false;
+    this.dropMat = new THREE.MeshPhysicalMaterial({ color: '#b4c0cf', metalness: 1, roughness: 0.07, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1 });
+    const dgeo = new THREE.SphereGeometry(1, 12, 9);
+    this.geos.push(dgeo);
+    this.drops = new THREE.InstancedMesh(dgeo, this.dropMat, DROPS);
+    this.drops.frustumCulled = false;
+    this.drops.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.drops.count = DROPS;
+    for (let i = 0; i < DROPS; i++) this.drops.setMatrixAt(i, new THREE.Matrix4().makeScale(0, 0, 0));
+    this.group.add(this.body, this.pool, this.drops);
     this.group.position.set(this.x, 0, this.z);
     // Rim lights (cyan back-left, amber back-right) and the red eye light ride with the unit.
     const rimL = new THREE.PointLight('#27e6ff', high ? 14 : 12, 26, 1.7);
@@ -289,7 +385,7 @@ export class LiquidUnit {
   setEnv(renderer: THREE.WebGLRenderer, hdr: THREE.Texture | null) {
     this.envTex?.dispose();
     this.envTex = buildEnv(renderer, hdr);
-    for (const m of [this.mat, this.jointMat, this.puddleMat]) {
+    for (const m of [this.mat, this.jointMat, this.poolMat, this.dropMat]) {
       m.envMap = this.envTex;
       m.needsUpdate = true;
     }
@@ -438,6 +534,7 @@ export class LiquidUnit {
       const visor = new THREE.Mesh(strip, this.eyeMat);
       visor.frustumCulled = false;
       head.add(visor);
+      this.visor = visor;
       // glow and light where the slit meets the front of the face
       head.getWorldScale(ws);
       const inv = 1 / Math.max(1e-6, ws.x);
@@ -511,7 +608,7 @@ export class LiquidUnit {
       // local shape rotation baked in via a child-less pre-rotation of the geometry
       geo.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(rot));
       holder.add(m);
-      this.orn.push({ mesh: m, bone, restRel: rest.invert(), off });
+      this.orn.push({ mesh: m, bone, restRel: rest.invert(), off, base: scale.clone() });
     };
     // positions are in the 1.8 m source model's metres, in the holder frame (x right, y up, z forward)
     for (const side of [-1, 1]) {
@@ -526,7 +623,12 @@ export class LiquidUnit {
   }
 
   private followPlates() {
+    // the plates shrink away as he melts (and regrow as he rises) so they never smear into spikes
+    const mk = this.uniforms.uMelt.value as number;
+    const f = 1 - THREE.MathUtils.smoothstep(mk, 0.12, 0.5);
     for (const o of this.orn) {
+      o.mesh.visible = f > 0.01;
+      o.mesh.scale.copy(o.base).multiplyScalar(Math.max(0.001, f));
       o.bone.getWorldPosition(this.tv);
       // bones carry the holder's scale; offsets are in holder space
       const h = o.mesh.parent!;
@@ -595,6 +697,7 @@ export class LiquidUnit {
     this.hp -= n;
     this.lastHit = this.t;
     this.heavyAcc += n;
+    this.dmgAcc += n;
     const v = this.uniforms.uHits.value[this.hitCursor++ % HITS];
     v.set(at.x, at.y, at.z, this.t);
     // flinch: rock back, twist away from the side that was hit
@@ -604,6 +707,12 @@ export class LiquidUnit {
       this.hp = 0;
       this.melt = 0.0001;
       this.phase = 'stalk';
+      this.waved = false;
+      this.meltBurst = 0;
+      this.dropT = 0;
+      this.pool.visible = true;
+      this.uniforms.uMeltC.value.set(this.x, 0, this.z);
+      this.emit('melt', 1);
       return true;
     }
     return false;
@@ -642,9 +751,9 @@ export class LiquidUnit {
     this.P[k] += (target - this.P[k]) * Math.min(1, dt * rate);
   }
 
-  private emit(kind: 'roar' | 'stomp' | 'lunge' | 'stagger', imp: number) {
+  private emit(kind: 'roar' | 'stomp' | 'lunge' | 'stagger' | 'skid' | 'melt' | 'splash' | 'pooled' | 'rise', imp: number, at?: THREE.Vector3) {
     this.impulseV = Math.max(this.impulseV, imp);
-    this.onEvent?.(kind, this.tv.set(this.group.position.x, kind === 'roar' ? HEIGHT * 0.65 : 0.4, this.group.position.z + (kind === 'roar' ? 1.5 : 0)));
+    this.onEvent?.(kind, at ?? this.tv.set(this.group.position.x, kind === 'roar' ? HEIGHT * 0.65 : kind === 'melt' ? HEIGHT * 0.5 : 0.4, this.group.position.z + (kind === 'roar' ? 1.5 : 0)));
   }
 
   private setPhase(p: LiquidUnit['phase']) {
@@ -664,6 +773,41 @@ export class LiquidUnit {
     if (ph === 'stalk') {
       lean = 0.2 + 0.1 * this.moveBlend;
       crouch = 0.22 + 0.1 * this.moveBlend; // stalks low: knees bent, shoulders rolling
+      back = 0.65 * this.pushNorm; // shoved back by the fire: rocked on his heels, arms thrown wide
+      flare = 0.5 * this.pushNorm;
+      lean -= 0.25 * this.pushNorm;
+      rate = 8;
+    } else if (ph === 'swipe') {
+      if (pt < TUNING.boss.swipe.windup) {
+        back = 0.35;
+        crouch = 0.5;
+        swing = -0.85;
+        lean = -0.05;
+        rate = 10;
+      } else {
+        lean = 0.6;
+        crouch = 0.3;
+        swing = 1.15;
+        rate = 20;
+      }
+    } else if (ph === 'slam') {
+      if (pt < TUNING.boss.slam.windup) {
+        back = 0.8;
+        flare = 1;
+        chest = 1;
+        crouch = 0.1;
+        rate = 8;
+      } else {
+        lean = 0.9;
+        crouch = 0.55;
+        swing = 1.3;
+        rate = 20;
+      }
+    } else if (ph === 'cast') {
+      swing = 0.9;
+      flare = 0.35;
+      lean = 0.1;
+      rate = 12;
     } else if (ph === 'windup') {
       back = 0.5 * Math.min(1, pt / 0.4);
       crouch = 0.75;
@@ -748,97 +892,328 @@ export class LiquidUnit {
     this.followPlates();
   }
 
+  /** 0..1: how hard the fire is shoving him back right now. */
+  get pushNorm() {
+    return this.alive ? THREE.MathUtils.clamp(this.push / TUNING.boss.pushMax, 0, 1) : 0;
+  }
+
+  /** Where he is, for the engine: distance from the player and the phase. */
+  get dist() {
+    return Math.hypot(this.x, this.z);
+  }
+  get phaseName() {
+    return this.phase;
+  }
+
+  /** Continue: stand him back down the street, attacks reset (the wave stays). */
+  shove(z = -34) {
+    if (!this.alive) return;
+    this.z = Math.min(this.z, z);
+    this.x = THREE.MathUtils.clamp(this.x, -6, 6);
+    this.setPhase('stalk');
+    this.cd = { swipe: 2.5, lunge: 6, slam: 9, shard: 3, roar: 8 };
+    this.openT = 4;
+    this.group.position.set(this.x, 0, this.z);
+  }
+
+  /** Dev: stand him at distance `z` down the street, centred. */
+  placeAt(z: number) {
+    this.x = 0;
+    this.z = z;
+    this.group.position.set(this.x, 0, this.z);
+  }
+
+  private spawnDrop(x: number, y: number, z: number, vx: number, vy: number, vz: number, r: number) {
+    const i = this.dCursor++ % DROPS;
+    this.dp[i * 3] = x;
+    this.dp[i * 3 + 1] = y;
+    this.dp[i * 3 + 2] = z;
+    this.dv[i * 3] = vx;
+    this.dv[i * 3 + 1] = vy;
+    this.dv[i * 3 + 2] = vz;
+    this.dr[i] = r;
+    this.dl[i] = 3;
+  }
+
+  /** Burst `n` droplets from the mound (local space): splash up and out. */
+  private splashDrops(n: number, spread: number, up: number, hMid: number) {
+    for (let k = 0; k < n; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(Math.random()) * spread;
+      const sp = 2.5 + Math.random() * 6;
+      this.spawnDrop(Math.cos(a) * rr * 0.5, 0.3 + Math.random() * hMid, Math.sin(a) * rr * 0.5, Math.cos(a) * sp, up * (0.5 + Math.random()), Math.sin(a) * sp, 0.07 + Math.random() * 0.2);
+    }
+  }
+
+  private updateDrops(dt: number) {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const pos = new THREE.Vector3();
+    const sc = new THREE.Vector3();
+    let any = false;
+    for (let i = 0; i < DROPS; i++) {
+      if (this.dl[i] === 0) continue;
+      any = true;
+      const j = i * 3;
+      if (this.dl[i] > 0) {
+        this.dl[i] -= dt;
+        this.dv[j + 1] -= 16 * dt;
+        this.dp[j] += this.dv[j] * dt;
+        this.dp[j + 1] += this.dv[j + 1] * dt;
+        this.dp[j + 2] += this.dv[j + 2] * dt;
+        // landing: on the pool's lens (or the street): a ripple, a flash of mercury, then it merges into the pool
+        const rad = Math.hypot(this.dp[j], this.dp[j + 2]);
+        const floorY = rad < this.pool.scale.x ? 0.1 + 0.18 * this.pool.scale.y : 0.04;
+        if (this.dp[j + 1] <= floorY && this.dv[j + 1] < 0) {
+          this.dp[j + 1] = floorY;
+          this.dl[i] = -0.001;
+          if (Math.random() < 0.35) {
+            this.uniforms.uHits.value[this.hitCursor++ % HITS].set(this.group.position.x + this.dp[j], 0.1, this.group.position.z + this.dp[j + 2], this.t);
+          }
+          if (Math.random() < 0.18) this.emit('splash', 0, this.tv.set(this.group.position.x + this.dp[j], 0.2, this.group.position.z + this.dp[j + 2]));
+        }
+        if (this.dl[i] === 0) this.dl[i] = -0.001;
+      } else {
+        this.dl[i] -= dt; // squashing (negative time grows)
+        if (this.dl[i] < -0.22) {
+          this.dl[i] = 0;
+          m.makeScale(0, 0, 0);
+          this.drops.setMatrixAt(i, m);
+          continue;
+        }
+      }
+      const squash = this.dl[i] < 0 ? Math.max(0, 1 + this.dl[i] / 0.22) : 1;
+      const r = this.dr[i];
+      pos.set(this.dp[j], this.dp[j + 1], this.dp[j + 2]);
+      sc.set(r * (1 + (1 - squash) * 1.5), r * (squash * 0.9 + 0.1) * (this.dl[i] > 0 ? 1 + Math.min(0.6, Math.abs(this.dv[j + 1]) * 0.05) : 1), r * (1 + (1 - squash) * 1.5));
+      m.compose(pos, q, sc);
+      this.drops.setMatrixAt(i, m);
+    }
+    if (any) this.drops.instanceMatrix.needsUpdate = true;
+  }
+
+  /** The melt / pooled / rise timeline, driven by `this.melt` seconds. */
+  private updateMelt(dt: number) {
+    const M = TUNING.boss.melt;
+    this.melt += dt;
+    const t = this.melt;
+    const U = this.uniforms;
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    const tCollapse = M.collapse;
+    const tPooled = M.collapse + M.pooled;
+    const tEnd = tPooled + M.rise;
+    this.walking = false;
+    this.group.position.set(this.x, 0, this.z);
+    U.uMeltC.value.set(this.x, 0, this.z);
+    U.uAgitate.value = 1;
+    let k: number; // 0 standing .. 1 fully melted
+    if (t < tCollapse) {
+      k = ease(t / tCollapse);
+      U.uRise.value = 0;
+      // droplets fly off as he goes, a big spray as the legs give and again as the mound slumps
+      this.dropT -= dt;
+      if (this.dropT <= 0) {
+        this.dropT = 0.07;
+        this.splashDrops(2, 1.6, 3 + 6 * k, HEIGHT * (1 - k) * 0.7);
+      }
+      if (this.meltBurst === 0 && k > 0.35) {
+        this.meltBurst = 1;
+        this.splashDrops(16, 2.2, 8, HEIGHT * 0.4);
+        this.emit('splash', 0.5, this.tv.set(this.x, 0.5, this.z));
+      }
+      if (this.meltBurst === 1 && k > 0.85) {
+        this.meltBurst = 2;
+        this.splashDrops(26, 3.2, 10, 1.2);
+        this.emit('splash', 0.7, this.tv.set(this.x, 0.5, this.z));
+        U.uHits.value[this.hitCursor++ % HITS].set(this.x, 0.1, this.z, this.t);
+      }
+    } else if (t < tPooled) {
+      k = 1;
+      U.uRise.value = 0;
+      if (!this.waved) {
+        // the mass is down: count the wave, scale him up, pick where he rises
+        this.waved = true;
+        this.wave++;
+        this.max = this.base * Math.pow(1.5, this.wave - 1);
+        this.hp = this.max;
+        this.glideFrom.set(this.x, this.z);
+        this.glideTo.set((Math.random() - 0.5) * 10, -27 - Math.random() * 5);
+        this.emit('pooled', 0.6, this.tv.set(this.x, 0.4, this.z));
+      }
+      // the pool slides down the street, sheeting and rippling
+      const g = THREE.MathUtils.clamp((t - tCollapse) / TUNING.boss.melt.glide, 0, 1);
+      const ge = ease(g);
+      this.x = this.glideFrom.x + (this.glideTo.x - this.glideFrom.x) * ge;
+      this.z = this.glideFrom.y + (this.glideTo.y - this.glideFrom.y) * ge;
+      this.ringT -= dt;
+      if (this.ringT <= 0) {
+        this.ringT = 0.35;
+        U.uHits.value[this.hitCursor++ % HITS].set(this.x + (Math.random() - 0.5) * 2, 0.1, this.z + (Math.random() - 0.5) * 2, this.t);
+      }
+      this.dropT -= dt;
+      if (this.dropT <= 0) {
+        this.dropT = 0.2;
+        this.splashDrops(2, 2.2, 3.5, 0.6);
+      }
+    } else if (t < tEnd) {
+      const u = (t - tPooled) / M.rise;
+      k = 1 - ease(u);
+      U.uRise.value = 1;
+      this.dropT -= dt;
+      if (this.dropT <= 0) {
+        this.dropT = 0.12;
+        this.splashDrops(1, 2.4 * (1 - u), 4 + 4 * u, 1.0);
+      }
+      if (u > 0.05 && this.meltBurst < 3) {
+        this.meltBurst = 3;
+        this.emit('rise', 0.5, this.tv.set(this.x, 0.5, this.z));
+      }
+    } else {
+      // up and standing: he walks on
+      this.melt = 0;
+      U.uMelt.value = 0;
+      U.uRise.value = 0;
+      U.uRim.value = 0.7;
+      this.pool.visible = false;
+      this.pool.scale.set(0.001, 0.001, 0.001);
+      this.setPhase('stalk');
+      this.cd = { swipe: 2, lunge: 4, slam: 7, shard: 2.5, roar: 3 };
+      this.openT = 1.5;
+      this.group.position.set(this.x, 0, this.z);
+      return;
+    }
+    U.uMelt.value = k;
+    U.uRim.value = 0.7 + 0.9 * Math.sin(Math.min(1, k) * Math.PI * 0.5);
+    this.group.rotation.y += (0 - this.group.rotation.y) * Math.min(1, dt * 3);
+    // the pool grows with the collapse and shrinks as he rises; it is a thick lens, not a sheet
+    const sp = ease(THREE.MathUtils.clamp((k - 0.15) / 0.85, 0, 1));
+    const rP = MELT_R * 1.35 * sp + 0.001;
+    const hP = 0.26 * sp + 0.001;
+    this.pool.scale.set(rP, hP, rP);
+    this.pool.position.y = 0.02;
+    this.poseModel(dt, this.melt < tCollapse ? k : t < tPooled ? 1 : k);
+  }
+
+  private startAttack(p: 'swipe' | 'slam' | 'cast' | 'windup') {
+    this.attackDone = false;
+    this.setPhase(p);
+  }
+
   update(dt: number) {
     this.t += dt;
     this.uniforms.uTime.value = this.t;
     this.flinch *= Math.exp(-dt * 6);
     if (this.flinch < 0.002) this.flinch = 0;
+    this.updateDrops(dt);
     const recent = this.t - this.lastHit < 0.25;
     this.uniforms.uAgitate.value += ((recent ? 1 : 0) - this.uniforms.uAgitate.value) * Math.min(1, dt * 6);
+    const meltK = this.uniforms.uMelt.value as number;
+    if (this.visor) this.visor.visible = meltK < 0.03;
     if (this.eyeMat) {
       const f = 0.85 + 0.15 * Math.sin(this.t * 7.3) * Math.sin(this.t * 2.1);
-      const on = this.melt > 0 ? Math.max(0, 1 - this.melt * 1.6) : 1;
+      const on = this.melt > 0 ? Math.max(0, 1 - meltK * 2.4) : 1;
       this.eyeMat.color.setRGB(6 * f * on, 0.03 * on, 0.015 * on);
       if (this.eyeGlow) this.eyeGlow.material.opacity = 0.5 * on * f;
       this.eyeLight.intensity = 40 * on * (1 + 0.8 * this.flinch);
     }
     if (this.melt > 0) {
-      this.melt += dt * 0.45;
-      const k = Math.min(1, this.melt);
-      const back = Math.max(0, this.melt - 1.15) / 0.85;
-      this.walking = false;
-      this.poseModel(dt, this.melt < 1 ? k : 1 - back);
-      this.body.visible = this.melt < 1 || back > 0.05;
-      const sy = this.melt < 1 ? 1 - k * 0.97 : 0.03 + back * 0.97;
-      const sxz = this.melt < 1 ? 1 + k * 1.2 : 2.2 - back * 1.2;
-      this.body.scale.set(sxz, sy, sxz);
-      this.puddle.visible = true;
-      // the puddle keeps shivering: a ring spreads from the middle every few tenths of a second
-      this.ringT -= dt;
-      if (this.ringT <= 0 && this.melt < 1.7) {
-        this.ringT = 0.45;
-        this.uniforms.uHits.value[this.hitCursor++ % HITS].set(this.group.position.x, 0.05, this.group.position.z, this.t);
-      }
-      const pr = this.melt < 1 ? 0.8 + k * 3.2 : 4 * (1 - back) + 0.3;
-      this.puddle.scale.setScalar(pr);
-      this.uniforms.uAgitate.value = 1;
-      if (this.melt >= 1 && this.melt - dt * 0.45 < 1) {
-        // re-form further down the street, tougher
-        this.wave++;
-        this.max = this.base * Math.pow(1.5, this.wave - 1);
-        this.hp = this.max;
-        this.z = -32 - Math.random() * 6;
-        this.x = (Math.random() - 0.5) * 16;
-        this.group.position.set(this.x, 0, this.z);
-      }
-      if (this.melt >= 2) {
-        this.melt = 0;
-        this.body.scale.setScalar(1);
-        this.body.visible = true;
-        this.puddle.visible = false;
-      }
+      this.updateMelt(dt);
       return;
     }
-    // Relentless, heavy stalk toward the player; it stops 16 m out and looms, and every few seconds
-    // it roars, or winds up and lunges. Heavy sustained fire staggers it.
-    const speed = 2.1;
-    this.phaseT += dt;
-    this.staggerCd -= dt;
+
+    const B = TUNING.boss;
+    const w = this.wave;
+    // ── How hard is the fire shoving him? (smoothed damage per second as a share of his health) ──
+    this.dps += (this.dmgAcc / Math.max(1e-4, dt) - this.dps) * Math.min(1, dt / B.pushSmooth);
+    this.dmgAcc = 0;
+    const pushScale = ramp(TUNING.waveRamp.bossPush, w, B.pushMinScale);
+    this.push += (THREE.MathUtils.clamp(this.dps / B.pushFullDps, 0, 1) * B.pushMax * pushScale - this.push) * Math.min(1, dt * 7);
+    const underFire = this.t - this.lastHit < 0.5;
     this.heavyAcc *= Math.exp(-dt * 1.6);
-    if (this.phase !== 'stagger' && this.staggerCd <= 0 && this.heavyAcc > this.max * 0.035) {
+    this.staggerCd -= dt;
+    this.hotT = this.dps >= B.staggerDps ? this.hotT + dt : Math.max(0, this.hotT - dt * 2);
+    if (this.phase !== 'stagger' && this.phase !== 'lunge' && this.staggerCd <= 0 && this.hotT >= B.staggerSustain) {
       this.setPhase('stagger');
-      this.staggerCd = 5;
-      this.heavyAcc = 0;
+      this.staggerCd = B.staggerFor + B.staggerCooldown;
+      this.hotT = 0;
+      this.kickV = B.staggerKick * pushScale;
       this.emit('stagger', 0.45);
     }
+    this.phaseT += dt;
+    this.openT -= dt;
     this.walking = false;
+    const spd = ramp(TUNING.waveRamp.bossSpeed, w);
+    const dmgK = ramp(TUNING.waveRamp.bossDamage, w);
+    const dist = Math.hypot(this.x, this.z);
+    // unit vector from him toward the player (the origin)
+    const ux = dist > 1e-3 ? -this.x / dist : 0;
+    const uz = dist > 1e-3 ? -this.z / dist : 1;
+    let advance = 0; // m/s toward the player
+    for (const k of ['swipe', 'lunge', 'slam', 'shard', 'roar'] as const) this.cd[k] = this.calmed ? 99 : this.cd[k] - dt;
     switch (this.phase) {
-      case 'stalk':
-        this.walking = this.z < -16;
-        if (this.walking) this.z += speed * dt;
-        this.nextRoar -= dt;
-        this.nextLunge -= dt;
-        if (this.nextRoar <= 0 && this.z >= -30) {
-          this.nextRoar = 11 + Math.random() * 6;
+      case 'stalk': {
+        // walks in; when nobody is shooting at him he breaks into a fast advance
+        const quiet = underFire || this.openT > 0 ? 0 : 1;
+        advance = (B.stalkSpeed + (B.catchupSpeed - B.stalkSpeed) * quiet) * spd;
+        if (dist <= B.minDist + 0.2 || this.calmed) advance = 0;
+        this.walking = advance > 0.5;
+        if (this.cd.roar <= 0 && dist > 18) {
+          this.cd.roar = 11 + Math.random() * 6;
           this.setPhase('roar');
-        } else if (this.nextLunge <= 0 && this.z >= -18) {
-          this.nextLunge = 8 + Math.random() * 5;
-          this.setPhase('windup');
+        } else if (dist <= B.reach && this.cd.swipe <= 0) {
+          this.cd.swipe = B.swipe.every / Math.sqrt(spd);
+          this.startAttack('swipe');
+        } else if (dist <= B.reach + 2 && this.cd.slam <= 0) {
+          this.cd.slam = B.slam.every[0] + Math.random() * (B.slam.every[1] - B.slam.every[0]);
+          this.startAttack('slam');
+        } else if (dist > B.reach && dist <= B.lunge.fromDist && this.cd.lunge <= 0) {
+          this.cd.lunge = B.lunge.every[0] + Math.random() * (B.lunge.every[1] - B.lunge.every[0]);
+          this.startAttack('windup');
+        } else if (dist >= B.shards.fromDist && this.cd.shard <= 0) {
+          this.cd.shard = B.shards.every[0] + Math.random() * (B.shards.every[1] - B.shards.every[0]);
+          this.startAttack('cast');
         }
         break;
+      }
       case 'windup':
-        if (this.phaseT > 0.6) this.setPhase('lunge');
+        advance = 0;
+        if (this.phaseT > B.lunge.windup) this.setPhase('lunge');
         break;
       case 'lunge':
-        this.z += 11 * dt * Math.max(0, 1 - this.phaseT / 0.42);
-        if (this.phaseT > 0.42) {
+        advance = B.lunge.speed * Math.max(0, 1 - this.phaseT / B.lunge.time) * spd;
+        if (dist <= B.minDist + 0.2) advance = 0;
+        if (this.phaseT > B.lunge.time) {
           this.emit('lunge', 0.7);
+          this.onAttack?.({ kind: 'lunge', dmg: B.lunge.damage * dmgK, from: this.tv.set(this.x, 2, this.z), landed: this.dist <= B.reach + 1.4 });
           this.setPhase('recover');
         }
         break;
       case 'recover':
-        this.z -= 1.4 * dt * Math.min(1, this.phaseT);
-        if (this.phaseT > 1.3) this.setPhase('stalk');
+        advance = -1.2 * Math.min(1, this.phaseT);
+        if (this.phaseT > 1.0) this.setPhase('stalk');
+        break;
+      case 'swipe':
+        if (!this.attackDone && this.phaseT > B.swipe.windup) {
+          this.attackDone = true;
+          this.emit('stomp', 0.45);
+          this.onAttack?.({ kind: 'swipe', dmg: B.swipe.damage * dmgK, from: this.tv.set(this.x, 3, this.z), landed: this.dist <= B.reach + 1 });
+        }
+        if (this.phaseT > B.swipe.windup + 0.45) this.setPhase('stalk');
+        break;
+      case 'slam':
+        if (!this.attackDone && this.phaseT > B.slam.windup) {
+          this.attackDone = true;
+          this.emit('roar', 0.8);
+          this.onAttack?.({ kind: 'slam', dmg: B.slam.damage * dmgK, from: this.tv.set(this.x, 1, this.z), landed: this.dist <= B.reach + 3 });
+        }
+        if (this.phaseT > B.slam.windup + 0.6) this.setPhase('stalk');
+        break;
+      case 'cast':
+        if (!this.attackDone && this.phaseT > 0.3) {
+          this.attackDone = true;
+          this.onAttack?.({ kind: 'shards', dmg: B.shards.damage * dmgK, from: this.tv.set(this.x, HEIGHT * 0.62, this.z), landed: true });
+        }
+        if (this.phaseT > 0.75) this.setPhase('stalk');
         break;
       case 'roar':
         if (!this.roarFired && this.phaseT > 0.4) {
@@ -846,18 +1221,39 @@ export class LiquidUnit {
           this.emit('roar', 0.6);
           this.uniforms.uHits.value[this.hitCursor++ % HITS].set(this.group.position.x, HEIGHT * 0.65, this.group.position.z + 0.6, this.t);
         }
-        if (this.phaseT > 2.2) this.setPhase('stalk');
+        if (this.phaseT > 2.0) this.setPhase('stalk');
         break;
       case 'stagger':
-        this.z -= 2.2 * dt * Math.max(0, 1 - this.phaseT / 0.5);
-        if (this.phaseT > 1.0) this.setPhase('stalk');
+        if (this.phaseT > B.staggerFor) this.setPhase('stalk');
         break;
     }
-    this.z = Math.min(this.z, -9.5);
-    this.x = THREE.MathUtils.clamp(this.x, -12, 12);
+    // ── Move: advance minus the push of the fire (a lunge is committed and shrugs most of it off) ──
+    const pushNow = this.phase === 'lunge' ? this.push * 0.25 : this.phase === 'stagger' ? this.push + this.kickV : this.push;
+    this.kickV *= Math.exp(-dt * 3.5);
+    const along = (advance - pushNow) * dt;
+    this.x += ux * along;
+    this.z += uz * along;
+    // sheer cliff of a limit: never into the lobby, never through the player
+    const d2 = Math.hypot(this.x, this.z);
+    if (d2 < B.minDist) {
+      this.x *= B.minDist / d2;
+      this.z *= B.minDist / d2;
+    }
+    this.z = Math.max(this.z, -B.maxBack);
+    this.x = THREE.MathUtils.clamp(this.x, -14, 14);
+    // drift to the middle of the street as he comes
+    this.x += (0 - this.x) * Math.min(1, dt * (this.phase === 'lunge' ? 0 : 0.35));
+    // heels dig in while he is shoved back
+    if (pushNow > 1.2) {
+      this.skidT -= dt;
+      if (this.skidT <= 0) {
+        this.skidT = 0.09;
+        this.emit('skid', 0, this.tv.set(this.x + (Math.random() - 0.5) * 2, 0.15, this.z + 0.6));
+      }
+    }
     this.group.position.set(this.x, 0, this.z);
-    const want = Math.atan2(-this.x, -this.z) * 0.6;
-    this.yaw += (want - this.yaw) * Math.min(1, dt * 2);
+    const want = Math.atan2(-this.x, -this.z);
+    this.yaw += (want - this.yaw) * Math.min(1, dt * 3);
     this.group.rotation.y = this.yaw;
     if (this.model) this.poseModel(dt, 0);
     else if (this.legs.length) {
@@ -886,6 +1282,8 @@ export class LiquidUnit {
     this.envTex?.dispose();
     this.mat.dispose();
     this.jointMat.dispose();
-    this.puddleMat.dispose();
+    this.poolMat.dispose();
+    this.dropMat.dispose();
+    this.drops.dispose();
   }
 }

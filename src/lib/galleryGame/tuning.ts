@@ -80,7 +80,7 @@ export const TUNING = {
     flankX: [11, 16] as [number, number],
     bolt: {
       speed: 34,
-      damage: 5,
+      damage: 4,
       /** Seconds between shots per shooter (wave 1), random in range. */
       every: [1.0, 2.0] as [number, number],
       /** Chance a bolt is aimed wide and misses (wave 1), falling by missPerWave to missMin. */
@@ -93,7 +93,7 @@ export const TUNING = {
     },
     melee: {
       range: 2.7,
-      damage: 9,
+      damage: 7,
       windup: 0.32,
       every: 0.95,
       /** The z a rusher plants itself at. */
@@ -105,22 +105,25 @@ export const TUNING = {
     /** Walking in (m/s) and the fast advance when nobody is firing at it. */
     stalkSpeed: 3.0,
     catchupSpeed: 6.2,
-    /** It never gets closer than this (|z|). */
+    /** The furthest the fire can shove him (|z|): he braces there instead of vanishing down the street. */
+    maxBack: 34,
+    /** He never gets closer than this (|z|). */
     minDist: 4.2,
     /** Its attacks land inside this distance. Beyond it, only shards. */
     reach: 8.6,
     /**
-     * PUSHBACK: smoothed damage per second as a fraction of its max HP drives how hard it is shoved back.
-     * At `pushFullFrac` or more it is shoved at `pushMax` m/s (its advance is 3.0, so sustained minigun fire
-     * on wave 1 sends it backwards). Ease off and it catches up fast.
+     * PUSHBACK: the smoothed damage per second (rounds a second: one round is one damage) drives how hard he is
+     * shoved back. At `pushFullDps` or more he is shoved at `pushMax` m/s (his advance is 3.0, so a few seconds of
+     * minigun fire on wave 1 sends him backwards). Ease off and he catches up fast. Absolute, so it does not depend
+     * on how much the player paid (which scales his health).
      */
     pushMax: 5.6,
-    pushFullFrac: 0.05,
+    pushFullDps: 1100,
     pushMinScale: 0.3,
     /** Seconds the damage rate is smoothed over. */
     pushSmooth: 0.35,
-    /** STAGGER: fire above `staggerFrac` for `staggerSustain` seconds and it reels. */
-    staggerFrac: 0.04,
+    /** STAGGER: fire above `staggerDps` for `staggerSustain` seconds and he reels. */
+    staggerDps: 850,
     staggerSustain: 0.8,
     staggerFor: 1.5,
     staggerCooldown: 3.4,
@@ -128,7 +131,7 @@ export const TUNING = {
     swipe: { windup: 0.55, damage: 20, every: 1.7 },
     lunge: { every: [4.5, 7.5] as [number, number], windup: 0.5, speed: 15, time: 0.42, damage: 30, fromDist: 24 },
     slam: { every: [8, 12] as [number, number], windup: 0.8, damage: 16 },
-    shards: { every: [3.0, 4.4] as [number, number], count: 3, damage: 6, speed: 30, fromDist: 11 },
+    shards: { every: [3.2, 4.6] as [number, number], count: 3, damage: 4, speed: 30, fromDist: 11 },
     /** Melt and re-form, in seconds: collapse, lie pooled, rise. */
     melt: { collapse: 2.6, pooled: 1.4, rise: 2.6, glide: 0.9 },
   },

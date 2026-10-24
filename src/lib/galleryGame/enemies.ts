@@ -1,5 +1,5 @@
 /**
- * EROBOTS: OMNICORE's foot soldiers, our own Tripo characters (bot, frog-bot, graf-bot, stripey-bot, tech) in
+ * EROBOTS: nSLAVE's foot soldiers, our own Tripo characters (bot, frog-bot, graf-bot, stripey-bot, tech) in
  * Neo-Tokyo 2048. They step out of the tower lobby, run down the street, plant themselves and fire palm-bolts
  * at the player; take hits with a recoil flash, scorch decals and sparks; and die on a Mixamo-style death clip
  * followed by a debris burst.
@@ -199,6 +199,8 @@ export class ErobotWave {
   grace: number = TUNING.player.openingGrace;
   /** False while the player is down: nobody attacks. */
   playerAlive = true;
+  /** Dev only: false stops new spawns. */
+  spawning = true;
 
   constructor(
     private scene: THREE.Scene,
@@ -213,9 +215,25 @@ export class ErobotWave {
     this.ready = this.load().catch(() => undefined);
   }
 
+  /** Chest of the nearest live enemy (for the dev auto-aim). */
+  nearest(out: THREE.Vector3): boolean {
+    let best = 1e9;
+    let found = false;
+    for (const s of this.slots) {
+      if (s.state !== 'run' && s.state !== 'aim' && s.state !== 'melee') continue;
+      const d = s.root.position.lengthSq();
+      if (d < best) {
+        best = d;
+        found = true;
+        out.copy(s.root.position).setY(1.4);
+      }
+    }
+    return found;
+  }
+
   get live() {
     let n = 0;
-    for (const s of this.slots) if (s.state === 'boot' || s.state === 'run' || s.state === 'aim') n++;
+    for (const s of this.slots) if (s.state === 'boot' || s.state === 'run' || s.state === 'aim' || s.state === 'melee') n++;
     return n;
   }
 
@@ -389,7 +407,7 @@ export class ErobotWave {
     const capW = Math.min(this.cap, Math.round(T.liveCap + T.liveCapPerWave * (w - 1)));
     const want = Math.min(capW, Math.round(T.liveBase + TUNING.waveRamp.erobotLive * (w - 1)) + Math.floor(this.hold * T.holdBonusPerSec));
     this.spawnT -= dt;
-    if (this.spawnT <= 0 && this.live < want) {
+    if (this.spawnT <= 0 && this.live < want && this.spawning) {
       const free = this.slots.find((s) => s.state === 'off');
       if (free) this.spawn(free);
       this.spawnT = Math.max(T.spawnMin, (T.spawnEvery - this.hold * 0.05) / ramp(TUNING.waveRamp.erobotRate, w));
@@ -606,21 +624,21 @@ export class ErobotWave {
     const s = h.slot;
     const at = h.point;
     if (s.state === 'dying' || s.state === 'down' || s.state === 'off') return { killed: false, heavy: false, score: 0 };
-    const total = dmg * (h.head ? 2 : 1);
+    const total = dmg * (h.head ? TUNING.erobots.headMultiplier : 1);
     s.hp -= total;
     s.flash = 1;
     this.fx.sparks(at, h.head ? '#ffe9a0' : '#ffb347', h.head ? 5 : 3, 6);
     if (Math.random() < 0.5) this.opts.flash?.(at, h.head ? '#ffe9a0' : '#ffb347', 30, 70);
     this.addDecal(s, at, dir);
-    const heavy = total >= HP * 0.35;
     if (s.hp <= 0) {
-      this.kill(s, at, heavy);
+      this.kill(s, at, dir, h.head);
       this.mark(true, h.head);
       return { killed: true, heavy: true, score: h.head ? 450 : 300 };
     }
-    // flinch (skip the clip while it's mid-cast to keep aiming readable)
+    // flinch (skip the clip while it's mid-cast to keep aiming readable); a charging shooter is interrupted
     if (s.state === 'aim' || s.state === 'run') {
       if (s.state === 'aim' || Math.random() < 0.35) {
+        s.charge = 0;
         s.act.hurt.reset().setEffectiveWeight(1).fadeIn(0.05).play();
         s.cur = s.act.hurt;
         s.hurtT = 0.45;
@@ -630,28 +648,34 @@ export class ErobotWave {
       }
     }
     this.mark(false, h.head);
-    return { killed: false, heavy, score: Math.round(total) };
+    return { killed: false, heavy: total >= HP * 0.35, score: Math.round(total) };
   }
 
-  private kill(s: Slot, at: THREE.Vector3, heavy: boolean) {
+  private kill(s: Slot, at: THREE.Vector3, dir: THREE.Vector3, head: boolean) {
     s.state = 'dying';
     s.t = 0;
+    s.charge = 0;
+    s.swingHit = -1;
     this.kills++;
-    const a = heavy ? s.act.knock : s.act.death;
+    // half the deaths fly back along the shot, half drop where they stand
+    const knock = Math.random() < 0.55;
+    const a = knock ? s.act.knock : s.act.death;
     a.reset().setEffectiveWeight(1).fadeIn(0.05).play();
     s.cur?.fadeOut(0.1);
     s.cur = a;
-    this.fx.sparks(at, '#ff6a2a', 40, 12);
-    this.fx.shatter(at, '#566074', 22, 8, 0.8);
-    this.fx.shatter(at, '#27e6ff', 6, 6, 0.4);
-    this.fx.ring(at, '#ff6a2a', 3, 0.4);
-    this.opts.flash?.(at, '#ff7a30', heavy ? 150 : 110, 520);
+    s.dv.set(dir.x, 0, dir.z).normalize().multiplyScalar(knock ? 8.5 : 3.5);
+    this.fx.sparks(at, '#ff6a2a', 46, 13);
+    this.fx.sparks(at, '#ffe9a0', head ? 30 : 14, 16);
+    this.fx.shatter(at, '#566074', 26, 9, 0.9);
+    this.fx.shatter(at, '#27e6ff', 8, 7, 0.45);
+    this.fx.ring(at, '#ff6a2a', 3.4, 0.4);
+    this.opts.flash?.(at, '#ff7a30', head ? 160 : 120, 560);
     if (this.opts.light) {
       this.opts.light.position.copy(at);
       this.opts.light.color.set('#ff7a30');
-      this.opts.light.intensity = 120;
+      this.opts.light.intensity = 130;
     }
-    this.impulse = Math.max(this.impulse, heavy ? 0.45 : 0.25);
+    this.impulse = Math.max(this.impulse, head ? 0.5 : 0.3);
   }
 
   private addDecal(s: Slot, at: THREE.Vector3, dir: THREE.Vector3) {
