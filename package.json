@@ -15,6 +15,7 @@
     "content:score-rows": "tsx scripts/bracer-score-rows.ts",
     "blast": "tsx blaster/blast.ts",
     "stress": "tsx blaster/stress.ts",
+    "storm:bench": "tsx scripts/storm-bench.ts",
     "test:stress": "tsx --test blaster/stress.test.ts",
     "worker:build": "esbuild worker/indexer.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/indexer.mjs --external:pg-native --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "vault:build": "esbuild worker/vault.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/vault.mjs"
@@ -22,6 +23,8 @@
   "dependencies": {
     "@1sat/templates": "0.0.43",
     "@bsv/sdk": "^2.8.11",
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0",
     "centrifuge": "^5.7.4",
     "lightweight-charts": "^5.2.1",
     "next": "16.3.8",

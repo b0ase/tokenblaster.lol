@@ -57,7 +57,7 @@ export const PACKS = [10_000, 100_000, 1_000_000] as const;
 export type Pack = (typeof PACKS)[number];
 
 /** Lane split + merge overhead the storm needs on top of the shots (src/lib/gun.ts storm()). */
-export const overheadSats = (shots: number) => Math.min(100, Math.ceil(shots / 300)) * 60 + 1000;
+export const overheadSats = (shots: number) => lanesFor(shots) * 60 + 1000;
 
 export type Quote = { shots: number; network: number; fee: number; total: number };
 /** What a pack costs: network fees at cost, plus the platform fee (rounded up to whole sats). */
@@ -106,8 +106,12 @@ export const inEvent = (now = Date.now()) => now >= Date.parse(PRIZE.start) && n
  * batch (a shotgun's pellets). LIVE sends at min(rate, liveCeiling(rounds)): see below.
  */
 export type TxPattern = { kind: 'stream'; rate: number } | { kind: 'burst'; n: number };
-/** Volume guns (owner, 24 Oct: "this is a STRESS TEST ... ~2000 tx/second"): their stream rate, tx/s. */
-export const STREAM_RATES: Record<string, number> = { minigun: 2000, plasmarifle: 2000, 'big-block': 2000 };
+/**
+ * Volume guns (owner, 24 Oct: "this is a STRESS TEST ... ~2000 tx/second"; 25 Oct: "we're not hitting 2000 tx/sec
+ * and we need to"): their stream rate, tx/s. 3,000 so the LIVE sender (which only runs as far ahead of the trigger
+ * as this rate) has headroom over 2,000 accepted a second (docs/throughput.md).
+ */
+export const STREAM_RATES: Record<string, number> = { minigun: 3000, plasmarifle: 3000, 'big-block': 3000 };
 /** The ASSAULT ON TERRORNODE rack: sustained high-volume streams only, no single shots or bursts. */
 export const ASSAULT_GUNS = ['minigun', 'plasmarifle', 'big-block'] as const;
 export function txPattern(w: { id: string; auto: boolean; fireMs: number; pellets: number }): TxPattern {
@@ -118,19 +122,22 @@ export const patternLabel = (p: TxPattern) => (p.kind === 'stream' ? `STREAM · 
 
 /**
  * The LIVE sender (src/lib/gun.ts storm + src/workers/storm.ts): the paid rounds are split into
- * ceil(rounds / 300) lanes (max 100); each sender round, every lane chains STREAM_STEP blasts and each worker
- * (up to 12 cores) posts its lanes in one ARC /v1/txs request. So one round carries at most lanes × STREAM_STEP
- * transactions. ROUND_SECS is an estimate of one round (sign + ARC answer), not a measurement: real tx/s can be
- * lower on a slow device or a slow ARC, never higher than this.
+ * ceil(rounds / 100) lanes (max 100); each sender round, every lane chains up to STREAM_STEP blasts and every
+ * worker (up to 12 cores) posts its lanes to ARC in parallel requests of <= 600, while it signs the next round.
+ * So one round carries at most lanes × STREAM_STEP transactions and takes about one ARC answer (signing is
+ * overlapped). ROUND_SECS is the ARC answer we plan for (the bench, scripts/storm-bench.ts, measured the sender
+ * itself; GorillaPool's real batch latency is the unknown: docs/throughput.md). Real tx/s can be lower on a slow
+ * device or a slow ARC, never higher than this.
  */
-export const STREAM_STEP = 20;
-export const ROUND_SECS = 1;
-export const lanesFor = (rounds: number) => Math.max(1, Math.min(100, Math.ceil(rounds / 300)));
+export const STREAM_STEP = 100;
+export const ROUND_SECS = 1.5;
+export const MAX_LANES = 100;
+export const lanesFor = (rounds: number) => Math.max(1, Math.min(MAX_LANES, Math.ceil(rounds / 100)));
 export const liveCeiling = (rounds: number) => Math.floor((lanesFor(rounds) * STREAM_STEP) / ROUND_SECS);
 /** What a gun can really send LIVE with `rounds` loaded: the lower of its rate and the sender's ceiling. */
 export const liveRate = (p: TxPattern, rounds: number) => (p.kind === 'stream' ? Math.min(p.rate, liveCeiling(rounds)) : 0);
-/** Rounds needed for the sender to reach a gun's full rate (all 100 lanes at 2,000 tx/s). */
-export const roundsForFullRate = (rate: number) => Math.min(100, Math.ceil((rate * ROUND_SECS) / STREAM_STEP)) * 300;
+/** Rounds needed for the sender to reach a gun's full rate (enough lanes for `rate` tx/s). */
+export const roundsForFullRate = (rate: number) => Math.min(MAX_LANES, Math.ceil((rate * ROUND_SECS) / STREAM_STEP)) * 100;
 
 /** Sum per-session rows into a per-player board: a session is counted once, at its highest report. */
 export type SessionRow = { name: string; score: number; meta: Record<string, unknown> };

@@ -21,6 +21,7 @@
  * the rounds are locked). Dev only: `?dryrun=1` simulates everything (no wallet, no broadcast); not linked in the UI.
  * `?autofire=1` (with ?dryrun=1) holds the trigger on the boss, for screenshots.
  */
+import { TxMeter } from '@/lib/txMeter';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
@@ -287,10 +288,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [jammed, setJammed] = useState(false);
   const [queueNote, setQueueNote] = useState(false);
 
+  const acceptedMeter = useRef(new TxMeter());
   const landed = useCallback(
     (n: number, txid: string | null) => {
       if (n <= 0) return;
       sentRef.current += n;
+      acceptedMeter.current.add(n);
       // A sender round can run a few rounds ahead of the trigger: those count as fired too.
       if (sentRef.current > firedRef.current) firedRef.current = sentRef.current;
       lastAccept.current = lastSent.current = performance.now();
@@ -318,7 +321,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       }
       if (n && !flatRef.current) engine.current?.accept(n);
       if (m === 'live') setFired((f) => (f === firedRef.current ? f : firedRef.current));
-      const tps = Math.round(s.rate);
+      // LIVE: the HUD shows what ARC accepted per second, never the trigger's rate (src/lib/txMeter.ts).
+      const tps = m === 'live' ? acceptedMeter.current.rate() : Math.round(s.rate);
       setRun((r) => (r.tps === tps ? r : { ...r, tps }));
     }, 50);
     return () => clearInterval(i);
@@ -438,7 +442,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         perShot,
         ammo,
         () => sentRef.current >= firedRef.current, // nothing queued: hold, keep the lanes
-        STREAM_STEP, // blasts per lane per ARC round: 100 lanes x 20 = 2,000 a round
+        STREAM_STEP, // most blasts per lane per ARC round: up to 100 lanes x 100 a round
       )
         .catch((e) => {
           sendErrors.current++;
