@@ -63,6 +63,8 @@ const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before
 type Mode = 'practice' | 'live';
 type Run = { sent: number; started: number; last: string | null; tps: number; status: string | null };
 
+const BLASTERS = ['minigun', 'plasmarifle', 'quadplasma'];
+
 /** A pretend chain for practice / dry run: ramps to the weapon's stream rate while the trigger is held. */
 type Sim = { on: boolean; rate: number; target: number; carry: number };
 function simTick(s: Sim, dt: number) {
@@ -79,8 +81,9 @@ export function ShootingGallery() {
   const { storm, fireBatch } = b;
   const handle = chainHandle(cleanHandle(useMyHandle()));
   const weapons = useMemo(() => {
+    // A short rack of heavy hitters built to stream millions of rounds (owner, 24 Oct).
     const all = buildWeapons();
-    return [...all.filter((w) => w.id === 'minigun'), ...all.filter((w) => w.id !== 'minigun')];
+    return BLASTERS.map((id) => all.find((w) => w.id === id)).filter((w): w is RangeWeapon => !!w);
   }, []);
   const { owned } = useOrdnance(b.wallet);
   const [dry, setDry] = useState(false);
@@ -571,7 +574,7 @@ export function ShootingGallery() {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {weapons.map((w) => {
                   const p = txPattern(w);
                   const ok = canUse(w);
@@ -640,7 +643,7 @@ export function ShootingGallery() {
                   <span style={{ color: DR.colour.signal }}>Ammo is lower case letters, digits, dots and dashes, 1 to 40 characters.</span>
                 )}
               </p>
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="sticky bottom-0 z-10 -mx-3 flex flex-wrap items-center gap-3 border-t-2 border-white/15 bg-black/90 px-3 py-2 sm:-mx-5 sm:px-5">
                 <button
                   type="button"
                   disabled={!ready || !ammo || !canUse(weapon)}
