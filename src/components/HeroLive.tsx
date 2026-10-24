@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { subscribeStatus, subscribeTx } from '@/lib/chainStream';
 import type { FeedTx } from '@/lib/feed';
+import { useOnScreen } from '@/lib/useOnScreen';
 
 /**
  * Hero live strip: scrolling hazard tape, a TX/SEC readout and a marquee of live token moves, all from the page's one
@@ -22,6 +23,8 @@ export function HeroLive() {
   const [rate, setRate] = useState(0);
   const [lines, setLines] = useState<string[]>([]);
   const [status, setStatus] = useState('connecting');
+  const box = useRef<HTMLDivElement>(null);
+  const onScreen = useOnScreen(box, '0px');
 
   useEffect(() => {
     const offS = subscribeStatus((s) => setStatus(s));
@@ -35,6 +38,7 @@ export function HeroLive() {
     const t = setInterval(() => {
       const now = Date.now();
       stamps.current = stamps.current.filter((x) => now - x < 5000);
+      if (!onScreen.current) return; // scrolled past or hidden tab: no re-render
       setRate(stamps.current.length / 5);
       setLines((old) => (recent.current.length && recent.current[0] !== old[0] ? [...recent.current] : old));
     }, 1000);
@@ -43,7 +47,7 @@ export function HeroLive() {
       offT();
       clearInterval(t);
     };
-  }, []);
+  }, [onScreen]);
 
   const live = status === 'live';
   const items = lines.length >= 4 ? lines : FALLBACK;
@@ -59,7 +63,7 @@ export function HeroLive() {
   );
 
   return (
-    <div className="border-t-2 border-[var(--hot)] bg-bg">
+    <div ref={box} className="border-t-2 border-[var(--hot)] bg-bg">
       <div className="dr-tape" aria-hidden />
       <div className="flex items-stretch">
         <div className="flex shrink-0 items-center gap-2.5 border-r-2 border-[var(--hot)] bg-[var(--accent-fill)] px-3 py-1.5 text-[var(--on-accent)]">

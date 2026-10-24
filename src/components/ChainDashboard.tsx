@@ -11,6 +11,7 @@ import type { BlocksSummary } from '@/lib/blocks';
 import { subscribeStatus, subscribeTx, type StreamStatus } from '@/lib/chainStream';
 import { APPS, APP_COLOR, type AppId, type FeedTx } from '@/lib/feed';
 import { tokenMeta } from '@/lib/tokenMeta';
+import { useOnScreen } from '@/lib/useOnScreen';
 import { CountUp } from './home/CountUp';
 import { Highway } from './Highway';
 import { Leaderboard } from './Leaderboard';
@@ -101,6 +102,9 @@ export function ChainDashboard() {
   const [win, setWin] = useState(300_000);
   const [hidden, setHidden] = useState<Set<AppId>>(() => new Set());
   const [snap, setSnap] = useState<Snap>(EMPTY);
+  // The dashboard is several sections inside one band; watch the band. Off-screen or hidden tab: no flushes.
+  const top = useRef<HTMLElement>(null);
+  const onScreen = useOnScreen(() => top.current?.parentElement ?? top.current);
 
   const store = useRef({
     incoming: [] as FeedTx[],
@@ -168,6 +172,10 @@ export function ChainDashboard() {
       const keep = now - 900_000;
       if (s.seen.length && s.seen[0].at < keep) s.seen = s.seen.filter((x) => x.at >= keep);
       if (s.seen.length > 200_000) s.seen.splice(0, s.seen.length - 200_000);
+      if (!onScreen.current) {
+        s.flushes = -1; // catch the aggregates up on the first flush back on screen
+        return;
+      }
       if (s.incoming.length) {
         s.feed = [...s.incoming.reverse(), ...s.feed].slice(0, FEED_CAP);
         s.incoming = [];
@@ -191,7 +199,7 @@ export function ChainDashboard() {
       });
     }, speed);
     return () => clearInterval(t);
-  }, [speed]);
+  }, [speed, onScreen]);
 
   const { now, rate, breakdown, movers } = snap;
   const toggle = (id: AppId) =>
@@ -208,7 +216,7 @@ export function ChainDashboard() {
   return (
     <>
       {/* Hero: the token-blasting board */}
-      <section className="grid gap-3 lg:grid-cols-[3fr_2fr]">
+      <section ref={top} className="grid gap-3 lg:grid-cols-[3fr_2fr]">
         <Leaderboard hero />
         <div className="flex min-w-0 flex-col gap-3">
           <BlastTicker blasts={s.blasts} status={status} now={now} onSelect={onSelect} />
@@ -526,7 +534,7 @@ function Blocks() {
   const [open, setOpen] = useState<number | null>(null);
   const [nowS, setNowS] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setNowS(Date.now() / 1000), 5000);
+    const t = setInterval(() => document.visibilityState !== 'hidden' && setNowS(Date.now() / 1000), 5000);
     return () => clearInterval(t);
   }, []);
   useEffect(() => {

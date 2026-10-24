@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { GAME_TITLE, LOADING_SHOTS } from '@/lib/gallery/story';
 import { tbxFontClass } from '../coinop/fonts';
@@ -14,8 +15,7 @@ export function GalleryCard() {
     <section aria-label="Assault on Terrornode" className={`${tbxFontClass} dr-band flex flex-col gap-3`} data-reveal>
       <Link href="/arcade/assault" className="hp-gal group">
         <div className="hp-gal-main">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/gallery/loading/boss-fire.webp" alt="The Liquid Unit roars in the rain outside the TERRORNODE tower, Neo-Tokyo 2048" />
+          <Image src="/gallery/loading/boss-fire.webp" fill sizes="100vw" alt="The Liquid Unit roars in the rain outside the TERRORNODE tower, Neo-Tokyo 2048" />
           <div className="hp-gal-shade" aria-hidden />
           {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
             <span key={c} className="hp-gal-corner" data-c={c} aria-hidden />
@@ -23,8 +23,7 @@ export function GalleryCard() {
           <div className="hp-gal-film" aria-hidden>
             {FRAMES.map((f) => (
               <figure key={f.src}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={f.src} alt="" loading="lazy" style={{ objectPosition: f.pos }} />
+                <Image src={f.src} alt="" fill sizes="260px" style={{ objectPosition: f.pos }} />
                 <figcaption>{f.caption}</figcaption>
               </figure>
             ))}
