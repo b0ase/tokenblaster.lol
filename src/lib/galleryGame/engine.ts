@@ -1189,7 +1189,7 @@ export class GalleryEngine {
     hurt: (n: number, angle = 0) => this.hurt(this.tD.set(Math.sin(angle) * 6, 1.6, -Math.cos(angle) * 6).clone(), n, 'bolt'),
     kill: () => this.hurt(this.tD.set(0, 1.6, -5).clone(), this.hp + 1, 'swipe'),
     meltBoss: () => {
-      if (this.bossOn && this.boss.alive) this.boss.hit(this.boss.hp + 1, this.boss.chest(new THREE.Vector3()));
+      if (this.bossOn && this.boss.alive && this.boss.hit(this.boss.hp + 1, this.boss.chest(new THREE.Vector3()))) this.bossMelted();
     },
     stage: () => this.stageIdx + 1,
     setStage: (n: number) => {
@@ -1206,7 +1206,9 @@ export class GalleryEngine {
     setInvuln: (s: number) => (this.invuln = s),
     stats: () => this.stats(),
     bossAt: (z: number) => this.boss.placeAt(z),
+    hostageAt: (z: number) => this.sets.roof?.hostage?.group.position.set(0, 0, z),
     hostageNear: () => (this.sets.roof?.hostage?.group.position.set(0, 0, -9), this.lookAtHostage(1)),
+    noSpawn: () => this.erobots.setStage(TUNING.stages[this.stageIdx].lane, TUNING.stages[this.stageIdx].level),
     calm: (on: boolean) => (this.boss.calmed = on),
     look: (x: number, y: number) => this.ndc.set(x, y),
     clearEnemies: () => (this.erobots.clearAll(), this.bolts.clear()),

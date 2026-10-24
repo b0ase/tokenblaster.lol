@@ -2,7 +2,7 @@
 
 /**
  * TokenBlaster Shooting Gallery (3D). First person behind the BSVGun arsenal on a rain-wet night street,
- * against the nSLAVE tower and its LIQUID UNIT (src/lib/galleryGame/*). Every round that lands
+ * against the TERRORNODE tower and its LIQUID UNIT (src/lib/galleryGame/*). Every round that lands
  * is a real BSV transaction: "tokenblaster.lol" <ammo> <chain:n> "gallery" [<handle>].
  *
  * How each weapon spends transactions (src/lib/gallery.ts txPattern):
@@ -122,6 +122,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const { cur: bannerCur, push: pushBanner, clear: clearBanners } = useBanners();
   const [hud, setHud] = useState<Stats | null>(null);
   const hudWave = useRef(1);
+  const finishRef = useRef<() => void>(() => undefined); // set below, once finish exists
   const [over, setOver] = useState<RunSummary | null>(null);
   // FLATLINED: the player's health hit zero. The CONTINUE? countdown runs on this screen (src/components/gallery/Flatlined.tsx).
   const [flat, setFlat] = useState<FlatStats | null>(null);
@@ -654,7 +655,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     boughtRef.current = firedRef.current;
     setBought(firedRef.current);
   }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought, setFlat]);
-  const finishRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     finishRef.current = finish;
   });
@@ -685,7 +685,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       pushBanner({ kind: 'loaded' });
       pushBanner({ kind: 'stage', n: 1 });
     },
-    [simulated, setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
+    [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
   const lockAndLoad = async (continued = false) => {
     setErr(null);
