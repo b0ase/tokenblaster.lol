@@ -1,3 +1,4 @@
+import { GAME_TITLE } from '@/lib/gallery/story';
 import Link from 'next/link';
 import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
@@ -92,17 +93,17 @@ export default function Home() {
       {/* The arcade, unmissable (owner, 7 Oct 2026: "if there is a link, I can't see it"). */}
       {/* Shooting Gallery: the 31 Oct stress test */}
       <section aria-label="Shooting Gallery" className="dr-band flex flex-col gap-3">
-        <Link href="/arcade/gallery" className="group grid items-stretch gap-0 border-2 border-[var(--border)] md:grid-cols-[1.1fr_1fr]">
+        <Link href="/arcade/gallery" className="group relative block overflow-hidden border border-white/10 bg-black">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/gallery/share.jpg" alt="The Gunner fires a minigun at a chrome robot outside the OMNICORE DYNAMICS tower" className="aspect-[1200/630] w-full object-cover" />
-          <div className="flex flex-col justify-center gap-2 p-[clamp(12px,2.6vw,40px)]">
-            <span className="dr-code !text-[var(--accent)]">TB-GALLERY / 31 OCT STRESS TEST</span>
-            <p className="dr-display text-[clamp(28px,4.6vw,52px)] leading-[0.95] text-hot group-hover:text-[var(--accent)]">TokenBlaster Shooting Gallery: fire a million transactions</p>
-            <p className="text-dim">
-              Hold the trigger. Every bullet is a real BSV transaction from your own wallet, about 26 sats each: 1,000,000 shots is roughly $4.50 at today&apos;s price. Free
-              practice first, then LIVE packs of 10k, 100k or 1M.
+          <img src="/gallery/loading/boss-fire.webp" alt="The Liquid Unit roars in the rain outside the OMNICORE tower, Neo-Tokyo 2048" className="aspect-[16/10] w-full object-cover transition duration-700 group-hover:scale-[1.03] sm:aspect-[21/9]" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/10" aria-hidden />
+          <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-[clamp(16px,3vw,48px)]">
+            <span className="text-[11px] font-bold uppercase tracking-[0.35em] text-[var(--accent)]">TokenBlaster shooting gallery · 31 Oct stress test</span>
+            <p className="dr-display text-[clamp(34px,6.5vw,88px)] leading-[0.9] text-white">{GAME_TITLE}</p>
+            <p className="max-w-2xl text-[clamp(14px,1.6vw,18px)] text-white/80">
+              Neo-Tokyo, 2048. Dr Kweg Wong has turned his Erobots on the city. Join the Ninja Punk Girls, drop a coin in and hold the trigger: every round is a real transaction.
             </p>
-            <span className="btn-fire self-start !px-5 !py-2 !text-lg">Pick up the minigun &raquo;</span>
+            <span className="btn-fire mt-1 self-start !px-6 !py-2.5 !text-lg">Insert coin &raquo;</span>
           </div>
         </Link>
         <PrizeBanner cta />
