@@ -7,6 +7,7 @@ import { HeroShowcase } from '@/components/HeroShowcase';
 import { HeroSound } from '@/components/HeroSound';
 import { ArcadeGrid } from '@/components/ArcadeGrid';
 import { HeroLive } from '@/components/HeroLive';
+import { PrizeBanner } from '@/components/gallery/PrizeBanner';
 import { byTitle } from '@/lib/alpha';
 import { GAMES, type Game } from '@/lib/games';
 
@@ -89,6 +90,24 @@ export default function Home() {
       <div className="dr-chev dr-chev-march !h-[16px]" aria-hidden />
       
       {/* The arcade, unmissable (owner, 7 Oct 2026: "if there is a link, I can't see it"). */}
+      {/* Shooting Gallery: the 31 Oct stress test */}
+      <section aria-label="Shooting Gallery" className="dr-band flex flex-col gap-3">
+        <Link href="/arcade/gallery" className="group grid items-stretch gap-0 border-2 border-[var(--border)] md:grid-cols-[1.1fr_1fr]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/gallery/share.jpg" alt="The Gunner fires a minigun at a chrome robot outside the OMNICORE DYNAMICS tower" className="aspect-[1200/630] w-full object-cover" />
+          <div className="flex flex-col justify-center gap-2 p-[clamp(12px,2.6vw,40px)]">
+            <span className="dr-code !text-[var(--accent)]">TB-GALLERY / 31 OCT STRESS TEST</span>
+            <p className="dr-display text-[clamp(28px,4.6vw,52px)] leading-[0.95] text-hot group-hover:text-[var(--accent)]">TokenBlaster Shooting Gallery: fire a million transactions</p>
+            <p className="text-dim">
+              Hold the trigger. Every bullet is a real BSV transaction from your own wallet, about 26 sats each: 1,000,000 shots is roughly $4.50 at today&apos;s price. Free
+              practice first, then LIVE packs of 10k, 100k or 1M.
+            </p>
+            <span className="btn-fire self-start !px-5 !py-2 !text-lg">Pick up the minigun &raquo;</span>
+          </div>
+        </Link>
+        <PrizeBanner cta />
+      </section>
+
       <Link href="/arcade" className="dr-band dr-band-grid group dr-rise block !p-0">
         <div className="dr-hazard-2" aria-hidden />
         <div className="relative flex flex-col gap-4 px-[clamp(12px,2.6vw,64px)] py-5 sm:py-7">

@@ -28,6 +28,7 @@ const STATIC_GAMES = {
   'bsvgun-versus': { title: 'BSVGun Versus', tag: 'bsvgun', sort: 'score' },
   arena: { title: 'Arena (kills in one life)', tag: 'arena', sort: 'score' },
   city: { title: 'Satoshi City', tag: 'city', sort: 'score' },
+  gallery: { title: 'Shooting Gallery (accepted shots)', tag: 'gallery', sort: 'score' },
 } as const;
 
 type GameInfo = { title: string; tag: string; sort: 'score' };
@@ -76,6 +77,12 @@ export async function topScores(game: ScoreGame, period: ScorePeriod, maxRows = 
   return rows.map((r) => ({ ...r, id: Number(r.id), score: Number(r.score), secs: Number(r.secs) }));
 }
 
+/** Rows since an ISO time (the Shooting Gallery event window). */
+export async function scoresSince(game: ScoreGame, since: string, maxRows = 200): Promise<ScoreRow[]> {
+  const rows = await rpc<ScoreRow[]>('tokenblaster_top_scores', { p_game: game, since, max_rows: maxRows, sort: 'score' });
+  return rows.map((r) => ({ ...r, id: Number(r.id), score: Number(r.score), secs: Number(r.secs) }));
+}
+
 export async function submitScore(s: { game: ScoreGame; mode: 'practice' | 'live'; name: string; score: number; secs: number; meta: Record<string, unknown>; txid: string | null; verified: boolean; ipHash: string }) {
   const rows = await rpc<{ id: number | null; ok: boolean; error: string | null }[]>('tokenblaster_submit_score', {
     p_game: s.game,
@@ -118,7 +125,8 @@ function pushes(script: string): string[] {
  * A LIVE run is verified when its last tx is known to ARC (GorillaPool) and carries
  * OP_FALSE OP_RETURN "tokenblaster.lol" <token> <n> <game> with this game's tag.
  */
-export async function verifyRunTx(txid: string, tag: string): Promise<boolean> {
+/** `handle`: also require it as the push after <game> (the Shooting Gallery names its shots). */
+export async function verifyRunTx(txid: string, tag: string, handle?: string): Promise<boolean> {
   try {
     const r = await fetch(`https://arc.gorillapool.io/v1/tx/${txid}`, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
     if (!r.ok) return false;
@@ -140,7 +148,7 @@ export async function verifyRunTx(txid: string, tag: string): Promise<boolean> {
       const s = o.lockingScript.toHex();
       if (!s.startsWith('006a')) return false;
       const p = pushes(s);
-      return p[0] === TAG_HEX && p[3] === gameHex;
+      return p[0] === TAG_HEX && p[3] === gameHex && (!handle || p[4] === Buffer.from(handle).toString('hex'));
     });
   } catch {
     return false;

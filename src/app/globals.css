@@ -829,3 +829,10 @@ body:has([data-game-shell]) > footer {
     display: none !important;
   }
 }
+
+/* Gallery: the big pulsing LOCK & LOAD button. */
+@keyframes lock-load-pulse {
+  0%, 100% { box-shadow: 0 0 24px rgba(232, 38, 29, 0.55), 0 0 0 0 rgba(232, 38, 29, 0.6); }
+  50% { box-shadow: 0 0 48px rgba(255, 74, 61, 0.9), 0 0 0 10px rgba(232, 38, 29, 0); }
+}
+.lock-load { animation: lock-load-pulse 1.4s ease-in-out infinite; }
