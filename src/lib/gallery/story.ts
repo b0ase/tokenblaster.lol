@@ -293,7 +293,7 @@ export const BRIEFING = {
   from: 'The Ninja Punk Girls',
   objective: 'Fight your way up the nSLAVE tower, jam Dr Kweg Wong’s robot network, and keep the Liquid Unit (that is Kweg) down. You have 100 health: stay alive.',
   rules: [
-    'Hold the trigger to fire. Every round is real and goes on the record.',
+    'Hold the trigger to fire. In paid play every round is real; in free play they are practice rounds and nothing is sent.',
     'The Liquid Unit is pushed back by sustained fire. Stop and he closes in fast. Erobots shoot and swing: keep the gun moving.',
     'Smash the glass, drop the racks and clear the Erobots for points.',
     'No refunds. Only put in what you want to spend.',

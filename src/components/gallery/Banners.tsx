@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BANNERS, KWEG, waveBrief } from '@/lib/gallery/story';
 import { Icon } from '../coinop/ui';
 
-export type BannerKind = { kind: 'loaded' } | { kind: 'wave'; n: number } | { kind: 'boss' };
+export type BannerKind = { kind: 'loaded'; practice?: boolean } | { kind: 'wave'; n: number } | { kind: 'boss' };
 type Item = BannerKind & { id: number; ms: number };
 
 const MS = { loaded: 2400, wave: 3000, boss: 2400 } as const;
@@ -62,10 +62,10 @@ export function BannerStage({ item }: { item: (BannerKind & { id: number; ms: nu
           {BANNERS.loaded.top}
         </p>
         <p className="tbx-banner-main tbx-display text-[clamp(44px,9vw,118px)] text-[var(--tbx-red)]" style={{ textShadow: '0 0 50px rgba(255,59,59,.7), 0 6px 40px rgba(0,0,0,.8)', animationDelay: '0.12s' }}>
-          {BANNERS.loaded.bottom}
+          {item.practice ? 'PRACTICE ROUNDS' : BANNERS.loaded.bottom}
         </p>
         <span className="tbx-banner-line mt-3 h-[2px] w-[min(520px,70vw)] bg-gradient-to-r from-transparent via-[var(--tbx-red)] to-transparent" />
-        <p className="tbx-banner-sub mt-3 text-[clamp(12px,1.4vw,17px)] font-semibold uppercase tracking-[0.28em] text-white/85">{BANNERS.loaded.sub}</p>
+        <p className="tbx-banner-sub mt-3 text-[clamp(12px,1.4vw,17px)] font-semibold uppercase tracking-[0.28em] text-white/85">{item.practice ? 'Free play: nothing goes on chain.' : BANNERS.loaded.sub}</p>
       </div>
     );
   }
