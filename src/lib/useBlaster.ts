@@ -290,7 +290,7 @@ export function useBlaster() {
   }, [refreshGun]);
 
 
-  /** Unload everything back to the wallet: every token in the gun (so the wallet shows them), then the sats. */
+  /** Return the TOKENS in the gun to the wallet. Sats are credit and are never returned (no refunds). */
   const unload = useCallback(async () => {
     const g = gun.current;
     if (!wallet || !g) return;
@@ -305,12 +305,7 @@ export function useBlaster() {
         parts.push(`${(Number(r.amt) / 10 ** meta.dec).toLocaleString()} $${meta.sym}`);
         last = r.txid;
       }
-      const satsTx = await g.unload(wallet.address);
-      if (satsTx) {
-        parts.push('the leftover sats');
-        last = satsTx;
-      }
-      setAmmo(0);
+      // Coin-op (owner, 24 Oct 2026): no refunds. The sats are the player's credit and stay in the gun.
       setTokenAmmo(0);
       if (parts.length) setReceipt({ text: `Back in your wallet: ${parts.join(' and ')}`, txid: last });
       await refreshGun();

@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function HopperPage() {
   return (
-    <GameShell
+    <GameShell game="hopper"
       title="Block Hopper"
       below={
         <>

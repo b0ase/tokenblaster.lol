@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function SatStack2048Page() {
   return (
-    <GameShell
+    <GameShell game="2048"
       title="Sat Stack 2048"
       below={
         <>

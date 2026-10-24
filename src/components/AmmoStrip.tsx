@@ -3,7 +3,7 @@
 /**
  * The ammo flow shared by the arena and Double-O Satoshi:
  *   1 CONNECT WALLET → 2 PICK what to fire + how many, ONE LOAD (one approval) → 3 PLAY.
- * Steps that don't apply yet are dimmed. Errors show inline. UNLOAD and the last receipt stay
+ * Steps that don't apply yet are dimmed. Errors show inline. the last receipt stays
  * underneath; anything else (gun address, fixers) goes in `details`.
  */
 import { useEffect, useState, type ReactNode } from 'react';
@@ -33,7 +33,7 @@ export function AmmoStrip({
   onPlay,
   playReady = true,
   onPractice,
-  practiceLabel = '▶ PLAY PRACTICE',
+  practiceLabel = '▶ PLAY · CREDIT GAME',
   details,
   house,
 }: {
@@ -222,8 +222,7 @@ export function AmmoStrip({
                     </button>
                   </div>
                   <p className="text-xs text-dim">
-                    One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(count * TOKEN_FEE).toLocaleString()} sats of network fees. Unfired fees come back on
-                    Unload.
+                    One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(count * TOKEN_FEE).toLocaleString()} sats of network fees. No refunds: unfired fees stay as credit.
                   </p>
                   <button onClick={load} disabled={!!b.busy || spinning} className="btn px-3 py-2 font-bold">
                     {spinning ? (
@@ -273,11 +272,6 @@ export function AmmoStrip({
         </button>
       )}
 
-      {(b.ammo > 0 || b.gunTokens.length > 0) && (
-        <button onClick={b.unload} disabled={!!b.busy} className="btn px-2 py-1 text-xs">
-          {b.busy === 'unloading' ? 'UNLOADING… APPROVE IN WALLET' : 'UNLOAD EVERYTHING BACK TO MY WALLET'}
-        </button>
-      )}
       {b.receipt && (
         <div className="flex items-center gap-2 text-xs">
           <span className="text-hot">✓ {b.receipt.text}</span>

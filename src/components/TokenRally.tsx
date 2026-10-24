@@ -3,13 +3,14 @@
 /**
  * Token Rally: a 3D rally game where the rivals are live BSV transactions. This component is the
  * shell (menu, HUD, results, touch controls); the game itself is src/lib/rally/engine.ts.
- * Two ways to play. PRACTICE is free: nothing is sent to the chain, no wallet is touched. RACE LIVE burns your
+ * Coin-op: every stage run is a paid play (src/components/InsertCoin.tsx). RACE LIVE also burns your
  * loaded coin as fuel: every 20 m of throttle, every nitro burst, drift bonus and checkpoint is one tiny real
  * transaction, queued and sent in the background through the same gun paths Chain Frogger uses (src/lib/rally/spend.ts).
  * The first tx of a live race is its proof on the score board.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameAudio } from './SoundToggle';
+import { useCoinOp } from './InsertCoin';
 import { HighScores } from './HighScores';
 import { WalletChooser } from './WalletChooser';
 import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
@@ -108,6 +109,7 @@ const readBest = (): Record<string, number> => {
 };
 
 export function TokenRally() {
+  const co = useCoinOp('Token Rally', 'rally');
   const shell = useGameShell();
   const mount = useRef<HTMLDivElement>(null);
   const feed = useChainFeed();
@@ -413,8 +415,9 @@ export function TokenRally() {
   const mock = devMock();
   const burns = Math.max(0, (mock ? loadedBurns(mock.ammo, 0, false) : loadedBurns(b.ammo, b.tokenAmmo, tokModeNow)) - spent.queued);
   const canGoLive = (Boolean(b.wallet) || Boolean(mock)) && burns >= MIN_START_ACTIONS && !b.busy;
-  /** Start a stage run. LIVE needs a loaded tank; PRACTICE is free and touches no wallet. */
-  const start = (live = liveMode) => {
+  /** Start a stage run. Every run is a paid play (coin-op); LIVE also burns fuel on chain. */
+  const start = (live = liveMode) => co.playPaid(() => (co.consume(), startNow(live)));
+  const startNow = (live = liveMode) => {
     const eng = engine.current;
     if (!eng || (live && !canGoLive)) return;
     meter.reset();
@@ -522,11 +525,6 @@ export function TokenRally() {
                   </button>
                 ))}
             {tokMode && tokOpts.length === 0 && <span className="text-hot">You hold none of ${b.token?.sym}: pick another coin or use SATS.</span>}
-            {(b.ammo > 0 || b.gunTokens.length > 0) && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn px-2 py-0.5">
-                {b.busy === 'unloading' ? 'UNLOADING…' : 'UNLOAD'}
-              </button>
-            )}
           </div>
         </>
       )}
@@ -739,7 +737,7 @@ export function TokenRally() {
         )}
         {racing && (
           <div data-rally-mode={run.live ? 'live' : 'practice'} className={`pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 border bg-black/60 px-2 py-0.5 text-[10px] font-bold tracking-widest sm:text-xs ${run.live ? 'border-[#ffd36a] text-[#ffd36a]' : 'border-white/20 text-dim'}`}>
-            {run.live ? 'LIVE · FUEL ON CHAIN' : 'PRACTICE'}
+            {run.live ? 'LIVE · FUEL ON CHAIN' : 'CREDIT PLAY'}
           </div>
         )}
         {racing && (
@@ -853,7 +851,7 @@ export function TokenRally() {
                       JOIN
                     </button>
                   </div>
-                  <p className="mt-1 text-[10px] text-dim">Empty slots are filled by live-chain AI rivals. Cars do not collide. Each driver pays their own fuel; practice is free.</p>
+                  <p className="mt-1 text-[10px] text-dim">Empty slots are filled by live-chain AI rivals. Cars do not collide. Each driver pays their own fuel; entry is paid at the cabinet.</p>
                 </div>
               )}
               {mpOn && room.info && (
@@ -872,7 +870,7 @@ export function TokenRally() {
                   racingElsewhere={room.ui.players.some((x) => x.st === 'racing') && !meRow?.ready}
                   colours={{ quick: '#7ae7ff', priv: '#ffd23f', ok: '#7dff9a', warn: '#ff2d2d', amber: '#ffb000' }}
                   titleStyle={{ fontFamily: 'Impact, "Arial Black", sans-serif', letterSpacing: '0.02em' }}
-                  readyLabels={{ paid: 'READY · LIVE', free: 'READY · PRACTICE' }}
+                  readyLabels={{ paid: 'READY · LIVE', free: 'READY · CREDIT' }}
                   teamColour={(x) => driverColour(x.team).base}
                   detail={(x) => `${CARS.find((c) => c.id === x.vehicle)?.name ?? x.vehicle} · ${driverColour(x.team).name}`}
                   onLeave={() => {
@@ -886,7 +884,7 @@ export function TokenRally() {
                     meRow?.ready ? (
                       <>
                         <span className="px-2 py-1 text-sm font-bold" style={{ background: '#7dff9a', color: '#000' }}>
-                          READY {meRow.paid ? '· LIVE' : '· PRACTICE'}
+                          READY {meRow.paid ? '· LIVE' : '· CREDIT'}
                         </span>
                         <button onClick={() => room.setReady(false)} className="btn px-2 py-0.5 text-[11px]">
                           UNREADY
@@ -894,7 +892,7 @@ export function TokenRally() {
                       </>
                     ) : (
                       <button onClick={lobbyReady} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40" data-rally-ready>
-                        {liveMode ? 'READY · LIVE' : 'READY · PRACTICE'}
+                        {liveMode ? 'READY · LIVE' : 'READY · CREDIT'}
                       </button>
                     )
                   }
@@ -902,8 +900,8 @@ export function TokenRally() {
               )}
               <div className="grid grid-cols-2 gap-1.5">
                 <button onClick={() => setLiveMode(false)} aria-pressed={!liveMode} className={`btn flex flex-col items-start px-2 py-1.5 text-left ${!liveMode ? 'btn-on' : ''}`}>
-                  <span className="text-xs font-bold">{!liveMode ? '● ' : '○ '}PRACTICE · FREE</span>
-                  <span className="text-[10px] opacity-70">Nothing is sent to the chain.</span>
+                  <span className="text-xs font-bold">{!liveMode ? '● ' : '○ '}CREDIT PLAY · no fuel burn</span>
+                  <span className="text-[10px] opacity-70">Paid play, no per-burn txs.</span>
                 </button>
                 <button onClick={() => setLiveMode(true)} aria-pressed={liveMode} disabled={!HOUSE} className={`btn flex flex-col items-start px-2 py-1.5 text-left ${liveMode ? 'btn-on' : ''}`}>
                   <span className="text-xs font-bold">{liveMode ? '● ' : '○ '}RACE LIVE · ON-CHAIN</span>
@@ -914,7 +912,7 @@ export function TokenRally() {
               <div className="flex flex-wrap items-center gap-2">
                 {!mpOn && (
                   <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
-                    {liveMode ? '▶ START LIVE RACE' : '▶ START STAGE · PRACTICE'}
+                    {liveMode ? '▶ START LIVE RACE' : `▶ START STAGE · $${co.priceUsd.toFixed(2)}`}
                   </button>
                 )}
                 {liveMode && !canGoLive && <span className="text-[11px] text-hot">{b.wallet ? `Load at least ${MIN_START_ACTIONS} burns of fuel first.` : 'Connect a wallet and load fuel.'}</span>}
@@ -946,7 +944,7 @@ export function TokenRally() {
         {phase === 'paused' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
             <p className="text-3xl font-black text-hot">PAUSED</p>
-            <p className="text-xs font-bold tracking-widest text-dim">{run.live ? `LIVE · ${spent.sent.toLocaleString()} TXS ON CHAIN` : 'PRACTICE · FREE'}</p>
+            <p className="text-xs font-bold tracking-widest text-dim">{run.live ? `LIVE · ${spent.sent.toLocaleString()} TXS ON CHAIN` : 'CREDIT PLAY'}</p>
             {run.live && <div className="w-[min(92vw,30rem)]">{fuelPanel}</div>}
             <button onClick={() => engine.current?.pause(false)} className="btn-fire px-6 py-2 text-lg">
               RESUME
@@ -1042,7 +1040,7 @@ export function TokenRally() {
               <div className="flex flex-wrap justify-center gap-2">
                 {!mpOn && (
                   <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
-                    {liveMode ? '▶ RACE AGAIN · LIVE' : '▶ RACE AGAIN · PRACTICE'}
+                    {liveMode ? '▶ RACE AGAIN · LIVE' : `▶ RACE AGAIN · $${co.priceUsd.toFixed(2)}`}
                   </button>
                 )}
                 <button onClick={toMenu} className="btn">

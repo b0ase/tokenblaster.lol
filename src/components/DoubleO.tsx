@@ -26,6 +26,7 @@ import { COUNTDOWN_MS, DM_SECS, FRAG_LIMIT, INVULN_MS, MODES, PoseBuffer, RESPAW
 import { IdentityPicker, InviteButton, PlayerBadge } from './PlayerBadge';
 import type { WalletInterface } from '@bsv/sdk';
 import { AmmoStrip } from './AmmoStrip';
+import { useCoinOp } from './InsertCoin';
 import { buildAgent, buildRig, CAST, loadCastModels, nameTag, poseRig, signMesh, type CastDef, type Kind, type Rig } from '@/lib/doubleo/characters';
 import { Grid } from '@/lib/doubleo/grid';
 import { DOORS, LEVELS, SIZE, SOLID, type Level } from '@/lib/doubleo/levels';
@@ -120,6 +121,8 @@ const saveDone = (ids: string[]) => {
 };
 
 export function DoubleO() {
+  // Coin-op: every mission (and every retry) is a paid play.
+  const co = useCoinOp('Double O Satoshi', 'doubleosatoshi');
   const b = useBlaster();
   const mount = useRef<HTMLDivElement>(null);
   const marker = useRef<HTMLDivElement>(null);
@@ -2763,7 +2766,8 @@ export function DoubleO() {
   const ready = loading >= 1;
   // Every mission opens with its briefing; the engine starts when the player clicks GO (a user
   // gesture, so the pointer lock works).
-  const start = (i: number) => {
+  const start = (i: number) => co.playPaid(() => (co.consume(), startNow(i)));
+  const startNow = (i: number) => {
     setLevel(i);
     setEmpty(false);
     setBrief({ level: i, live: live && armed });
@@ -2772,7 +2776,8 @@ export function DoubleO() {
   const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const tokensLeft = Math.max(0, Math.floor(b.tokenAmmo) - hud.heat);
 
-  const startMode = (i: number, isLive: boolean) => {
+  const startMode = (i: number, isLive: boolean) => co.playPaid(() => (co.consume(), startModeNow(i, isLive)));
+  const startModeNow = (i: number, isLive: boolean) => {
     setLevel(i);
     setEmpty(false);
     setLive(isLive);
@@ -3234,7 +3239,7 @@ export function DoubleO() {
                     </button>
                   )}
                   <button onClick={() => startMode(level, false)} disabled={!ready} className={armed ? 'btn px-4 py-2 font-bold' : 'btn-fire'}>
-                    ▶ PLAY PRACTICE
+                    ▶ PLAY · CREDIT GAME
                   </button>
                   <span className="text-xs text-dim">mission: {L.name}</span>
                 </div>

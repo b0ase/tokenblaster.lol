@@ -392,11 +392,6 @@ export function BlockHopper() {
                 {b.busy === 'loading' || b.busy === 'loading-tokens' ? 'APPROVE…' : `LOAD ${n.toLocaleString()} ${payTok ? `$${b.token?.sym ?? ''}` : 'sats'}`}
               </button>
             ))}
-            {(b.ammo > 0 || b.gunTokens.length > 0) && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn">
-                UNLOAD
-              </button>
-            )}
           </div>
           <p className="text-xs text-dim">
             {payTok ? `1 $${b.token?.sym ?? 'token'} + ~${TOKEN_FEE} sats fee` : `${PER_ACTION} sat + ~${EST_FEE} sats fee`} per action ·{' '}

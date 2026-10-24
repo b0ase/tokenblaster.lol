@@ -95,7 +95,7 @@ export function BSVGun() {
         <button onClick={() => setTab('blast')} className={`btn px-4 py-2 text-lg ${tab === 'blast' ? 'btn-on' : ''}`}>
           BLAST ZONE
         </button>
-        <span className="self-center text-sm text-dim">{tab === 'range' ? 'Shoot the live chain: practice is free, LIVE is one real transaction per shot.' : 'Mass blaster: tens of thousands of real transactions in parallel lanes.'}</span>
+        <span className="self-center text-sm text-dim">{tab === 'range' ? 'Shoot the live chain: entry is paid at the cabinet, LIVE is one real transaction per shot.' : 'Mass blaster: tens of thousands of real transactions in parallel lanes.'}</span>
       </div>
       <section className="game-stage panel overflow-hidden p-0">
         <BSVGunRange b={b} mode={tab} blast={{ active: tab === 'blast' && firing, tps, sent, target }} />
@@ -155,11 +155,6 @@ export function BSVGun() {
             {need > 0 && (
               <button onClick={() => b.load(need, `BSVGun: ${size.toLocaleString()} blasts`)} disabled={!!b.busy || firing} className="btn btn-on px-4 py-2">
                 {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `LOAD ${need.toLocaleString()} sats`}
-              </button>
-            )}
-            {b.ammo > 0 && !firing && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn px-4 py-2">
-                UNLOAD
               </button>
             )}
           </div>

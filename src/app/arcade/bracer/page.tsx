@@ -26,7 +26,7 @@ export const metadata = {
 
 export default function BRacerPage() {
   return (
-    <GameShell
+    <GameShell game="bracer"
       title={GAME_NAME}
       below={
         <>

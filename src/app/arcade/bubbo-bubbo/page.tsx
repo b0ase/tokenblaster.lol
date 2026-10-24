@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function CoinPopPage() {
   return (
-    <GameShell
+    <GameShell game="bubbo-bubbo"
       title="Coin Pop"
       below={
         <>

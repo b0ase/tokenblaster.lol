@@ -18,6 +18,8 @@ import { useBlaster } from '@/lib/useBlaster';
 import { arenaSend, createPvpQueue, hitMsg } from '@/lib/pvpPay';
 import { HighScores } from './HighScores';
 import { AmmoStrip } from './AmmoStrip';
+import { InsertCoin, useCoinOp } from './InsertCoin';
+import { coinStore } from './coinop/store';
 import { WalletChooser } from './WalletChooser';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import { proveHandle, readWire, verifyWire, type IdWire } from '@/lib/identity';
@@ -133,6 +135,9 @@ type Hud = { kills: number; shots: number; onChain: number; heat: number; health
  * token (tagged `arena`), sent to ARC in batches so hold-to-fire can fire thousands.
  */
 export function Arena() {
+  // Coin-op: one play = one life. The cabinet's START paid the first; each CONTINUE after a death pays another.
+  const co = useCoinOp('Arena', 'arena');
+  useEffect(() => void coinStore.takePrepaid(), []);
   const b = useBlaster();
   const { owned } = useOrdnance(b.wallet);
   const ownedRef = useRef(owned);
@@ -1454,7 +1459,7 @@ export function Arena() {
           paintCoin(null);
         }
       }
-      if (deadUntil && now > deadUntil) {
+      if (deadUntil && now > deadUntil && coinStore.takePrepaid() !== null) {
         deadUntil = 0;
         health = 100;
         camera.position.copy(start);
@@ -1929,8 +1934,11 @@ export function Arena() {
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-900/55">
             <span className="text-5xl font-bold text-hot">YOU DIED</span>
             <span className="text-sm text-fg">
-              {deathKills} kill{deathKills === 1 ? '' : 's'} this life · back in a moment
+              {deathKills} kill{deathKills === 1 ? '' : 's'} this life · Esc, then CONTINUE to play another life
             </span>
+            <div className="pointer-events-auto">
+              <InsertCoin co={co} playLabel="CONTINUE" start={() => undefined} perCredit="1 play = 1 life." />
+            </div>
             <div className="h-1.5 w-56 overflow-hidden bg-black/60">
               <div ref={deadBarRef} className="h-full origin-left bg-hot" style={{ transform: 'scaleX(0)' }} />
             </div>
@@ -1941,7 +1949,7 @@ export function Arena() {
             {/* Which mode you are in, always: LIVE costs real sats, PRACTICE sends nothing. */}
             {practice ? (
               <span className="inset bg-black/75 px-2 py-1 text-sm">
-                <span className="font-bold text-hot">PRACTICE</span> <span className="text-dim">· nothing is sent to the chain. Esc, then load ammo to play LIVE.</span>
+                <span className="font-bold text-hot">CREDIT PLAY</span> <span className="text-dim">· paid at the cabinet; shots stay off chain. Esc, then load ammo to blast LIVE.</span>
               </span>
             ) : (
               <>
@@ -2121,7 +2129,7 @@ export function Arena() {
             </div>
             {isReady && !loadError && (
               <button onClick={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))} className="btn btn-on px-6 py-3 text-lg font-bold">
-                ▶ TRY IT NOW · PRACTICE
+                ▶ PLAY · CREDIT GAME
               </button>
             )}
             {loadError ? (
@@ -2203,7 +2211,7 @@ export function Arena() {
                 onPlay={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: false } }))}
                 playReady={isReady}
                 onPractice={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))}
-                practiceLabel="▶ PLAY PRACTICE (fire away, nothing is sent)"
+                practiceLabel="▶ PLAY · CREDIT GAME (paid at the cabinet)"
                 details={
                   <details className="text-xs text-dim">
                     <summary className="cursor-pointer">gun details</summary>

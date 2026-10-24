@@ -21,6 +21,8 @@ import { useBlaster } from '@/lib/useBlaster';
 import { TOKEN_FEE } from '@/lib/gun';
 import { GAME_COINS, houseHeld } from '@/lib/gameCoins';
 import { WalletChooser } from './WalletChooser';
+import { InsertCoin, useCoinOp } from './InsertCoin';
+import { coinStore } from './coinop/store';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { HighScores, useRunClock } from './HighScores';
 
@@ -80,6 +82,10 @@ const NEON_COLS = ['#ff2d6f', '#28e7ff', '#ffd23f', '#9b5cff', '#3bff8a', '#ff7a
 const PAINTS = ['#d81b2a', '#f2f2f2', '#111216', '#1e5bd8', '#f5b700', '#2bb673', '#8a2be2', '#ff6a00', '#9aa3ad'];
 
 export function Frogger3D() {
+  // Coin-op: the first run is paid at the cabinet; every replay pays one play from the credit.
+  const co = useCoinOp('Frogger', 'frogger');
+  // The first game starts at once: it uses the play the cabinet's START paid for.
+  useEffect(() => void coinStore.takePrepaid(), []);
   const mount = useRef<HTMLDivElement>(null);
   const feed = useChainFeed();
   const b = useBlaster();
@@ -1567,9 +1573,7 @@ export function Frogger3D() {
               You crossed {score} times. Best: {best}.
             </p>
             <HighScores game="frogger" score={score} secs={runSecs} live={paid} txid={lastTx} label="CROSSINGS" />
-            <button onClick={() => control.current?.restart()} className="btn-fire">
-              AGAIN
-            </button>
+            <InsertCoin co={co} playLabel="AGAIN" start={() => (co.consume(), control.current?.restart())} perCredit="1 play = 1 game, 3 lives." />
           </div>
         )}
       </div>
@@ -1591,17 +1595,9 @@ export function Frogger3D() {
         </div>
       </div>
       {/* Mode picker: big and plain, so nobody wonders whether a hop costs money (owner, 6 Oct 2026). */}
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="mt-3 grid grid-cols-1 gap-2">
         <button
-          onClick={() => setPaid(false)}
-          aria-pressed={!paid}
-          className={`btn flex flex-col items-start gap-1 px-4 py-4 text-left ${!paid ? 'btn-on' : ''}`}
-        >
-          <span className="text-xl font-bold">{!paid ? '● ' : '○ '}PRACTICE · FREE</span>
-          <span className="text-sm opacity-80">Nothing is paid. Hops and shots stay off-chain.</span>
-        </button>
-        <button
-          onClick={() => setPaid(true)}
+          onClick={() => setPaid(!paid)}
           aria-pressed={paid}
           disabled={!HOUSE}
           title={HOUSE ? undefined : 'Paid play is not switched on yet'}
@@ -1612,7 +1608,7 @@ export function Frogger3D() {
         </button>
       </div>
       <p className="mt-2 text-center text-base font-bold">
-        {paid ? <span className="text-hot">You are playing PAID: each hop costs money.</span> : <span className="text-dim">You are playing FREE: nothing is paid.</span>}
+        {paid ? <span className="text-hot">You are playing PAID: each hop costs money.</span> : <span className="text-dim">Credit play: paid at the cabinet. Turn on PAID · ON-CHAIN to put every hop on chain too.</span>}
       </p>
       <div className={`inset mt-2 flex-wrap items-center gap-2 px-3 py-2 text-sm ${paid ? 'flex' : 'hidden'}`}>
         {paid && b.wallet && (
@@ -1657,11 +1653,6 @@ export function Frogger3D() {
                   {b.busy === 'loading' ? 'APPROVE…' : `LOAD ${n.toLocaleString()} sats`}
                 </button>
               ))
-            )}
-            {b.wallet && (b.ammo > 0 || b.gunTokens.length > 0) && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn">
-                UNLOAD
-              </button>
             )}
             <span className="text-dim">
               on chain: <span className="text-hot">{onChain.toLocaleString()}</span>

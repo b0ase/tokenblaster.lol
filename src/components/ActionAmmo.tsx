@@ -77,11 +77,6 @@ export function ActionAmmo({ ap, actions }: { ap: ActionPay; actions: string }) 
                           {b.busy === 'loading' ? 'APPROVE…' : `LOAD ${n.toLocaleString()} sats`}
                         </button>
                       ))}
-                  {b.wallet && (b.ammo > 0 || b.gunTokens.length > 0) && (
-                    <button onClick={b.unload} disabled={!!b.busy} className="btn">
-                      UNLOAD
-                    </button>
-                  )}
                 </div>
                 <p className="text-dim">
                   <span className="text-hot" data-testid="actions-loaded">

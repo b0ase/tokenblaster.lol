@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function SnakePage() {
   return (
-    <GameShell
+    <GameShell game="snake"
       title="Token Snake"
       below={
         <>

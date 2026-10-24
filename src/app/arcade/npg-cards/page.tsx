@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function NpgCardsPage() {
   return (
-    <GameShell
+    <GameShell game="npg-cards"
       title="Ninja Punk Girls: Card Battle"
       below={
         <>

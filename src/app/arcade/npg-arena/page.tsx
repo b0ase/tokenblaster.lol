@@ -11,7 +11,7 @@ export const metadata = {
 
 export default function NpgArenaPage() {
   return (
-    <GameShell
+    <GameShell game="npg-arena"
       title="Ninja Punk Girls: Arena"
       below={
         <p className="panel text-dim">

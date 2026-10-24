@@ -13,7 +13,7 @@ export const metadata = {
 
 export default function DoubleOPage() {
   return (
-    <GameShell
+    <GameShell game="doubleosatoshi"
       title="Double-O Satoshi"
       below={
         <>

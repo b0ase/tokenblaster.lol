@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function TokenPotionsPage() {
   return (
-    <GameShell
+    <GameShell game="puzzling-potions"
       title="Token Potions"
       below={
         <>

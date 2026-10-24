@@ -28,6 +28,7 @@ import type { RaceLink } from '@/lib/racemp/session';
 import { readWire } from '@/lib/identity';
 import { useMyHandle } from './PlayerBadge';
 import { VersusLobby, VersusResults, VsBoard } from './BSVGunVersus';
+import { useCoinOp } from './InsertCoin';
 
 type Blaster = ReturnType<typeof useBlaster>;
 export type BlastState = { active: boolean; tps: number; sent: number; target: number };
@@ -49,6 +50,7 @@ const autoQuality = (): Quality => {
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.ceil(s) % 60).padStart(2, '0')}`;
 
 export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'blast'; blast: BlastState }) {
+  const co = useCoinOp('BSVGun', 'bsvgun');
   const wrap = useRef<HTMLDivElement>(null);
   const mount = useRef<HTMLDivElement>(null);
   const popHost = useRef<HTMLDivElement>(null);
@@ -283,7 +285,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
     onLeftWhilePlaying: () => !engine.current?.inVersus && setPaused(true),
   });
   const { fs, enter: enterFs, toggle: toggleFs } = gfs;
-  const start = useCallback(() => {
+  const startNow = useCallback(() => {
     if (!engine.current || !unlocked.has(weaponId)) return;
     enterFs(); // from the click / Enter itself, so the browser allows it
     shots.reset();
@@ -295,6 +297,8 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
     engine.current.start(weaponId, live);
     mount.current?.querySelector('canvas')?.focus();
   }, [weaponId, live, unlocked, shots, enterFs]);
+  // Coin-op: every run is a paid play from the credit (the first one was paid at the cabinet).
+  const start = useCallback(() => co.playPaid(() => (co.consume(), startNow())), [co, startNow]);
   const startRef = useRef(start);
   useEffect(() => {
     startRef.current = start;
@@ -344,13 +348,13 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   const liveBar = (
     <>
               <button onClick={() => setLive(false)} className="px-3 py-1.5 text-sm font-bold" style={{ background: !live ? DR.colour.paper : 'rgba(10,10,12,.8)', color: !live ? DR.colour.ink : DR.colour.paper, border: `2px solid ${DR.colour.paper}` }}>
-                PRACTICE
+                CREDIT PLAY
               </button>
               <button onClick={() => setLive(true)} className="px-3 py-1.5 text-sm font-bold" style={{ background: live ? DR.colour.signal : 'rgba(10,10,12,.8)', color: DR.colour.paper, border: `2px solid ${DR.colour.signal}` }}>
                 LIVE · ON CHAIN
               </button>
               <span className="text-[11px]" style={{ color: DR.colour.grey }}>
-                {live ? `each shot = one real tx (~${costPerShot} sats)` : 'free, nothing is sent'}
+                {live ? `each shot = one real tx (~${costPerShot} sats)` : 'paid play, shots stay off chain'}
               </span>
               {live && !b.wallet && (
                 <button onClick={b.connectWallet} disabled={!!b.busy} className="px-3 py-1.5 text-sm font-bold" style={{ background: DR.colour.amber, color: DR.colour.ink }}>
@@ -465,7 +469,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
                 {shots.error && <div style={{ color: DR.colour.signal }}>⚠ {shots.error}</div>}
               </>
             ) : (
-              <div>PRACTICE · nothing is sent</div>
+              <div>CREDIT PLAY · no per-shot tx</div>
             )}
           </div>
           <div className="flex max-w-[60%] gap-1 overflow-x-auto pb-0.5">

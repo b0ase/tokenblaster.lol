@@ -15,7 +15,7 @@ export const metadata = {
 
 export default function FroggerPage() {
   return (
-    <GameShell
+    <GameShell game="frogger"
       title="Chain Frogger"
       below={
         <>
