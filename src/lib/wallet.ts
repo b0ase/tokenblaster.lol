@@ -25,13 +25,24 @@ export async function connect(entry: WalletEntry): Promise<Wallet> {
 }
 
 /** Pay `sats` to `address` in one approval. Returns the funding transaction (with its proofs). */
+// Only one payment request may be open in the wallet at a time (a second createAction while one is pending
+// can wedge an extension wallet's prompt queue).
+let paying: Promise<unknown> | null = null;
 export async function fund(w: Wallet, address: string, sats: number, description: string): Promise<Transaction> {
-  const r = await w.client.createAction({
+  if (paying) throw new Error('A payment is already waiting in your wallet. Approve or cancel it first.');
+  const req = w.client.createAction({
     description,
     outputs: [{ lockingScript: new P2PKH().lock(address).toHex(), satoshis: sats, outputDescription: description }],
     labels: ['tokenblaster'],
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
   });
+  paying = req;
+  let r: Awaited<typeof req>;
+  try {
+    r = await req;
+  } finally {
+    paying = null;
+  }
   if (!r.tx) throw new Error('bWallet returned no transaction.');
   return Transaction.fromAtomicBEEF(r.tx);
 }
@@ -47,12 +58,19 @@ export function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<
   });
 }
 
-/** Is the wallet connection live? A cheap getPublicKey with a short timeout (no prompt on a connected wallet). */
-export async function walletAlive(w: Wallet, ms = 6000): Promise<boolean> {
-  try {
-    const { publicKey } = await withTimeout(w.client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT');
-    return publicKey === w.publicKey;
-  } catch {
-    return false;
+/**
+ * Is the wallet connection live? A cheap getPublicKey with a ~15 s timeout (no prompt on a connected wallet).
+ * Chrome extension wallets sleep their worker (MV3, ~30 s idle): the first call can fail just by waking it, so
+ * on a timeout or error we retry ONCE after a short pause before calling the wallet gone (bWalletX advice, 24 Oct).
+ */
+export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { publicKey } = await withTimeout(w.client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT');
+      return publicKey === w.publicKey;
+    } catch {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
+    }
   }
+  return false;
 }
