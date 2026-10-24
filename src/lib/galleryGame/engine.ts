@@ -150,6 +150,8 @@ export class GalleryEngine {
   private walkStep = 0;
   private frameN = 0;
   private holdT = 0;
+  /** The Erobots' hit/wreck light: neutral, world space, rides the light slots in every stage. */
+  private erHit = new THREE.PointLight('#ff7a30', 0, 26, 1.6);
   /** Point-light slots: the route's lights are templates; the nearest/brightest few drive these (constant count). */
   private slots: THREE.PointLight[] = [];
   private tpl: { l: THREE.PointLight; home: THREE.Object3D; set: number; world: boolean; score: number }[] = [];
@@ -289,7 +291,7 @@ export class GalleryEngine {
       high,
       canvas: this.canvas,
       reticle: () => this.reticle(),
-      light: this.city.hitLight,
+      light: this.erHit, // a neutral, world-space hit light of its own (not the street's)
       flash: (at, c, i, ms) => this.flash(at, c, i, ms),
       bolts: this.bolts,
       melee: (from, dmg) => this.hurt(from, dmg, 'melee'),
@@ -1016,6 +1018,7 @@ export class GalleryEngine {
         this.tpl.push({ l, home, set: i, world: hits.has(l), score: 0 });
       }
     });
+    this.tpl.push({ l: this.erHit, home: this.scene, set: -1, world: true, score: 0 });
     for (let k = 0; k < (this.high ? TUNING.run.lightSlots : TUNING.run.lightSlotsLow); k++) {
       const s = new THREE.PointLight('#ffffff', 0, 10, 1.6);
       this.slots.push(s);
@@ -1197,6 +1200,7 @@ export class GalleryEngine {
     fg.color.copy(M.a.set(a.fog)).lerp(M.b.set(b.fog), k);
     fg.density = a.density + (b.density - a.density) * k;
     (this.scene.background as THREE.Color).copy(M.a.set(a.bg)).lerp(M.b.set(b.bg), k);
+    this.erHit.intensity *= Math.pow(0.002, dt);
     this.assignLights();
   }
 
@@ -1205,7 +1209,7 @@ export class GalleryEngine {
     const cam = this.camera.position;
     const p = this.tC;
     for (const t of this.tpl) {
-      if (!this.kitOn[t.set] || t.l.intensity <= 0) {
+      if ((t.set >= 0 && !this.kitOn[t.set]) || t.l.intensity <= 0) {
         t.score = -1;
         continue;
       }

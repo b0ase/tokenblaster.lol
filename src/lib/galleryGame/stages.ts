@@ -589,9 +589,10 @@ export function buildCore({ scene, high, look }: Ctx): StageSet {
   group.add(shaft);
 
   // floor: a metal disc with a glowing grid, and neon rings around the pedestal
-  const floorMat = track(look.material('metal_plate_02', [10, 10], '#5a6478', 0.7));
-  floorMat.roughness = 0.35;
-  floorMat.envMapIntensity = 1.4;
+  const floorMat = track(look.material('metal_plate_02', [10, 10], '#4a5262', 0.55));
+  // brushed, not mirror: under sustained fire a glossy floor turned the muzzle and core light into a white sheet
+  floorMat.roughness = 0.62;
+  floorMat.envMapIntensity = 0.7;
   const ground = new THREE.Mesh(track(new THREE.CircleGeometry(RAD, 64)), floorMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, 0, CZ);
