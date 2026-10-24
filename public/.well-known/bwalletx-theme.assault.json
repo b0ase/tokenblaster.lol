@@ -8,5 +8,6 @@
   "surface": "#0A121C",
   "text": "#E8F1F6",
   "logo": "/brand/assault-logo.svg",
-  "cardArt": "/brand/assault-card.jpg"
+  "cardArt": "/brand/assault-card.jpg",
+  "room": "ASSAULT"
 }

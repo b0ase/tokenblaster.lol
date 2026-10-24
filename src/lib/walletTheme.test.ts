@@ -11,7 +11,7 @@ const ratio = (a: string, b: string) => {
   const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
   return (x + 0.05) / (y + 0.05);
 };
-const KEYS = ['v', 'name', 'mode', 'accent', 'accentHi', 'bg', 'surface', 'text', 'logo', 'cardArt'];
+const KEYS = ['v', 'name', 'mode', 'accent', 'accentHi', 'bg', 'surface', 'text', 'logo', 'cardArt', 'room', 'paths'];
 
 for (const file of ['bwalletx-theme.json', 'bwalletx-theme.assault.json']) {
   test(`wallet theme ${file}: schema, sizes, contrast`, () => {
