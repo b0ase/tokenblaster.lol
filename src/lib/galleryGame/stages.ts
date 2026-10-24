@@ -320,8 +320,9 @@ export function buildFloors({ scene, high, look }: Ctx): StageSet {
     neon.box(4.3, 4.9, H - 0.06, H - 0.01, z - 1.5, z + 1.5, '#9fd8ff', 1.1);
   }
   for (let i = 0; i < 12; i++) neon.box(-LX + i * (2 * LX / 12), -LX + i * (2 * LX / 12) + 0.8, 0.02, 0.035, ZF + 9, ZF + 9.7, '#ff2a2a', 2.6);
-  // the lift wall
-  wallsB.box(-LX - 7, LX + 7, 0, H, ZF - 0.4, ZF);
+  // the far end is OPEN (owner, 24 Oct: one continuous walk): two wall stubs frame a wide stairwell mouth that
+  // opens straight into the server core's shaft beyond
+  for (const sx of [-1, 1]) wallsB.box(sx > 0 ? LX : -LX - 7, sx > 0 ? LX + 7 : -LX, 0, H, ZF - 0.4, ZF);
   const wallsMesh = wallsB.build(wallMat)!;
   wallsMesh.receiveShadow = true;
   group.add(wallsMesh);
@@ -460,18 +461,10 @@ export function buildFloors({ scene, high, look }: Ctx): StageSet {
     eye.mesh.position.set(4.4, 2.5, ZF + 0.03);
     disp.push(logo.map, logo.mat, logo.mesh.geometry, eye.map, eye.mat, eye.mesh.geometry);
     group.add(logo.mesh, eye.mesh);
-    const doorMat = track(flatMat('#8a94a6', 0.25, 0.95));
-    doorMat.envMapIntensity = 1.8;
-    const doorG = track(new THREE.BoxGeometry(1.7, 3.0, 0.12));
-    for (const x of [-0.9, 0.9]) {
-      const d = new THREE.Mesh(doorG, doorMat);
-      d.position.set(x, 1.5, ZF + 0.08);
-      group.add(d);
-    }
+    // the lift doors are gone: the corridor runs on into the core
     const frame = new Strips();
-    frame.box(-1.85, -1.75, 0, 3.1, ZF + 0.1, ZF + 0.16, '#ff2a2a', 3);
-    frame.box(1.75, 1.85, 0, 3.1, ZF + 0.1, ZF + 0.16, '#ff2a2a', 3);
-    frame.box(-1.85, 1.85, 3.05, 3.15, ZF + 0.1, ZF + 0.16, '#ff2a2a', 3);
+    frame.box(-LX - 0.1, -LX + 0.1, 0, H, ZF - 0.5, ZF + 0.16, '#ff2a2a', 3);
+    frame.box(LX - 0.1, LX + 0.1, 0, H, ZF - 0.5, ZF + 0.16, '#ff2a2a', 3);
     group.add(frame.build()!);
   }
 
@@ -539,6 +532,8 @@ export function buildFloors({ scene, high, look }: Ctx): StageSet {
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
 export const CORE_AT = new THREE.Vector3(0, 7, -22);
+/** Half-angle of the opening in the core shaft's far wall (radians). */
+export const SHAFT_GAP = 0.4;
 
 export function buildCore({ scene, high, look }: Ctx): StageSet {
   const group = new THREE.Group();
@@ -587,14 +582,17 @@ export function buildCore({ scene, high, look }: Ctx): StageSet {
   );
   wallTex.repeat.set(10, 4);
   const wallMat = track(new THREE.MeshStandardMaterial({ map: wallTex, emissiveMap: wallTex, emissive: '#2a6a9a', emissiveIntensity: 0.55, roughness: 0.6, metalness: 0.6, side: THREE.BackSide }));
-  const shaft = new THREE.Mesh(track(new THREE.CylinderGeometry(RAD, RAD, TOP, 48, 1, true)), wallMat);
+  // the shaft wall has a tall opening on the far (-Z) side: the walk carries on out onto the roof
+  const GAP = SHAFT_GAP;
+  const shaft = new THREE.Mesh(track(new THREE.CylinderGeometry(RAD, RAD, TOP, 48, 1, true, Math.PI + GAP, Math.PI * 2 - GAP * 2)), wallMat);
   shaft.position.set(0, TOP / 2 - 2, CZ);
   group.add(shaft);
 
   // floor: a metal disc with a glowing grid, and neon rings around the pedestal
-  const floorMat = track(look.material('metal_plate_02', [10, 10], '#5a6478', 0.7));
-  floorMat.roughness = 0.35;
-  floorMat.envMapIntensity = 1.4;
+  const floorMat = track(look.material('metal_plate_02', [10, 10], '#4a5262', 0.55));
+  // brushed, not mirror: under sustained fire a glossy floor turned the muzzle and core light into a white sheet
+  floorMat.roughness = 0.62;
+  floorMat.envMapIntensity = 0.7;
   const ground = new THREE.Mesh(track(new THREE.CircleGeometry(RAD, 64)), floorMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, 0, CZ);
@@ -627,6 +625,7 @@ export function buildCore({ scene, high, look }: Ctx): StageSet {
     const y = 3.2 + tier * 6.5;
     for (let a = -125; a <= 125; a += 6.6) {
       const ang = (a * Math.PI) / 180;
+      if (Math.abs(ang) < SHAFT_GAP + 0.06) continue; // keep the exit clear
       const x = Math.sin(ang) * (RAD - 1.1);
       const z = CZ - Math.cos(ang) * (RAD - 1.1);
       q.setFromAxisAngle(up, -ang);

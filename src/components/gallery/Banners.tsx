@@ -5,7 +5,7 @@
  * from KWEG). Pointer events are off; the gun keeps firing underneath.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BANNERS, KWEG, PRACTICE, TRANSITION, stageBrief } from '@/lib/gallery/story';
+import { BANNERS, KWEG, PRACTICE, stageBrief } from '@/lib/gallery/story';
 import { Icon } from '../coinop/ui';
 
 export type BannerKind = { kind: 'loaded' } | { kind: 'stage'; n: number } | { kind: 'boss' };
@@ -98,18 +98,6 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
       <p className="tbx-banner-sub tbx-display mt-3 text-[clamp(20px,3vw,36px)]">{w.title}</p>
       <p className="tbx-banner-sub mt-2 max-w-[560px] text-[clamp(13px,1.3vw,16px)] font-medium text-white/85" style={{ textShadow: '0 2px 16px #000' }}>{w.brief}</p>
       <p className="tbx-banner-sub mt-2 hidden max-w-[560px] text-[clamp(11px,1.1vw,14px)] italic text-white/60 sm:block">“{w.kweg}” <span className="not-italic">· {KWEG.name}</span></p>
-    </div>
-  );
-}
-
-/** The lift between stages: a black screen with the floor counter and Dr Wong's line (CSS fades; the page times it). */
-export function LiftOverlay({ shown, label, line }: { shown: boolean; label: string; line: string }) {
-  return (
-    <div className="pointer-events-none absolute inset-0 z-[25] flex flex-col items-center justify-center gap-3 bg-black px-6 text-center" style={{ opacity: shown ? 1 : 0, transition: `opacity ${shown ? 0.9 : 0.8}s ease-in-out` }} aria-hidden={!shown} data-lift>
-      <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{TRANSITION.up}</p>
-      <p className="tbx-display text-[clamp(34px,7vw,88px)]">{label}</p>
-      <span className="h-[2px] w-[min(420px,60vw)] bg-gradient-to-r from-transparent via-[var(--tbx-teal)] to-transparent" />
-      <p className="max-w-[560px] text-[clamp(12px,1.3vw,16px)] italic text-white/70">“{line}” <span className="not-italic text-white/40">· {KWEG.name}</span></p>
     </div>
   );
 }

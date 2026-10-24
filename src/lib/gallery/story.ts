@@ -259,10 +259,10 @@ export const LOADING_SHOTS: LoadingShot[] = [
 
 export type StageBrief = { n: number; code: string; place: string; title: string; brief: string; intel: string; goal: string; kweg: string };
 const STAGES: Omit<StageBrief, 'kweg'>[] = [
-  { n: 1, code: 'STAGE 1 · STREET', place: 'THE STREET', title: 'STORM THE HQ', brief: 'The Erobots hold the street outside TERRORNODE HQ. Keep the trigger down, sweep the gun across whatever is shooting at you and clear the way to the lobby doors.', intel: 'You can die. Erobots die fast. Keep the aim moving.', goal: 'Stop the Erobots' },
-  { n: 2, code: 'STAGE 2 · HQ FLOORS', place: 'HQ FLOORS', title: 'THE LABS', brief: 'Offices, glass labs and server racks, and an Erobot behind every desk. Some run wide to flank. Smash the labs, drop the racks and clear every floor on the way up.', intel: 'Rushers hit hard up close. Shoot their bolts out of the air.', goal: 'Clear the floors' },
-  { n: 3, code: 'STAGE 3 · SERVER CORE', place: 'SERVER CORE', title: 'JAM THE CORE', brief: 'A shaft of glowing racks and the core that runs the Erobots. Sustained fire on the core jams their control of the whole tower. Keep the trigger down and do not let up.', intel: 'The core recovers when you stop. Sustained fire only.', goal: 'Jam the core' },
-  { n: 4, code: 'STAGE 4 · ROOFTOP', place: 'THE ROOFTOP', title: 'THE LIQUID UNIT', brief: 'One floor left, and the roof is the last place anyone wanted to be. The Liquid Unit stands between you and Dr Wong. Hold the trigger: fire pushes it back, and stopping lets it in.', intel: 'Heavy hitter. It staggers under sustained fire. Do not stop.', goal: 'Bring down the Liquid Unit' },
+  { n: 1, code: 'STAGE 1 · STREET', place: 'THE STREET', title: 'STORM THE HQ', brief: 'The Erobots and worse hold the street outside TERRORNODE HQ. You walk on toward the lobby doors whatever happens. Keep the trigger down and sweep the gun across whatever comes at you.', intel: 'You never stop walking. A knockdown shields you and you fire on.', goal: 'Walk the street, hold the trigger' },
+  { n: 2, code: 'STAGE 2 · HQ FLOORS', place: 'HQ FLOORS', title: 'THE LABS', brief: 'Through the lobby and down the corridor: glass labs, server racks, and something behind every desk. The corridor opens straight onto the server core. Smash what you like on the way.', intel: 'Rushers close in fast. Shoot their bolts out of the air.', goal: 'Walk the corridor, hold the trigger' },
+  { n: 3, code: 'STAGE 3 · SERVER CORE', place: 'SERVER CORE', title: 'THE CORE', brief: 'A shaft of glowing racks around the core that runs the Erobots. The walk swings round the core and out through the far wall. Pour fire on the core as you pass for a bonus.', intel: 'Sustained fire on the core blows it for points. It re-arms.', goal: 'Walk round the core, hold the trigger' },
+  { n: 4, code: 'STAGE 4 · ROOFTOP', place: 'THE ROOFTOP', title: 'THE LIQUID UNIT', brief: 'Out of the shaft onto the roof and the server room. The Liquid Unit walks in for the last minutes of the block, between you and Dr Wong. Fire pushes it back. When the block lands, so does it.', intel: 'Heavy hitter. It staggers under sustained fire. Do not stop.', goal: 'Hold out to the block, melt the Liquid Unit' },
 ];
 /** The briefing for stage n (1 to 4; out of range clamps). Dr Wong's radio line comes from KWEG. */
 export function stageBrief(n: number): StageBrief {
@@ -280,7 +280,6 @@ export const BANNERS = {
 } as const;
 
 /** The lift between stages: the line under the floor counter. */
-export const TRANSITION = { up: 'GOING UP', floors: ['LOBBY', 'FLOOR 14 · LABS', 'SERVER CORE', 'ROOF'] as const } as const;
 
 // ── Loadout: MISSION BRIEFING ───────────────────────────────────────────────────────────
 

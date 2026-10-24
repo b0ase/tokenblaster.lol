@@ -169,6 +169,8 @@ type Slot = {
   meleeX: number;
   /** Knock-back velocity while dying. */
   dv: THREE.Vector3;
+  /** Body scale for this spawn (TUNING.erobots.sizes): small runners to hulking heavies. */
+  size: number;
 };
 
 export type ErHit = { slot: Slot; point: THREE.Vector3; dist: number; head: boolean };
@@ -211,7 +213,7 @@ export class ErobotWave {
     private fx: Fx,
     private opts: { high: boolean; canvas: HTMLCanvasElement; reticle: () => { x: number; y: number }; light?: THREE.PointLight; flash?: (at: THREE.Vector3, color: string, intensity: number, ms: number) => void; bolts: Bolts; melee: (from: THREE.Vector3, dmg: number) => void },
   ) {
-    this.cap = opts.high ? 10 : 6;
+    this.cap = opts.high ? TUNING.erobots.poolHigh : TUNING.erobots.poolLow;
     this.group.name = 'erobots';
     scene.add(this.group);
     this.decalMat = new THREE.MeshBasicMaterial({ map: scorchTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, toneMapped: false, color: new THREE.Color(1.5, 1.2, 1.1) });
@@ -332,7 +334,7 @@ export class ErobotWave {
       d.userData.noAO = true;
       decals.push(d);
     }
-    return { id, root, model, mixer, act, cur: null, mats, proxies, hand, decals, decalI: 0, glow, state: 'off', t: 0, hp: HP, flash: 0, stopZ: -14, strafe: 0, baseX: 0, speed: 6, nextShot: 0, hurtT: 0, boot: 0, burst: false, role: 'shooter', side: 1, flankX: 12, startZ: 0, charge: 0, swingIn: 0, swingHit: -1, meleeX: 0, dv: new THREE.Vector3() };
+    return { id, root, model, mixer, act, cur: null, mats, proxies, hand, decals, decalI: 0, glow, state: 'off', t: 0, hp: HP, flash: 0, stopZ: -14, strafe: 0, baseX: 0, speed: 6, nextShot: 0, hurtT: 0, boot: 0, burst: false, role: 'shooter', side: 1, flankX: 12, startZ: 0, charge: 0, swingIn: 0, swingHit: -1, meleeX: 0, dv: new THREE.Vector3(), size: 1 };
   }
 
   // ── Spawning ──
@@ -353,14 +355,16 @@ export class ErobotWave {
     s.state = 'boot';
     s.t = 0;
     s.boot = 0;
-    s.hp = HP * ramp(TUNING.waveRamp.erobotHp, w);
+    const sz = TUNING.erobots.sizes;
+    s.size = Math.random() < sz.heavyChance ? sz.heavy : rand(sz.range);
+    s.hp = HP * ramp(TUNING.waveRamp.erobotHp, w) * s.size * s.size;
     s.flash = 0;
     s.burst = false;
     s.charge = 0;
     s.swingIn = 0;
     s.swingHit = -1;
     s.dv.set(0, 0, 0);
-    s.speed = rand(T.runSpeed) * ramp(TUNING.waveRamp.erobotSpeed, w);
+    s.speed = (rand(T.runSpeed) * ramp(TUNING.waveRamp.erobotSpeed, w)) / Math.sqrt(s.size);
     s.stopZ = rand(this.lane.stopZ);
     s.strafe = (Math.random() < 0.5 ? -1 : 1) * T.strafeSpeed * (0.6 + Math.random() * 0.6);
     s.nextShot = (1.0 + Math.random() * 1.5) / ramp(TUNING.waveRamp.erobotRate, w);
@@ -372,7 +376,7 @@ export class ErobotWave {
     s.startZ = this.lane.spawnZ;
     s.root.position.set(x, 0, s.startZ);
     s.root.rotation.set(0, 0, 0);
-    s.root.scale.set(1, 0.05, 1);
+    s.root.scale.set(s.size, 0.05 * s.size, s.size);
     s.root.visible = true;
     for (const d of s.decals) {
       d.visible = false;
@@ -386,11 +390,10 @@ export class ErobotWave {
     this.opts.flash?.(V.a, '#27c8e0', 70, 400); // teleport-in
   }
 
-  /** Switch to a stage's lane and level. Anything still on the floor is cleared. */
+  /** Switch to a stage's lane and level. Whoever is already on the floor keeps coming (the run never breaks). */
   setStage(lane: Lane, level: number) {
     this.lane = lane;
     this.wave = level;
-    this.clearAll();
   }
 
   /** Drop everything on the street (Continue): the wave starts again from nothing. */
@@ -445,11 +448,11 @@ export class ErobotWave {
       switch (s.state) {
         case 'boot': {
           s.boot = Math.min(1, s.t / 0.35);
-          s.root.scale.set(1, 0.05 + 0.95 * (1 - Math.pow(1 - s.boot, 3)), 1);
+          s.root.scale.set(s.size, (0.05 + 0.95 * (1 - Math.pow(1 - s.boot, 3))) * s.size, s.size);
           p.z += s.speed * 0.5 * dt;
           if (s.t > 0.5) {
             s.state = 'run';
-            s.root.scale.set(1, 1, 1);
+            s.root.scale.setScalar(s.size);
             this.play(s, s.act.run, 0.25);
           }
           break;
@@ -611,7 +614,7 @@ export class ErobotWave {
       for (let i = 0; i < s.proxies.length; i++) {
         const pr = s.proxies[i];
         V.a.copy(pr.local).applyMatrix4(pr.bone.matrixWorld);
-        const r = pr.r * HEIGHT * TUNING.erobots.hitScale;
+        const r = pr.r * HEIGHT * TUNING.erobots.hitScale * s.size;
         V.d.subVectors(V.a, org);
         const tc = V.d.dot(dir);
         if (tc < 0) continue;

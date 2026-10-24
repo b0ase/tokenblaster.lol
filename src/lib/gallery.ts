@@ -118,6 +118,15 @@ export function txPattern(w: { id: string; auto: boolean; fireMs: number; pellet
   if (w.auto) return { kind: 'stream', rate: STREAM_RATES[w.id] ?? Math.round(Math.min(1500, (1500 * 70) / Math.max(70, w.fireMs)) / 10) * 10 };
   return { kind: 'burst', n: Math.max(1, Math.min(25, w.pellets)) };
 }
+/**
+ * Rounds a full ten-minute block needs at the gun's rate (owner, 24 Oct: hold the trigger for the whole run),
+ * plus a margin. A burst gun is counted at two pulls a second.
+ */
+export const BLOCK_SECS = 600;
+export function blockRounds(p: TxPattern, secs = BLOCK_SECS, margin = 1.1): number {
+  const perSec = p.kind === 'stream' ? p.rate : p.n * 2;
+  return Math.ceil(perSec * secs * margin);
+}
 export const patternLabel = (p: TxPattern) => (p.kind === 'stream' ? `STREAM · up to ${p.rate.toLocaleString()} tx/s` : `BURST · ${p.n} tx per pull`);
 
 /**

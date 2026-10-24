@@ -87,3 +87,10 @@ test('assault rack: volume streams only, honest LIVE ceiling', async () => {
   assert.equal(roundsForFullRate(2000), 3_000);
   assert.equal(roundsForFullRate(3000), 4_500);
 });
+
+test('block: a full ten-minute block of rounds at the gun rate, with a margin', async () => {
+  const { blockRounds, BLOCK_SECS } = await import('./gallery');
+  assert.equal(BLOCK_SECS, 600);
+  assert.ok(blockRounds({ kind: 'stream', rate: 2000 }) >= 2000 * 600, 'a minigun held for 10:00');
+  assert.ok(blockRounds({ kind: 'burst', n: 8 }) > 0);
+});

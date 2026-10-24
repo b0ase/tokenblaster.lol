@@ -1201,7 +1201,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     const mat = track(new THREE.MeshStandardMaterial({ color: '#141a24', metalness: 0.7, roughness: 0.4, emissive: '#ffffff', emissiveMap: rt, emissiveIntensity: 2.2 }));
     rackMats.push(mat);
     const m = new THREE.Mesh(track(new THREE.BoxGeometry(2.6, 6.4, 1.6)), mat);
-    m.position.set(-T.w / 2 + 4 + i * ((T.w - 8) / 7), 3.2, T.z + 2.2);
+    m.position.set((i < 4 ? -1 : 1) * (4.2 + (i % 4) * 3.1), 3.2, T.z + 2.2); // a clear aisle down the middle: the walk goes into the lobby
     m.castShadow = high;
     group.add(m);
     racks.push({ mesh: m, hp: 160, broke: false, t: 0 });
