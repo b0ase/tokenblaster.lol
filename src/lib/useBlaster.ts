@@ -9,7 +9,7 @@ import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } f
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { connect, fund, walletAlive, withTimeout, type Wallet } from './wallet';
+import { connect, fund, walletAlive, type Wallet } from './wallet';
 import { setProofWallet } from './xproof';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
 
@@ -56,7 +56,11 @@ export function useBlaster() {
       .catch(() => setAmmo(g.sats));
   }, []);
 
-  const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  const fail = (e: unknown) => {
+    const m = e instanceof Error ? e.message : String(e);
+    // bWalletX answers "reload this page" when the extension was reloaded or updated under an open tab.
+    setError(/reload/i.test(m) ? 'Your wallet lost touch with this page. Reload the page (your ammo is safe).' : m);
+  };
 
   /** Coins TokenBlaster returned to the wallet without a note (the wallet can't see them). */
   const [stranded, setStranded] = useState<(Token & { amt: bigint; why: 'hidden' | 'icon' | 'untagged' })[]>([]);
@@ -160,7 +164,8 @@ export function useBlaster() {
       try {
         loadMark('approve start');
         // A real approval can take a while; a wallet that never answers at all counts as disconnected.
-        const funding = await withTimeout(fund(wallet, g.address, sats, label), 180_000, 'WALLET_TIMEOUT');
+        // No timeout on a payment (bWalletX): the player may take as long as they like to approve.
+        const funding = await fund(wallet, g.address, sats, label);
         loadMark('approved + paid (wallet answered)');
         // The wallet has paid the gun's address: from here the money is in the gun whatever happens next,
         // so never report this as "payment not made" (owner, 24 Oct: paid $0.05, then told to reconnect).

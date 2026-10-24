@@ -13,11 +13,38 @@ export const hasCwi = () => typeof window !== 'undefined' && Boolean((window as 
 export const inBwallet = () =>
   typeof navigator !== 'undefined' && /(?:bWallet|YoursWalletMobile)\//.test(navigator.userAgent) && hasCwi();
 
+/**
+ * One wallet request at a time (bWalletX, 24 Oct 2026): a different request sent while a sheet is open joins it as
+ * an unticked "risky" line, and "I trust it, allow" then DENIES it, leaving the site looking disconnected. So every
+ * call to a wallet goes through one queue per wallet object.
+ */
+const queues = new WeakMap<object, { tail: Promise<unknown>; inFlight: number }>();
+export const walletBusy = (client: object) => (queues.get(client)?.inFlight ?? 0) > 0;
+export function serialised(client: WalletInterface): WalletInterface {
+  const q = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0 };
+  queues.set(client, q);
+  const proxy: WalletInterface = new Proxy(client, {
+    get(target, prop, recv) {
+      const v = Reflect.get(target, prop, recv);
+      if (typeof v !== 'function') return v;
+      return (...args: unknown[]) => {
+        q.inFlight++;
+        const run = q.tail.then(() => (v as (...a: unknown[]) => unknown).apply(target, args));
+        q.tail = run.catch(() => undefined).finally(() => q.inFlight--);
+        return run;
+      };
+    },
+  });
+  queues.set(proxy, q);
+  return proxy;
+}
+
 /** Connect the wallet the player picked in the chooser. */
 export async function connect(entry: WalletEntry): Promise<Wallet> {
+  const client = serialised(entry.wallet);
   try {
-    const { publicKey } = await entry.wallet.getPublicKey({ identityKey: true });
-    return { client: entry.wallet, publicKey, address: PublicKey.fromString(publicKey).toAddress(), id: entry.id, name: entry.name };
+    const { publicKey } = await client.getPublicKey({ identityKey: true });
+    return { client, publicKey, address: PublicKey.fromString(publicKey).toAddress(), id: entry.id, name: entry.name };
   } catch (e) {
     // A locked wallet refuses getPublicKey: that means "unlock me", not "not installed".
     throw new Error(`${entry.name} did not answer: ${e instanceof Error ? e.message : e}. Unlock it and try again.`);
@@ -64,6 +91,7 @@ export function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<
  * on a timeout or error we retry ONCE after a short pause before calling the wallet gone (bWalletX advice, 24 Oct).
  */
 export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean> {
+  if (walletBusy(w.client)) return true; // a request is open in the wallet: it is alive, just waiting on the player
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const { publicKey } = await withTimeout(w.client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT');
