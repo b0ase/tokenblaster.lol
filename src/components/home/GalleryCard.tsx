@@ -15,7 +15,7 @@ export function GalleryCard() {
       <Link href="/arcade/gallery" className="hp-gal group">
         <div className="hp-gal-main">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/gallery/loading/boss-fire.webp" alt="The Liquid Unit roars in the rain outside the OMNICORE tower, Neo-Tokyo 2048" />
+          <img src="/gallery/loading/boss-fire.webp" alt="The Liquid Unit roars in the rain outside the nSLAVE tower, Neo-Tokyo 2048" />
           <div className="hp-gal-shade" aria-hidden />
           {(['tl', 'tr', 'bl', 'br'] as const).map((c) => (
             <span key={c} className="hp-gal-corner" data-c={c} aria-hidden />

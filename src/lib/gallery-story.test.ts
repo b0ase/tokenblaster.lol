@@ -4,8 +4,8 @@ import { KWEG, BANNERS, BRIEFING, CHARACTERS, LORE, LOADING_SHOTS, PREMISE, RANK
 
 const all = () => JSON.stringify({ KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, waves: Array.from({ length: 8 }, (_, i) => waveBrief(i + 1)) });
 
-test('story: 5 to 7 lore beats, all with text', () => {
-  assert.ok(LORE.length >= 5 && LORE.length <= 7);
+test('story: 5 to 12 lore beats, all with text', () => {
+  assert.ok(LORE.length >= 5 && LORE.length <= 12);
   for (const b of LORE) assert.ok(b.title && b.line.length > 20);
 });
 
@@ -27,7 +27,7 @@ test('story: no Terminator / T2 names or likeness', () => {
 });
 
 test('story: plain words for players (no tech terms)', () => {
-  assert.doesNotMatch(all(), /blockchain|\btxs?\b|transaction|satoshi|\bsats?\b|\bBSV\b|\bwallet\b|\bnode\b|\bhash\b|\bminer\b|\bOP_RETURN\b|\bARC\b|\bmempool\b/i);
+  assert.doesNotMatch(all(), /blockchain|\btxs?\b|transaction|satoshi|\bsats?\b|\bwallet\b|\bnode\b|\bhash\b|\bminer\b|\bOP_RETURN\b|\bARC\b|\bmempool\b/i);
 });
 
 test('story: waves escalate and never run out', () => {
@@ -51,14 +51,15 @@ test('story: share text carries the numbers', () => {
   assert.match(t, /@rich/);
 });
 
-test('story: Neo-Tokyo 2048, Kweg Wong, the Ninja Punk Girls, bCorp vs OMNICORE', () => {
+test('story: Neo-Tokyo 2048, Kweg Wong, the Ninja Punk Girls, nSLAVE', () => {
   const a = all();
   assert.match(a, /Neo-Tokyo/);
   assert.match(a, /2048/);
   assert.match(a, /KWEG WONG/i);
   assert.match(a, /NINJA PUNK GIRLS/i);
-  assert.match(a, /bCorp/);
-  assert.match(a, /OMNICORE/);
+  assert.doesNotMatch(a, /bCorp/i, 'bCorp is out of the story');
+  assert.match(a, /nSLAVE/);
+  assert.doesNotMatch(a, /OMNICORE/i);
   assert.doesNotMatch(a, /London|1991|\bX Corp/i);
 });
 
@@ -67,4 +68,13 @@ test('story: Kweg is the villain and his text lives in KWEG', () => {
   assert.equal(characterById('kweg')?.bio, KWEG.bio);
   assert.equal(waveBrief(2).kweg, KWEG.waves[1]);
   assert.equal(waveBrief(99).kweg, KWEG.overtime);
+});
+
+test('story: the Liquid Unit IS Dr Kweg Wong, and the nSLAVE slogans are in the lore', () => {
+  const liquid = characterById('liquid');
+  assert.match(liquid?.bio ?? '', /Dr Kweg Wong/);
+  assert.match(KWEG.bio, /liquid metal/i);
+  assert.match(all(), /patent… for your soul/);
+  assert.match(all(), /as long as it’s BSV/);
+  assert.doesNotMatch(all(), /T-?1000|Terminator|Skynet/i);
 });

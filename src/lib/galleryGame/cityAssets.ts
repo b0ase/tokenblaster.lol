@@ -3,7 +3,7 @@
  * downloads): facade atlases with window variety, shopfronts, a vertical-sign atlas with katakana and
  * kanji lettering, a hologram-billboard atlas, vending machines, skyline silhouettes, lobby and curtain wall.
  *
- * Every brand here is invented, apart from our own (OMNICORE DYNAMICS, TOKENBLASTER, bWalletX, NPG).
+ * Every brand here is invented, apart from our own (nSLAVE, TOKENBLASTER, bWalletX, NPG).
  * `S` is a scale for texture resolution: 1 on High, 0.5 on Low.
  */
 import * as THREE from 'three';
@@ -256,7 +256,7 @@ export const SIGNS: SignDef[] = [
   { t: '月影バー', c: '#3a7bff' },
   { t: 'トークン市場', c: '#ff2a46' },
   { t: 'ニンジャ堂', c: '#ff2a46', sub: 'NPG' },
-  { t: 'オムニコア', c: '#ff2a3a', sub: 'OMNICORE' },
+  { t: 'エヌスレイブ', c: '#ff2a3a', sub: 'nSLAVE' },
   { t: 'bWalletX', c: '#4da3ff', latin: true },
   { t: 'TOKENBLASTER', c: '#ff9a3a', latin: true },
   { t: 'NPG', c: '#ff2a46', latin: true },
@@ -372,7 +372,7 @@ export function adAtlas(S = 1) {
       g.fillText(t, 256, y);
       g.shadowBlur = 0;
     };
-    // 0: OMNICORE DYNAMICS with the eye
+    // 0: nSLAVE with the eye
     panel(0, (g) => {
       g.strokeStyle = '#ff3226';
       g.lineWidth = 8;
@@ -388,9 +388,9 @@ export function adAtlas(S = 1) {
       g.fillStyle = '#000';
       g.fillRect(250, 142, 12, 96);
       g.shadowBlur = 0;
-      center(g, 'OMNICORE', 340, 74, '#f4f7ff', '900 74px "Arial Black", Impact, sans-serif', 14);
-      center(g, 'D Y N A M I C S', 400, 34, '#ff5646', '700 34px Arial, sans-serif', 10);
-      center(g, 'オムニコア・ダイナミクス', 456, 30, '#ffb0a8', `700 30px ${JP}`, 8);
+      center(g, 'nSLAVE', 340, 74, '#f4f7ff', '900 74px "Arial Black", Impact, sans-serif', 14);
+      center(g, 'S Y S T E M S', 400, 34, '#ff5646', '700 34px Arial, sans-serif', 10);
+      center(g, 'エヌスレイブ・システムズ', 456, 30, '#ffb0a8', `700 30px ${JP}`, 8);
     });
     panel(1, (g) => {
       center(g, 'TOKEN', 190, 110, '#ffb800', '900 italic 110px Impact, "Arial Black", sans-serif');
@@ -425,19 +425,28 @@ export function adAtlas(S = 1) {
       center(g, 'ネオ東京', 410, 66, '#cfeaf4', `900 66px ${JP}`, 14);
     });
     panel(5, (g) => {
-      center(g, '夜明け麺', 190, 120, '#ff9a3a', `900 120px ${JP}`, 22);
-      center(g, 'NOODLE DAWN', 300, 54, '#ffd0a0', '800 54px Arial, sans-serif', 10);
-      center(g, '二十四時間営業', 400, 46, '#ff8a3a', `800 46px ${JP}`, 10);
+      // nSLAVE corporate slogan: the patent (deadpan)
+      center(g, 'nSLAVE', 110, 80, '#f4f7ff', '900 80px "Arial Black", Impact, sans-serif', 16);
+      center(g, 'NOW PATENTED:', 214, 40, '#ff5646', '800 40px Arial, sans-serif', 10);
+      center(g, 'YOUR SOUL.', 290, 84, '#ff2a3a', '900 84px "Arial Black", Impact, sans-serif', 24);
+      center(g, 'あなたの魂に特許を', 400, 44, '#ffb0a8', `800 44px ${JP}`, 10);
+      center(g, 'terms apply · see you in court', 462, 22, '#8a98a8', '600 22px Arial, sans-serif', 0);
     });
     panel(6, (g) => {
-      center(g, 'BLOCK', 190, 120, '#27c8e0', '900 120px "Arial Black", Impact, sans-serif', 22);
-      center(g, '21', 320, 170, '#ff2a46', '900 170px "Arial Black", Impact, sans-serif', 26);
-      center(g, 'ブロック・ツーワン', 430, 36, '#bff7ff', `700 36px ${JP}`, 8);
+      // nSLAVE's product: the chain your patented soul is stored on
+      center(g, 'nSLAVE', 84, 54, '#f4f7ff', '900 54px "Arial Black", Impact, sans-serif', 12);
+      center(g, 'SOUL', 190, 118, '#ff2a3a', '900 118px "Arial Black", Impact, sans-serif', 24);
+      center(g, 'CHAIN™', 300, 96, '#2ec8e0', '900 96px "Arial Black", Impact, sans-serif', 22);
+      center(g, '(chain of tools)', 380, 30, '#ffc0b8', 'italic 700 30px Arial, sans-serif', 8);
+      center(g, 'ソウルチェーン', 450, 42, '#80d8e8', `800 42px ${JP}`, 10);
     });
     panel(7, (g) => {
-      center(g, 'ドローン便', 190, 108, '#2ec8e0', `900 108px ${JP}`, 22);
-      center(g, 'DRONE EXPRESS', 300, 56, '#c0e8f0', '800 56px Arial, sans-serif', 10);
-      center(g, '三十分で届く', 400, 46, '#80d8e8', `700 46px ${JP}`, 8);
+      // nSLAVE corporate slogan: open source, one chain only
+      center(g, 'nSLAVE', 96, 66, '#f4f7ff', '900 66px "Arial Black", Impact, sans-serif', 14);
+      center(g, '100% OPEN SOURCE', 190, 46, '#2ec8e0', '800 46px Arial, sans-serif', 12);
+      center(g, 'BUILD ON ANY CHAIN', 262, 38, '#c0e8f0', '700 38px Arial, sans-serif', 8);
+      center(g, 'AS LONG AS IT’S BSV', 330, 40, '#ff9a3a', '800 40px Arial, sans-serif', 12);
+      center(g, 'どのチェーンでも。BSVなら。', 420, 34, '#80d8e8', `700 34px ${JP}`, 8);
     });
   });
   return { texture: tex(c, { aniso: 4 }), rect: (i: number) => [(i % AD_COLS) / AD_COLS, 1 - (Math.floor(i / AD_COLS) + 1) / AD_ROWS, 1 / AD_COLS, 1 / AD_ROWS] as const };
@@ -541,7 +550,7 @@ export function skylineTex(seed: number, tone: string, haze: string, density: nu
   return t;
 }
 
-/** OMNICORE curtain wall: fine grid, spandrel bands, reflective gradient, lit floors (map + emissive). */
+/** nSLAVE curtain wall: fine grid, spandrel bands, reflective gradient, lit floors (map + emissive). */
 export function curtainWall(S = 1) {
   const W = 1024 * S;
   const H = 1024 * S;

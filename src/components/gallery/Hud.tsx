@@ -27,7 +27,27 @@ export function Hud(p: {
   const hp = s ? Math.max(0, s.bossHp) : 1;
   const max = s ? Math.max(1, s.bossMax) : 1;
   const k = Math.min(1, hp / max);
+  const php = s ? s.hp : 100;
+  const pmax = s ? s.hpMax : 100;
+  const pk = Math.max(0, Math.min(1, php / pmax));
+  const low = pk < 0.3;
+  const push = s?.bossPush ?? 0;
   return (
+    <>
+      {/* PLAYER HEALTH: bottom left, above the hint */}
+      <div className="pointer-events-none absolute bottom-[54px] left-1.5 z-10 w-[min(290px,52vw)] sm:bottom-[60px] sm:left-3" data-health>
+        <div className="tbx-glass px-3 py-1.5" style={low ? { borderColor: 'var(--tbx-red)', boxShadow: '0 0 24px rgba(255,40,30,.45)' } : undefined}>
+          <div className="flex items-baseline justify-between text-[10px] font-bold tracking-[0.24em]">
+            <span style={{ color: low ? 'var(--tbx-red)' : 'var(--tbx-text)' }}>HEALTH</span>
+            <span className="tbx-display text-xl leading-none" style={{ color: low ? 'var(--tbx-red)' : 'var(--tbx-text)' }}>{php}</span>
+          </div>
+          <div className="relative mt-1 h-[12px] overflow-hidden rounded-[3px] border border-white/20 bg-black/65">
+            <i className="absolute inset-0 origin-left bg-white/70" style={{ transform: `scaleX(${pk})`, transition: 'transform 0.7s cubic-bezier(.2,.7,.2,1) 0.2s' }} />
+            <i className="absolute inset-0 origin-left" style={{ transform: `scaleX(${pk})`, transition: 'transform 0.1s linear', background: low ? 'linear-gradient(90deg,#8f0f08,#ff3b30)' : 'linear-gradient(90deg,#1fa86b,#7cf5a8 60%,#d6ff8a)', boxShadow: low ? '0 0 14px rgba(255,40,30,.8)' : '0 0 10px rgba(110,255,170,.45)', animation: low ? 'tbx-breathe 0.6s ease-in-out infinite' : undefined }} />
+            <span className="absolute inset-0" style={{ background: 'repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(0,0,0,.5) calc(10% - 1px) 10%)' }} />
+          </div>
+        </div>
+      </div>
     <div className="pointer-events-none absolute inset-x-0 top-0 z-10 grid grid-cols-[auto_1fr_auto] items-start gap-x-2 gap-y-2 p-1.5 sm:gap-x-4 sm:p-3" data-hud>
       {/* Rounds */}
       <div className="tbx-in-l tbx-glass min-w-[132px] px-3 py-2 sm:min-w-[188px] sm:px-4">
@@ -63,7 +83,7 @@ export function Hud(p: {
           <span className="absolute inset-0" style={{ background: 'repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(0,0,0,.45) calc(10% - 1px) 10%)' }} />
         </div>
         <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--tbx-dim)]">
-          <span className="truncate">{p.bossNote}</span>
+          <span className="truncate">{push > 0.45 ? 'PUSHED BACK. Keep firing!' : p.bossNote}</span>
           <span className="tbx-num shrink-0">{s ? `${hp.toLocaleString('en-US')} / ${max.toLocaleString('en-US')}` : ''}</span>
         </div>
       </div>
@@ -93,6 +113,7 @@ export function Hud(p: {
         {p.handle && <p className="mt-1 text-[11px] font-semibold text-[var(--tbx-teal)]">@{p.handle}</p>}
       </div>
     </div>
+    </>
   );
 }
 

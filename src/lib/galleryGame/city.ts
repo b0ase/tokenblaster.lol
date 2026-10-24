@@ -1,10 +1,10 @@
 /**
- * Shooting Gallery set: NEO-TOKYO, 2048. A rain-wet night street running up to the OMNICORE DYNAMICS tower
+ * Shooting Gallery set: NEO-TOKYO, 2048. A rain-wet night street running up to the nSLAVE tower
  * (glass curtain wall, lit lobby, a huge animated eye, 8 x 10 smashable windows, a lobby of server racks),
  * walled by dense stepped towers with vertical neon signage, shopfronts, narrow alleys with lanterns and
  * vending machines, fire escapes and rooftop clutter, crossed by an elevated rail line and an expressway,
  * with hover traffic, a giant hologram idol on a rooftop, overhead cables, steam, puddles and rain.
- * All names and brands are invented, apart from our own (OMNICORE DYNAMICS, TOKENBLASTER, bWalletX, NPG).
+ * All names and brands are invented, apart from our own (nSLAVE, TOKENBLASTER, bWalletX, NPG).
  *
  * Performance: facades are merged into one mesh per material, every repeated prop is an InstancedMesh, the
  * blade signs are one instanced draw with a texture atlas, rain / ripples / signs / steam / mist animate on the
@@ -623,7 +623,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     tall.slice(0, 3).forEach((r, i) => addAd([5, 6, 0][i], (r.xa + r.xb) / 2 - 10, r.y + 9, r.za - 2, 22, -0.4, '#ffffff'));
   }
 
-  // ── The mega-tower hologram: a giant idol on the left rooftop beside OMNICORE ──
+  // ── The mega-tower hologram: a giant idol on the left rooftop beside nSLAVE ──
   const heroRoof =
     roofs
       .filter((r) => r.xb > -40 && r.xb < -20 && r.za > -96 && r.zb < -68)
@@ -983,7 +983,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     group.add(im);
   }
 
-  // ── OMNICORE DYNAMICS tower ──
+  // ── nSLAVE tower ──
   const cwT = curtainWall(S);
   disp.push(cwT.map, cwT.em);
   const glass = track(new THREE.MeshPhysicalMaterial({ color: '#0b1222', metalness: 0.9, roughness: 0.16, envMapIntensity: 1.8, clearcoat: 1, clearcoatRoughness: 0.08 }));
@@ -1112,7 +1112,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     if (Math.random() < 0.35) burning.push(w);
   };
 
-  // logo: OMNICORE / DYNAMICS to the right of the huge animated eye
+  // logo: nSLAVE / SYSTEMS to the right of the huge animated eye
   const logoTex = track(
     tex(
       canvas(1024, 300, (g) => {
@@ -1123,14 +1123,14 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
         g.fillStyle = '#eef3fb';
         g.shadowColor = '#9fc0ff';
         g.shadowBlur = 0;
-        g.fillText('OMNICORE', 512, 118);
+        g.fillText('nSLAVE', 512, 118);
         g.font = '700 54px Arial, sans-serif';
         g.fillStyle = '#ff4a3a';
         g.shadowColor = '#ff2020';
-        g.fillText('D  Y  N  A  M  I  C  S', 512, 224);
+        g.fillText('S  Y  S  T  E  M  S', 512, 224);
         g.font = `700 28px ${JP}`;
         g.fillStyle = '#ff9a8a';
-        g.fillText('オムニコア・ダイナミクス', 512, 275);
+        g.fillText('エヌスレイブ・システムズ', 512, 275);
       }),
     ),
   );

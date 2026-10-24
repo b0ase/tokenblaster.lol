@@ -2,7 +2,7 @@
 
 /**
  * TokenBlaster Shooting Gallery (3D). First person behind the BSVGun arsenal on a rain-wet night street,
- * against the OMNICORE DYNAMICS tower and its LIQUID UNIT (src/lib/galleryGame/*). Every round that lands
+ * against the nSLAVE tower and its LIQUID UNIT (src/lib/galleryGame/*). Every round that lands
  * is a real BSV transaction: "tokenblaster.lol" <ammo> <chain:n> "gallery" [<handle>].
  *
  * How each weapon spends transactions (src/lib/gallery.ts txPattern):
@@ -58,9 +58,12 @@ import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
 import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, SETTING, TIPS } from '@/lib/gallery/story';
 import { Hud, HudControls } from './Hud';
+import { TUNING } from '@/lib/galleryGame/tuning';
 import { BannerStage, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { Results, type RunSummary } from './Results';
+import { DamageFx, type DamageFxHandle } from './DamageFx';
+import { Flatlined, type FlatStats } from './Flatlined';
 import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 
 import { loadMark } from '@/lib/gun';
@@ -119,6 +122,11 @@ export function ShootingGallery() {
   const hudWave = useRef(1);
   const waveSeen = useRef(1);
   const [over, setOver] = useState<RunSummary | null>(null);
+  // FLATLINED: the player's health hit zero. The CONTINUE? countdown runs on this screen (src/components/gallery/Flatlined.tsx).
+  const [flat, setFlat] = useState<FlatStats | null>(null);
+  const flatRef = useRef(false);
+  const statsRef = useRef<Stats | null>(null);
+  const dmgFx = useRef<DamageFxHandle>(null);
   const [board, setBoard] = useState<BoardRow[]>([]);
   const [boardWin, setBoardWin] = useState<'event' | '24h'>('event');
   const [progress, setProgress] = useState(0);
@@ -186,13 +194,19 @@ export function ShootingGallery() {
   }, [weaponId, ammo]);
 
   // ── Hooks the engine calls (refs, so the engine never needs re-creating) ──
+  const diedRef = useRef<() => void>(() => undefined);
   const pullRef = useRef<(w: RangeWeapon) => boolean>(() => false);
   const triggerRef = useRef<(down: boolean) => void>(() => undefined);
   const hooks = useRef<Hooks>({
     pull: (w) => pullRef.current(w),
     flowing: () => (simRef.current.on ? simRef.current.rate > 20 : performance.now() - lastAccept.current < 700),
-    stats: (s) => setHud(s),
+    stats: (s) => {
+      statsRef.current = s;
+      setHud(s);
+    },
     trigger: (d) => triggerRef.current(d),
+    hurt: (h) => dmgFx.current?.hit(h.angle, h.dmg),
+    died: () => diedRef.current(),
   });
 
   // ── Engine ──
@@ -203,6 +217,7 @@ export function ShootingGallery() {
     const quality: Quality = new URLSearchParams(location.search).get('q') === 'low' || phone ? 'low' : 'high';
     const eng = new GalleryEngine(cv, hooks, { quality, weapons, bossBase: 20_000 });
     engine.current = eng;
+    if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = eng; // dev only: screenshot scripts poke the combat
     let alive = true;
     void eng.init((p) => alive && setProgress(p)).then(() => alive && setReady(true));
     let raf = 0;
@@ -277,15 +292,16 @@ export function ShootingGallery() {
       const s = simRef.current;
       const m = modeRef.current;
       const left = boughtRef.current - firedRef.current;
-      s.on = held.current && !loadout && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
+      s.on = held.current && !loadout && !flatRef.current && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
       s.target = pattern.kind === 'stream' ? pattern.rate : 0;
-      let n = simTick(s, (t - last) / 1000);
+      if (flatRef.current) s.rate = s.carry = 0;
+      let n = flatRef.current ? 0 : simTick(s, (t - last) / 1000);
       last = t;
       if (m === 'live') {
         n = Math.max(0, Math.min(n, left));
         firedRef.current += n;
       }
-      if (n) engine.current?.accept(n);
+      if (n && !flatRef.current) engine.current?.accept(n);
       if (m === 'live') setFired((f) => (f === firedRef.current ? f : firedRef.current));
       const tps = Math.round(s.rate);
       setRun((r) => (r.tps === tps ? r : { ...r, tps }));
@@ -300,7 +316,7 @@ export function ShootingGallery() {
       if (down) unlockAudio();
     };
     pullRef.current = (w: RangeWeapon) => {
-      if (loadout) return false;
+      if (loadout || flatRef.current) return false;
       const p = txPattern(w);
       if (p.kind !== 'burst') return false;
       const m = modeRef.current;
@@ -573,6 +589,8 @@ export function ShootingGallery() {
     minigun(false);
     setLocked(false);
     clearBanners();
+    flatRef.current = false;
+    setFlat(null);
     setOver({
       fired: firedRef.current,
       sent: sentRef.current,
@@ -588,7 +606,7 @@ export function ShootingGallery() {
     setMode('off');
     boughtRef.current = firedRef.current;
     setBought(firedRef.current);
-  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought]);
+  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought, setFlat]);
   const finishRef = useRef(finish);
   useEffect(() => {
     finishRef.current = finish;
@@ -603,7 +621,7 @@ export function ShootingGallery() {
   // After the payment the player drops straight into the street in WARM-UP while the gun loads.
   const perShotAll = perShot * (1 + fee);
   const goLive = useCallback(
-    (rounds: number) => {
+    (rounds: number, continued = false) => {
       setLoadedRounds(rounds);
       setBought(firedRef.current + rounds);
       boughtRef.current = firedRef.current + rounds;
@@ -613,14 +631,15 @@ export function ShootingGallery() {
       setLoad(null);
       setOver(null);
       sfx('coin');
-      pushBanner({ kind: 'loaded' });
       waveSeen.current = Math.max(1, hudWave.current);
+      if (continued) return; // play resumes where it stopped: no new wave banners
+      pushBanner({ kind: 'loaded' });
       pushBanner({ kind: 'wave', n: waveSeen.current });
       pushBanner({ kind: 'boss' });
     },
     [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
-  const lockAndLoad = async () => {
+  const lockAndLoad = async (continued = false) => {
     setErr(null);
     unlockAudio();
     const stream = pattern.kind === 'stream';
@@ -639,7 +658,7 @@ export function ShootingGallery() {
         setLoad({ kind: 'loading', pct, slowSecs: 0 });
         await new Promise((r) => setTimeout(r, ms / 6));
       }
-      goLive(n);
+      goLive(n, continued);
       return;
     }
     setLocking(true);
@@ -662,7 +681,7 @@ export function ShootingGallery() {
       }
       if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
       loadMark(`loaded: ${shots} rounds`);
-      goLive(shots);
+      goLive(shots, continued);
       if (stream) sessionRef.current(shots);
     } catch (e) {
       const m = e instanceof Error ? e.message : '';
@@ -710,11 +729,46 @@ export function ShootingGallery() {
   const packLeft = Math.max(0, bought - fired);
 
   // LOCK & LOAD is the bill: pay the coins (one approval), load, then lock the rounds and start by itself.
-  const lockRef = useRef(lockAndLoad);
+  const lockRef = useRef<(continued?: boolean) => Promise<void>>(lockAndLoad);
   useEffect(() => {
     lockRef.current = lockAndLoad;
   });
   const startCabinet = () => cab.payThen(() => void lockRef.current());
+
+  // ── FLATLINED: health at zero ──
+  useEffect(() => {
+    diedRef.current = () => {
+      held.current = false;
+      simRef.current.on = false;
+      minigun(false);
+      flatRef.current = true;
+      setLocked(false);
+      const st = statsRef.current;
+      setFlat({ fired: firedRef.current, score: st?.score ?? 0, wave: st?.wave ?? 1, kills: st?.kills ?? 0, secs: run.started ? Math.max(1, Math.round((Date.now() - run.started) / 1000)) : 0 });
+    };
+  });
+  /** CONTINUE: the coins on the death screen were paid in ONE approval. Health resets, the new rounds ADD to what is loaded, play resumes. */
+  const resumeAfterPay = async (paidUsd: number) => {
+    const remaining = Math.max(0, boughtRef.current - firedRef.current);
+    flatRef.current = false;
+    setFlat(null);
+    engine.current?.revive();
+    if (dry) {
+      const extra = roundsFor(usdToSats(paidUsd, bsvUsd) ?? 0, perShotAll);
+      goLive(remaining + extra, true);
+      return;
+    }
+    // live: let the rounds already fired finish sending, then load everything in the gun (what was left plus the new coins)
+    setMode('off');
+    boughtRef.current = firedRef.current;
+    setBought(firedRef.current);
+    for (let i = 0; i < 40 && sentRef.current < firedRef.current; i++) await new Promise((r) => setTimeout(r, 250));
+    await lockRef.current(true);
+  };
+  const flatBuys = (usd: number) => {
+    const sats = usdToSats(usd, bsvUsd);
+    return sats == null ? null : roundsFor(sats, perShotAll);
+  };
   const buys = (usd: number) => {
     const sats = usdToSats(usd, bsvUsd);
     return sats == null ? null : roundsFor(sats, perShotAll);
@@ -767,14 +821,14 @@ export function ShootingGallery() {
 
         {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
         {!loadout && !over && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={simulated} />}
-        {stall && !loadout && !over && (
+        {stall && !loadout && !over && !flat && (
           <div className="pointer-events-none absolute inset-x-0 top-[42%] z-10 flex justify-center px-4">
             <p className="tbx-glass tbx-pop flex max-w-[560px] items-center gap-2 px-4 py-2.5 text-center text-base font-semibold" style={{ borderColor: 'var(--tbx-red)' }} role="status">
               <Icon name="bullet" size={18} className="shrink-0 text-[var(--tbx-red)]" /> {stall}
             </p>
           </div>
         )}
-        {(cab.stage === 'approve' || load?.kind === 'failed') && (
+        {((cab.stage === 'approve' && !flat) || load?.kind === 'failed') && (
           <LoadingScreen
             title={GAME_TITLE}
             kicker={GAME_KICKER}
@@ -804,7 +858,7 @@ export function ShootingGallery() {
           </div>
         )}
         {!loadout && !over && <BannerStage item={bannerCur} />}
-        {queueNote && !loadout && !jammed && !over && (
+        {queueNote && !loadout && !jammed && !over && !flat && (
           <div className="tbx-glass pointer-events-none absolute bottom-[96px] left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-white/85" role="status">
             Rounds are queueing, the network is catching up.
           </div>
@@ -826,6 +880,7 @@ export function ShootingGallery() {
         )}
         <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
 
+        {!loadout && !over && <DamageFx ref={dmgFx} hp={hud?.hp ?? TUNING.player.hp} hpMax={TUNING.player.hp} />}
         {!loadout && !over && (
           <Hud
             dry={dry}
@@ -840,7 +895,7 @@ export function ShootingGallery() {
             handle={handle}
             packLeft={packLeft}
             bossName="THE LIQUID UNIT"
-            bossNote="Reforms the moment you let up. Keep firing."
+            bossNote="Dr Kweg. Fire to push him back; stop and he closes in."
           />
         )}
         {!loadout && !over && (
@@ -853,6 +908,22 @@ export function ShootingGallery() {
             onLock={() => setLocked((v) => !v)}
             onStop={() => (setLocked(false), engine.current?.setTrigger(false))}
             onEnd={finish}
+          />
+        )}
+
+        {/* FLATLINED: the CONTINUE? countdown */}
+        {flat && !over && (
+          <Flatlined
+            stats={flat}
+            pendingUsd={cab.pending}
+            buys={flatBuys}
+            rounds={flatBuys(cab.pending) ?? 0}
+            hold={cab.stage === 'approve' || cab.stage === 'loading' || locking || cab.modal !== null}
+            onCoin={cab.onCoin}
+            onClear={cab.onClear}
+            onContinue={() => cab.payThen(() => void resumeAfterPay(cab.pending))}
+            onGameOver={() => finishRef.current()}
+            walletName={cab.walletName}
           />
         )}
 

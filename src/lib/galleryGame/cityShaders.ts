@@ -322,7 +322,7 @@ export function patchWetGround(mat: THREE.MeshStandardMaterial, u: GroundUniform
   mat.customProgramCacheKey = () => 'wetground-v1';
 }
 
-/** The OMNICORE eye: an additive LED-wall eye with blinking lid, tracking iris, dilating slit pupil and a HUD ring. */
+/** The nSLAVE eye: an additive LED-wall eye with blinking lid, tracking iris, dilating slit pupil and a HUD ring. */
 export function eyeMaterial(sh: Shared) {
   return new THREE.ShaderMaterial({
     transparent: true,
