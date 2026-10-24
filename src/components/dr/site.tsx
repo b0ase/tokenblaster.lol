@@ -63,9 +63,9 @@ export function PageHead({
 }
 
 /** Section marker: "02 // ARCADE" with a rule. */
-export function SectionHead({ n, children, right }: { n?: string; children: ReactNode; right?: ReactNode }) {
+export function SectionHead({ n, children, right, reveal }: { n?: string; children: ReactNode; right?: ReactNode; reveal?: boolean }) {
   return (
-    <div className="flex items-end justify-between gap-3 border-b-2 border-[var(--hot)] pb-1">
+    <div data-reveal={reveal ? '' : undefined} className="flex items-end justify-between gap-3 border-b-2 border-[var(--hot)] pb-1">
       <h2 className="dr-display flex items-baseline gap-2 text-[clamp(26px,4.4vw,40px)] text-hot">
         {n && <span className="text-[0.55em] text-[var(--accent)]">{n}</span>}
         {children}
