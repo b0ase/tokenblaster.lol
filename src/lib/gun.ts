@@ -68,6 +68,19 @@ const reportToWallet = (sats: number, left: number) => {
   }
 };
 
+/**
+ * Load timing (owner, 24 Oct 2026): '[tb-load]' console lines with ms per stage, so a real test shows where
+ * the time goes. `loadMark('approve start')` starts a new timeline.
+ */
+let loadT0 = 0;
+let loadLast = 0;
+export function loadMark(stage: string) {
+  const t = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  if (stage === 'approve start' || !loadT0) loadT0 = loadLast = t;
+  console.info(`[tb-load] ${stage}: +${Math.round(t - loadLast)} ms (total ${Math.round(t - loadT0)} ms)`);
+  loadLast = t;
+}
+
 export class Gun {
   private key: PrivateKey;
   private coin: { tx: Transaction; vout: number } | null = null;
@@ -163,17 +176,18 @@ export class Gun {
       await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
       await tx.sign();
       try {
-        await this.send(tx);
+        // One quick try: a stale old coin must not hold the load up (the next session's merge sweeps leftovers).
+        await this.send(tx, 1);
         this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
       } catch {
-        // Merge failed (e.g. the old coin was already spent): fall back to the new coin; Unload sweeps the rest.
+        // Merge failed (e.g. the old coin was already spent): fall back to the new coin.
         this.coin = fresh;
       }
       this.save();
     });
   }
 
-  private async send(tx: Transaction) {
+  private async send(tx: Transaction, tries = 5) {
     const txid = tx.id('hex');
     // The wallet may still be propagating the parent; retry briefly before giving up.
     for (let attempt = 0; ; attempt++) {
@@ -182,7 +196,7 @@ export class Gun {
       // A retry of a tx ARC already has can come back as an error (e.g. "invalid competing
       // transaction identifiers"). Ask ARC directly before treating it as a failure.
       if (await this.known(txid)) return;
-      if (attempt >= 4) throw new Error(`ARC rejected ${txid}: ${'description' in r ? r.description : JSON.stringify(r)}`);
+      if (attempt >= tries - 1) throw new Error(`ARC rejected ${txid}: ${'description' in r ? r.description : JSON.stringify(r)}`);
       await new Promise((ok) => setTimeout(ok, 500 * (attempt + 1)));
     }
   }
@@ -304,6 +318,13 @@ export class Gun {
    * ARC accepts a chain that spends an accepted, unconfirmed parent. Merges several coins into one.
    */
   private async startCoin(onWait: (secs: number) => void) {
+    // The coin the wallet just paid us (load() adopted it from the wallet's own response): use it at once.
+    // Never poll an index for a coin we created ourselves (owner, 24 Oct 2026: the first 10% took ages).
+    this.refresh();
+    if (this.coin && this.sats > 0) {
+      loadMark('coin found (from the wallet)');
+      return;
+    }
     const t0 = Date.now();
     let coins: { tx: Transaction; vout: number }[] = [];
     for (let i = 0; i < 6; i++) {
@@ -327,6 +348,7 @@ export class Gun {
       this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
     } else this.coin = coins[0];
     this.save();
+    loadMark('coin found (from the index)');
   }
 
   /**
@@ -353,19 +375,17 @@ export class Gun {
       split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
       await split.fee(new SatoshisPerKilobyte(FEE_RATE));
       await split.sign();
+      loadMark('split built');
       onStep(45, 0);
       await this.send(split);
       const base = Transaction.fromHex(split.toHex());
       this.coin = { tx: base, vout: lanesN };
       this.save();
-      // Wait until the network has the split (up to ~60 s), so the first rounds don't arrive as orphans.
-      const t0 = Date.now();
-      for (let i = 0; i < 80 && !(await this.seen(split.id('hex'))); i++) {
-        const secs = Math.round((Date.now() - t0) / 1000);
-        onStep(Math.min(90, 55 + i), secs >= 8 ? secs : 0);
-        await new Promise((r) => setTimeout(r, 750));
-      }
+      // ARC took the split: that is enough to chain the first rounds on it (no waiting for an index).
+      loadMark('split accepted');
+      onStep(95, 0);
       this.ready = { base, lanesN, perLane };
+      loadMark('ready');
       onStep(100, 0);
     });
   }
@@ -388,6 +408,8 @@ export class Gun {
     /** Sats each blast needs (default STORM_FEE); a longer tag needs more. */
     perBlast: number = STORM_FEE,
     paused: () => boolean = () => false,
+    /** Blasts per lane per request round; small keeps sending close to what the trigger asked for. */
+    step = 50,
   ): Promise<number> {
     if (!this.ready) await this.prepareStorm(total, perBlast, (pct) => onStatus(`Loading… ${pct}%`));
     return this.exclusive(async () => {
@@ -437,7 +459,7 @@ export class Gun {
               type: 'start',
               wif: this.key.toWif(),
               token,
-              step: 50,
+              step,
               game: tag.game,
               extra: tag.extra,
               paused: paused(),

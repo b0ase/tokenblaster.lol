@@ -111,7 +111,6 @@ export function ShootingGallery() {
   const [hud, setHud] = useState<Stats | null>(null);
   const [board, setBoard] = useState<BoardRow[]>([]);
   const [boardWin, setBoardWin] = useState<'event' | '24h'>('event');
-  const [firing, setFiring] = useState(false);
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
@@ -123,7 +122,6 @@ export function ShootingGallery() {
   const held = useRef(false);
   const sentRef = useRef(0);
   const lastAccept = useRef(0);
-  const burstBusy = useRef(false);
   const chainN = useRef(1);
   const [sid] = useState(() => Math.random().toString(36).slice(2, 10));
   const live = true; // coin-op: every round is paid
@@ -143,7 +141,6 @@ export function ShootingGallery() {
   const [loadedRounds, setLoadedRounds] = useState(0);
   const [feed, setFeed] = useState<FeedRow[]>([]);
   const [load, setLoad] = useState<LoadState | null>(null);
-  const packLeft = Math.max(0, bought - run.sent);
 
   // ── Prefs, query flags, price, clock ──
   useEffect(() => {
@@ -228,134 +225,232 @@ export function ShootingGallery() {
     e.setTrigger(true);
   }, [ready, autofire]);
 
-  // ── Accepted (or simulated) transactions land ──
-  const landed = useCallback((n: number, txid: string | null) => {
-    if (n <= 0) return;
-    engine.current?.accept(n);
-    sentRef.current += n;
-    lastAccept.current = performance.now();
-    setRun((r) => ({ ...r, sent: sentRef.current, last: txid ?? r.last, started: r.started || Date.now() }));
-  }, [setRun]);
+  // ── The gun and the sender are decoupled (owner, 24 Oct 2026: "the gun ALWAYS fires") ──
+  // The trigger drives the visual fire at the weapon's rate: each visual round takes one loaded round and joins
+  // the send queue (fired − sent). A background sender drains the queue into real transactions as fast as the
+  // network takes them, and keeps draining with the trigger up. Nothing on the network can stop the gun.
+  // WARM-UP: while a paid load is in progress the same gun fires simulated rounds (nothing sent, not scored).
+  const firedRef = useRef(0);
+  const [fired, setFired] = useState(0);
+  const modeRef = useRef<'off' | 'warm' | 'live'>('off');
+  const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
+  const setMode = useCallback((m: 'off' | 'warm' | 'live') => {
+    modeRef.current = m;
+    setModeState(m);
+  }, []);
+  const boughtRef = useRef(0);
   useEffect(() => {
-    if (!simulated) return;
+    boughtRef.current = bought;
+  }, [bought]);
+  const lastSent = useRef(0);
+  const sendErrors = useRef(0);
+  const [jammed, setJammed] = useState(false);
+  const [queueNote, setQueueNote] = useState(false);
+
+  const landed = useCallback(
+    (n: number, txid: string | null) => {
+      if (n <= 0) return;
+      sentRef.current += n;
+      // A sender round can run a few rounds ahead of the trigger: those count as fired too.
+      if (sentRef.current > firedRef.current) firedRef.current = sentRef.current;
+      lastAccept.current = lastSent.current = performance.now();
+      setRun((r) => ({ ...r, sent: sentRef.current, last: txid ?? r.last, started: r.started || Date.now() }));
+    },
+    [setRun],
+  );
+
+  // Visual fire: the stream ticker.
+  useEffect(() => {
     let last = performance.now();
     const i = setInterval(() => {
       const t = performance.now();
       const s = simRef.current;
+      const m = modeRef.current;
+      const left = boughtRef.current - firedRef.current;
+      s.on = held.current && !loadout && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
+      s.target = pattern.kind === 'stream' ? pattern.rate : 0;
       let n = simTick(s, (t - last) / 1000);
       last = t;
-      if (live && dry) {
-        n = Math.max(0, Math.min(n, bought - sentRef.current));
-        if (sentRef.current >= bought) s.on = false;
+      if (m === 'live') {
+        n = Math.max(0, Math.min(n, left));
+        firedRef.current += n;
       }
-      if (n) landed(n, fakeTxid());
+      if (n) engine.current?.accept(n);
+      if (m === 'live') setFired((f) => (f === firedRef.current ? f : firedRef.current));
       const tps = Math.round(s.rate);
       setRun((r) => (r.tps === tps ? r : { ...r, tps }));
     }, 50);
     return () => clearInterval(i);
-  }, [simulated, live, dry, bought, landed]);
+  }, [loadout, pattern]);
 
-  // ── LIVE stream: one firing session from LOCK & LOAD until the rounds run out or the player leaves ──
-  // The gun was split and readied during LOCK & LOAD (b.prepareStorm), so the session starts at once and
-  // simply holds fire while the trigger is up (paused), instead of re-loading on every pull.
+  // Bursts (shotguns, launchers): every pull fires at once and queues its rounds.
+  useEffect(() => {
+    triggerRef.current = (down: boolean) => {
+      held.current = down;
+      if (down) unlockAudio();
+    };
+    pullRef.current = (w: RangeWeapon) => {
+      if (loadout) return false;
+      const p = txPattern(w);
+      if (p.kind !== 'burst') return false;
+      const m = modeRef.current;
+      if (m === 'warm') {
+        engine.current?.accept(p.n);
+        return true;
+      }
+      if (m !== 'live' || boughtRef.current - firedRef.current < p.n) return false; // out of rounds
+      firedRef.current += p.n;
+      setFired(firedRef.current);
+      engine.current?.accept(p.n);
+      return true;
+    };
+  }, [loadout]);
+
+  // ── Sender ──
+  // Dry run (dev): a fake network with a delay and failures (?sendrate= tx/s, ?sendfail= 0..1 chance a second
+  // stalls, ?stallms= stall length), so it can be shown that the gun never stops while sending lags.
+  useEffect(() => {
+    if (!dry || mode !== 'live') return;
+    const qs = new URLSearchParams(location.search);
+    const rate = Number(qs.get('sendrate') ?? 600) || 600;
+    const failP = Number(qs.get('sendfail') ?? 0.25);
+    const stallMs = Number(qs.get('stallms') ?? 2500);
+    let stallUntil = 0;
+    let lastRoll = 0;
+    const i = setInterval(() => {
+      const t = performance.now();
+      if (t - lastRoll > 1000) {
+        lastRoll = t;
+        if (Math.random() < failP) {
+          stallUntil = t + stallMs;
+          sendErrors.current++;
+        }
+      }
+      if (t < stallUntil) return;
+      const k = Math.min(firedRef.current - sentRef.current, Math.ceil(rate / 10));
+      if (k > 0) landed(k, fakeTxid());
+    }, 100);
+    return () => clearInterval(i);
+  }, [dry, mode, landed]);
+
+  // Live, bursts: drain the queue with batches; failures retry with a backoff and never touch the gun.
+  useEffect(() => {
+    if (dry || mode !== 'live' || pattern.kind !== 'burst') return;
+    let alive = true;
+    let backoff = 0;
+    void (async () => {
+      while (alive) {
+        const q = firedRef.current - sentRef.current;
+        if (q <= 0) {
+          await new Promise((r) => setTimeout(r, 60));
+          continue;
+        }
+        try {
+          const extras = Array.from({ length: Math.min(25, q) }, () => galleryPushes(handle));
+          const txids = await fireBatch(chainN.current, extras, undefined, ammo);
+          chainN.current += txids.length;
+          landed(txids.length, txids[txids.length - 1] ?? null);
+          backoff = 0;
+        } catch (e) {
+          sendErrors.current++;
+          backoff = Math.min(8000, backoff ? backoff * 2 : 500);
+          console.warn('[tb-fire] batch failed, retrying', e);
+          if (sendErrors.current >= 12) setJammed(true);
+          await new Promise((r) => setTimeout(r, backoff));
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed]);
+
+  // Live, streams: one storm session over the prepared lanes, paused whenever the queue is empty. If it ends
+  // with rounds still queued (a network failure), it reloads by itself and carries on; after 3 tries: jammed.
+  const sessionAlive = useRef(false);
+  const reloadRef = useRef<() => Promise<void>>(async () => undefined);
   const sessionRef = useRef<(rounds: number) => void>(() => undefined);
+  const tries = useRef(0);
   useEffect(() => {
     sessionRef.current = (rounds: number) => {
-      if (firing || rounds <= 0 || !ammo) return;
-      setErr(null);
+      if (sessionAlive.current || rounds <= 0 || !ammo) return;
+      sessionAlive.current = true;
       stop.current = false;
-      setFiring(true);
-      const startSent = sentRef.current;
-      let t0 = 0;
       let prev = 0;
       void storm(
         rounds,
         (n, last) => {
           const d = n - prev;
           prev = n;
-          if (!t0) t0 = performance.now();
-          engine.current?.accept(d);
-          lastAccept.current = performance.now();
-          sentRef.current = startSent + n;
-          setRun((r) => ({ ...r, started: r.started || Date.now(), sent: sentRef.current, last: last ?? r.last, tps: Math.round(n / Math.max(1, (performance.now() - t0) / 1000)) }));
+          landed(d, last ?? null);
         },
         () => stop.current,
         () => undefined,
         { game: 'gallery', extra: galleryPushes(handle).slice(1) },
         perShot,
         ammo,
-        () => !held.current,
+        () => sentRef.current >= firedRef.current, // nothing queued: hold, keep the lanes
+        5,
       )
-        .catch(() => {
-          setErr('Your rounds stopped going out. Your credit is safe. Press LOADOUT, then LOCK & LOAD to try again.');
-          sfx('rekt');
+        .catch((e) => {
+          sendErrors.current++;
+          console.warn('[tb-fire] sender stopped', e);
         })
         .finally(() => {
-          setRun((r) => ({ ...r, status: null, tps: 0 }));
-          setFiring(false);
+          sessionAlive.current = false;
+          const left = boughtRef.current - sentRef.current;
+          if (stop.current || left <= 0 || modeRef.current !== 'live') return;
+          if (++tries.current > 3) return setJammed(true);
+          void reloadRef.current();
         });
     };
   });
-
-  // While firing: if the trigger is held and nothing has gone out for a few seconds, say so plainly.
-  const heldAt = useRef(0);
-  const [stall, setStall] = useState<string | null>(null);
+  /** RELOAD: re-run the preparation for the rounds not sent yet (no new payment) and start sending again. */
   useEffect(() => {
-    if (simulated) return;
+    reloadRef.current = async () => {
+      const left = boughtRef.current - sentRef.current;
+      if (left <= 0) return;
+      try {
+        if (!dry) await b.prepareStorm(left, perShot);
+        setJammed(false);
+        if (!dry) sessionRef.current(left);
+      } catch (e) {
+        console.warn('[tb-fire] reload failed', e);
+        setJammed(true);
+      }
+    };
+  });
+
+  // Queue note + [tb-fire] timing logs.
+  useEffect(() => {
+    if (mode !== 'live') return;
+    let prevSent = sentRef.current;
+    let tLog = performance.now();
     const i = setInterval(() => {
-      const now = performance.now();
-      let msg: string | null = null;
-      if (held.current && !loadout && pattern.kind === 'stream') {
-        if (!heldAt.current) heldAt.current = now;
-        const since = Math.min(now - heldAt.current, now - lastAccept.current);
-        if (bought - sentRef.current <= 0) msg = 'Out of rounds. Press LOADOUT and put another coin in.';
-        else if (!firing) msg = 'Your gun is not loaded. Press LOADOUT, then LOCK & LOAD.';
-        else if (since > 4000) msg = `Your rounds are not going out right now. The network is busy, keep holding… ${Math.round(since / 1000)}s`;
-      } else heldAt.current = 0;
-      setStall((m) => (m === msg ? m : msg));
+      const t = performance.now();
+      const q = firedRef.current - sentRef.current;
+      const behind = q > 0 && (q > 1500 || t - lastSent.current > 3000);
+      setQueueNote((v) => (v === behind ? v : behind));
+      if (t - tLog >= 2000) {
+        const rate = Math.round(((sentRef.current - prevSent) * 1000) / (t - tLog));
+        console.info(`[tb-fire] queue ${q} · sent/s ${rate} · sent ${sentRef.current} · fired ${firedRef.current} · loaded ${boughtRef.current} · errors ${sendErrors.current}`);
+        prevSent = sentRef.current;
+        tLog = t;
+      }
     }, 500);
     return () => clearInterval(i);
-  }, [simulated, loadout, pattern.kind, bought, firing]);
+  }, [mode]);
 
-  // ── Trigger + bursts ──
+  // While firing: plain notes. The gun itself never waits on these.
+  const [stall, setStall] = useState<string | null>(null);
   useEffect(() => {
-    triggerRef.current = (down: boolean) => {
-      held.current = down;
-      if (!down) {
-        simRef.current.on = false;
-        return;
-      }
-      unlockAudio();
-      if (loadout || pattern.kind !== 'stream') return;
-      if (simulated) {
-        if (live && dry && sentRef.current >= bought) return;
-        simRef.current.target = pattern.rate;
-        simRef.current.on = true;
-      }
-      // LIVE: the session is already running and fires while `held` is true.
-    };
-    pullRef.current = (w: RangeWeapon) => {
-      if (loadout) return false;
-      const p = txPattern(w);
-      if (p.kind !== 'burst') return false;
-      if (simulated) {
-        if (live && dry && sentRef.current + p.n > bought) return false;
-        setTimeout(() => landed(p.n, fakeTxid()), 70);
-        return true;
-      }
-      if (burstBusy.current || bought - sentRef.current < p.n || !ammo) return false;
-      burstBusy.current = true;
-      const extras = Array.from({ length: p.n }, () => galleryPushes(handle));
-      fireBatch(chainN.current, extras, undefined, ammo)
-        .then((txids) => {
-          chainN.current += txids.length;
-          landed(txids.length, txids[txids.length - 1] ?? null);
-        })
-        .catch(() => setErr('That shot did not go out. Your credit is safe. Try again.'))
-        .finally(() => (burstBusy.current = false));
-      return true;
-    };
-  }, [loadout, pattern, simulated, live, dry, bought, landed, ammo, handle, fireBatch]);
+    const i = setInterval(() => {
+      let msg: string | null = null;
+      if (held.current && !loadout && modeRef.current === 'live' && boughtRef.current - firedRef.current <= 0) msg = 'Out of rounds. Press LOADOUT and put another coin in.';
+      setStall((m) => (m === msg ? m : msg));
+    }, 400);
+    return () => clearInterval(i);
+  }, [loadout]);
 
   useEffect(() => {
     const e = engine.current;
@@ -367,10 +462,9 @@ export function ShootingGallery() {
     if (loadout) engine.current?.setTrigger(false);
   }, [loadout]);
 
-  // Leaving the page or hiding the tab: stop at once. What is left stays in the player's own gun.
+  // Leaving the page: stop the trigger. Rounds already fired still finish sending while the page is open.
   useEffect(() => {
     const kill = () => {
-      stop.current = true;
       held.current = false;
       simRef.current.on = false;
       engine.current?.setTrigger(false);
@@ -378,7 +472,7 @@ export function ShootingGallery() {
     };
     const vis = () => document.visibilityState === 'hidden' && kill();
     const warn = (e: BeforeUnloadEvent) => {
-      if (firing) e.preventDefault();
+      if (firedRef.current > sentRef.current) e.preventDefault();
     };
     window.addEventListener('pagehide', kill);
     document.addEventListener('visibilitychange', vis);
@@ -388,7 +482,7 @@ export function ShootingGallery() {
       document.removeEventListener('visibilitychange', vis);
       window.removeEventListener('beforeunload', warn);
     };
-  }, [firing]);
+  }, []);
   useEffect(
     () => () => {
       stop.current = true;
@@ -414,7 +508,7 @@ export function ShootingGallery() {
   const lastReport = useRef(0);
   const reportRef = useRef<(force: boolean) => Promise<void>>(async () => undefined);
   useEffect(() => {
-  reportRef.current = async (force: boolean) => {
+    reportRef.current = async (force: boolean) => {
       if (!live || dry || !handle || !run.last || !sentRef.current) return;
       if (!force && Date.now() - lastReport.current < 60_000) return;
       lastReport.current = Date.now();
@@ -435,33 +529,55 @@ export function ShootingGallery() {
         }),
       }).catch(() => undefined);
       loadBoard();
-  };
+    };
   });
+  const sending = fired > run.sent;
   useEffect(() => {
-    if (live && !dry && run.sent) void reportRef.current(!firing);
-  }, [live, dry, run.sent, firing]);
+    if (live && !dry && run.sent) void reportRef.current(!sending);
+  }, [live, dry, run.sent, sending]);
 
   // ── LOCK & LOAD: turn the loaded credit into rounds (credit is the ammunition) ──
+  // After the payment the player drops straight into the street in WARM-UP while the gun loads.
   const perShotAll = perShot * (1 + fee);
+  const [banner, setBanner] = useState(false);
+  const goLive = useCallback(
+    (rounds: number) => {
+      setLoadedRounds(rounds);
+      setBought(firedRef.current + rounds);
+      boughtRef.current = firedRef.current + rounds;
+      sentRef.current = firedRef.current; // warm-up rounds were never queued
+      setRun((r) => ({ ...r, sent: sentRef.current }));
+      setMode('live');
+      setLoad(null);
+      setBanner(true);
+      sfx('coin');
+      setTimeout(() => setBanner(false), 2600);
+    },
+    [setMode, setRun, setLoadedRounds, setBought, setLoad, setBanner],
+  );
   const lockAndLoad = async () => {
     setErr(null);
     unlockAudio();
     const stream = pattern.kind === 'stream';
+    setLoadout(false);
+    setMode('warm');
+    setJammed(false);
+    tries.current = 0;
+    sendErrors.current = 0;
+    setLoad({ kind: 'loading', pct: 5, slowSecs: 0 });
     if (dry) {
-      // Dev dry run: walk the same loading screen, nothing is spent.
+      // Dev dry run: a realistic split delay (?splitms=, default 8 s) so the warm-up can be seen.
       const sats = usdToSats(cab.creditUsd, bsvUsd) ?? 0;
       const n = roundsFor(sats, perShotAll);
-      for (const pct of [20, 45, 70, 95]) {
+      const ms = Number(new URLSearchParams(location.search).get('splitms') ?? 8000) || 0;
+      for (const pct of [15, 30, 45, 60, 75, 90]) {
         setLoad({ kind: 'loading', pct, slowSecs: 0 });
-        await new Promise((r) => setTimeout(r, 700));
+        await new Promise((r) => setTimeout(r, ms / 6));
       }
-      setLoadedRounds(n);
-      setBought(sentRef.current + n);
-      setLoad({ kind: 'ready' });
+      goLive(n);
       return;
     }
     setLocking(true);
-    setLoad({ kind: 'loading', pct: 5, slowSecs: 0 });
     try {
       const avail = b.ammo; // the gun's sats are the credit
       let shots = Math.floor(Math.max(0, avail - overheadSats(Math.floor(avail / perShotAll))) / perShotAll);
@@ -471,34 +587,51 @@ export function ShootingGallery() {
         await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots)) / perShot));
       }
-      // Do ALL the slow work now, before the game starts: so the first pull fires at once.
       if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
-      setLoadedRounds(shots);
-      setBought(sentRef.current + shots);
+      goLive(shots);
       if (stream) sessionRef.current(shots);
-      setLoad({ kind: 'ready' });
     } catch (e) {
       const m = e instanceof Error ? e.message : '';
+      setMode('off');
+      setLoadout(true);
       setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough credit for a round. Put another coin in.' : 'Loading failed. Your credit is safe. Press LOCK & LOAD to try again.' });
     } finally {
       setLocking(false);
     }
   };
-  // Loaded: a short beat on GUN LOADED, then the game starts by itself (or on FIRE).
-  const goFire = useCallback(() => {
-    setLoad(null);
-    sfx('coin');
-    setLoadout(false);
-  }, [setLoad, setLoadout]);
+  // Opening LOADOUT ends live fire; rounds already fired still finish sending, the rest stays as credit.
   useEffect(() => {
-    if (load?.kind !== 'ready') return;
-    const t = setTimeout(goFire, 1400);
-    return () => clearTimeout(t);
-  }, [load, goFire]);
-  // Opening LOADOUT ends the firing session; what is left stays in the gun as credit.
+    if (loadout && modeRef.current === 'live') {
+      setMode('off');
+      boughtRef.current = firedRef.current;
+      setBought(firedRef.current);
+    }
+  }, [loadout, setMode]);
+  // The sender is told to finish once everything fired is sent and the trigger is off for good.
   useEffect(() => {
-    if (loadout) stop.current = true;
-  }, [loadout]);
+    if (mode !== 'off') return;
+    const i = setInterval(() => {
+      if (sentRef.current >= firedRef.current) stop.current = true;
+    }, 500);
+    return () => clearInterval(i);
+  }, [mode]);
+
+  // A smooth bar: ease forward inside each stage, never frozen on one number.
+  const target = load?.kind === 'loading' ? load.pct : load?.kind === 'ready' ? 100 : 0;
+  const [eased, setEased] = useState(0);
+  useEffect(() => {
+    const i = setInterval(() => {
+      setEased((e) => {
+        if (target <= 0) return 0;
+        const ceil = Math.min(99, target + 14);
+        const floor = Math.max(e, target);
+        return Math.min(ceil, floor + Math.max(0.15, (ceil - floor) * 0.04));
+      });
+    }, 100);
+    return () => clearInterval(i);
+  }, [target]);
+  const warmPct = Math.round(Math.max(target, eased));
+  const packLeft = Math.max(0, bought - fired);
 
   // LOCK & LOAD is the bill: pay the coins (one approval), load, then lock the rounds and start by itself.
   const lockRef = useRef(lockAndLoad);
@@ -556,19 +689,56 @@ export function ShootingGallery() {
             </p>
           </div>
         )}
-        {(load || cab.stage === 'approve' || cab.stage === 'loading') && (
+        {(cab.stage === 'approve' || load?.kind === 'failed') && (
           <LoadingScreen
             title="Shooting Gallery"
             shots={GALLERY_SHOTS}
             track="arena"
             story={GALLERY_STORY}
             tips={GALLERY_TIPS}
-            state={load ?? (cab.stage === 'approve' ? { kind: 'approve' } : { kind: 'paid' })}
-            onFire={goFire}
+            state={load?.kind === 'failed' ? load : { kind: 'approve' }}
           />
         )}
+        {(mode === 'warm' || cab.stage === 'loading') && !loadout && (
+          <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center px-3" role="status" data-warmup>
+            <div className="w-full max-w-[520px] rounded-xl border border-white/15 bg-black/60 px-4 py-2 backdrop-blur-md">
+              <div className="flex items-baseline justify-between gap-3 font-sans">
+                <span className="text-sm font-bold tracking-wide text-white">WARM-UP. Your gun is loading…</span>
+                <span className="text-lg font-black tabular-nums text-white">{warmPct}%</span>
+              </div>
+              <div className="mt-1.5 h-[3px] overflow-hidden rounded-full bg-white/15">
+                <div className="h-full rounded-full transition-[width] duration-200" style={{ width: `${warmPct}%`, background: DR.colour.signal, boxShadow: `0 0 10px ${DR.colour.signal}` }} />
+              </div>
+              <p className="mt-1 font-sans text-[11px] text-white/70">Practice rounds: nothing is sent, nothing is scored. Live rounds start when the gun is loaded.</p>
+            </div>
+          </div>
+        )}
+        {banner && (
+          <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center" role="status">
+            <p className="lsm-rise rounded-2xl bg-black/55 px-8 py-5 text-center font-black uppercase leading-none text-white backdrop-blur-md" style={{ fontFamily: DR.font.display, fontSize: 'clamp(34px,7vw,88px)', textShadow: `0 0 30px ${DR.colour.signal}` }}>
+              Gun loaded.
+              <br />
+              <span style={{ color: DR.colour.signal }}>Live rounds</span>
+            </p>
+          </div>
+        )}
+        {queueNote && !loadout && !jammed && (
+          <div className="pointer-events-none absolute bottom-24 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/70 px-4 py-1.5 font-sans text-xs text-white/85 backdrop-blur" role="status">
+            Rounds are queueing, the network is catching up.
+          </div>
+        )}
+        {jammed && !loadout && (
+          <div className="absolute inset-x-0 top-1/3 z-20 flex justify-center px-4" role="alert">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/15 bg-black/80 px-6 py-4 text-center backdrop-blur-md">
+              <p className="font-sans text-lg font-bold text-white">Your gun jammed. Your rounds are safe, press RELOAD.</p>
+              <button type="button" data-fs-skip onClick={() => { tries.current = 0; sendErrors.current = 0; void reloadRef.current(); }} className="btn-fire px-6 py-2 text-lg">
+                RELOAD
+              </button>
+            </div>
+          </div>
+        )}
         {load?.kind === 'failed' && (
-          <button type="button" data-fs-skip onClick={() => setLoad(null)} className="btn-fire absolute bottom-6 left-1/2 z-30 -translate-x-1/2 px-6 py-3 text-lg">
+          <button type="button" data-fs-skip onClick={() => setLoad(null)} className="btn-fire fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 px-6 py-3 text-lg">
             BACK TO LOCK &amp; LOAD
           </button>
         )}
@@ -578,9 +748,11 @@ export function ShootingGallery() {
             <div className="bg-black/65 px-2 py-1 font-mono">
               <div className="text-[10px] tracking-widest text-dim">{dry ? 'DRY RUN · DEV' : 'LIVE · ON CHAIN'}</div>
               <div className="text-[clamp(26px,5vw,48px)] font-bold leading-none tabular-nums" style={{ color: DR.colour.amber }}>
-                {run.sent.toLocaleString()}
+                {(mode === 'live' ? fired : run.sent).toLocaleString()}
               </div>
-              <div className="text-[10px] text-dim">{live && !dry ? 'rounds on the record' : 'simulated transactions'}</div>
+              <div className="text-[10px] text-dim">
+                rounds fired · {run.sent.toLocaleString()} {dry ? 'sent (dry run)' : 'on the record'}
+              </div>
               <div className="mt-1 text-[10px]">
                 <span style={{ color: DR.colour.cyan }}>{weapon.name.toUpperCase()}</span>
                 <span className="text-dim"> · ammo </span>
@@ -637,7 +809,7 @@ export function ShootingGallery() {
         {!loadout && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2 sm:p-3">
             <div className="max-w-[60%] bg-black/65 px-2 py-1 font-mono text-[11px] text-dim">
-              {stall ?? (packLeft <= 0 ? 'Out of rounds. Press LOADOUT and put another coin in.' : `${patternLabel(pattern)} · HOLD to fire (or SPACE).`)}
+              {mode === 'warm' ? 'WARM-UP: practice rounds while your gun loads. HOLD to fire.' : (stall ?? (packLeft <= 0 ? 'Out of rounds. Press LOADOUT and put another coin in.' : `${patternLabel(pattern)} · HOLD to fire (or SPACE).`))}
             </div>
             <div className="pointer-events-auto mb-12 flex gap-2">
               <button type="button" onClick={() => setLoadout(true)} className="btn px-3 py-2 text-xs">
@@ -648,8 +820,8 @@ export function ShootingGallery() {
                   {locked ? 'LOCKED' : 'LOCK TRIGGER'}
                 </button>
               )}
-              {firing && (
-                <button type="button" onClick={() => ((stop.current = true), setLocked(false), engine.current?.setTrigger(false))} className="btn-fire px-3 py-2 text-xs">
+              {locked && (
+                <button type="button" onClick={() => (setLocked(false), engine.current?.setTrigger(false))} className="btn-fire px-3 py-2 text-xs">
                   STOP
                 </button>
               )}

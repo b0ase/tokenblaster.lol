@@ -60,14 +60,16 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
   const doPay = useCallback(async () => {
     setErr(null);
     if (opts.dry) {
-      setStage('loading');
+      // Dev dry run with a realistic wallet wait (?approvems=, default 10 s), so the flow can be checked.
+      setStage('approve');
       setStageText('Dry run (dev): nothing is paid or broadcast.');
+      const wait = Number(new URLSearchParams(location.search).get('approvems') ?? 10_000) || 0;
       setTimeout(() => {
         setDryCredit((c) => addCoin(c, pending));
         setPending(0);
         setStage('ready');
         setLanded((n) => n + 1);
-      }, 900);
+      }, wait);
       return;
     }
     const sats = usdToSats(pending, bsvUsd);
@@ -85,9 +87,8 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
       setStageText(null);
       return;
     }
-    setStage('loading');
-    setStageText('Payment received. Loading…');
-    await b.refreshGun().catch(() => undefined);
+    // Straight on: the gun already holds the paid coin from the wallet's own response (no extra lookups).
+    void b.refreshGun().catch(() => undefined);
     setPending(0);
     setStage('ready');
     setStageText(null);
