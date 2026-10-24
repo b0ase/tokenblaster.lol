@@ -82,8 +82,10 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     const sats = usdToSats(pending, bsvUsd);
     if (!sats) return setErr('Checking the price. Try again in a moment.');
     if (!b.wallet) {
-      loadMark('pay: no wallet connected, asking to connect');
-      setModal('disconnected');
+      // LOCK & LOAD = connect and pay (owner, 24 Oct): no wallet yet, so connect now and pay straight after.
+      loadMark('pay: no wallet yet, connecting then paying');
+      setPayAfterConnect(true);
+      void b.connectWallet();
       return;
     }
     // Never bill a dropped connection: check it answers first (nothing is asked of the wallet if it doesn't).
