@@ -5,6 +5,8 @@
  * left back to the player. Same transaction shape as blaster/blast.ts.
  */
 import { spendableCoins } from './coinop/ammo';
+import { STREAM_STEP, lanesFor } from './gallery';
+import { runStorm } from './stormRun';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
@@ -446,7 +448,7 @@ export class Gun {
       await this.startCoin((secs) => onStep(15, secs));
       if (!this.coin) throw new Error('EMPTY');
       onStep(30, 0);
-      const lanesN = Math.max(1, Math.min(100, Math.ceil(total / 300)));
+      const lanesN = lanesFor(total);
       const perLane = Math.ceil(total / lanesN);
       const budget = this.sats - 300 - lanesN * 40;
       if (budget < lanesN * perBlast) throw new Error('SHORT');
@@ -490,8 +492,8 @@ export class Gun {
     /** Sats each blast needs (default STORM_FEE); a longer tag needs more. */
     perBlast: number = STORM_FEE,
     paused: () => boolean = () => false,
-    /** Blasts per lane per request round; small keeps sending close to what the trigger asked for. */
-    step = 50,
+    /** Most blasts per lane per ARC round (src/lib/gallery.ts STREAM_STEP). */
+    step = STREAM_STEP,
   ): Promise<number> {
     if (!this.ready) await this.prepareStorm(total, perBlast, (pct) => onStatus(`Loading… ${pct}%`));
     const userStop = stop;
@@ -501,57 +503,25 @@ export class Gun {
       if (!r) throw new Error('The gun is not loaded.');
       this.ready = null;
       const { base, lanesN, perLane } = r;
-      const lanes0 = Array.from({ length: lanesN }, (_, i) => ({ tx: base, vout: i, left: perLane }));
-      let lastWhy: string | undefined;
+      const lanes = Array.from({ length: lanesN }, (_, i) => ({ vout: i, count: perLane, n: i * perLane + 1 }));
       const cores = Math.max(1, Math.min(lanesN, (navigator.hardwareConcurrency || 4) - 1, 12));
-      let sent = 0;
       let failed: string | null = null;
-      await Promise.all(
-        Array.from({ length: cores }, (_, w) => {
-          const mine = lanes0.filter((_, i) => i % cores === w);
-          return new Promise<void>((done) => {
-            // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
-            const wk = new Worker('/storm-worker.js', { type: 'module' });
-            let wasPaused: boolean | null = null;
-            const poll = setInterval(() => {
-              if (stop()) return wk.postMessage({ type: 'stop' });
-              const p = paused();
-              if (p !== wasPaused) wk.postMessage({ type: p ? 'pause' : 'resume' });
-              wasPaused = p;
-            }, 100);
-            wk.onmessage = (e: MessageEvent) => {
-              const m = e.data as { type: string; n?: number; last?: string; text?: string };
-              if (m.type === 'sent') {
-                sent += m.n ?? 0;
-                onProgress(sent, m.last);
-              } else if (m.type === 'why') {
-                lastWhy = m.text;
-                onStatus('STALL');
-              } else if (m.type === 'done') {
-                clearInterval(poll);
-                wk.terminate();
-                done();
-              }
-            };
-            wk.onerror = (e) => {
-              lastWhy = e.message || 'worker crashed';
-              clearInterval(poll);
-              wk.terminate();
-              done();
-            };
-            wk.postMessage({
-              type: 'start',
-              wif: this.key.toWif(),
-              token,
-              step,
-              game: tag.game,
-              extra: tag.extra,
-              paused: paused(),
-              lanes: mine.map((l, k) => ({ hex: base.toHex(), vout: l.vout, count: l.left, n: (w + k * cores) * perLane + 1 })),
-            });
-          });
-        }),
-      );
+      // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
+      const { sent, lastWhy } = await runStorm({
+        workerUrl: '/storm-worker.js',
+        baseHex: base.toHex(),
+        lanes,
+        wif: this.key.toWif(),
+        token,
+        step,
+        game: tag.game,
+        extra: tag.extra,
+        cores,
+        stop,
+        paused,
+        onSent: onProgress,
+        onWhy: () => onStatus('STALL'),
+      });
       if (!sent) failed = `ARC took no blasts: ${lastWhy ?? 'no reason given'}`;
       // Session end: merge every lane end (and the split's change) back into one coin once the last blasts
       // settle, and save it. The split's lanes are spent by the workers: never reuse them.
