@@ -22,7 +22,7 @@ const MISSING: Record<Missing, string> = {
   coin: 'Put a coin in first.',
   more: 'Put another coin in: this game needs a little more.',
   name: 'Type your name to play.',
-  bad: 'Names are letters, numbers and _ (up to 20).',
+  bad: 'Use your paymail (like you@bwalletx.com) or a name of letters, numbers and _ (up to 20).',
   price: 'Checking the price. Try again in a moment.',
   wait: 'The game is still loading. One moment.',
 };
@@ -191,7 +191,7 @@ export function CoinCabinet(p: {
               if (miss === 'name' || miss === 'bad') setMiss(null);
             }}
             disabled={busy}
-            maxLength={20}
+            maxLength={40}
             placeholder="Type your name"
             className={`tbx-input disabled:opacity-40 ${flash ? 'tbx-shake' : ''}`}
             autoComplete="off"
