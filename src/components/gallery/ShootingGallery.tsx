@@ -25,6 +25,7 @@ import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
 import { DR } from '@/lib/dr/tokens';
+import { GunPreview } from './GunPreview';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
 import { GalleryEngine, type Hooks, type Quality, type Stats } from '@/lib/galleryGame/engine';
 import {
@@ -593,6 +594,7 @@ export function ShootingGallery() {
                           <Sticker size={10}>DEFAULT</Sticker>
                         </span>
                       )}
+                      <GunPreview url={w.def.url} active={on} />
                       <span className="pr-14 text-[clamp(16px,2vw,22px)] font-black uppercase italic leading-none" style={{ fontFamily: DR.font.display, color: on ? DR.colour.paper : '#d9d6cc' }}>
                         {w.name}
                       </span>
@@ -651,10 +653,10 @@ export function ShootingGallery() {
                     unlockAudio();
                     setLoadout(false);
                   }}
-                  className="px-7 py-2.5 text-2xl font-black uppercase italic tracking-widest disabled:opacity-40"
-                  style={{ fontFamily: DR.font.display, background: DR.colour.signal, color: DR.colour.paper, border: `2px solid ${DR.colour.paper}`, boxShadow: '0 0 24px rgba(232,38,29,.55)' }}
+                  className="lock-load w-full -skew-x-6 py-4 text-[clamp(32px,6vw,64px)] font-black uppercase italic leading-none tracking-[0.12em] transition hover:scale-[1.02] active:scale-[0.98] disabled:animate-none disabled:opacity-40 sm:w-auto sm:px-14"
+                  style={{ fontFamily: DR.font.display, background: `linear-gradient(180deg, #ff4a3d, ${DR.colour.signal} 55%, #8f0f08)`, color: DR.colour.paper, border: `3px solid ${DR.colour.paper}`, textShadow: '0 3px 0 rgba(0,0,0,.45)' }}
                 >
-                  {ready ? 'Lock and load' : 'Loading…'}
+                  {ready ? 'Lock & load ▶' : 'Loading…'}
                 </button>
                 <span className="text-xs text-dim">
                   {live ? (dry ? 'Dry run: nothing is broadcast, nothing is spent.' : 'LIVE: buy a pack below, then every round is a real transaction.') : 'Practice is simulated and free.'}
