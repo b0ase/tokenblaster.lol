@@ -10,6 +10,15 @@ import type { LoadStage } from './CoinCabinet';
 
 type Blaster = ReturnType<typeof useBlaster>;
 
+/** Wallet / gun errors in plain words, with the one thing to do (owner: no technical words for players). */
+export function plainError(e: string | null | undefined): string {
+  const t = e ?? '';
+  if (/cancel|denied|reject|declin|abort|user/i.test(t)) return 'Your wallet said no. Press LOCK & LOAD to try again.';
+  if (/insufficient|not enough|funds/i.test(t)) return 'Your wallet does not have enough money for that. Take a coin out and try again.';
+  if (/unlock|did not answer|locked/i.test(t)) return 'Your wallet did not answer. Open and unlock it, then press LOCK & LOAD again.';
+  return 'That did not go through. Nothing was taken. Press LOCK & LOAD to try again.';
+}
+
 export function useBsvUsd() {
   const [rate, setRate] = useState<number | null>(null);
   useEffect(() => {
@@ -62,13 +71,13 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
       return;
     }
     const sats = usdToSats(pending, bsvUsd);
-    if (!sats) return setErr('No BSV price yet. Try again in a moment.');
+    if (!sats) return setErr('Checking the price. Try again in a moment.');
     if (!b.wallet) {
       setPayAfterConnect(true);
       return b.connectWallet();
     }
     setStage('approve');
-    setStageText(`One request: ${fmtCredit(pending)} = ${sats.toLocaleString()} sats into your gun.`);
+    setStageText(`One request for ${fmtCredit(pending)}.`);
     const ok = await b.load(sats, `${label}: ${pending.toFixed(2)} USD credit`);
     if (!ok) {
       after.current = null;
@@ -77,7 +86,7 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
       return;
     }
     setStage('loading');
-    setStageText('Payment landed. Loading your rounds…');
+    setStageText('Payment received. Loading…');
     await b.refreshGun().catch(() => undefined);
     setPending(0);
     setStage('ready');
@@ -111,7 +120,7 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
   }, [payAfterConnect, b.wallet, b.busy, doPay]);
   // Wallet's own "loading" busy flag, while approving, shows as the approve stage.
   useEffect(() => {
-    if (b.error) void Promise.resolve().then(() => setErr(b.error));
+    if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
   }, [b.error]);
 
   return { bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, setDryCredit };

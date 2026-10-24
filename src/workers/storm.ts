@@ -3,7 +3,7 @@
  * Each lane is an unconfirmed chain: coin → blast → blast → … (one OP_RETURN tag + change each).
  * Messages in:  { type: 'start', wif, token, lanes: [{ hex, vout, count }], startN, step, game?, extra? }
  *               game: the <game> push (default 'bsvgun'); extra: short pushes after it (e.g. the player's handle)
- *               { type: 'stop' }
+ *               { type: 'stop' } | { type: 'pause' } | { type: 'resume' }  (paused: hold fire, keep lanes)
  * Messages out: { type: 'sent', n, last }   n = newly accepted blasts
  *               { type: 'why', text }       a rejection reason (for the UI)
  *               { type: 'done' }
@@ -19,6 +19,8 @@ const BAD = /REJECT|DOUBLE|INVALID|ERROR/i;
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
 
 let stopped = false;
+/** Trigger released: hold fire, keep the lanes (the next pull carries on at once). */
+let paused = false;
 
 type Lane = { tx: Transaction; vout: number; left: number; n: number };
 
@@ -28,7 +30,12 @@ self.onmessage = async (e: MessageEvent) => {
     stopped = true;
     return;
   }
+  if (m.type === 'pause' || m.type === 'resume') {
+    paused = m.type === 'pause';
+    return;
+  }
   if (m.type !== 'start') return;
+  paused = Boolean(m.paused);
   const key = PrivateKey.fromWif(m.wif);
   const lock = new P2PKH().lock(key.toAddress());
   const unlock = new P2PKH().unlock(key);
@@ -46,13 +53,15 @@ self.onmessage = async (e: MessageEvent) => {
   let fee = 0; // worked out once (every blast is the same size, give or take a digit)
 
   while (lanes.length && !stopped) {
+    while (paused && !stopped) await new Promise((r) => setTimeout(r, 40));
+    if (stopped) break;
     // Build up to `step` chained blasts per lane.
     const chains: Transaction[][] = [];
     for (const lane of lanes) {
       const chain: Transaction[] = [];
       let prev = lane.tx;
       let vout = lane.vout;
-      while (chain.length < Math.min(step, lane.left) && !stopped) {
+      while (chain.length < Math.min(step, lane.left) && !stopped && !paused) {
         const have = prev.outputs[vout].satoshis ?? 0;
         const tx = new Transaction();
         tx.addInput({ sourceTransaction: prev, sourceOutputIndex: vout, unlockingScriptTemplate: unlock });
@@ -73,7 +82,10 @@ self.onmessage = async (e: MessageEvent) => {
       }
       chains.push(chain);
     }
-    if (!chains.some((c) => c.length)) break;
+    if (!chains.some((c) => c.length)) {
+      if (paused && !stopped) continue; // released mid-build: wait for the next pull
+      break;
+    }
 
     // One ARC request for this worker's round; EF format carries each parent's output.
     const all = chains.flat();
@@ -110,6 +122,11 @@ self.onmessage = async (e: MessageEvent) => {
       at += c.length;
       got += k;
       const lane = lanes[i];
+      // Not built this round (trigger released): keep the lane as it is.
+      if (!c.length) {
+        next.push(lane);
+        return;
+      }
       // A lane where everything we sent was accepted keeps going; a broken lane stops
       // (re-sending from a coin of unknown fate risks a double spend).
       if (k && k === c.length && lane.left - k > 0) {

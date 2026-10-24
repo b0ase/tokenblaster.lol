@@ -70,13 +70,13 @@ export function BSVGun() {
           if (tx) setLast(tx);
         },
         () => stop.current,
-        setStatus,
+        (st) => setStatus(st === 'STALL' ? 'The network is busy. Keep going…' : st),
       );
       setStatus(null);
       sfx('level');
-    } catch (e) {
+    } catch {
       sfx('rekt');
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr('Firing stopped. Your credit is safe. Try again.');
       setStatus(null);
     } finally {
       setFiring(false);

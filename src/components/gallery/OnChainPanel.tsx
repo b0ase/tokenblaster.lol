@@ -48,7 +48,7 @@ export function OnChainPanel({ accepted, tps, feed, simulated }: { accepted: num
             ))}
             {!feed.length && <li className="text-dim">Hold the trigger: rounds show up here.</li>}
           </ol>
-          <p className="text-[9px] leading-tight text-dim">Counted when ARC accepts. For mempool and block status, open a txid or watch everything on bsv.lol.</p>
+          <p className="text-[9px] leading-tight text-dim">Counted when the network takes each round. Tap one to see it, or watch them all on bsv.lol.</p>
           <a href="https://bsv.lol" target="_blank" rel="noopener noreferrer" className="text-accent underline">
             view on bsv.lol ↗
           </a>

@@ -57,6 +57,8 @@ import { IdentityPicker, useMyHandle } from '../PlayerBadge';
 import { PrizeBanner } from './PrizeBanner';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
+import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
+import { GALLERY_SHOTS, GALLERY_STORY, GALLERY_TIPS } from './story';
 import { CoinCabinet } from '../coinop/CoinCabinet';
 import { useCabinet } from '../coinop/useCabinet';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
@@ -140,6 +142,7 @@ export function ShootingGallery() {
   const [locking, setLocking] = useState(false);
   const [loadedRounds, setLoadedRounds] = useState(0);
   const [feed, setFeed] = useState<FeedRow[]>([]);
+  const [load, setLoad] = useState<LoadState | null>(null);
   const packLeft = Math.max(0, bought - run.sent);
 
   // ── Prefs, query flags, price, clock ──
@@ -252,45 +255,67 @@ export function ShootingGallery() {
     return () => clearInterval(i);
   }, [simulated, live, dry, bought, landed]);
 
-  // ── LIVE stream: the storm ──
-  const streamRef = useRef<() => Promise<void>>(async () => undefined);
+  // ── LIVE stream: one firing session from LOCK & LOAD until the rounds run out or the player leaves ──
+  // The gun was split and readied during LOCK & LOAD (b.prepareStorm), so the session starts at once and
+  // simply holds fire while the trigger is up (paused), instead of re-loading on every pull.
+  const sessionRef = useRef<(rounds: number) => void>(() => undefined);
   useEffect(() => {
-  streamRef.current = async () => {
-    const left = bought - sentRef.current;
-    if (firing || left <= 0 || !ammo) return;
-    setErr(null);
-    stop.current = false;
-    setFiring(true);
-    const startSent = sentRef.current;
-    const t0 = performance.now();
-    setRun((r) => ({ ...r, started: r.started || Date.now(), status: 'Spinning up: splitting your gun into lanes…' }));
-    try {
+    sessionRef.current = (rounds: number) => {
+      if (firing || rounds <= 0 || !ammo) return;
+      setErr(null);
+      stop.current = false;
+      setFiring(true);
+      const startSent = sentRef.current;
+      let t0 = 0;
       let prev = 0;
-      await storm(
-        left,
+      void storm(
+        rounds,
         (n, last) => {
           const d = n - prev;
           prev = n;
+          if (!t0) t0 = performance.now();
           engine.current?.accept(d);
           lastAccept.current = performance.now();
           sentRef.current = startSent + n;
-          setRun((r) => ({ ...r, sent: sentRef.current, last: last ?? r.last, tps: Math.round(n / Math.max(1, (performance.now() - t0) / 1000)) }));
+          setRun((r) => ({ ...r, started: r.started || Date.now(), sent: sentRef.current, last: last ?? r.last, tps: Math.round(n / Math.max(1, (performance.now() - t0) / 1000)) }));
         },
-        () => stop.current || !held.current,
-        (status) => setRun((r) => ({ ...r, status })),
+        () => stop.current,
+        () => undefined,
         { game: 'gallery', extra: galleryPushes(handle).slice(1) },
         perShot,
         ammo,
-      );
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-      sfx('rekt');
-    } finally {
-      setRun((r) => ({ ...r, status: null, tps: 0 }));
-      setFiring(false);
-    }
-  };
+        () => !held.current,
+      )
+        .catch(() => {
+          setErr('Your rounds stopped going out. Your credit is safe. Press LOADOUT, then LOCK & LOAD to try again.');
+          sfx('rekt');
+        })
+        .finally(() => {
+          setRun((r) => ({ ...r, status: null, tps: 0 }));
+          setFiring(false);
+        });
+    };
   });
+
+  // While firing: if the trigger is held and nothing has gone out for a few seconds, say so plainly.
+  const heldAt = useRef(0);
+  const [stall, setStall] = useState<string | null>(null);
+  useEffect(() => {
+    if (simulated) return;
+    const i = setInterval(() => {
+      const now = performance.now();
+      let msg: string | null = null;
+      if (held.current && !loadout && pattern.kind === 'stream') {
+        if (!heldAt.current) heldAt.current = now;
+        const since = Math.min(now - heldAt.current, now - lastAccept.current);
+        if (bought - sentRef.current <= 0) msg = 'Out of rounds. Press LOADOUT and put another coin in.';
+        else if (!firing) msg = 'Your gun is not loaded. Press LOADOUT, then LOCK & LOAD.';
+        else if (since > 4000) msg = `Your rounds are not going out right now. The network is busy, keep holding… ${Math.round(since / 1000)}s`;
+      } else heldAt.current = 0;
+      setStall((m) => (m === msg ? m : msg));
+    }, 500);
+    return () => clearInterval(i);
+  }, [simulated, loadout, pattern.kind, bought, firing]);
 
   // ── Trigger + bursts ──
   useEffect(() => {
@@ -306,7 +331,8 @@ export function ShootingGallery() {
         if (live && dry && sentRef.current >= bought) return;
         simRef.current.target = pattern.rate;
         simRef.current.on = true;
-      } else void streamRef.current();
+      }
+      // LIVE: the session is already running and fires while `held` is true.
     };
     pullRef.current = (w: RangeWeapon) => {
       if (loadout) return false;
@@ -325,7 +351,7 @@ export function ShootingGallery() {
           chainN.current += txids.length;
           landed(txids.length, txids[txids.length - 1] ?? null);
         })
-        .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+        .catch(() => setErr('That shot did not go out. Your credit is safe. Try again.'))
         .finally(() => (burstBusy.current = false));
       return true;
     };
@@ -420,35 +446,59 @@ export function ShootingGallery() {
   const lockAndLoad = async () => {
     setErr(null);
     unlockAudio();
+    const stream = pattern.kind === 'stream';
     if (dry) {
+      // Dev dry run: walk the same loading screen, nothing is spent.
       const sats = usdToSats(cab.creditUsd, bsvUsd) ?? 0;
       const n = roundsFor(sats, perShotAll);
+      for (const pct of [20, 45, 70, 95]) {
+        setLoad({ kind: 'loading', pct, slowSecs: 0 });
+        await new Promise((r) => setTimeout(r, 700));
+      }
       setLoadedRounds(n);
       setBought(sentRef.current + n);
-      sfx('coin');
-      setLoadout(false);
+      setLoad({ kind: 'ready' });
       return;
     }
     setLocking(true);
+    setLoad({ kind: 'loading', pct: 5, slowSecs: 0 });
     try {
       const avail = b.ammo; // the gun's sats are the credit
       let shots = Math.floor(Math.max(0, avail - overheadSats(Math.floor(avail / perShotAll))) / perShotAll);
-      if (shots <= 0) throw new Error('Not enough credit for a round. Insert coin.');
+      if (shots <= 0) throw new Error('SHORT');
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
         await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots)) / perShot));
       }
+      // Do ALL the slow work now, before the game starts: so the first pull fires at once.
+      if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
       setLoadedRounds(shots);
       setBought(sentRef.current + shots);
-      sfx('coin');
-      setLoadout(false);
+      if (stream) sessionRef.current(shots);
+      setLoad({ kind: 'ready' });
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const m = e instanceof Error ? e.message : '';
+      setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough credit for a round. Put another coin in.' : 'Loading failed. Your credit is safe. Press LOCK & LOAD to try again.' });
     } finally {
       setLocking(false);
     }
   };
+  // Loaded: a short beat on GUN LOADED, then the game starts by itself (or on FIRE).
+  const goFire = useCallback(() => {
+    setLoad(null);
+    sfx('coin');
+    setLoadout(false);
+  }, [setLoad, setLoadout]);
+  useEffect(() => {
+    if (load?.kind !== 'ready') return;
+    const t = setTimeout(goFire, 1400);
+    return () => clearTimeout(t);
+  }, [load, goFire]);
+  // Opening LOADOUT ends the firing session; what is left stays in the gun as credit.
+  useEffect(() => {
+    if (loadout) stop.current = true;
+  }, [loadout]);
 
   // LOCK & LOAD is the bill: pay the coins (one approval), load, then lock the rounds and start by itself.
   const lockRef = useRef(lockAndLoad);
@@ -499,6 +549,29 @@ export function ShootingGallery() {
 
         {!loadout && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
         {!loadout && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={simulated} />}
+        {stall && !loadout && (
+          <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-4">
+            <p className="max-w-[560px] border-2 bg-black/85 px-4 py-2 text-center text-base font-bold" style={{ borderColor: DR.colour.amber, color: DR.colour.paper }} role="status">
+              {stall}
+            </p>
+          </div>
+        )}
+        {(load || cab.stage === 'approve' || cab.stage === 'loading') && (
+          <LoadingScreen
+            title="Shooting Gallery"
+            shots={GALLERY_SHOTS}
+            track="arena"
+            story={GALLERY_STORY}
+            tips={GALLERY_TIPS}
+            state={load ?? (cab.stage === 'approve' ? { kind: 'approve' } : { kind: 'paid' })}
+            onFire={goFire}
+          />
+        )}
+        {load?.kind === 'failed' && (
+          <button type="button" data-fs-skip onClick={() => setLoad(null)} className="btn-fire absolute bottom-6 left-1/2 z-30 -translate-x-1/2 px-6 py-3 text-lg">
+            BACK TO LOCK &amp; LOAD
+          </button>
+        )}
         {/* HUD */}
         {!loadout && (
           <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start justify-between gap-2 p-2 sm:p-3">
@@ -507,7 +580,7 @@ export function ShootingGallery() {
               <div className="text-[clamp(26px,5vw,48px)] font-bold leading-none tabular-nums" style={{ color: DR.colour.amber }}>
                 {run.sent.toLocaleString()}
               </div>
-              <div className="text-[10px] text-dim">{live && !dry ? 'transactions accepted by ARC' : 'simulated transactions'}</div>
+              <div className="text-[10px] text-dim">{live && !dry ? 'rounds on the record' : 'simulated transactions'}</div>
               <div className="mt-1 text-[10px]">
                 <span style={{ color: DR.colour.cyan }}>{weapon.name.toUpperCase()}</span>
                 <span className="text-dim"> · ammo </span>
@@ -540,7 +613,6 @@ export function ShootingGallery() {
               <div>
                 <span className="text-dim">spent </span>
                 <span className="tabular-nums">{simulated ? '$0.00' : fmtUsd(usdOf(spent, bsvUsd))}</span>
-                <span className="text-dim"> · {spent.toLocaleString()} sat</span>
               </div>
               <div>
                 <span className="text-dim">score </span>
@@ -565,7 +637,7 @@ export function ShootingGallery() {
         {!loadout && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2 sm:p-3">
             <div className="max-w-[60%] bg-black/65 px-2 py-1 font-mono text-[11px] text-dim">
-              {run.status ?? (packLeft <= 0 ? 'Out of rounds: open LOADOUT and insert coin.' : `${patternLabel(pattern)} · HOLD to fire (or SPACE).`)}
+              {stall ?? (packLeft <= 0 ? 'Out of rounds. Press LOADOUT and put another coin in.' : `${patternLabel(pattern)} · HOLD to fire (or SPACE).`)}
             </div>
             <div className="pointer-events-auto mb-12 flex gap-2">
               <button type="button" onClick={() => setLoadout(true)} className="btn px-3 py-2 text-xs">
@@ -593,7 +665,7 @@ export function ShootingGallery() {
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <div>
                   <p className="text-[10px] tracking-[0.3em] text-dim">TB-GALLERY / OMNICORE DYNAMICS / NIGHT SHIFT</p>
-                  <h2 className="text-[clamp(34px,6vw,64px)] font-black uppercase italic leading-[0.9]" style={{ fontFamily: DR.font.display, color: DR.colour.paper }}>
+                  <h2 className="text-[clamp(28px,4vw,44px)] font-black uppercase italic leading-[0.9]" style={{ fontFamily: DR.font.display, color: DR.colour.paper }}>
                     Loadout
                   </h2>
                 </div>
@@ -642,14 +714,14 @@ export function ShootingGallery() {
               <p className="text-xs text-dim">
                 {paymail ? (
                   <>
-                    Every round carries your paymail <span style={{ color: DR.colour.amber }}>{paymail}</span> on chain. {perShot} sat per shot.
+                    Every round carries your paymail <span style={{ color: DR.colour.amber }}>{paymail}</span> on the record.
                   </>
                 ) : (
-                  <>Your paymail attaches to every round when you pay. {perShot} sat per shot.</>
+                  <>Your paymail goes on every round once you pay.</>
                 )}
               </p>
               </div>
-              <div className="border-2 border-white/15 bg-black/85 px-1 py-3 sm:px-4">
+              <div>
                 <CoinCabinet
                   title="Shooting Gallery"
                   creditUsd={cab.creditUsd}
@@ -662,7 +734,7 @@ export function ShootingGallery() {
                   name={name}
                   setName={setName}
                   priceUsd={satsToUsd(perShotAll, bsvUsd)}
-                  priceNote={`Ammo at the minimum network cost: ${perShot} sat a shot${fee ? ` + ${Math.round(fee * 100)}% fee` : ', no premium'}. ${dry ? 'Dry run (dev): nothing is broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
+                  priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${dry ? 'Dry run (dev): nothing is broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
                   buys={buys}
                   unit="shots"
                   startLabel={ready ? 'Lock & load' : 'Loading…'}
@@ -684,7 +756,6 @@ export function ShootingGallery() {
         <div className="panel-header">
           <span className="panel-title">Credit</span>
           <span className="text-dim">
-            {perShot} sat/shot network fee ·{' '}
             {free ? <span style={{ color: DR.colour.acid }}>Free for the stress test: no platform fee until 1 Nov</span> : `${Math.round(fee * 100)}% platform fee`} · BSV ${bsvUsd.toFixed(2)}
           </span>
         </div>
@@ -705,7 +776,7 @@ export function ShootingGallery() {
       <section className="panel">
         <div className="panel-header">
           <span className="panel-title">See them land</span>
-          <span className="text-dim">{simulated ? 'simulated txids are not on chain' : 'live'}</span>
+          <span className="text-dim">{simulated ? 'practice numbers, not on the record' : 'live'}</span>
         </div>
         <div className="flex flex-wrap gap-3 text-sm">
           <a href="https://bsv.lol" target="_blank" rel="noopener noreferrer" className="text-accent underline">

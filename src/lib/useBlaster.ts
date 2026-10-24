@@ -142,17 +142,30 @@ export function useBlaster() {
       perBlast?: number,
       /** The <token> push instead of the picked token (the Shooting Gallery's free-text ammo label). */
       tokenLabel?: string,
+      /** True while the trigger is released: hold fire but keep the session (lanes) alive. */
+      paused?: () => boolean,
     ) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
       try {
-        return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast);
+        return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused);
       } finally {
         setAmmo(g.sats);
       }
     },
     [token],
   );
+
+  /** LOCK & LOAD: find the coin, split it into lanes, wait for the network. Then storm() fires at once. */
+  const prepareStorm = useCallback(async (total: number, perBlast: number, onStep?: (pct: number, slowSecs: number) => void) => {
+    const g = gun.current;
+    if (!g) throw new Error('No gun.');
+    try {
+      await g.prepareStorm(total, perBlast, onStep);
+    } finally {
+      setAmmo(g.sats);
+    }
+  }, []);
 
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
@@ -319,5 +332,5 @@ export function useBlaster() {
     }
   }, [wallet, refreshGun]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }
