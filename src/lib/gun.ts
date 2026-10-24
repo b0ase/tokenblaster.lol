@@ -4,6 +4,7 @@
  * chains tagged blasts off it and broadcasts each to GorillaPool ARC; unloading sends what is
  * left back to the player. Same transaction shape as blaster/blast.ts.
  */
+import { spendableCoins } from './coinop/ammo';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
@@ -34,7 +35,24 @@ export const bsv21 = (id: string, amt: bigint, address: string) =>
 
 type TokCoin = { id: string; tx: Transaction; vout: number; amt: bigint };
 
-type Saved = { wif: string; tx?: string; vout?: number; tok?: { id: string; tx: string; vout: number; amt: string } };
+type Saved = {
+  wif: string;
+  tx?: string;
+  vout?: number;
+  tok?: { id: string; tx: string; vout: number; amt: string };
+  /** Paid coins from the wallet's own responses, not yet consolidated into `tx` (never lost if a load stalls). */
+  extra?: { tx: string; vout: number }[];
+  /** Outpoints our own transactions spent (the index can lag): never reused. Most recent last, capped. */
+  spent?: string[];
+};
+/** True when something is stored under the gun key, even if it can't be parsed: then we never overwrite it. */
+const hasRaw = () => {
+  try {
+    return Boolean(localStorage.getItem(STORE) ?? sessionStorage.getItem(STORE));
+  } catch {
+    return false;
+  }
+};
 
 const read = (): Saved | null => {
   try {
@@ -88,13 +106,41 @@ export class Gun {
   private spentTok = new Set<string>(); // token outpoints we have spent (the indexer may lag)
   private arc = new ARC(ARC_URL);
   private lastReported: number | null = null; // sats left when we last told the wallet
+  /** Paid coins not yet consolidated (from the wallet's response). */
+  private extra: { tx: Transaction; vout: number }[] = [];
+  /** Outpoints our own broadcasts spent. */
+  private spent = new Set<string>();
+  /** Storage held something we could not read: never write over it (the owner's key may be in it). */
+  private readOnly = false;
+  /** The running storm session (so a new LOCK & LOAD can end it) and its halt flag. */
+  private session: Promise<unknown> | null = null;
+  private halt = false;
 
   constructor() {
     const s = typeof window !== 'undefined' ? read() : null;
+    if (!s && typeof window !== 'undefined' && hasRaw()) this.readOnly = true;
     this.key = s ? PrivateKey.fromWif(s.wif) : PrivateKey.fromRandom();
     if (s?.tx) this.coin = { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 };
     if (s?.tok) this.tok = { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) };
+    this.loadSets(s);
     this.save();
+  }
+
+  private loadSets(s: Saved | null) {
+    try {
+      this.extra = (s?.extra ?? []).map((e) => ({ tx: Transaction.fromHex(e.tx), vout: e.vout }));
+    } catch {
+      this.extra = [];
+    }
+    this.spent = new Set(s?.spent ?? []);
+  }
+
+  /** Remember every input of a transaction we broadcast: those outpoints are spent, whatever the index says. */
+  private markSpent(tx: Transaction) {
+    for (const i of tx.inputs) {
+      const id = i.sourceTXID ?? i.sourceTransaction?.id('hex');
+      if (id) this.spent.add(`${id}_${i.sourceOutputIndex}`);
+    }
   }
 
   /** Another tab may have fired since: take the latest coin from storage. */
@@ -102,6 +148,7 @@ export class Gun {
     const s = read();
     if (s?.wif !== this.key.toWif()) return;
     this.coin = s.tx ? { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 } : null;
+    this.loadSets(s);
     // The token coin the gun is firing from: saved, so a reload doesn't depend on the index catching up.
     this.tok = s.tok ? { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) } : null;
   }
@@ -121,7 +168,7 @@ export class Gun {
 
   /** Re-sync with the chain after a double spend: the largest unspent coin at the gun's address. */
   private async resync() {
-    const coins = await this.coinsOnChain();
+    const coins = (await this.coinsOnChain()).filter((c) => !this.spent.has(`${c.tx.id('hex')}_${c.vout}`));
     coins.sort((a, b) => (b.tx.outputs[b.vout].satoshis ?? 0) - (a.tx.outputs[a.vout].satoshis ?? 0));
     this.coin = coins[0] ?? null;
     this.save();
@@ -137,7 +184,10 @@ export class Gun {
   }
 
   private save() {
+    if (this.readOnly) return;
     write({
+      extra: this.extra.length ? this.extra.map((e) => ({ tx: e.tx.toHex(), vout: e.vout })) : undefined,
+      spent: this.spent.size ? [...this.spent].slice(-2000) : undefined,
       wif: this.key.toWif(),
       tx: this.coin?.tx.toHex(),
       vout: this.coin?.vout,
@@ -148,43 +198,85 @@ export class Gun {
     if (prev !== null && left !== prev) reportToWallet(Math.max(0, prev - left), left);
   }
 
-  /** Everything at the gun's address, including coins the gun is not tracking. */
+  /**
+   * The gun's real spendable coins: the chain lookup, plus the wallet's own payment responses, plus our own
+   * broadcast change, each once, minus everything our own transactions spent. Largest first.
+   */
+  private async candidates(): Promise<{ tx: Transaction; vout: number }[]> {
+    this.refresh();
+    const chain = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
+    const tag = (l: { tx: Transaction; vout: number }[]) => l.map((c) => ({ txid: c.tx.id('hex'), vout: c.vout, sats: c.tx.outputs[c.vout]?.satoshis ?? 0, c }));
+    const own = this.coin ? [this.coin] : [];
+    return spendableCoins([tag(this.extra), tag(own), tag(chain)], this.spent).map((x) => x.c);
+  }
+
+  /** Spendable sats at the gun right now (what the CREDIT shows). */
   async balance(): Promise<number> {
-    const coins = await this.coinsOnChain();
-    const onChain = coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0);
-    return Math.max(onChain, this.sats);
+    const coins = await this.candidates();
+    return coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0);
   }
 
   /**
-   * Take the funding transaction from the wallet as the gun's coin. Topping up while there is still
-   * ammo merges the old coin and the new one into a single coin, so nothing is left behind.
+   * Take the funding transaction from the wallet's own response. No lock and no network: it is saved at
+   * once, so a paid coin can never be lost to a busy gun; the next LOCK & LOAD consolidates it.
    */
   async load(funding: Transaction) {
     const vout = funding.outputs.findIndex((o) => o.lockingScript.toHex() === new P2PKH().lock(this.address).toHex());
     if (vout < 0) throw new Error('Funding transaction does not pay the gun.');
+    this.refresh();
     const fresh = { tx: Transaction.fromHex(funding.toHex()), vout };
-    await this.exclusive(async () => {
-      this.refresh();
-      if (!this.coin || this.sats < 1) {
-        this.coin = fresh;
+    if (!this.extra.some((e) => e.tx.id('hex') === fresh.tx.id('hex') && e.vout === vout)) this.extra.push(fresh);
+    if (!this.coin || this.sats < 1) this.coin = fresh;
+    this.save();
+    loadMark(`paid coin saved (${fresh.tx.outputs[vout].satoshis ?? 0} sats)`);
+  }
+
+  /**
+   * Rebuild the coin set into ONE coin from the real unspent outputs. If a stale coin makes the merge fail,
+   * fall back to fewer coins (our own, then the wallet's payments, then the largest alone). Never reuses spent coins.
+   */
+  private async consolidate(coins: { tx: Transaction; vout: number }[]) {
+    const key = (c: { tx: Transaction; vout: number }) => `${c.tx.id('hex')}_${c.vout}`;
+    const ownKeys = new Set([...this.extra, ...(this.coin ? [this.coin] : [])].map(key));
+    const tiers = [coins, coins.filter((c) => ownKeys.has(key(c))), coins.filter((c) => this.extra.some((e) => key(e) === key(c)))].filter((t, i, all) => t.length && all.findIndex((x) => x.length === t.length) === i);
+    for (const tier of tiers) {
+      if (tier.length === 1) {
+        this.coin = tier[0];
+        this.extra = [];
         this.save();
         return;
       }
       const tx = new Transaction();
-      for (const c of [this.coin, fresh]) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      for (const c of tier.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
       tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
       await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
       await tx.sign();
       try {
-        // One quick try: a stale old coin must not hold the load up (the next session's merge sweeps leftovers).
-        await this.send(tx, 1);
+        await this.send(tx, 2);
         this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
-      } catch {
-        // Merge failed (e.g. the old coin was already spent): fall back to the new coin.
-        this.coin = fresh;
+        this.extra = [];
+        this.save();
+        loadMark(`coins consolidated (${tier.length} → 1)`);
+        return;
+      } catch (e) {
+        console.info('[tb-load] merge refused, trying fewer coins', e instanceof Error ? e.message : e);
       }
+    }
+    // Last resort: the largest coin alone.
+    if (coins[0]) {
+      this.coin = coins[0];
       this.save();
-    });
+    }
+  }
+
+  /** End the running storm session (if any): stop its sender, wait for it to merge and save the change. */
+  async endSession(timeoutMs = 20_000) {
+    const s = this.session;
+    if (!s) return;
+    this.halt = true;
+    loadMark('ending previous session');
+    await Promise.race([s.catch(() => undefined), new Promise((r) => setTimeout(r, timeoutMs))]);
+    loadMark('previous session ended');
   }
 
   private async send(tx: Transaction, tries = 5) {
@@ -192,10 +284,10 @@ export class Gun {
     // The wallet may still be propagating the parent; retry briefly before giving up.
     for (let attempt = 0; ; attempt++) {
       const r = await tx.broadcast(this.arc);
-      if (r.status === 'success') return;
+      if (r.status === 'success') return this.markSpent(tx);
       // A retry of a tx ARC already has can come back as an error (e.g. "invalid competing
       // transaction identifiers"). Ask ARC directly before treating it as a failure.
-      if (await this.known(txid)) return;
+      if (await this.known(txid)) return this.markSpent(tx);
       if (attempt >= tries - 1) throw new Error(`ARC rejected ${txid}: ${'description' in r ? r.description : JSON.stringify(r)}`);
       await new Promise((ok) => setTimeout(ok, 500 * (attempt + 1)));
     }
@@ -221,6 +313,7 @@ export class Gun {
       if (await this.known(txs[txs.length - 1].id('hex'))) accepted = txs.length;
       else while (accepted < txs.length && (await this.known(txs[accepted].id('hex')))) accepted++;
     }
+    for (const t of txs.slice(0, accepted)) this.markSpent(t);
     const r = results[accepted];
     return { accepted, why: r ? `${r.description ?? 'no response'}${r.code ? ` (code ${r.code})` : ''}` : undefined };
   }
@@ -318,37 +411,23 @@ export class Gun {
    * ARC accepts a chain that spends an accepted, unconfirmed parent. Merges several coins into one.
    */
   private async startCoin(onWait: (secs: number) => void) {
-    // The coin the wallet just paid us (load() adopted it from the wallet's own response): use it at once.
-    // Never poll an index for a coin we created ourselves (owner, 24 Oct 2026: the first 10% took ages).
-    this.refresh();
-    if (this.coin && this.sats > 0) {
-      loadMark('coin found (from the wallet)');
-      return;
-    }
+    // Start from the real coin set: the wallet's payment output(s), our own change and the chain's unspent
+    // outputs, consolidated into one. Coins our transactions already spent are never used (owner, 24 Oct 2026).
     const t0 = Date.now();
-    let coins: { tx: Transaction; vout: number }[] = [];
-    for (let i = 0; i < 6; i++) {
-      coins = await this.coinsOnChain().catch(() => []);
-      if (coins.length) break;
-      if (this.coin && this.sats > 0) break; // the saved coin is good enough to start from
+    let coins = await this.candidates();
+    for (let i = 0; !coins.length && i < 6; i++) {
       onWait(Math.round((Date.now() - t0) / 1000));
       await new Promise((r) => setTimeout(r, 1500));
+      coins = await this.candidates();
     }
-    if (!coins.length) {
-      if (!this.coin || this.sats < 1) throw new Error('EMPTY');
-      return;
+    if (!coins.length) throw new Error('EMPTY');
+    loadMark(`coin set: ${coins.length} coin(s), ${coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0)} sats`);
+    if (coins.length > 1) await this.consolidate(coins);
+    else {
+      this.coin = coins[0];
+      this.extra = [];
+      this.save();
     }
-    if (coins.length > 1) {
-      const tx = new Transaction();
-      for (const c of coins.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-      tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-      await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-      await tx.sign();
-      await this.send(tx);
-      this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
-    } else this.coin = coins[0];
-    this.save();
-    loadMark('coin found (from the index)');
   }
 
   /**
@@ -357,9 +436,12 @@ export class Gun {
    * After this, storm() fires on the first trigger pull.
    */
   async prepareStorm(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
+    await this.endSession();
     return this.exclusive(async () => {
       this.refresh();
       this.ready = null;
+      this.halt = false;
+      loadMark(`prepare: ${total} rounds`);
       onStep(10, 0);
       await this.startCoin((secs) => onStep(15, secs));
       if (!this.coin) throw new Error('EMPTY');
@@ -412,7 +494,9 @@ export class Gun {
     step = 50,
   ): Promise<number> {
     if (!this.ready) await this.prepareStorm(total, perBlast, (pct) => onStatus(`Loading… ${pct}%`));
-    return this.exclusive(async () => {
+    const userStop = stop;
+    stop = () => this.halt || userStop();
+    const run = this.exclusive(async () => {
       const r = this.ready;
       if (!r) throw new Error('The gun is not loaded.');
       this.ready = null;
@@ -469,27 +553,29 @@ export class Gun {
         }),
       );
       if (!sent) failed = `ARC took no blasts: ${lastWhy ?? 'no reason given'}`;
-      // Merge every lane end (and the split's change) back into one coin, after the last blasts settle.
+      // Session end: merge every lane end (and the split's change) back into one coin once the last blasts
+      // settle, and save it. The split's lanes are spent by the workers: never reuse them.
       await new Promise((r) => setTimeout(r, 6000));
-      await this.resync().catch(() => undefined);
-      const coins = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
-      if (coins.length > 1) {
-        const tx = new Transaction();
-        for (const c of coins.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-        tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-        await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-        await tx.sign();
-        try {
-          await this.send(tx);
-          this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
-        } catch {
-          /* the index may lag; the next load sweeps everything at the address anyway */
-        }
+      if (sent) for (let i = 0; i < lanesN; i++) this.spent.add(`${base.id('hex')}_${i}`);
+      try {
+        const coins = await this.candidates();
+        if (coins.length > 1) await this.consolidate(coins);
+        else this.coin = coins[0] ?? null;
+      } catch {
+        /* the next LOCK & LOAD rebuilds the coin set anyway */
       }
       this.save();
+      loadMark(`session ended: ${sent} sent, ${this.sats} sats saved`);
       if (failed && !sent) throw new Error(failed);
       return sent;
     });
+    this.session = run;
+    try {
+      return await run;
+    } finally {
+      if (this.session === run) this.session = null;
+      this.halt = false;
+    }
   }
 
   // ── Token ammo ────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import { rememberWallet, type WalletEntry } from '@/lib/discovery';
 import { connect } from '@/lib/wallet';
 import { setProofWallet } from '@/lib/xproof';
 import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
-import { BWALLETX_WEB, WALLET_BAR as W, chipState, getBarWallet, setBarWallet, subBarWallet } from '@/lib/walletBar';
+import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, askWallet, chipState, getBarWallet, idLabel, setBarWallet, subBarWallet } from '@/lib/walletBar';
 import { GiftIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MuteIcon, PhoneIcon, TrophyIcon, VolumeIcon } from './icons';
 
 /**
@@ -113,7 +113,7 @@ export function WalletBarChip() {
       const w = await connect(entry);
       rememberWallet(entry.id);
       setProofWallet(w.client);
-      setBarWallet({ id: w.id, name: w.name });
+      setBarWallet({ id: w.id, name: w.name, publicKey: w.publicKey, live: true });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setOpen(true);
@@ -135,9 +135,20 @@ export function WalletBarChip() {
             Connect<span className="hidden sm:inline"> wallet</span>
           </span>
         ) : (
-          <span className="truncate">{state.label}</span>
+          <>
+            {wallet?.avatar && <img src={wallet.avatar} alt="" className="h-5 w-5 shrink-0 rounded-full" />}
+            <span className="truncate" title={`${wallet?.name ?? ''} · ${wallet?.paymail ?? wallet?.publicKey ?? ''}`}>
+              {wallet?.publicKey || wallet?.paymail ? idLabel(wallet) : state.label}
+            </span>
+            {wallet?.live === false ? (
+              <span className="shrink-0 rounded-full bg-red-500/20 px-1.5 text-[10px] font-bold text-red-400" data-wallet-dropped>
+                Disconnected
+              </span>
+            ) : (
+              <span aria-label="wallet connected" className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+            )}
+          </>
         )}
-        {state.kind === 'connected' && <span aria-label="wallet connected" className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-400" />}
         {state.kind === 'connected' && state.verified && (
           <span title="Verified handle" aria-label="verified" className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-[#1d9bf0] text-[9px] leading-none text-white">
             ✓
@@ -149,7 +160,21 @@ export function WalletBarChip() {
           {err && <p className="px-3 py-2 text-[11px] text-red-400">{err}</p>}
           {state.kind === 'connected' ? (
             <>
-              <div className="px-3 py-2 text-[11px] text-[#A1A1AA]">Connected: {wallet?.name}</div>
+              <div className="px-3 py-2 text-[11px] text-[#A1A1AA]">
+                {wallet?.live === false ? 'Disconnected' : 'Connected'}: {wallet?.name}
+                {wallet?.publicKey ? ` · ${idLabel(wallet)}` : ''}
+              </div>
+              {!wallet?.paymail && wallet?.publicKey && (
+                <a role="menuitem" href={GET_NAME_URL} target="_blank" rel="noreferrer" className={row}>
+                  Get your name
+                </a>
+              )}
+              <button type="button" role="menuitem" className={row} onClick={() => (setOpen(false), askWallet('reconnect') || setChoose(true))}>
+                Reconnect
+              </button>
+              <button type="button" role="menuitem" className={row} onClick={() => (setOpen(false), askWallet('switch') || setChoose(true))}>
+                Switch wallet
+              </button>
               {handle && !verified && (
                 <div className="px-3 py-1">
                   <VerifyButton handle={handle} />

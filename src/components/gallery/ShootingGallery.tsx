@@ -21,9 +21,9 @@
  * the rounds are locked). Dev only: `?dryrun=1` simulates everything (no wallet, no broadcast); not linked in the UI.
  * `?autofire=1` (with ?dryrun=1) holds the trigger on the boss, for screenshots.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
-import { cleanHandle } from '@/lib/identity';
 import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
@@ -34,8 +34,7 @@ import {
   overheadSats,
   roundsFor,
   PRIZE,
-  chainHandle,
-  paymailFor,
+  ammoFromPaymail,
   fmtUsd,
   freeForStressTest,
   galleryPushes,
@@ -51,8 +50,8 @@ import { WalletChooser } from '../WalletChooser';
 import { GameAudio } from '../SoundToggle';
 import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
-import { Icon, Ticker } from '../coinop/ui';
-import { IdentityPicker, useMyHandle } from '../PlayerBadge';
+import { Icon, Modal, Ticker } from '../coinop/ui';
+import { IdentityPicker } from '../PlayerBadge';
 import { PrizeBanner } from './PrizeBanner';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
@@ -62,7 +61,10 @@ import { Hud, HudControls } from './Hud';
 import { BannerStage, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { Results, type RunSummary } from './Results';
-import { CoinCabinet } from '../coinop/CoinCabinet';
+import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
+
+import { loadMark } from '@/lib/gun';
+import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo';
 import { useCabinet } from '../coinop/useCabinet';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 
@@ -89,7 +91,6 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 export function ShootingGallery() {
   const b = useBlaster();
   const { storm, fireBatch } = b;
-  const xHandle = chainHandle(cleanHandle(useMyHandle()));
   const [name, setName] = useState('');
   // The NAME typed at the cabinet is the on-chain handle tag and the board name.
   const handle = cleanName(name);
@@ -103,7 +104,9 @@ export function ShootingGallery() {
   const [autofire, setAutofire] = useState(false);
   const [weaponId, setWeaponId] = useState('minigun');
   // Rounds carry the player's paymail once a wallet pays; practice fires plain sats.
-  const paymail = b.wallet ? paymailFor(xHandle) : null;
+  // The paymail from bWallet's lookup for this identity key (else plain DEFAULT_AMMO).
+  const barWallet = useSyncExternalStore(subBarWallet, getBarWallet, () => null);
+  const paymail = b.wallet && barWallet?.publicKey === b.wallet.publicKey ? ammoFromPaymail(barWallet) : null;
   const ammo = paymail ?? DEFAULT_AMMO;
   const [loadout, setLoadout] = useState(true);
   const [bsvUsd, setBsvUsd] = useState(FALLBACK_USD);
@@ -378,10 +381,17 @@ export function ShootingGallery() {
   const reloadRef = useRef<() => Promise<void>>(async () => undefined);
   const sessionRef = useRef<(rounds: number) => void>(() => undefined);
   const tries = useRef(0);
+  /** Each storm session's number: a finished old session never touches the new one's state. */
+  const sessionGen = useRef(0);
   useEffect(() => {
     sessionRef.current = (rounds: number) => {
-      if (sessionAlive.current || rounds <= 0 || !ammo) return;
+      if (sessionAlive.current || rounds <= 0 || !ammo) {
+        console.info(`[tb-fire] session not started: ${sessionAlive.current ? 'previous session still running' : rounds <= 0 ? 'no rounds' : 'no ammo label'}`);
+        return;
+      }
+      const gen = ++sessionGen.current;
       sessionAlive.current = true;
+      console.info(`[tb-fire] session ${gen} start: ${rounds} rounds`);
       stop.current = false;
       let prev = 0;
       void storm(
@@ -404,7 +414,9 @@ export function ShootingGallery() {
           console.warn('[tb-fire] sender stopped', e);
         })
         .finally(() => {
+          if (gen !== sessionGen.current) return;
           sessionAlive.current = false;
+          console.info(`[tb-fire] session ${gen} ended`);
           const left = boughtRef.current - sentRef.current;
           if (stop.current || left <= 0 || modeRef.current !== 'live') return;
           if (++tries.current > 3) return setJammed(true);
@@ -632,22 +644,33 @@ export function ShootingGallery() {
     }
     setLocking(true);
     try {
-      const avail = b.ammo; // the gun's sats are the credit
-      let shots = Math.floor(Math.max(0, avail - overheadSats(Math.floor(avail / perShotAll))) / perShotAll);
-      if (shots <= 0) throw new Error('SHORT');
+      // End the previous session first: stop its sender, release the gun's lock, save its change.
+      stop.current = true;
+      sessionGen.current++;
+      sessionAlive.current = false;
+      await b.endSession();
+      // The REAL spendable balance (chain + the wallet's payment + our own change), never a stale number.
+      const avail = await b.refreshGun();
+      loadMark(`lock & load: gun has ${avail} sats`);
+      const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
+      let shots = roundsFrom(avail, perShotAll, overheadSats);
+      if (plan.short || shots <= 0) throw new Error('SHORT');
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
         await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots)) / perShot));
       }
       if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
+      loadMark(`loaded: ${shots} rounds`);
       goLive(shots);
       if (stream) sessionRef.current(shots);
     } catch (e) {
       const m = e instanceof Error ? e.message : '';
+      loadMark(`load failed: ${m || 'unknown'}`);
+      const have = await b.refreshGun().catch(() => 0);
       setMode('off');
       setLoadout(true);
-      setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough credit for a round. Put another coin in.' : 'Loading failed. Your credit is safe. Press LOCK & LOAD to try again.' });
+      setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       setLocking(false);
     }
@@ -797,10 +820,11 @@ export function ShootingGallery() {
           </div>
         )}
         {load?.kind === 'failed' && (
-          <button type="button" data-fs-skip onClick={() => setLoad(null)} className={`${tbxFontClass} tbx-btn tbx-btn-red fixed bottom-6 left-1/2 z-[80] -translate-x-1/2 !min-h-[52px] !px-7`}>
-            Back to lock &amp; load
-          </button>
+          <Modal title="Loading stopped" tone="bad" action="Back to lock & load" onAction={() => setLoad(null)}>
+            {load.text}
+          </Modal>
         )}
+        <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
 
         {!loadout && !over && (
           <Hud
@@ -864,6 +888,9 @@ export function ShootingGallery() {
                 starting={locking}
                 blocked={!ready || !ammo || !canUse(weapon)}
                 error={err ?? cab.err}
+                note={cab.pending <= 0 && b.ammo > 0 && !dry ? leftoverNote(fmtCredit(cab.creditUsd)) : null}
+                walletLive={cab.walletLive}
+                walletName={cab.walletName}
               />
             }
           />
@@ -884,7 +911,7 @@ export function ShootingGallery() {
             Credit: <span className="tbx-num font-bold" style={{ color: 'var(--tbx-amber)' }}>{fmtCredit(cab.creditUsd)}</span>.
           </span>
           <span>
-            Rounds ready: <span className="tbx-num font-bold text-white">{packLeft.toLocaleString()}</span>. No refunds: unused credit stays in your gun for later rounds.
+            Rounds ready: <span className="tbx-num font-bold text-white">{packLeft.toLocaleString()}</span>. Unused credit stays in your gun for later rounds.
           </span>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">

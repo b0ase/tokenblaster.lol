@@ -47,7 +47,7 @@ export function BSVGun() {
     // Not enough in the gun: load the difference from the wallet first (one approval), then fire.
     if (need > 0) {
       setStatus('Approve the load in your wallet…');
-      const ok = await b.load(need, `BSVGun: ${size.toLocaleString()} blasts`);
+      const ok = (await b.load(need, `BSVGun: ${size.toLocaleString()} blasts`)) === 'ok';
       if (!ok) {
         setStatus(null);
         return;

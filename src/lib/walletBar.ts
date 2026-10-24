@@ -39,13 +39,93 @@ export function chipState(wallet: string | null, handle: string | null, verified
 }
 
 // ── Connected wallet, shared by the bar and any page that connects one (useBlaster) ──
-export type BarWallet = { id: string; name: string } | null;
+/**
+ * The connected wallet: name, identity key, whether it still answers, and (when bWallet has one) the paymail.
+ * `paymail?` / `alias?` / `avatar?` come from the public lookup at pay.bwallet.space.
+ */
+export type BarWallet = { id: string; name: string; publicKey?: string; live?: boolean; paymail?: string; alias?: string; avatar?: string } | null;
 let current: BarWallet = null;
 const subs = new Set<() => void>();
 export const getBarWallet = () => current;
 export const subBarWallet = (fn: () => void) => (subs.add(fn), () => void subs.delete(fn));
 export function setBarWallet(w: BarWallet) {
-  if (w?.id === current?.id && w?.name === current?.name) return;
-  current = w ? { id: w.id, name: w.name } : null;
+  const next = w ? { ...w } : null;
+  if (JSON.stringify(next) === JSON.stringify(current)) return;
+  current = next;
   for (const f of subs) f();
+}
+/** Merge fields into the connected wallet (no-op when none, or a different key). */
+export function patchBarWallet(p: Partial<NonNullable<BarWallet>>) {
+  if (!current) return;
+  if (p.publicKey && current.publicKey && p.publicKey !== current.publicKey) return;
+  setBarWallet({ ...current, ...p });
+}
+
+/** The chip's menu asks the page's wallet hook to reconnect or switch (one wallet per page). */
+type Ask = 'reconnect' | 'switch';
+const askSubs = new Set<(a: Ask) => void>();
+export const onWalletAsk = (fn: (a: Ask) => void) => (askSubs.add(fn), () => void askSubs.delete(fn));
+/** Returns true when a page handled it. */
+export function askWallet(a: Ask): boolean {
+  for (const f of askSubs) f(a);
+  return askSubs.size > 0;
+}
+
+/** A short identity key for the badge: 03ab…9f. */
+export const shortKey = (k: string | null | undefined) => (k && k.length > 8 ? `${k.slice(0, 4)}…${k.slice(-2)}` : (k ?? ''));
+
+/** Who the badge says you are (owner rule): the FULL paymail, else the short identity key, else the wallet name. */
+export const GET_NAME_URL = 'https://bwalletx.com/get';
+export function idLabel(w: BarWallet): string {
+  if (!w) return '';
+  if (w.paymail) return w.paymail;
+  if (w.publicKey) return shortKey(w.publicKey);
+  return w.name;
+}
+
+export const PAYMAIL_API = 'https://pay.bwallet.space/api/paymail';
+export type PaymailId = { paymail: string; alias?: string; avatar?: string };
+
+/** Parse a lookup response. 404 (no name yet) or anything unusable → null. The main name comes first. */
+export function parseLookup(status: number, body: unknown): PaymailId | null {
+  if (status !== 200 || !body || typeof body !== 'object') return null;
+  const b = body as { paymail?: unknown; alias?: unknown; names?: { name?: unknown; paymail?: unknown; kind?: unknown }[] };
+  const names = Array.isArray(b.names) ? b.names : [];
+  const main = names.find((n) => n?.kind === 'plain') ?? names[0];
+  const paymail = typeof b.paymail === 'string' && b.paymail.includes('@') ? b.paymail : typeof main?.paymail === 'string' ? main.paymail : null;
+  if (!paymail) return null;
+  const alias = typeof b.alias === 'string' && b.alias ? b.alias : paymail.split('@')[0];
+  return { paymail, alias };
+}
+
+/** Look up the paymail for an identity key (cached per key in sessionStorage; `fresh` re-checks). */
+export async function lookupPaymail(key: string, fresh = false): Promise<PaymailId | null> {
+  const ck = `tb.paymail.${key}`;
+  if (!fresh) {
+    try {
+      const hit = sessionStorage.getItem(ck);
+      if (hit) return JSON.parse(hit) as PaymailId | null;
+    } catch {
+      /* no cache */
+    }
+  }
+  let id: PaymailId | null = null;
+  try {
+    const r = await fetch(`${PAYMAIL_API}/lookup?key=${encodeURIComponent(key)}`, { cache: 'no-store' });
+    id = parseLookup(r.status, r.status === 200 ? await r.json() : null);
+    if (!r.ok && r.status !== 404) return null; // a server error: don't cache "no name"
+    if (id) {
+      const pr = await fetch(`${PAYMAIL_API}/profile/${encodeURIComponent(id.paymail)}`).catch(() => null);
+      const prof = pr?.ok ? ((await pr.json().catch(() => null)) as { avatar?: unknown } | null) : null;
+      if (typeof prof?.avatar === 'string' && /^https:\/\//.test(prof.avatar)) id.avatar = prof.avatar;
+    }
+  } catch {
+    return null;
+  }
+  try {
+    sessionStorage.setItem(ck, JSON.stringify(id));
+  } catch {
+    /* no cache */
+  }
+  return id;
 }

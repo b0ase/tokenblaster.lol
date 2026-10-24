@@ -35,3 +35,24 @@ export async function fund(w: Wallet, address: string, sats: number, description
   if (!r.tx) throw new Error('bWallet returned no transaction.');
   return Transaction.fromAtomicBEEF(r.tx);
 }
+
+/** Rejects with `msg` if `p` has not settled within `ms`. */
+export function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return new Promise<T>((ok, no) => {
+    const t = setTimeout(() => no(new Error(msg)), ms);
+    p.then(
+      (v) => (clearTimeout(t), ok(v)),
+      (e) => (clearTimeout(t), no(e)),
+    );
+  });
+}
+
+/** Is the wallet connection live? A cheap getPublicKey with a short timeout (no prompt on a connected wallet). */
+export async function walletAlive(w: Wallet, ms = 6000): Promise<boolean> {
+  try {
+    const { publicKey } = await withTimeout(w.client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT');
+    return publicKey === w.publicKey;
+  } catch {
+    return false;
+  }
+}

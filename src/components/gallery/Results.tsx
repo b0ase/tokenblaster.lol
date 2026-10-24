@@ -92,7 +92,7 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
               Watch on bsv.lol <Icon name="external" size={13} />
             </a>
           </div>
-          <p className="text-xs text-[var(--tbx-mute)]">{r.simulated ? '' : `Spent ${r.spent}. `}Anyone can check the last round on the record. No refunds: unused credit stays in your gun.</p>
+          <p className="text-xs text-[var(--tbx-mute)]">{r.simulated ? '' : `Spent ${r.spent}. `}Anyone can check the last round on the record. Unused credit stays in your gun.</p>
         </section>
 
         <div className="tbx-rise flex flex-col items-stretch gap-2.5 sm:flex-row sm:justify-center" style={{ ['--d' as string]: '0.9s' }}>
