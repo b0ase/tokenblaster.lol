@@ -15,12 +15,14 @@ import { CoinCabinet } from './CoinCabinet';
 import { tbxFontClass } from './fonts';
 import { coinStore } from './store';
 import { useCabinet } from './useCabinet';
+import { usePlayerName } from './usePlayerName';
 
 export function CoinOpGate({ game, title, children }: { game: string; title: string; children: ReactNode }) {
   const b = useBlaster();
   const cab = useCabinet(b, title);
   const price = playPriceUsd(game);
-  const [name, setNameState] = useState('');
+  const [name, setNameState] = usePlayerName();
+  useEffect(() => coinStore.setName(name), [name]);
   const [open, setOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const n = useRef(0);
