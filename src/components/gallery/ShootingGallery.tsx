@@ -29,13 +29,13 @@ import { GunPreview } from './GunPreview';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
 import { GalleryEngine, type Hooks, type Quality, type Stats } from '@/lib/galleryGame/engine';
 import {
-  AMMO_SUGGESTIONS,
   DEFAULT_AMMO,
   PACKS,
   PLATFORM_FEE,
   PRIZE,
   chainHandle,
   cleanAmmo,
+  paymailFor,
   fmtBsv,
   fmtUsd,
   freeForStressTest,
@@ -91,8 +91,9 @@ export function ShootingGallery() {
   const [autofire, setAutofire] = useState(false);
   const [mode, setMode] = useState<Mode>('practice');
   const [weaponId, setWeaponId] = useState('minigun');
-  const [ammoText, setAmmoText] = useState(DEFAULT_AMMO);
-  const ammo = cleanAmmo(ammoText);
+  // Rounds carry the player's paymail once a wallet pays; practice fires plain sats.
+  const paymail = b.wallet ? paymailFor(handle) : null;
+  const ammo = paymail ?? DEFAULT_AMMO;
   const [loadout, setLoadout] = useState(true);
   const [pack, setPack] = useState<number>(PACKS[0]);
   const [bsvUsd, setBsvUsd] = useState(FALLBACK_USD);
@@ -146,7 +147,6 @@ export function ShootingGallery() {
       setDry(qs.get('dryrun') === '1');
       setNow(Date.now());
       if (p.w) setWeaponId(p.w);
-      if (p.a && cleanAmmo(p.a)) setAmmoText(p.a);
       if (qs.get('autofire') === '1') {
         setAutofire(true);
         setLoadout(false);
@@ -614,35 +614,13 @@ export function ShootingGallery() {
                   );
                 })}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-2">
-                  <span className="text-xs tracking-widest" style={{ color: DR.colour.amber }}>
-                    AMMO
-                  </span>
-                  <input
-                    value={ammoText}
-                    onChange={(e) => setAmmoText(e.target.value.slice(0, 40))}
-                    placeholder="txblaster.com"
-                    maxLength={40}
-                    spellCheck={false}
-                    aria-label="Ammo label (goes on chain)"
-                    className="w-52 border-2 bg-black px-2 py-1 text-sm text-white"
-                    style={{ borderColor: ammo ? DR.colour.amber : DR.colour.signal }}
-                  />
-                </label>
-                {AMMO_SUGGESTIONS.map((s) => (
-                  <button key={s} type="button" onClick={() => setAmmoText(s)} className={`btn px-2 py-0.5 text-[11px] ${ammo === s ? 'btn-on' : ''}`}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-              <p className="text-[11px] text-dim">
-                {ammo ? (
+              <p className="text-xs text-dim">
+                {paymail ? (
                   <>
-                    Every round carries <span style={{ color: DR.colour.amber }}>&quot;{ammo}&quot;</span> on chain as its ammo. Anyone can fire anything. {perShot} sat per shot.
+                    Every round carries your paymail <span style={{ color: DR.colour.amber }}>{paymail}</span> on chain. {perShot} sat per shot.
                   </>
                 ) : (
-                  <span style={{ color: DR.colour.signal }}>Ammo is lower case letters, digits, dots and dashes, 1 to 40 characters.</span>
+                  <>Your paymail attaches to every round when you pay. {perShot} sat per shot.</>
                 )}
               </p>
               <div className="sticky bottom-0 z-10 -mx-3 flex flex-wrap items-center gap-3 border-t-2 border-white/15 bg-black/90 px-3 py-2 sm:-mx-5 sm:px-5">

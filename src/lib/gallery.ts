@@ -24,15 +24,16 @@ export const shotSats = (named: boolean | number, ammoLen = 4) =>
 /** Worst case: the longest ammo label and the longest handle. */
 export const MAX_SHOT_SATS = shotSats(20, 40);
 
-/** "Ammo": any label the player types (a domain, a word). It rides in the tag's <token> field. No ownership
- * check, by the owner's decision. Lower case [a-z0-9.-], 1 to 40 chars; anything else is refused. */
+/** "Ammo": the player's own paymail, attached when they pay (owner, 24 Oct). It rides in the tag's <token>
+ * field. Lower case [a-z0-9._@-], 1 to 40 chars; anything else is refused. */
 export const DEFAULT_AMMO = 'sats';
-export const AMMO_SUGGESTIONS = ['sats', 'txblaster.com', 'tokenblaster.lol', 'bwalletx.com', 'google.com', 'pnee'];
+/** The paymail a connected player's rounds carry: their bWalletX X paymail if they have a handle, else none. */
+export const paymailFor = (handle: string | null | undefined) => (handle ? cleanAmmo(`${handle}.x@bwallet.space`) : null);
 export function cleanAmmo(s: string | null | undefined): string | null {
   if (s == null) return null;
   if (/[\u0000-\u001f\u007f]/.test(s)) return null;
   const t = s.trim().toLowerCase();
-  return /^[a-z0-9.-]{1,40}$/.test(t) ? t : null;
+  return /^[a-z0-9._@-]{1,40}$/.test(t) ? t : null;
 }
 
 /** Platform fee on top of network cost, as a fraction. The owner may set 0. */
