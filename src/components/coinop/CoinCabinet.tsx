@@ -8,9 +8,9 @@
  * Presentational only: CoinOpGate and the Shooting Gallery feed it.
  */
 import { useRef, useState } from 'react';
-import { DR } from '@/lib/dr/tokens';
 import { sfx, unlockAudio } from '@/lib/sfx';
 import { CoinFace, CoinSlot, ControlPanel, SevenSeg } from './hardware';
+import { Icon, Ticker } from './ui';
 import { COINS_USD, MIN_CREDIT_USD, addCoin, cleanName, fmtCredit, hasCredit, typingName } from '@/lib/coinop/credit';
 
 export type LoadStage = null | 'approve' | 'loading' | 'ready';
@@ -98,123 +98,141 @@ export function CoinCabinet(p: {
     const v = p.buys?.(usd);
     return v == null ? '…' : v.toLocaleString('en-US');
   };
-  const payLabel = p.pendingUsd > 0 ? ` · PAY ${fmtCredit(p.pendingUsd)}` : '';
+  const paySub = p.pendingUsd > 0 ? `PAY ${fmtCredit(p.pendingUsd)}` : null;
+  const pendingBuys = p.buys ? p.buys(total) : null;
   return (
     <ControlPanel>
-    <div className="flex w-full flex-col items-center gap-2 text-center" style={{ fontFamily: DR.font.mono }} onKeyDown={(e) => e.stopPropagation()}>
-      <p className="text-[10px] tracking-[0.3em] text-dim">TOKENBLASTER COIN-OP · {p.title.toUpperCase()}</p>
-      {/* Coins show in CREDIT the moment they drop in (owner, 24 Oct: "I put pennies in and it says $0.00"). */}
-      <CreditCounter usd={total} />
-
-      {/* INSERT COIN: each press adds to the total. START below is the one wallet approval. */}
-      <div className="flex w-full max-w-[680px] flex-col items-center gap-2">
-        <p className="text-xs tracking-[0.3em]" style={{ color: DR.colour.paper }}>
-          INSERT COIN
-        </p>
-        <div className="flex w-full flex-wrap justify-center gap-1.5 sm:gap-4">
-          {COINS_USD.map((c) => (
-            <div key={c} className="flex flex-col items-center gap-1">
-              <button
-                type="button"
-                data-fs-skip
-                data-coin
-                disabled={busy}
-                onClick={(e) => insert(c, e.currentTarget)}
-                className="hw-coin aspect-square w-[54px] disabled:opacity-40 sm:w-[90px]"
-                aria-label={`Add ${fmtCredit(c)}`}
-              >
-                <CoinFace usd={c} label={coinFace(c)} />
-              </button>
-              {p.buys && <span className="max-w-[90px] text-[9px] leading-tight text-dim sm:text-[11px]">= {n(c)}</span>}
-            </div>
-          ))}
-        </div>
-        <div ref={slotRef} className="relative w-full">
-          <CoinSlot lit={!nameOk}>
-            {drops.map((d) => (
-              <span key={d.id} className="hw-drop left-1/2 top-1/2 -ml-[22px] -mt-[22px] h-[44px] w-[44px]" style={{ ['--dx' as string]: `${d.dx}px`, ['--dy' as string]: `${d.dy}px` }}>
-                <CoinFace usd={d.usd} label={coinFace(d.usd)} />
-              </span>
-            ))}
-          </CoinSlot>
-        </div>
-        <div className="flex w-full flex-wrap items-center justify-center gap-x-3 gap-y-1">
-          <span className="text-[clamp(18px,3.2vw,28px)] font-bold tabular-nums" style={{ color: DR.colour.paper }} data-pending>
-            {fmtCredit(p.pendingUsd)}
-            {p.buys && (
-              <span style={{ color: DR.colour.amber }}>
-                {' '}→ {n(total)} {unit}
-              </span>
-            )}
-          </span>
-          <button type="button" data-fs-skip disabled={busy || p.pendingUsd <= 0} onClick={p.onClear} className="btn px-4 py-2 text-sm">
-            CLEAR
-          </button>
-        </div>
-        <p className="text-[10px] text-dim">{p.bsvUsd ? `Live price: BSV $${p.bsvUsd.toFixed(2)}.` : 'Pricing…'} {p.priceNote}</p>
-        <p className="text-xs font-bold" style={{ color: DR.colour.paper }} data-norefund>
-          No refunds. Only put in what you want to spend. Playing multiplayer? Put in as much as you&apos;ll need.
-        </p>
-      </div>
-
-      {/* NAME: always editable; START checks everything and says plainly what is missing. */}
-      <label className="flex w-full max-w-[520px] flex-col items-center gap-1">
-        <span className="text-xs tracking-[0.3em]" style={{ color: DR.colour.paper }}>
-          YOUR NAME
-        </span>
-        <input
-          ref={nameRef}
-          value={p.name}
-          onChange={(e) => {
-            p.setName(typingName(e.target.value));
-            if (miss === 'name' || miss === 'bad') setMiss(null);
-          }}
-          disabled={busy}
-          maxLength={20}
-          placeholder="Your name"
-          className={`w-full border-2 bg-black px-3 py-1.5 text-center text-lg uppercase tracking-[0.2em] outline-none disabled:opacity-40 ${flash ? 'coinop-shake' : ''}`}
-          style={{ borderColor: nameMiss ? '#ff3b30' : DR.colour.amber, boxShadow: nameMiss ? '0 0 0 2px #ff3b30' : undefined, color: DR.colour.amber }}
-          autoComplete="off"
-          spellCheck={false}
-          aria-label="Your name"
-          aria-invalid={nameMiss}
-        />
-        {nameMiss && <span className="text-sm font-bold" style={{ color: '#ff6b5e' }}>{MISSING[miss!]}</span>}
-      </label>
-
-      {p.stage && p.stage !== 'ready' && (
-        <div className="w-full max-w-[420px]" role="status">
-          <p className="mb-1 text-sm font-bold" style={{ color: DR.colour.cyan }}>
-            {p.stage === 'approve' ? 'Waiting for you to approve in your wallet…' : 'Loading…'}
-          </p>
-          <div className="h-3 border border-white/30 bg-black">
-            <div className="h-full transition-all duration-500" style={{ width: `${pct}%`, background: DR.colour.signal }} />
+      <div className="flex w-full flex-col gap-5" onKeyDown={(e) => e.stopPropagation()}>
+        {/* Marquee: what this machine is, and the LED credit. Coins show in CREDIT the moment they drop in. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="tbx-eyebrow">Coin-op</p>
+            <p className="tbx-display text-[clamp(22px,3.4vw,30px)]">{p.title}</p>
           </div>
-          {p.stageText && <p className="mt-1 text-xs text-dim">{p.stageText}</p>}
+          <CreditCounter usd={total} />
         </div>
-      )}
 
-      <div className="hw-button-bezel lock-load mx-auto w-full max-w-[560px]">
-        <button
-          type="button"
-          data-fs-start
-          data-down={down ? '1' : '0'}
-          disabled={busy}
-          onPointerDown={() => setDown(true)}
-          onPointerUp={() => setDown(false)}
-          onPointerLeave={() => setDown(false)}
-          onClick={press}
-          className="hw-button px-6 py-4 text-[clamp(26px,5vw,48px)] font-black uppercase italic leading-none tracking-[0.08em]"
-          style={{ fontFamily: DR.font.display, color: DR.colour.paper, textShadow: '0 3px 0 rgba(0,0,0,.45)', opacity: startOk || busy ? undefined : 0.85 }}
-        >
-          {busy ? 'Loading…' : `${p.startLabel ?? 'Lock & load'}${payLabel}`}
-        </button>
+        {/* INSERT COIN: each press adds to the total. The big red button below is the one wallet approval. */}
+        <section aria-label="Insert coin" className="flex flex-col items-center gap-3">
+          <div className="flex w-full items-center gap-3">
+            <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[var(--tbx-line-hi)]" />
+            <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
+              <Icon name="coin" size={14} /> Insert coin
+            </p>
+            <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[var(--tbx-line-hi)]" />
+          </div>
+          <div className="grid w-full grid-cols-5 gap-1.5 sm:gap-4">
+            {COINS_USD.map((c) => (
+              <div key={c} className="flex flex-col items-center gap-1.5">
+                <button type="button" data-fs-skip data-coin disabled={busy} onClick={(e) => insert(c, e.currentTarget)} className="tbx-coin aspect-square w-full max-w-[84px] disabled:opacity-40" aria-label={`Add ${fmtCredit(c)}`}>
+                  <CoinFace usd={c} label={coinFace(c)} />
+                </button>
+                {p.buys && <span className="tbx-num text-center text-[10px] leading-tight text-[var(--tbx-dim)] sm:text-xs">{n(c)}</span>}
+              </div>
+            ))}
+          </div>
+          <div ref={slotRef} className="relative w-full">
+            <CoinSlot lit={!nameOk}>
+              {drops.map((d) => (
+                <span key={d.id} className="tbx-drop left-1/2 top-1/2 -ml-[22px] -mt-[22px] h-[44px] w-[44px]" style={{ ['--dx' as string]: `${d.dx}px`, ['--dy' as string]: `${d.dy}px` }}>
+                  <CoinFace usd={d.usd} label={coinFace(d.usd)} />
+                </span>
+              ))}
+            </CoinSlot>
+          </div>
+          <div className="flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex items-baseline gap-2" data-pending>
+              <span className="tbx-num text-[clamp(22px,4vw,30px)] font-bold" style={{ color: 'var(--tbx-amber)' }}>
+                {fmtCredit(p.pendingUsd)}
+              </span>
+              {p.buys && (
+                <span className="text-sm text-[var(--tbx-dim)]">
+                  buys <Ticker value={pendingBuys ?? 0} className="font-bold text-[var(--tbx-text)]" /> {unit}
+                </span>
+              )}
+            </div>
+            <button type="button" data-fs-skip disabled={busy || p.pendingUsd <= 0} onClick={p.onClear} className="tbx-btn">
+              <Icon name="close" size={14} /> Clear
+            </button>
+          </div>
+          <p className="w-full text-xs text-[var(--tbx-mute)]">
+            {p.bsvUsd ? `Live price: BSV $${p.bsvUsd.toFixed(2)}.` : 'Pricing…'} {p.priceNote}
+          </p>
+          <p className="flex w-full items-start gap-2 rounded-lg border border-[var(--tbx-red)]/40 bg-[var(--tbx-red)]/10 px-3 py-2 text-xs font-semibold text-[var(--tbx-text)]" data-norefund>
+            <Icon name="shield" size={16} className="mt-px shrink-0 text-[var(--tbx-red)]" />
+            No refunds. Only put in what you want to spend. Playing multiplayer? Put in as much as you&apos;ll need.
+          </p>
+        </section>
+
+        {/* NAME: always editable; the button checks everything and says plainly what is missing. */}
+        <label className="flex w-full flex-col gap-2">
+          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
+            <Icon name="user" size={14} /> Your name <span className="text-[var(--tbx-red)]">· required</span>
+          </span>
+          <input
+            ref={nameRef}
+            value={p.name}
+            onChange={(e) => {
+              p.setName(typingName(e.target.value));
+              if (miss === 'name' || miss === 'bad') setMiss(null);
+            }}
+            disabled={busy}
+            maxLength={20}
+            placeholder="Type your name"
+            className={`tbx-input disabled:opacity-40 ${flash ? 'tbx-shake' : ''}`}
+            autoComplete="off"
+            spellCheck={false}
+            aria-label="Your name"
+            aria-invalid={nameMiss}
+          />
+          {nameMiss && (
+            <span className="text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">
+              {MISSING[miss!]}
+            </span>
+          )}
+        </label>
+
+        {p.stage && p.stage !== 'ready' && (
+          <div className="w-full" role="status">
+            <p className="mb-2 flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--tbx-teal)' }}>
+              <span className="inline-block h-2 w-2 rounded-full bg-[var(--tbx-teal)]" style={{ animation: 'tbx-breathe 1s ease-in-out infinite' }} />
+              {p.stage === 'approve' ? 'Waiting for you to approve in your wallet…' : 'Loading…'}
+            </p>
+            <div className="tbx-bar">
+              <i style={{ transform: `scaleX(${pct / 100})` }} />
+            </div>
+            {p.stageText && <p className="mt-1.5 text-xs text-[var(--tbx-mute)]">{p.stageText}</p>}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2.5">
+          <div className={`tbx-bezel ${startOk ? 'tbx-bezel-ready' : ''} mx-auto w-full`}>
+            <button
+              type="button"
+              data-fs-start
+              data-down={down ? '1' : '0'}
+              disabled={busy}
+              onPointerDown={() => setDown(true)}
+              onPointerUp={() => setDown(false)}
+              onPointerLeave={() => setDown(false)}
+              onClick={press}
+              className="tbx-go"
+              style={{ opacity: startOk || busy ? undefined : 0.88 }}
+            >
+              {busy ? 'Loading…' : (p.startLabel ?? 'Lock & load')}
+              {!busy && paySub && <span className="tbx-go-sub">{paySub}</span>}
+            </button>
+          </div>
+          <p className={`text-center text-sm ${miss ? 'font-semibold' : 'text-[var(--tbx-dim)]'}`} style={miss ? { color: '#ff7a70' } : undefined} data-start-reason>
+            {miss && !nameMiss ? MISSING[miss] : nameMiss ? '' : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, type your name, then press the button.'}
+          </p>
+          {p.error && (
+            <p className="text-center text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">
+              {p.error}
+            </p>
+          )}
+        </div>
       </div>
-      <p className={`text-sm ${miss ? 'font-bold' : 'text-dim'}`} style={miss ? { color: '#ff6b5e' } : undefined} data-start-reason>
-        {miss && !nameMiss ? MISSING[miss] : nameMiss ? '' : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, type your name, then press the button.'}
-      </p>
-      {p.error && <p className="text-sm text-hot">⚠ {p.error}</p>}
-    </div>
     </ControlPanel>
   );
 }

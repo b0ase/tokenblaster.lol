@@ -67,15 +67,15 @@ export const KWEG = {
 
 // ── Lore beats (shown one at a time on the loading screen, in this order) ──────────────
 
-export type LoreBeat = { id: string; title: string; line: string };
+export type LoreBeat = { id: string; title: string; line: string; /** The CHARACTERS id whose bio card sits beside this beat. */ focus: string };
 export const LORE: LoreBeat[] = [
-  { id: 'city', title: 'NEO-TOKYO, 2048', line: 'Rain on neon. Hover traffic stacked twelve lanes high. Ninety million people, and every one of them is being counted.' },
-  { id: 'bcorp', title: 'PROJECT EROBOT', line: 'bCorp built a robot guard for the city. Nothing evil, just corporate. One consultant wrote the code, and he kept a copy.' },
-  { id: 'kweg', title: 'DR KWEG WONG', line: KWEG.intro },
-  { id: 'omnicore', title: 'THE OMNICORE TOWER', line: 'OMNICORE, bCorp’s richest rival, needed a miracle. Kweg sold it one, then took over the top floor. The black glass tower is his now.' },
-  { id: 'army', title: 'THE EROBOT ARMY', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the street and techs on the roof to fix them all. Every one is his.' },
-  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'Neon hair, sharp blades and no patience. The only crew in Neo-Tokyo who will say no to a professor. They need a gunner who can keep the trigger down.' },
-  { id: 'record', title: 'THE RECORD', line: 'Every round you fire is written where nobody can erase it. Put enough on the record at once and Kweg’s robot network chokes.' },
+  { id: 'city', title: 'NEO-TOKYO, 2048', line: 'Rain on neon. Hover traffic stacked twelve lanes high. Ninety million people, and every one of them is being counted.', focus: 'gunner' },
+  { id: 'bcorp', title: 'PROJECT EROBOT', line: 'bCorp built a robot guard for the city. Nothing evil, just corporate. One consultant wrote the code, and he kept a copy.', focus: 'bot' },
+  { id: 'kweg', title: 'DR KWEG WONG', line: KWEG.intro, focus: 'kweg' },
+  { id: 'omnicore', title: 'THE OMNICORE TOWER', line: 'OMNICORE, bCorp’s richest rival, needed a miracle. Kweg sold it one, then took over the top floor. The black glass tower is his now.', focus: 'kweg' },
+  { id: 'army', title: 'THE EROBOT ARMY', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the street and techs on the roof to fix them all. Every one is his.', focus: 'frog' },
+  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'Neon hair, sharp blades and no patience. The only crew in Neo-Tokyo who will say no to a professor. They need a gunner who can keep the trigger down.', focus: 'npg' },
+  { id: 'record', title: 'THE RECORD', line: 'Every round you fire is written where nobody can erase it. Put enough on the record at once and Kweg’s robot network chokes.', focus: 'liquid' },
 ];
 
 // ── Characters ──────────────────────────────────────────────────────────────────────────
@@ -209,11 +209,12 @@ export const characterById = (id: string) => CHARACTERS.find((c) => c.id === id)
  */
 export type LoadingShot = { src: string; beat: string; focus?: string; pos?: string; caption?: string };
 export const LOADING_SHOTS: LoadingShot[] = [
-  { src: '/gallery/loading/street-left.webp', beat: 'city', focus: 'gunner', pos: '40% 50%', caption: 'Neo-Tokyo, 01:14' },
+  { src: '/gallery/loading/street-left.webp', beat: 'city', focus: 'gunner', pos: '50% 50%', caption: 'Neo-Tokyo, 01:14' },
   { src: '/gallery/loading/tower.webp', beat: 'omnicore', focus: 'kweg', pos: '50% 50%', caption: 'The OMNICORE tower' },
   { src: '/gallery/loading/street-right.webp', beat: 'army', focus: 'frog', pos: '60% 50%', caption: 'The Erobots wake' },
   { src: '/gallery/loading/boss.webp', beat: 'army', focus: 'liquid', pos: '55% 50%', caption: 'The Liquid Unit' },
   { src: '/gallery/loading/boss-fire.webp', beat: 'record', focus: 'npg', pos: '60% 50%', caption: 'Open fire' },
+  { src: '/gallery/loading/muzzle.webp', beat: 'girls', focus: 'npg', pos: '62% 50%', caption: 'Hold the trigger' },
   // ── Slots for new renders (skipped until the file exists) ──
   { src: '/gallery/loading/kweg.webp', beat: 'kweg', focus: 'kweg', pos: '50% 40%', caption: 'Dr Kweg Wong' },
   { src: '/gallery/loading/npg.webp', beat: 'girls', focus: 'npg', pos: '50% 50%', caption: 'The Ninja Punk Girls' },
