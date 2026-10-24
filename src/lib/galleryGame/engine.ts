@@ -854,8 +854,11 @@ export class GalleryEngine {
 
   // ── The player's body ──
   /** Damage from a world position. No effect while down or in the grace after Continue. */
+  /** False while the player is on the loadout / cabinet / loading screens: nothing can hurt them. */
+  combat = false;
+
   hurt(from: THREE.Vector3, dmg: number, kind: HurtKind) {
-    if (this.dead || this.invuln > 0 || dmg <= 0) return;
+    if (!this.combat || this.dead || this.invuln > 0 || dmg <= 0) return;
     if (kind === 'bolt' && this.hitCd > 0) return;
     this.hitCd = TUNING.player.hitCooldown;
     this.hp = Math.max(0, this.hp - dmg);

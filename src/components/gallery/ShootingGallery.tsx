@@ -156,6 +156,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(handle?.length ?? 0, ammoLen);
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
+  // FREE PLAY (production while payments are fixed): credit is on the house, so LOCK & LOAD just works.
+  const { setDryCredit } = cab;
+  useEffect(() => {
+    if (freePlay) setDryCredit((c) => (c >= 1 ? c : 1));
+  }, [freePlay, setDryCredit]);
   const [locking, setLocking] = useState(false);
   const [loadedRounds, setLoadedRounds] = useState(0);
   const [feed, setFeed] = useState<FeedRow[]>([]);
@@ -182,7 +187,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     });
     const i = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(i);
-  }, []);
+  }, [freePlay]);
   useEffect(() => {
     if (cab.bsvUsd) void Promise.resolve().then(() => setBsvUsd(cab.bsvUsd!));
   }, [cab.bsvUsd]);
@@ -260,6 +265,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [fired, setFired] = useState(0);
   const modeRef = useRef<'off' | 'warm' | 'live'>('off');
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
+  // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
+  useEffect(() => {
+    const e = engine.current;
+    if (e) e.combat = !loadout && mode !== 'off' && !over;
+  }, [loadout, mode, over, ready]);
   const setMode = useCallback((m: 'off' | 'warm' | 'live') => {
     modeRef.current = m;
     setModeState(m);
@@ -806,7 +816,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             <circle cx="22" cy="22" r="1.8" fill="#ff3b3b" />
           </svg>
         </div>
-        {!ready && (
+        {/* The city builds quietly behind the loadout; this only shows if play starts before it's ready (owner, 24 Oct). */}
+        {!ready && !loadout && (
           <div className="absolute inset-0 z-[5] grid place-items-center bg-[#03070c]/90">
             <div className="tbx-glass tbx-pop w-[min(300px,80vw)] p-4 text-center">
               <p className="tbx-eyebrow mb-3 flex items-center justify-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
@@ -1036,21 +1047,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           {inEvent(clock) ? 'The event is on now.' : `Event: ${new Date(PRIZE.start).toUTCString().slice(0, 16)} (UTC).`}
         </p>
       </section>
-      {/* No wallet, no entry (owner, 24 Oct 2026): the gallery only opens once a wallet is connected. */}
-      {!b.wallet && !dry && !b.chooser && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-labelledby="gate-title">
-          <div className="flex w-full max-w-md flex-col items-center gap-4 border border-white/15 bg-[#06111a]/95 p-6 text-center shadow-[0_0_60px_rgba(63,216,232,.15)]">
-            <p className="text-[11px] font-bold uppercase tracking-[0.35em] text-[#3fd8e8]">TokenBlaster shooting gallery</p>
-            <h2 id="gate-title" className="text-[clamp(28px,6vw,40px)] font-black uppercase leading-none text-white">Connect your wallet to enter</h2>
-            <p className="text-sm text-white/70">Every round is a real transaction paid from your own wallet. Connect bWalletX (or any BRC-100 wallet) to play.</p>
-            <button type="button" autoFocus onClick={() => void b.connectWallet()} disabled={b.busy === 'connecting'} className="lock-load w-full rounded-full px-6 py-4 text-xl font-black uppercase tracking-widest text-white disabled:opacity-60" style={{ background: 'linear-gradient(180deg,#ff4a3d,#e8261d 55%,#8f0f08)' }}>
-              {b.busy === 'connecting' ? 'Connecting…' : 'Connect wallet'}
-            </button>
-            {b.error && <p className="text-sm text-[#ff6a5a]">{b.error}</p>}
-            <a href="https://bwalletx.com/get" target="_blank" rel="noreferrer" className="text-xs text-white/60 underline">No wallet? Get bWalletX</a>
-          </div>
-        </div>
-      )}
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </div>
   );
