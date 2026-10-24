@@ -4,7 +4,7 @@
  * A blast is 1-in-2-out: P2PKH in, OP_RETURN "tokenblaster.lol" <token> <c:n> <game> + P2PKH change.
  * ~235 bytes signed. Fee per blast = ceil(bytes * feeRate / 1000) sats.
  */
-export const BLAST_BYTES = 235;
+export const BLAST_BYTES = 260; // 235 typical; the c:n tag + DER signature grow it, and ARC rejected ~10% at 24 sats (smoke test 24 Oct)
 export const FAN_INPUT_BYTES = 150;
 export const FAN_OUTPUT_BYTES = 34;
 
