@@ -223,11 +223,26 @@ export class LiquidUnit {
   private idleA: THREE.AnimationAction | null = null;
   private walkA: THREE.AnimationAction | null = null;
   private driven: Record<string, THREE.Object3D | undefined> = {};
+  private tv = new THREE.Vector3();
+  private tq = new THREE.Quaternion();
   private moveBlend = 0;
   private flinch = 0;
   private hitSide = 0;
-  private roar = 0;
-  private nextRoar = 5;
+  private phase: 'stalk' | 'windup' | 'lunge' | 'recover' | 'roar' | 'stagger' = 'stalk';
+  private phaseT = 0;
+  private nextLunge = 9;
+  private nextRoar = 4;
+  private heavyAcc = 0;
+  private staggerCd = 0;
+  private stepPh = 0;
+  private impulseV = 0;
+  private roarFired = false;
+  /** Shape of the current pose, eased toward each phase's target. */
+  private P = { lean: 0, crouch: 0, swing: 0, flare: 0, back: 0, chest: 0, shove: 0 };
+  /** Armour plates that follow a bone (pauldrons, head blades). */
+  private orn: { mesh: THREE.Mesh; bone: THREE.Object3D; restRel: THREE.Quaternion; off: THREE.Vector3 }[] = [];
+  /** Fired on big moments so the engine can add rings, sparks and shake. */
+  onEvent: ((kind: 'roar' | 'stomp' | 'lunge' | 'stagger', at: THREE.Vector3) => void) | null = null;
   private eyeMat: THREE.MeshBasicMaterial | null = null;
   private eyeGlow: THREE.Sprite | null = null;
   private eyeLight: THREE.PointLight;
@@ -297,7 +312,18 @@ export class LiquidUnit {
       m.castShadow = this.high;
       kept.push(m);
     });
+    // Silhouette: a broader, deeper chest, a narrower, taller head. Plates are added below.
+    const early = new Map<string, THREE.Object3D>();
+    model.traverse((o) => {
+      if ((o as THREE.Bone).isBone) early.set(norm(o.name), o);
+    });
+    const eb = (n: string) => early.get(norm(`mixamorig${n}`));
+    eb('Spine2')?.scale.set(1.22, 1, 1.2);
+    eb('Spine1')?.scale.set(1.06, 1, 1.06);
+    eb('Head')?.scale.set(0.86, 1.14, 0.9);
+    eb('Hips')?.scale.set(1.08, 1, 1.05);
     model.updateMatrixWorld(true);
+    for (const m of kept) m.skeleton?.update();
     const box = new THREE.Box3();
     for (const m of kept) box.union(new THREE.Box3().setFromObject(m, true));
     const size = box.getSize(new THREE.Vector3());
@@ -428,6 +454,11 @@ export class LiquidUnit {
 
     // Bones the menace layer drives.
     for (const [key, name] of [
+      ['hips', 'Hips'],
+      ['upLegL', 'LeftUpLeg'],
+      ['upLegR', 'RightUpLeg'],
+      ['legL', 'LeftLeg'],
+      ['legR', 'RightLeg'],
       ['spine', 'Spine'],
       ['spine1', 'Spine1'],
       ['chest', 'Spine2'],
@@ -443,8 +474,10 @@ export class LiquidUnit {
       this.driven[key] = find(name) ?? undefined;
     }
 
-    // Clips.
     this.mixer = new THREE.AnimationMixer(model);
+    this.buildPlates(holder, find);
+
+    // Clips.
     const idle = gltf.animations.find((a) => a.name === 'idle');
     const walk = gltf.animations.find((a) => a.name === 'walk');
     if (idle) {
@@ -460,6 +493,51 @@ export class LiquidUnit {
     }
     this.mixer.update(0);
   }
+
+  /** Angular liquid-metal pauldrons and head blades, riding the chest and head bones. */
+  private buildPlates(holder: THREE.Object3D, find: (n: string) => THREE.Object3D | null) {
+    const chest = find('Spine2');
+    const head = find('Head');
+    holder.updateMatrixWorld(true);
+    const hq = holder.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const add = (geo: THREE.BufferGeometry, bone: THREE.Object3D | null, off: THREE.Vector3, rot: THREE.Euler, scale: THREE.Vector3, joint = false) => {
+      if (!bone) return;
+      this.geos.push(geo);
+      const m = new THREE.Mesh(geo, joint ? this.jointMat : this.mat);
+      m.castShadow = this.high;
+      m.frustumCulled = false;
+      m.scale.copy(scale);
+      const rest = hq.clone().multiply(bone.getWorldQuaternion(new THREE.Quaternion()));
+      // local shape rotation baked in via a child-less pre-rotation of the geometry
+      geo.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(rot));
+      holder.add(m);
+      this.orn.push({ mesh: m, bone, restRel: rest.invert(), off });
+    };
+    // positions are in the 1.8 m source model's metres, in the holder frame (x right, y up, z forward)
+    for (const side of [-1, 1]) {
+      // pauldron: a squashed, faceted dome with a swept spike
+      add(new THREE.OctahedronGeometry(0.17, 1), chest, new THREE.Vector3(side * 0.3, 0.1, -0.01), new THREE.Euler(0, 0, side * 0.35), new THREE.Vector3(1.35, 0.7, 1.15));
+      add(new THREE.ConeGeometry(0.06, 0.34, 6), chest, new THREE.Vector3(side * 0.42, 0.2, -0.04), new THREE.Euler(0, 0, -side * 1.15), new THREE.Vector3(1, 1, 1), true);
+      // cheek blade swept back from the head
+      add(new THREE.ConeGeometry(0.025, 0.22, 5), head, new THREE.Vector3(side * 0.085, 0.06, -0.05), new THREE.Euler(-1.2, 0, side * 0.3), new THREE.Vector3(1, 1, 1), true);
+    }
+    // crest: a tall blade over the skull
+    add(new THREE.ConeGeometry(0.035, 0.34, 4), head, new THREE.Vector3(0, 0.2, -0.1), new THREE.Euler(-1.05, 0, 0), new THREE.Vector3(0.6, 1, 1.6), true);
+  }
+
+  private followPlates() {
+    for (const o of this.orn) {
+      o.bone.getWorldPosition(this.tv);
+      // bones carry the holder's scale; offsets are in holder space
+      const h = o.mesh.parent!;
+      h.worldToLocal(this.tv);
+      o.bone.getWorldQuaternion(this.tq);
+      this.tq.premultiply(this.qh).multiply(o.restRel);
+      o.mesh.position.copy(this.tv).add(this.tmpOff.copy(o.off).applyQuaternion(this.tq));
+      o.mesh.quaternion.copy(this.tq);
+    }
+  }
+  private tmpOff = new THREE.Vector3();
 
   // ── Fallback figure (only if the model can't be loaded) ──
 
@@ -516,6 +594,7 @@ export class LiquidUnit {
     if (!this.alive) return false;
     this.hp -= n;
     this.lastHit = this.t;
+    this.heavyAcc += n;
     const v = this.uniforms.uHits.value[this.hitCursor++ % HITS];
     v.set(at.x, at.y, at.z, this.t);
     // flinch: rock back, twist away from the side that was hit
@@ -524,9 +603,16 @@ export class LiquidUnit {
     if (this.hp <= 0) {
       this.hp = 0;
       this.melt = 0.0001;
+      this.phase = 'stalk';
       return true;
     }
     return false;
+  }
+
+  takeImpulse() {
+    const v = this.impulseV;
+    this.impulseV = 0;
+    return v;
   }
 
   setBase(n: number) {
@@ -552,44 +638,114 @@ export class LiquidUnit {
     bone.quaternion.multiply(this.qb);
   }
 
+  private ease(k: keyof LiquidUnit['P'], target: number, dt: number, rate: number) {
+    this.P[k] += (target - this.P[k]) * Math.min(1, dt * rate);
+  }
+
+  private emit(kind: 'roar' | 'stomp' | 'lunge' | 'stagger', imp: number) {
+    this.impulseV = Math.max(this.impulseV, imp);
+    this.onEvent?.(kind, this.tv.set(this.group.position.x, kind === 'roar' ? HEIGHT * 0.65 : 0.4, this.group.position.z + (kind === 'roar' ? 1.5 : 0)));
+  }
+
+  private setPhase(p: LiquidUnit['phase']) {
+    this.phase = p;
+    this.phaseT = 0;
+    this.roarFired = false;
+  }
+
   private poseModel(dt: number, slump: number) {
     const model = this.model;
     if (!model || !this.mixer) return;
     const t = this.t;
+    const ph = this.phase;
+    const pt = this.phaseT;
+    // Phase targets: how hunched, crouched, swung, flared, rocked back, chest-swollen
+    let lean = 0.12, crouch = 0.12, swing = 0, flare = 0, back = 0, chest = 0, rate = 5;
+    if (ph === 'stalk') {
+      lean = 0.2 + 0.1 * this.moveBlend;
+      crouch = 0.22 + 0.1 * this.moveBlend; // stalks low: knees bent, shoulders rolling
+    } else if (ph === 'windup') {
+      back = 0.5 * Math.min(1, pt / 0.4);
+      crouch = 0.75;
+      swing = -0.9; // arms drawn back
+      lean = -0.1;
+      rate = 9;
+    } else if (ph === 'lunge') {
+      lean = 0.75;
+      crouch = 0.35;
+      swing = 1.2; // arms thrust forward
+      rate = 16;
+    } else if (ph === 'recover') {
+      lean = 0.35 - pt * 0.15;
+      crouch = 0.4 * Math.max(0, 1 - pt);
+      swing = 0.3;
+      rate = 4;
+    } else if (ph === 'roar') {
+      const up = pt < 0.35 ? pt / 0.35 : pt < 1.7 ? 1 : Math.max(0, 1 - (pt - 1.7) / 0.5);
+      back = 0.9 * up;
+      flare = 1 * up;
+      chest = 1 * up;
+      crouch = 0.15 + 0.2 * (pt < 0.35 ? pt / 0.35 : 0);
+      rate = 10;
+    } else if (ph === 'stagger') {
+      back = 1.1 * (pt < 0.15 ? pt / 0.15 : Math.max(0, 1 - (pt - 0.15) / 0.8));
+      crouch = 0.65 * (pt < 0.3 ? 1 : Math.max(0, 1 - (pt - 0.3) / 0.6));
+      flare = 0.6;
+      rate = 14;
+    }
+    this.ease('lean', lean + slump * 0.7, dt, rate);
+    this.ease('crouch', crouch, dt, rate);
+    this.ease('swing', swing, dt, rate);
+    this.ease('flare', flare, dt, rate);
+    this.ease('back', back, dt, rate);
+    this.ease('chest', chest, dt, rate);
+    const P = this.P;
+
     this.moveBlend += ((this.walking ? 1 : 0) - this.moveBlend) * Math.min(1, dt * 3);
     const m = this.moveBlend;
     this.idleA?.setEffectiveWeight(1 - m);
     this.walkA?.setEffectiveWeight(m);
     this.mixer.update(dt);
+    // footfalls: two per walk cycle shake the street
+    if (this.walkA && m > 0.5 && ph === 'stalk') {
+      const dur = this.walkA.getClip().duration;
+      const cyc = (this.walkA.time % dur) / dur;
+      const step = Math.floor(cyc * 2);
+      if (step !== this.stepPh) {
+        this.stepPh = step;
+        this.emit('stomp', 0.14);
+      }
+    }
     model.updateMatrixWorld(true);
     model.getWorldQuaternion(this.qh).invert();
 
-    // menace: hunched, head low and scanning, arms held out from the body, hands curled; a roar every few seconds
-    this.nextRoar -= dt;
-    if (this.nextRoar <= 0 && m < 0.5 && slump === 0) {
-      this.roar = 1;
-      this.nextRoar = 7 + Math.random() * 5;
-    }
-    this.roar = Math.max(0, this.roar - dt * 0.6);
-    const ro = this.roar > 0 ? Math.sin(this.roar * Math.PI) : 0; // up, then down
     const breathe = Math.sin(t * 1.5);
     const fl = this.flinch * (1 + 0.3 * Math.sin(t * 40));
-    const lean = 0.1 + 0.06 * m + slump * 0.7;
     const D = this.driven;
-    this.nudge(D.spine, lean * 0.3 - fl * 0.1 - ro * 0.12 + breathe * 0.012, this.hitSide * fl * 0.1, 0);
-    this.nudge(D.spine1, lean * 0.3 - fl * 0.12 - ro * 0.14, this.hitSide * fl * 0.1, 0);
-    this.nudge(D.chest, lean * 0.25 - fl * 0.16 - ro * 0.2 + breathe * 0.02, this.hitSide * fl * 0.14, 0);
-    this.nudge(D.neck, 0.05 - fl * 0.1 - ro * 0.15, 0, 0);
-    this.nudge(D.head, 0.14 + slump * 0.5 - fl * 0.3 - ro * 0.45, Math.sin(t * 0.45) * 0.2 * (1 - fl), Math.sin(t * 0.31) * 0.05);
-    const spread = 0.3 + ro * 0.5 + breathe * 0.015 + fl * 0.12;
-    this.nudge(D.clavL, 0, 0, -0.08 - ro * 0.15);
-    this.nudge(D.clavR, 0, 0, 0.08 + ro * 0.15);
-    this.nudge(D.armL, 0, 0, -spread);
-    this.nudge(D.armR, 0, 0, spread);
-    this.nudge(D.foreL, 0.45 + ro * 0.2 - fl * 0.2, 0, 0);
-    this.nudge(D.foreR, 0.45 + ro * 0.2 - fl * 0.2, 0, 0);
-    // recoil: the whole body is shoved back a little
-    this.body.position.z = -this.flinch * 0.22;
+    const bk = P.back;
+    this.nudge(D.hips, -P.crouch * 0.1, 0, 0);
+    this.nudge(D.spine, P.lean * 0.3 - fl * 0.1 - bk * 0.2 + breathe * 0.012, this.hitSide * fl * 0.1, 0);
+    this.nudge(D.spine1, P.lean * 0.3 - fl * 0.12 - bk * 0.25, this.hitSide * fl * 0.1, 0);
+    this.nudge(D.chest, P.lean * 0.25 - fl * 0.16 - bk * 0.3 + breathe * 0.02 + P.chest * 0.05, this.hitSide * fl * 0.14, 0);
+    this.nudge(D.neck, 0.05 - fl * 0.1 - bk * 0.2, 0, 0);
+    this.nudge(D.head, 0.14 + slump * 0.5 - fl * 0.3 - bk * 0.6 + (ph === 'lunge' ? 0.3 : 0), Math.sin(t * 0.45) * 0.2 * (1 - fl) * (ph === 'stalk' ? 1 : 0.2), Math.sin(t * 0.31) * 0.05);
+    // legs: thighs forward (negative x), shins back (positive x)
+    this.nudge(D.upLegL, -P.crouch * 0.6, 0, 0);
+    this.nudge(D.upLegR, -P.crouch * 0.6, 0, 0);
+    this.nudge(D.legL, P.crouch * 1.1, 0, 0);
+    this.nudge(D.legR, P.crouch * 1.1, 0, 0);
+    const spread = 0.3 + P.flare * 0.75 + breathe * 0.015 + fl * 0.12;
+    this.nudge(D.clavL, 0, 0, -0.08 - P.flare * 0.2);
+    this.nudge(D.clavR, 0, 0, 0.08 + P.flare * 0.2);
+    this.nudge(D.armL, P.swing * 0.9, 0, -spread);
+    this.nudge(D.armR, P.swing * 0.9, 0, spread);
+    this.nudge(D.foreL, 0.45 + P.flare * 0.3 - fl * 0.2 - P.swing * 0.2, 0, 0);
+    this.nudge(D.foreR, 0.45 + P.flare * 0.3 - fl * 0.2 - P.swing * 0.2, 0, 0);
+    // the chest swells with the roar; the whole body is shoved back by hits and staggers; crouching drops the hips
+    this.driven.chest?.scale.set(1.22 + P.chest * 0.12, 1 + P.chest * 0.04, 1.2 + P.chest * 0.1);
+    this.body.position.z = -this.flinch * 0.22 - P.back * 0.35;
+    this.body.position.y = -P.crouch * 0.5;
+    this.followPlates();
   }
 
   update(dt: number) {
@@ -643,10 +799,61 @@ export class LiquidUnit {
       }
       return;
     }
-    // Relentless, heavy walk toward the player; it stops 16 m out and looms.
+    // Relentless, heavy stalk toward the player; it stops 16 m out and looms, and every few seconds
+    // it roars, or winds up and lunges. Heavy sustained fire staggers it.
     const speed = 2.1;
-    this.walking = this.z < -16;
-    if (this.walking) this.z += speed * dt;
+    this.phaseT += dt;
+    this.staggerCd -= dt;
+    this.heavyAcc *= Math.exp(-dt * 1.6);
+    if (this.phase !== 'stagger' && this.staggerCd <= 0 && this.heavyAcc > this.max * 0.035) {
+      this.setPhase('stagger');
+      this.staggerCd = 5;
+      this.heavyAcc = 0;
+      this.emit('stagger', 0.45);
+    }
+    this.walking = false;
+    switch (this.phase) {
+      case 'stalk':
+        this.walking = this.z < -16;
+        if (this.walking) this.z += speed * dt;
+        this.nextRoar -= dt;
+        this.nextLunge -= dt;
+        if (this.nextRoar <= 0 && this.z >= -30) {
+          this.nextRoar = 11 + Math.random() * 6;
+          this.setPhase('roar');
+        } else if (this.nextLunge <= 0 && this.z >= -18) {
+          this.nextLunge = 8 + Math.random() * 5;
+          this.setPhase('windup');
+        }
+        break;
+      case 'windup':
+        if (this.phaseT > 0.6) this.setPhase('lunge');
+        break;
+      case 'lunge':
+        this.z += 11 * dt * Math.max(0, 1 - this.phaseT / 0.42);
+        if (this.phaseT > 0.42) {
+          this.emit('lunge', 0.7);
+          this.setPhase('recover');
+        }
+        break;
+      case 'recover':
+        this.z -= 1.4 * dt * Math.min(1, this.phaseT);
+        if (this.phaseT > 1.3) this.setPhase('stalk');
+        break;
+      case 'roar':
+        if (!this.roarFired && this.phaseT > 0.4) {
+          this.roarFired = true;
+          this.emit('roar', 0.6);
+          this.uniforms.uHits.value[this.hitCursor++ % HITS].set(this.group.position.x, HEIGHT * 0.65, this.group.position.z + 0.6, this.t);
+        }
+        if (this.phaseT > 2.2) this.setPhase('stalk');
+        break;
+      case 'stagger':
+        this.z -= 2.2 * dt * Math.max(0, 1 - this.phaseT / 0.5);
+        if (this.phaseT > 1.0) this.setPhase('stalk');
+        break;
+    }
+    this.z = Math.min(this.z, -9.5);
     this.x = THREE.MathUtils.clamp(this.x, -12, 12);
     this.group.position.set(this.x, 0, this.z);
     const want = Math.atan2(-this.x, -this.z) * 0.6;

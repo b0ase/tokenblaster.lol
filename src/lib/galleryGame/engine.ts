@@ -25,6 +25,7 @@ import { halo } from '../bsvgun/targets';
 import type { RangeWeapon } from '../bsvgun/weapons';
 import { buildCity, EYE, TOWER, type City, type Rack, type Window } from './city';
 import { LiquidUnit } from './boss';
+import { ErobotWave } from './enemies';
 
 export type Quality = 'low' | 'high';
 export type Stats = { score: number; bossHp: number; bossMax: number; wave: number; windowsLeft: number; windows: number; racksLeft: number; drones: number; kills: number; hover: string };
@@ -55,6 +56,7 @@ export class GalleryEngine {
   private look!: Look;
   private city!: City;
   private boss!: LiquidUnit;
+  private erobots!: ErobotWave;
   private fx!: Fx;
   private raf = 0;
   private last = 0;
@@ -140,6 +142,8 @@ export class GalleryEngine {
     await this.boss.ready; // the rigged model (a fallback figure stands in if it can't load)
     if (this.disposed) return;
     this.fx = new Fx(this.scene, high);
+    this.erobots = new ErobotWave(this.scene, this.fx, { high, canvas: this.canvas, reticle: () => this.reticle(), light: this.city.hitLight });
+    this.boss.onEvent = (k, at) => this.bossEvent(k, at);
     this.scene.add(this.camera);
     this.camera.layers.enable(1); // layer 1: rain, ripples and the held gun (hidden from the street reflection)
     this.camera.position.set(0, EYE, 0);
@@ -158,7 +162,7 @@ export class GalleryEngine {
     this.brass.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     for (let i = 0; i < 160; i++) this.brass.setMatrixAt(i, this.m4.makeScale(0, 0, 0));
     this.scene.add(this.brass);
-    for (let i = 0; i < 4; i++) this.spawnDrone(i);
+    for (let i = 0; i < 2; i++) this.spawnDrone(i);
     onProgress(0.65);
 
     // Arena-grade post: render, GTAO (desktop High), bloom, grade, output.
@@ -387,6 +391,17 @@ export class GalleryEngine {
     for (const rk of c.racks) if (!rk.broke) list.push(rk.mesh);
     list.push(c.windows, c.towerBody, c.ground);
     const hit = this.ray.intersectObjects(list, false)[0];
+    const er = this.erobots.raycast(org, dir, hit ? hit.distance : 400);
+    if (er) {
+      const r = this.erobots.hit(er, dmg, dir);
+      this.score += r.score;
+      if (r.killed) {
+        this.kills++;
+        sfx('explosion', 0.5);
+      }
+      if (r.heavy) this.shake = Math.max(this.shake, r.killed ? 0.5 : 0.3);
+      return er.point;
+    }
     const end = hit ? hit.point.clone() : org.clone().addScaledVector(dir, 300);
     if (!hit) return end;
     const o = hit.object;
@@ -395,6 +410,7 @@ export class GalleryEngine {
       this.fx.sparks(end, w.bolt, 10, 10);
     }
     if (this.boss.parts.includes(o as THREE.Mesh)) {
+      this.erobots.mark(false);
       if (this.boss.hit(dmg, end)) {
         this.score += 5000 * this.boss.wave;
         this.kills++;
@@ -579,6 +595,9 @@ export class GalleryEngine {
       this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
     }
     this.boss.update(dt);
+    this.erobots.update(dt, this.camera, this.trigger);
+    this.shake = Math.min(1, this.shake + this.boss.takeImpulse() + this.erobots.impulse);
+    this.erobots.impulse = 0;
     this.updateDrones(dt);
     this.updateBrass(dt);
     this.city.update(dt, this.t, this.camera);
@@ -617,10 +636,19 @@ export class GalleryEngine {
       windows: c.wins.length,
       windowsLeft: c.wins.filter((w) => !w.broke).length,
       racksLeft: c.racks.filter((r) => !r.broke).length,
-      drones: this.drones.filter((d) => !d.dead).length,
+      drones: this.drones.filter((d) => !d.dead).length + this.erobots.live,
       kills: this.kills,
       hover: this.hover,
     };
+  }
+
+  private bossEvent(kind: 'roar' | 'stomp' | 'lunge' | 'stagger', at: THREE.Vector3) {
+    if (kind === 'roar') {
+      this.fx.ring(at, '#ff3a22', 9, 0.8);
+      this.fx.sparks(at, '#ff6a2a', 30, 10);
+      sfx('explosion', 0.4);
+    } else if (kind === 'lunge') this.fx.ring(at, '#27e6ff', 7, 0.5);
+    else if (kind === 'stagger') this.fx.sparks(at, '#eef4ff', 24, 9);
   }
 
   private updateDrones(dt: number) {
@@ -722,6 +750,7 @@ export class GalleryEngine {
     this.ro?.disconnect();
     this.city?.dispose();
     this.boss?.dispose();
+    this.erobots?.dispose();
     this.fx?.dispose();
     this.look?.dispose();
     this.droneGeo.forEach((g) => g.dispose());
