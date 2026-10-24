@@ -8,7 +8,7 @@ import { rememberWallet, type WalletEntry } from '@/lib/discovery';
 import { connect } from '@/lib/wallet';
 import { setProofWallet } from '@/lib/xproof';
 import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
-import { BWALLETX_WEB, WALLET_BAR as W, askWallet, chipState, getBarWallet, idLabel, setBarWallet, subBarWallet } from '@/lib/walletBar';
+import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, askWallet, chipState, getBarWallet, idLabel, setBarWallet, subBarWallet } from '@/lib/walletBar';
 import { GiftIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MuteIcon, PhoneIcon, TrophyIcon, VolumeIcon } from './icons';
 
 /**
@@ -162,8 +162,13 @@ export function WalletBarChip() {
             <>
               <div className="px-3 py-2 text-[11px] text-[#A1A1AA]">
                 {wallet?.live === false ? 'Disconnected' : 'Connected'}: {wallet?.name}
-                {wallet?.paymail ? ` · ${wallet.paymail}` : wallet?.publicKey ? ` · ${idLabel({ ...wallet, alias: undefined, paymail: undefined })}` : ''}
+                {wallet?.publicKey ? ` · ${idLabel(wallet)}` : ''}
               </div>
+              {!wallet?.paymail && wallet?.publicKey && (
+                <a role="menuitem" href={GET_NAME_URL} target="_blank" rel="noreferrer" className={row}>
+                  Get your name
+                </a>
+              )}
               <button type="button" role="menuitem" className={row} onClick={() => (setOpen(false), askWallet('reconnect') || setChoose(true))}>
                 Reconnect
               </button>

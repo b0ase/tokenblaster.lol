@@ -74,10 +74,10 @@ export function askWallet(a: Ask): boolean {
 /** A short identity key for the badge: 03ab…9f. */
 export const shortKey = (k: string | null | undefined) => (k && k.length > 8 ? `${k.slice(0, 4)}…${k.slice(-2)}` : (k ?? ''));
 
-/** Who the badge says you are: $alias, else the paymail, else the short identity key, else the wallet name. */
+/** Who the badge says you are (owner rule): the FULL paymail, else the short identity key, else the wallet name. */
+export const GET_NAME_URL = 'https://bwalletx.com/get';
 export function idLabel(w: BarWallet): string {
   if (!w) return '';
-  if (w.alias) return `$${w.alias}`;
   if (w.paymail) return w.paymail;
   if (w.publicKey) return shortKey(w.publicKey);
   return w.name;

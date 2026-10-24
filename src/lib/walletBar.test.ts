@@ -38,7 +38,7 @@ test('paymail lookup: parse, 404 and fallbacks', async () => {
   assert.deepEqual(parseLookup(200, { names: [{ paymail: 'neo@bwallet.space', kind: 'plain' }] }), { paymail: 'neo@bwallet.space', alias: 'neo' });
   const key = '03ab' + '0'.repeat(60) + '9f';
   assert.equal(shortKey(key), '03ab…9f');
-  assert.equal(idLabel({ id: 'w', name: 'bWalletX', publicKey: key, paymail: 'b0asex@bwalletx.com', alias: 'b0asex' }), '$b0asex');
+  assert.equal(idLabel({ id: 'w', name: 'bWalletX', publicKey: key, paymail: 'b0asex@bwalletx.com', alias: 'b0asex' }), 'b0asex@bwalletx.com');
   assert.equal(idLabel({ id: 'w', name: 'bWalletX', publicKey: key }), '03ab…9f');
   // Rounds: the paymail; too long → the alias; nothing → null (DEFAULT_AMMO).
   assert.equal(ammoFromPaymail({ paymail: 'b0asex@bwalletx.com', alias: 'b0asex' }), 'b0asex@bwalletx.com');
