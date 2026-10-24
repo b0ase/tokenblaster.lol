@@ -1,8 +1,8 @@
 'use client';
 /**
- * Arcade cabinet hardware for the coin-op cabinet (owner, 24 Oct 2026): metallic coins (SVG), a coin slot
- * with a lit INSERT COIN plate, a convex red arcade push button, a 7-segment LED credit display and a
- * brushed-metal control panel with screws and hazard trim. Pure CSS/SVG; styles live in globals.css (.hw-*).
+ * Cabinet hardware for the coin-op cabinet (owner, 24 Oct 2026): metallic coins (SVG), a recessed coin slot with a
+ * lamp, a 7-segment LED credit display in smoked glass and an anodised frame. The red arcade button is the .tbx-go
+ * style. Pure CSS/SVG; styles live in ui.css (.tbx-*).
  */
 import { useId, type ReactNode } from 'react';
 
@@ -54,11 +54,12 @@ export function CoinFace({ usd, label }: { usd: number; label: string }) {
 
 // ── Coin slot ──────────────────────────────────────────────────────
 
+/** A recessed slot with a lamp strip that glows red while there is no credit. */
 export function CoinSlot({ lit, children }: { lit: boolean; children?: ReactNode }) {
   return (
-    <div className="hw-slot relative mx-auto flex w-full max-w-[300px] flex-col items-center gap-1 px-3 pb-1.5 pt-2">
-      <div className="hw-slot-mouth relative h-[14px] w-[64%]">{children}</div>
-      <div className={`hw-plate px-3 py-0.5 text-[11px] font-black tracking-[0.35em] ${lit ? 'hw-plate-lit' : ''}`}>INSERT COIN</div>
+    <div className={`tbx-slot ${lit ? 'tbx-slot-lit' : ''}`}>
+      <div className="tbx-slot-mouth">{children}</div>
+      <span className="tbx-slot-lamp" aria-hidden />
     </div>
   );
 }
@@ -85,11 +86,11 @@ export function SevenSeg({ text, colour = '#ffb000', label = 'CREDIT' }: { text:
     else cells.push({ ch, dot: false });
   }
   return (
-    <div className="hw-led inline-flex items-center gap-3 px-3 py-1.5" role="img" aria-label={`${label} ${text}`} data-credit>
-      <span className="text-[10px] font-bold tracking-[0.35em]" style={{ color: colour, textShadow: `0 0 6px ${colour}` }}>
+    <div className="tbx-led inline-flex items-center gap-3 px-3.5 py-2" role="img" aria-label={`${label} ${text}`} data-credit>
+      <span className="text-[10px] font-bold tracking-[0.35em]" style={{ color: colour, textShadow: `0 0 8px ${colour}88` }}>
         {label}
       </span>
-      <svg viewBox={`0 0 ${cells.length * 24} 36`} className="h-[clamp(30px,5vw,44px)]" style={{ filter: `drop-shadow(0 0 4px ${colour}aa)` }}>
+      <svg key={text} viewBox={`0 0 ${cells.length * 24} 36`} className="tbx-led-digits h-[clamp(30px,5vw,44px)]" style={{ filter: `drop-shadow(0 0 4px ${colour}aa)` }}>
         {cells.map((c, i) => {
           const on = c.ch === '$' ? '' : (ON[c.ch] ?? '');
           return (
@@ -110,19 +111,13 @@ export function SevenSeg({ text, colour = '#ffb000', label = 'CREDIT' }: { text:
   );
 }
 
-// ── Control panel ──────────────────────────────────────────────────
+// ── Cabinet frame ──────────────────────────────────────────────────
 
+/** The anodised cabinet frame that holds the coin-op controls (replaces the old hazard-striped plate). */
 export function ControlPanel({ children }: { children: ReactNode }) {
   return (
-    <div className="hw-panel relative w-full">
-      <div className="hw-hazard h-2" />
-      <div className="relative px-3 py-2.5 sm:px-6 sm:py-3">
-        {['left-1.5 top-1.5', 'right-1.5 top-1.5', 'left-1.5 bottom-1.5', 'right-1.5 bottom-1.5'].map((p) => (
-          <span key={p} className={`hw-screw absolute ${p}`} aria-hidden />
-        ))}
-        {children}
-      </div>
-      <div className="hw-hazard h-2" />
+    <div className="tbx-cab w-full">
+      <div className="tbx-cab-in relative px-3 py-4 sm:px-6 sm:py-5">{children}</div>
     </div>
   );
 }
