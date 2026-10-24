@@ -31,7 +31,7 @@ export default function Home() {
     <main className={`hp ${tbxDisplay.variable} ${tbxUi.variable} flex w-full flex-col`}>
       <HomeFx />
       {/* Hero: full viewport below the sticky nav, edge to edge, gameplay video behind, text + corner UI overlaid */}
-      <header className="dr-hero dr-rise">
+      <header className="dr-hero dr-rise max-sm:!min-h-[calc(max(560px,100svh-var(--nav-h,76px))+64px)]">
         <HeroShowcase />
         <div className="hp-hero-fx" aria-hidden>
           <i />
@@ -40,7 +40,7 @@ export default function Home() {
         {/* directional scrims: dark on the text side, clear on the art side; no flat wash */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-[90%] bg-[linear-gradient(to_top,var(--panel)_10%,color-mix(in_srgb,var(--panel)_82%,transparent)_50%,transparent)] lg:hidden" aria-hidden />
         <div className="pointer-events-none absolute inset-0 z-[5] hidden bg-[linear-gradient(90deg,var(--panel)_0%,color-mix(in_srgb,var(--panel)_88%,transparent)_28%,color-mix(in_srgb,var(--panel)_40%,transparent)_52%,transparent_74%)] lg:block" aria-hidden />
-        <div className="hp-hero-content relative z-10 flex flex-1 items-end px-4 pb-20 pt-[150px] sm:px-8 lg:items-center lg:px-12 lg:pb-20 lg:pt-8">
+        <div className="hp-hero-content relative z-10 flex flex-1 items-end px-4 pb-20 pt-[150px] max-sm:pb-[calc(5rem+64px)] sm:px-8 lg:items-center lg:px-12 lg:pb-20 lg:pt-8">
           <div className="min-w-0 lg:max-w-[56%]">
             <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="dr-code !text-[var(--accent)]">TB-001 / LIVE ON MAINNET</span>
@@ -85,7 +85,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-        <div className="pointer-events-none absolute inset-x-0 bottom-9 z-10 flex justify-center" aria-hidden>
+        <div className="pointer-events-none absolute inset-x-0 bottom-9 z-10 flex justify-center max-sm:bottom-[88px]" aria-hidden>
           <span className="dr-scroll dr-code !text-[var(--text)]">
             scroll<span className="dr-scroll-arrow">▼</span>
           </span>
