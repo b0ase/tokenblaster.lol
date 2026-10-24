@@ -9,7 +9,7 @@ import { holoFigureMaterial, type Shared } from './cityShaders';
 export type HoloFigure = { group: THREE.Group; update: (t: number) => void; dispose: () => void };
 
 export function buildHoloFigure(sh: Shared): HoloFigure {
-  const mat = holoFigureMaterial(sh, '#35e8ff', '#ff4fc8');
+  const mat = holoFigureMaterial(sh, '#2ec8e0', '#ff2a46');
   const geos: THREE.BufferGeometry[] = [];
   const g = <T extends THREE.BufferGeometry>(x: T) => (geos.push(x), x);
   const mesh = (geo: THREE.BufferGeometry, parent: THREE.Object3D, x = 0, y = 0, z = 0) => {

@@ -180,7 +180,7 @@ export class ErobotWave {
   constructor(
     private scene: THREE.Scene,
     private fx: Fx,
-    private opts: { high: boolean; canvas: HTMLCanvasElement; reticle: () => { x: number; y: number }; light?: THREE.PointLight },
+    private opts: { high: boolean; canvas: HTMLCanvasElement; reticle: () => { x: number; y: number }; light?: THREE.PointLight; flash?: (at: THREE.Vector3, color: string, intensity: number, ms: number) => void },
   ) {
     this.cap = opts.high ? 10 : 6;
     this.group.name = 'erobots';
@@ -323,6 +323,7 @@ export class ErobotWave {
     V.a.set(x, 1.2, TOWER.z + 6.5);
     this.fx.ring(V.a, '#27e6ff', 3.2, 0.5);
     this.fx.sparks(V.a, '#7cf9ff', 24, 7);
+    this.opts.flash?.(V.a, '#27c8e0', 70, 400); // teleport-in
   }
 
   // ── Frame ──
@@ -400,6 +401,7 @@ export class ErobotWave {
             s.burst = true;
             this.fx.sparks(V.a.copy(p).setY(0.9), '#ff6a2a', 26, 9);
             this.fx.shatter(V.a, '#566074', 14, 6, 0.7);
+            this.opts.flash?.(V.a, '#ff6a2a', 60, 1500); // the wreck burns on
           }
           if (s.t > 2.1) {
             s.state = 'down';
@@ -444,6 +446,8 @@ export class ErobotWave {
     V.c.copy(camera.position).add(V.d.set((Math.random() - 0.5) * 3.5, (Math.random() - 0.3) * 1.8, -0.5));
     this.fx.tracer(from, V.c, '#ff4a30', 0.03, 0.12);
     this.fx.sparks(from, '#ff7a50', 6, 4);
+    this.opts.flash?.(from, '#ff3a2a', 55, 110); // muzzle flash on the robot's arm
+    this.opts.flash?.(V.c, '#ff4a30', 25, 90); // the bolt cracks past the player
     if (Math.random() < 0.6) this.impulse = Math.max(this.impulse, 0.1);
   }
 
@@ -487,6 +491,7 @@ export class ErobotWave {
     s.hp -= total;
     s.flash = 1;
     this.fx.sparks(at, h.head ? '#ffe9a0' : '#ffb347', h.head ? 5 : 3, 6);
+    if (Math.random() < 0.5) this.opts.flash?.(at, h.head ? '#ffe9a0' : '#ffb347', 30, 70);
     this.addDecal(s, at, dir);
     const heavy = total >= HP * 0.35;
     if (s.hp <= 0) {
@@ -521,6 +526,7 @@ export class ErobotWave {
     this.fx.shatter(at, '#566074', 22, 8, 0.8);
     this.fx.shatter(at, '#27e6ff', 6, 6, 0.4);
     this.fx.ring(at, '#ff6a2a', 3, 0.4);
+    this.opts.flash?.(at, '#ff7a30', heavy ? 150 : 110, 520);
     if (this.opts.light) {
       this.opts.light.position.copy(at);
       this.opts.light.color.set('#ff7a30');

@@ -38,7 +38,7 @@ export function signMaterial(map: THREE.Texture, sh: Shared) {
         else if (m > 1.5 && m < 2.5) f = 0.2 + 0.8 * step(0.5, fract(uT * vAnim.z + ph));                 // blink
         else if (m > 2.5 && m < 3.5) f = 0.45 + 0.55 * smoothstep(-0.2, 0.9, sin(vUv.y * 60.0 - uT * 6.0 * vAnim.z + ph * 6.28)); // chase
         else if (m > 3.5) f = mix(1.0, 0.1, step(0.93, h(floor(uT * 3.0 + ph * 20.0))));                   // dying tube
-        c *= f * 1.9;
+        c *= f * 1.45;
         float fog = 1.0 - exp(-uFog * uFog * vD * vD);
         c = mix(c, uFogColor * 0.6, fog * 0.75);
         gl_FragColor = vec4(c, 1.0);
@@ -221,7 +221,7 @@ export function steamMaterial(map: THREE.Texture, sh: Shared) {
   return new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
-    uniforms: { uMap: { value: map }, uT: sh.uT, uFog: sh.uFog, uPx: sh.uPx, uC: { value: new THREE.Color('#9a8cc0') } },
+    uniforms: { uMap: { value: map }, uT: sh.uT, uFog: sh.uFog, uPx: sh.uPx, uC: { value: new THREE.Color('#6a94ac') } },
     vertexShader: /* glsl */ `
       attribute vec3 aVent; attribute vec2 aSeed; uniform float uT, uPx, uFog; varying float vA; varying vec3 vWp;
       void main(){
@@ -233,7 +233,7 @@ export function steamMaterial(map: THREE.Texture, sh: Shared) {
         gl_PointSize = clamp((0.9 + life * 3.6) * uPx / d, 1.0, 140.0);
         gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: 'uniform sampler2D uMap; uniform vec3 uC; varying float vA; varying vec3 vWp; void main(){ float a = texture2D(uMap, gl_PointCoord).r; vec3 tint = uC + vec3(0.25, 0.05, 0.2) * smoothstep(-2.0, 2.0, vWp.x) ; gl_FragColor = vec4(tint * 0.7, a * vA); }',
+    fragmentShader: 'uniform sampler2D uMap; uniform vec3 uC; varying float vA; varying vec3 vWp; void main(){ float a = texture2D(uMap, gl_PointCoord).r; vec3 tint = uC + vec3(0.02, 0.1, 0.16) * smoothstep(-2.0, 2.0, vWp.x) ; gl_FragColor = vec4(tint * 0.7, a * vA); }',
   });
 }
 
@@ -328,7 +328,7 @@ export function eyeMaterial(sh: Shared) {
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    uniforms: { uT: sh.uT, uFog: sh.uFog, uLook: { value: new THREE.Vector2() }, uK: { value: 1 } },
+    uniforms: { uT: sh.uT, uFog: sh.uFog, uLook: { value: new THREE.Vector2() }, uK: { value: 2.1 } },
     vertexShader: 'varying vec2 vUv; varying float vD; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position,1.); vD = -mv.z; gl_Position = projectionMatrix * mv; }',
     fragmentShader: /* glsl */ `
       uniform float uT, uFog, uK; uniform vec2 uLook; varying vec2 vUv; varying float vD;
