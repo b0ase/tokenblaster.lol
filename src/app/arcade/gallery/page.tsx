@@ -1,13 +1,17 @@
 import { GameShell } from '@/components/GameShell';
 import { ShootingGallery } from '@/components/gallery/ShootingGallery';
+import { GALLERY_CARD, shareImages } from '@/lib/og';
 
 const description =
-  'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the nSLAVE tower and its liquid-metal robot: every bullet is a real BSV transaction from your own wallet. Free play while we finish the coin-op.';
+  'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the Erobots storming TERRORNODE HQ: every bullet is a real BSV transaction from your own wallet. Free play while we finish the coin-op.';
+// The share card never mentions free play or prizes: those change, the card is cached by X/Discord/Telegram.
+const shareDescription =
+  'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the Erobots storming TERRORNODE HQ: every bullet is a real BSV transaction from your own wallet.';
 export const metadata = {
   title: '31 Oct BSV Stress Test · TokenBlaster Shooting Gallery',
   description,
-  openGraph: { title: 'TokenBlaster Shooting Gallery: fire a million transactions', description, url: '/arcade/gallery' },
-  twitter: { card: 'summary_large_image', title: 'TokenBlaster Shooting Gallery', description },
+  openGraph: { title: 'TokenBlaster Shooting Gallery: fire a million transactions', description: shareDescription, url: '/arcade/gallery', images: shareImages(GALLERY_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'TokenBlaster Shooting Gallery: Assault on Terrornode', description: shareDescription, images: shareImages(GALLERY_CARD).twitter },
 };
 
 // FREE PLAY on production while the payment flow is fixed (owner, 24 Oct 2026: "keep it online but let everyone

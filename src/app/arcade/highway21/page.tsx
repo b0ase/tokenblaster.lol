@@ -1,13 +1,14 @@
 import { GameShell } from '@/components/GameShell';
 import { HighScoresPanel } from '@/components/HighScores';
 import { Highway21 } from '@/components/Highway21';
+import { HIGHWAY21_CARD, shareImages } from '@/lib/og';
 
 const description = 'Highway 21M: an OutRun-style racer against the clock. Traffic is coloured by live transaction kind; billboards scroll real BSV-21 token moves.';
 export const metadata = {
   title: 'Highway 21M · TokenBlaster.lol',
   description,
-  openGraph: { title: 'Highway 21M', description, url: '/arcade/highway21' },
-  twitter: { card: 'summary_large_image', title: 'Highway 21M', description },
+  openGraph: { title: 'Highway 21M', description, url: '/arcade/highway21', images: shareImages(HIGHWAY21_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'Highway 21M', description, images: shareImages(HIGHWAY21_CARD).twitter },
 };
 
 export default function Highway21Page() {
