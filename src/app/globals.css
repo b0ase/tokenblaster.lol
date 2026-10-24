@@ -836,3 +836,651 @@ body:has([data-game-shell]) > footer {
   50% { box-shadow: 0 0 48px rgba(255, 74, 61, 0.9), 0 0 0 10px rgba(232, 38, 29, 0); }
 }
 .lock-load { animation: lock-load-pulse 1.4s ease-in-out infinite; }
+
+/* =====================================================================================================================
+   HOME POLISH (.hp wraps the home page only). Presentation layer: glass surfaces, noise, glow, scroll-reveal, hover
+   states, living hero. Every colour is a palette token (so ?palette= still restyles it); teal is the one extra
+   cool tint, borrowed from the Shooting Gallery's TBX look. Motion is transform/opacity and stops under reduced motion.
+   ===================================================================================================================== */
+.hp {
+  --hp-teal: #3fd8e8;
+  --hp-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --hp-line: color-mix(in srgb, var(--border) 42%, transparent);
+  --hp-line-hi: color-mix(in srgb, var(--hp-teal) 55%, var(--border));
+  --hp-glass: linear-gradient(180deg, color-mix(in srgb, var(--panel) 84%, var(--hp-teal) 9%), color-mix(in srgb, var(--panel) 94%, #000));
+  --hp-shadow: 0 22px 44px -22px rgb(0 0 0 / 0.7), inset 0 1px 0 rgb(255 255 255 / 0.07);
+  position: relative;
+}
+/* film grain over the whole page: static, tiny, no blend mode (cheap to scroll) */
+.hp::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* type: UI labels in Chakra Petch, tighter display, balanced wraps */
+.hp .dr-code {
+  font-family: var(--tbx-ui), var(--dr-mono), ui-monospace, monospace;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+}
+.hp .dr-display {
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+.hp .dr-band p {
+  text-wrap: pretty;
+}
+.hp .dr-band > p,
+.hp .text-dim {
+  line-height: 1.6;
+}
+.hp-glow {
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 70%, transparent), 0 0 2px color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.hp-num {
+  font-family: var(--tbx-display), var(--dr-display), Impact, sans-serif;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* bands: cool light from one corner, red heat from the other */
+.hp .dr-band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 90% at 0% 0%, color-mix(in srgb, var(--hp-teal) 9%, transparent), transparent 70%),
+    radial-gradient(50% 80% at 100% 100%, color-mix(in srgb, var(--accent-fill) 8%, transparent), transparent 70%);
+}
+.hp .dr-band > * {
+  position: relative;
+  z-index: 1;
+}
+.hp .dr-band + .dr-band {
+  border-top: 1px solid var(--hp-line);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+}
+.hp a.dr-band-grid:hover {
+  box-shadow: inset 0 0 0 2px var(--accent-fill), inset 0 0 80px color-mix(in srgb, var(--accent-fill) 14%, transparent);
+}
+
+/* glass panels */
+.hp .panel {
+  border-radius: 6px;
+  border-color: var(--hp-line);
+  background:
+    linear-gradient(var(--accent-fill), var(--accent-fill)) 0 0 / 40px 3px no-repeat,
+    var(--hp-glass);
+  box-shadow: var(--hp-shadow);
+  overflow: hidden;
+  transition: border-color 0.25s, transform 0.3s var(--hp-ease), box-shadow 0.3s;
+}
+.hp .panel-header {
+  border-bottom-color: var(--hp-line);
+}
+.hp .inset {
+  border-radius: 4px;
+  border-color: color-mix(in srgb, var(--border-dim) 80%, transparent);
+  background: color-mix(in srgb, var(--canvas) 88%, transparent);
+  box-shadow: inset 0 1px 6px rgb(0 0 0 / 0.35);
+}
+.hp a.panel:hover,
+.hp .panel:has(> .panel-header):hover {
+  border-color: var(--hp-line-hi);
+}
+.hp a.panel:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 28px 50px -22px rgb(0 0 0 / 0.8), 0 0 0 1px color-mix(in srgb, var(--hp-teal) 25%, transparent), 0 0 38px -8px color-mix(in srgb, var(--hp-teal) 35%, transparent);
+}
+/* cursor spotlight on glass (HomeFx sets --mx / --my) */
+.hp .panel::after,
+.hp-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 0%), color-mix(in srgb, var(--hp-teal) 16%, transparent), transparent 70%);
+}
+.hp .panel:hover::after,
+.hp-card:hover::after {
+  opacity: 1;
+}
+.hp .panel-title::before {
+  box-shadow: 0 0 12px var(--accent-fill);
+}
+
+/* section heads: a lit rule that draws in */
+.hp .border-b-2.border-\[var\(--hot\)\] {
+  border-bottom: 0;
+  position: relative;
+}
+.hp .border-b-2.border-\[var\(--hot\)\]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-fill), var(--hot) 14%, color-mix(in srgb, var(--hot) 30%, transparent) 60%, transparent);
+  transform-origin: left;
+}
+
+/* buttons: keep the hard-shadow identity, add glow and a light sweep */
+.hp .btn-fire {
+  overflow: hidden;
+  box-shadow: 4px 4px 0 var(--hard), 0 0 30px -4px color-mix(in srgb, var(--accent-fill) 55%, transparent);
+}
+.hp .btn-fire::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 35%, rgb(255 255 255 / 0.5) 50%, transparent 65%);
+  transform: translateX(-120%);
+}
+.hp .btn-fire:hover:not(:disabled)::after {
+  transform: translateX(120%);
+  transition: transform 0.7s var(--hp-ease);
+}
+.hp .btn {
+  border-radius: 3px;
+}
+.hp .dr-sticker {
+  box-shadow: 0 6px 18px -6px rgb(0 0 0 / 0.6);
+}
+
+/* ---- hero: drifting light, grain vignette, scroll parallax ---- */
+.hp-hero-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  overflow: hidden;
+}
+.hp-hero-fx i {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  will-change: transform;
+}
+.hp-hero-fx i:nth-child(1) {
+  width: 46vw;
+  height: 46vw;
+  left: -10vw;
+  top: -14vw;
+  background: color-mix(in srgb, var(--hp-teal) 26%, transparent);
+  animation: hp-drift-a 18s ease-in-out infinite alternate;
+}
+.hp-hero-fx i:nth-child(2) {
+  width: 38vw;
+  height: 38vw;
+  right: -8vw;
+  bottom: 4vw;
+  background: color-mix(in srgb, var(--accent-fill) 24%, transparent);
+  animation: hp-drift-b 22s ease-in-out infinite alternate;
+}
+.hp-hero-fx::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 40%, transparent 55%, rgb(0 0 0 / 0.45)), repeating-linear-gradient(0deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 3px);
+}
+@keyframes hp-drift-a {
+  to { transform: translate3d(12vw, 8vw, 0) scale(1.15); }
+}
+@keyframes hp-drift-b {
+  to { transform: translate3d(-10vw, -6vw, 0) scale(1.2); }
+}
+@supports (animation-timeline: scroll()) {
+  .hp-hero-content {
+    animation: hp-parallax linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 80svh;
+  }
+  .hp-hero-fx {
+    animation: hp-parallax-fx linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 100svh;
+  }
+}
+@keyframes hp-parallax {
+  to { transform: translate3d(0, -70px, 0); opacity: 0.15; }
+}
+@keyframes hp-parallax-fx {
+  to { transform: translate3d(0, 90px, 0); }
+}
+
+/* ---- scroll reveal (armed by HomeFx; without JS everything simply shows) ---- */
+.hp-armed [data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 26px, 0);
+  transition: opacity 0.7s var(--hp-ease), transform 0.8s var(--hp-ease);
+  transition-delay: calc(var(--i, 0) * 70ms);
+}
+.hp-armed [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+}
+.hp-armed .border-b-2.border-\[var\(--hot\)\][data-reveal]::after {
+  transform: scaleX(0);
+  transition: transform 1s var(--hp-ease) 0.15s;
+}
+.hp-armed .border-b-2.border-\[var\(--hot\)\][data-reveal].is-in::after {
+  transform: scaleX(1);
+}
+
+/* ---- the Shooting Gallery card ---- */
+.hp-gal {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--tbx-red) 55%, transparent);
+  border-radius: 10px;
+  background: #04080d;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), 0 30px 70px -30px rgb(0 0 0 / 0.9), 0 0 60px -10px color-mix(in srgb, var(--tbx-red) 40%, transparent);
+  transition: transform 0.4s var(--hp-ease), box-shadow 0.4s;
+}
+.hp-gal:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), 0 40px 80px -30px rgb(0 0 0 / 0.95), 0 0 90px -6px color-mix(in srgb, var(--tbx-red) 60%, transparent);
+}
+.hp-gal-main {
+  position: relative;
+  min-height: clamp(360px, 52vw, 640px);
+  overflow: hidden;
+}
+.hp-gal-main img,
+.hp-gal-film img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.hp-gal-main img {
+  object-position: 60% 50%;
+  transition: transform 1.4s var(--hp-ease), filter 0.6s;
+  animation: hp-kb 26s ease-in-out infinite alternate;
+}
+.hp-gal:hover .hp-gal-main img {
+  transform: scale(1.05);
+  filter: saturate(1.15) contrast(1.05);
+}
+@keyframes hp-kb {
+  from { scale: 1; translate: 0 0; }
+  to { scale: 1.06; translate: -1.2% -0.8%; }
+}
+.hp-gal-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgb(3 7 12 / 0.92) 0%, rgb(3 7 12 / 0.55) 38%, transparent 70%),
+    linear-gradient(0deg, rgb(3 7 12 / 0.9) 0%, transparent 45%),
+    radial-gradient(70% 60% at 85% 30%, color-mix(in srgb, var(--tbx-red) 20%, transparent), transparent 70%);
+}
+/* a faint scan sweep and four HUD corner brackets */
+.hp-gal-main::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent 0 46%, rgb(63 216 232 / 0.08) 50%, transparent 54% 100%);
+  background-size: 100% 300%;
+  animation: hp-scan 7s linear infinite;
+}
+@keyframes hp-scan {
+  from { background-position: 0 100%; }
+  to { background-position: 0 -100%; }
+}
+.hp-gal-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 0 solid rgb(130 220 240 / 0.7);
+  z-index: 2;
+}
+.hp-gal-corner[data-c="tl"] { top: 14px; left: 14px; border-top-width: 2px; border-left-width: 2px; }
+.hp-gal-corner[data-c="tr"] { top: 14px; right: 14px; border-top-width: 2px; border-right-width: 2px; }
+.hp-gal-corner[data-c="bl"] { bottom: 14px; left: 14px; border-bottom-width: 2px; border-left-width: 2px; }
+.hp-gal-corner[data-c="br"] { bottom: 14px; right: 14px; border-bottom-width: 2px; border-right-width: 2px; }
+.hp-gal-copy {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: clamp(18px, 3.4vw, 52px);
+  max-width: min(760px, 100%);
+}
+.hp-gal-live {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 99px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  background: rgb(5 9 15 / 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--tbx-text);
+}
+.hp-gal-live b {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tbx-red);
+  box-shadow: 0 0 12px var(--tbx-red);
+  animation: hp-pulse 1.4s ease-in-out infinite;
+}
+@keyframes hp-pulse {
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+.hp-gal-title {
+  font-family: var(--tbx-display), Impact, sans-serif;
+  font-weight: 900;
+  text-transform: uppercase;
+  font-size: clamp(44px, 9vw, 132px);
+  line-height: 0.84;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-shadow: 0 4px 40px rgb(0 0 0 / 0.6), 0 0 50px color-mix(in srgb, var(--tbx-red) 35%, transparent);
+}
+.hp-gal-film {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  right: 14px;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: clamp(150px, 17vw, 260px);
+}
+.hp-gal-film figure {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid rgb(130 220 240 / 0.28);
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.8);
+  transition: transform 0.4s var(--hp-ease), border-color 0.3s;
+}
+.hp-gal-film figure img {
+  transition: transform 0.9s var(--hp-ease);
+}
+.hp-gal:hover .hp-gal-film figure img {
+  transform: scale(1.08);
+}
+.hp-gal-film figure:nth-child(1) { transform: translateX(8px) rotate(1.2deg); }
+.hp-gal-film figure:nth-child(3) { transform: translateX(8px) rotate(-1.2deg); }
+.hp-gal:hover .hp-gal-film figure { transform: none; border-color: rgb(130 220 240 / 0.6); }
+.hp-gal-film figcaption {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 18px 8px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #e8f1f6;
+  background: linear-gradient(0deg, rgb(3 7 12 / 0.9), transparent);
+}
+@media (min-width: 900px) {
+  .hp-gal-film { display: flex; }
+}
+
+/* ---- arcade tiles in the band: crisp 16:9 frames with label overlays ---- */
+.hp-tile {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 4px;
+  border: 1px solid var(--hp-line);
+  background: var(--canvas);
+}
+.hp-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.6s var(--hp-ease), filter 0.4s;
+  filter: saturate(0.9) brightness(0.9);
+}
+.hp-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgb(0 0 0 / 0.55), transparent 55%);
+  pointer-events: none;
+}
+.group:hover .hp-tile img {
+  transform: scale(1.12);
+  filter: saturate(1.15) brightness(1.05);
+}
+.group:hover .hp-tile {
+  border-color: var(--hp-line-hi);
+}
+
+/* ---- arcade cards ---- */
+.hp-card {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--hp-line);
+  background: var(--hp-glass);
+  box-shadow: var(--hp-shadow);
+  transition: transform 0.35s var(--hp-ease), border-color 0.25s, box-shadow 0.35s;
+}
+.hp-card:hover,
+.hp-card:focus-visible {
+  transform: translateY(-6px);
+  border-color: var(--hp-line-hi);
+  box-shadow: 0 30px 50px -24px rgb(0 0 0 / 0.85), 0 0 0 1px color-mix(in srgb, var(--hp-teal) 22%, transparent), 0 0 42px -8px color-mix(in srgb, var(--hp-teal) 38%, transparent);
+}
+.hp-card-art {
+  position: relative;
+  aspect-ratio: 1200 / 630;
+  overflow: hidden;
+}
+.hp-card-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.7s var(--hp-ease), filter 0.4s;
+}
+.hp-card:hover .hp-card-art img {
+  transform: scale(1.09);
+  filter: saturate(1.12);
+}
+.hp-card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--panel) 96%, #000) 0%, transparent 46%), linear-gradient(135deg, rgb(255 255 255 / 0.1), transparent 30%);
+}
+.hp-card-n {
+  position: absolute;
+  z-index: 2;
+  left: 8px;
+  top: 8px;
+  padding: 3px 8px 4px;
+  border-radius: 4px;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  background: rgb(5 9 15 / 0.66);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  font-family: var(--tbx-display), var(--dr-display), Impact, sans-serif;
+  font-weight: 900;
+  font-size: 18px;
+  line-height: 1;
+  color: #fff;
+}
+.hp-card-n::before {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 2px;
+  margin-bottom: 3px;
+  background: var(--accent-fill);
+  box-shadow: 0 0 10px var(--accent-fill);
+}
+.hp-card-kind {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 99px;
+  border: 1px solid rgb(255 255 255 / 0.2);
+  background: rgb(5 9 15 / 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  font-family: var(--tbx-ui), sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.hp-card-go {
+  margin-top: auto;
+  padding-top: 10px;
+  font-family: var(--tbx-ui), sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent);
+  opacity: 0.75;
+  transition: opacity 0.2s, transform 0.3s var(--hp-ease);
+}
+.hp-card:hover .hp-card-go {
+  opacity: 1;
+  transform: translateX(4px);
+}
+
+/* ---- live numbers ---- */
+.hp-stat {
+  position: relative;
+  font-family: var(--tbx-display), var(--dr-display), Impact, sans-serif;
+  font-weight: 800;
+  font-size: clamp(48px, 6vw, 76px);
+  line-height: 0.9;
+  font-variant-numeric: tabular-nums;
+  color: var(--hot);
+  text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.hp-meter {
+  position: relative;
+  height: 8px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--input);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.5);
+}
+.hp-meter > i {
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--hp-teal), var(--accent-fill));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent-fill) 70%, transparent);
+  transition: transform 0.6s var(--hp-ease);
+}
+.hp-meter > i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.5) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: hp-sheen 2.2s ease-in-out infinite;
+}
+@keyframes hp-sheen {
+  to { transform: translateX(100%); }
+}
+.hp-tick {
+  animation: hp-tick 0.5s ease-out;
+}
+@keyframes hp-tick {
+  0% { text-shadow: 0 0 22px var(--accent); color: var(--accent); }
+}
+.hp .dr-halftone { opacity: 0.2; }
+
+/* stack list rows */
+.hp dl > div {
+  transition: border-color 0.25s, transform 0.3s var(--hp-ease), background 0.25s;
+  padding: 8px 6px;
+  border-radius: 3px;
+}
+.hp dl > div:hover {
+  transform: translateX(4px);
+  border-color: var(--hp-line-hi);
+  background: color-mix(in srgb, var(--hp-teal) 6%, transparent);
+}
+
+@media (max-width: 640px) {
+  .hp .dr-band p {
+    max-width: 38ch;
+  }
+  .hp-gal-main {
+    min-height: 460px;
+  }
+  .hp-gal-shade {
+    background: linear-gradient(0deg, rgb(3 7 12 / 0.96) 0%, rgb(3 7 12 / 0.85) 48%, rgb(3 7 12 / 0.15) 80%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-hero-fx i,
+  .hp-gal-main img,
+  .hp-gal-main::after,
+  .hp-gal-live b,
+  .hp-meter > i::after,
+  .hp-tick {
+    animation: none !important;
+  }
+  .hp-hero-content,
+  .hp-hero-fx {
+    animation: none !important;
+  }
+  .hp-armed [data-reveal],
+  .hp-armed [data-reveal].is-in {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .hp-card,
+  .hp-gal,
+  .hp .panel,
+  .hp-card-art img,
+  .hp-tile img,
+  .hp .btn-fire::after {
+    transition: none;
+  }
+  .hp-card:hover,
+  .hp-gal:hover,
+  .hp a.panel:hover {
+    transform: none;
+  }
+}

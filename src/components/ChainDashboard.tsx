@@ -11,6 +11,7 @@ import type { BlocksSummary } from '@/lib/blocks';
 import { subscribeStatus, subscribeTx, type StreamStatus } from '@/lib/chainStream';
 import { APPS, APP_COLOR, type AppId, type FeedTx } from '@/lib/feed';
 import { tokenMeta } from '@/lib/tokenMeta';
+import { CountUp } from './home/CountUp';
 import { Highway } from './Highway';
 import { Leaderboard } from './Leaderboard';
 
@@ -223,7 +224,7 @@ export function ChainDashboard() {
           <div className="panel-header">
             <span className="panel-title">Live feed</span>
             <div className="flex flex-wrap items-center gap-1 text-xs">
-              <span className="mr-1 text-dim">total {s.total.toLocaleString()}</span>
+              <span className="mr-1 text-dim">total <CountUp value={s.total} /></span>
               <button className={`btn text-xs ${paused ? 'btn-on' : ''}`} onClick={() => setPaused((p) => !p)} title="Pause/resume">
                 {paused ? '▶ RESUME' : '❚❚ PAUSE'}
               </button>
@@ -270,11 +271,11 @@ export function ChainDashboard() {
               <span className="text-xs text-dim">last tx {s.lastAt ? `${ago(Math.max(0, (now - s.lastAt) / 1000))} ago` : '—'}</span>
             </div>
             <div className="flex items-end gap-3">
-              <span className="text-4xl font-bold text-hot">{rate.toFixed(1)}</span>
+              <CountUp value={rate} decimals={1} className="hp-stat" />
               <span className="pb-1 text-dim">tx/s · 10 s avg</span>
             </div>
-            <div className="mt-2 h-2 bg-input">
-              <div className="h-full bg-fg transition-[width]" style={{ width: `${Math.min(100, (Math.log10(1 + rate) / Math.log10(1001)) * 100)}%` }} />
+            <div className="hp-meter">
+              <i style={{ transform: `scaleX(${Math.min(1, Math.log10(1 + rate) / Math.log10(1001))})` }} />
             </div>
           </div>
           <div className="min-w-0 min-[1800px]:col-span-2">
@@ -295,7 +296,9 @@ export function ChainDashboard() {
               ))}
             </div>
           </div>
-          <p className="mb-1 text-xs text-dim">{breakdown.total.toLocaleString()} txs</p>
+          <p className="mb-1 text-xs text-dim">
+            <CountUp value={breakdown.total} /> txs
+          </p>
           <ul className="flex flex-col gap-1 text-xs">
             {breakdown.rows.map((r) => {
               const pct = breakdown.total ? (r.n / breakdown.total) * 100 : 0;

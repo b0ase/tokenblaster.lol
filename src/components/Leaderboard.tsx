@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { CountUp } from './home/CountUp';
 import { PERIODS, type Period, type TokenScore } from '@/lib/leaderboard';
 
 /** Most blasted tokens, by period (refreshes every 30 s). */
@@ -56,7 +57,7 @@ export function Leaderboard({ hero = false }: { hero?: boolean } = {}) {
       </div>
       {hero && total > 0 && (
         <p className="mb-2 text-sm text-dim">
-          <span className="text-hot">{total.toLocaleString()}</span> blasts confirmed on chain · {PERIODS.find((p) => p.id === period)?.label.toLowerCase()}
+          <CountUp value={total} className="text-hot" /> blasts confirmed on chain · {PERIODS.find((p) => p.id === period)?.label.toLowerCase()}
         </p>
       )}
       {hero && games.some((g) => g.game !== 'untagged') && (
