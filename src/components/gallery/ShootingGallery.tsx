@@ -555,7 +555,7 @@ export function ShootingGallery() {
         body: JSON.stringify({
           game: 'gallery',
           mode: 'live',
-          name: handle,
+          name: handle.split('@')[0], // the scores table name is 16 chars, no '@'; the full paymail rides in meta.x
           score: sentRef.current,
           secs,
           meta: { sid, w: weaponId, a: (ammo ?? DEFAULT_AMMO).slice(0, 32) },

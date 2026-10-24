@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_SHOT_SATS, aggregateBoard, cleanAmmo, shotBytes, chainHandle, galleryPushes, platformFeeAt, quote, shotSats, shotsPerBsv, txPattern } from './gallery';
 
-test('shot cost: 26 sat anonymous, more for a handle and long ammo, 31 sat worst case', () => {
+test('shot cost: 26 sat anonymous, more for a handle/paymail and long ammo, 33 sat worst case', () => {
   assert.equal(shotSats(false), 26);
-  assert.equal(shotSats(true), 28);
+  assert.equal(shotSats(true), 30);
   assert.equal(shotBytes(40, 20), 309);
-  assert.equal(MAX_SHOT_SATS, 31);
+  assert.equal(shotBytes(40, 40), 329);
+  assert.equal(MAX_SHOT_SATS, 33);
   assert.equal(shotsPerBsv(false), 3_846_153);
 });
 
@@ -59,4 +60,11 @@ test('ammo labels: lower case [a-z0-9.-], 1 to 40 chars, no control characters',
   assert.equal(cleanAmmo('bad\u0007bell'), null);
   assert.equal(cleanAmmo('spa ce'), null);
   assert.equal(cleanAmmo(''), null);
+});
+
+test('the name can be a handle or the full paymail', () => {
+  assert.equal(chainHandle('b0asex@bwalletx.com'), 'b0asex@bwalletx.com');
+  assert.equal(chainHandle('@Gunner_01'), 'gunner_01');
+  assert.equal(chainHandle('not a name!'), null);
+  assert.equal(chainHandle('a'.repeat(35) + '@x.com'), null);
 });

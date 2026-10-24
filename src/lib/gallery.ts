@@ -14,15 +14,15 @@ export const GALLERY_GAME = 'gallery';
  * Bytes per shot. A shot is 1 P2PKH input (~148 B), a change output (34 B), ~19 B of framing and the
  * OP_RETURN: OP_FALSE OP_RETURN + "tokenblaster.lol" (17) + <ammo> (1+L) + <chain:n> (<=8) + "gallery" (8)
  * [+ <handle> (1+H)]. 248 + L (+ 1 + H) with ~10 B of signature slack; never below the 260 B that PR #7's
- * smoke test proved ARC takes. Longest case (40-char ammo + 20-char handle): 309 B = 31 sat.
+ * smoke test proved ARC takes. Longest case (40-char ammo + 40-char handle/paymail): 329 B = 33 sat.
  */
 export const FEE_RATE = 100; // sat/kB, the GorillaPool / TAAL floor
 export const MIN_SHOT_BYTES = 260;
 export const shotBytes = (ammoLen = 4, handleLen = 0) => Math.max(MIN_SHOT_BYTES, 248 + ammoLen + (handleLen ? 1 + handleLen : 0));
 export const shotSats = (named: boolean | number, ammoLen = 4) =>
-  Math.ceil((shotBytes(ammoLen, typeof named === 'number' ? named : named ? 20 : 0) * FEE_RATE) / 1000);
+  Math.ceil((shotBytes(ammoLen, typeof named === 'number' ? named : named ? 40 : 0) * FEE_RATE) / 1000);
 /** Worst case: the longest ammo label and the longest handle. */
-export const MAX_SHOT_SATS = shotSats(20, 40);
+export const MAX_SHOT_SATS = shotSats(40, 40);
 
 /** "Ammo": the player's own paymail, attached when they pay (owner, 24 Oct). It rides in the tag's <token>
  * field. Lower case [a-z0-9._@-], 1 to 40 chars; anything else is refused. */
@@ -73,11 +73,12 @@ export const fmtBsv = (sats: number) => `${(sats / 1e8).toFixed(sats < 1e6 ? 5 :
 /** Shots one whole BSV buys at network cost. */
 export const shotsPerBsv = (named: boolean | number, ammoLen = 4) => Math.floor(1e8 / shotSats(named, ammoLen));
 
-/** The handle as it goes on chain: lower case, [a-z0-9_], 1 to 20 chars. Anything else: no handle. */
+/** The handle as it goes on chain: a lower-case handle [a-z0-9_] (1-20) or the player's paymail (up to 40). */
 export function chainHandle(h: string | null | undefined): string | null {
   if (!h) return null;
   const s = h.trim().replace(/^@/, '').toLowerCase();
-  return /^[a-z0-9_]{1,20}$/.test(s) ? s : null;
+  if (/^[a-z0-9_]{1,20}$/.test(s)) return s;
+  return /^[a-z0-9._-]{1,30}@[a-z0-9.-]{3,30}\.[a-z]{2,}$/.test(s) && s.length <= 40 ? s : null;
 }
 
 /** The pushes after <chain:n>: the game, then the handle when there is one. */

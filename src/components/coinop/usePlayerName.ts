@@ -7,7 +7,7 @@ const KEY = 'tokenblaster.playerName';
 
 /**
  * The player's NAME at the cabinet (owner, 24 Oct 2026: "my name is there from the paymail"). Filled in from the
- * connected wallet's paymail alias (b0asex@bwalletx.com → b0asex), else the last name typed on this device. The
+ * connected wallet's paymail full paymail (b0asex@bwalletx.com), else the last name typed on this device. The
  * player can still change it; a typed name is remembered.
  */
 export function usePlayerName(): [string, (s: string) => void] {
@@ -27,7 +27,7 @@ export function usePlayerName(): [string, (s: string) => void] {
 
   useEffect(() => {
     if (typed.current) return;
-    const fromPaymail = cleanName(bar?.alias ?? bar?.paymail?.split('@')[0] ?? '');
+    const fromPaymail = cleanName(bar?.paymail ?? bar?.alias ?? '');
     if (fromPaymail) void Promise.resolve().then(() => setNameState(fromPaymail));
   }, [bar?.alias, bar?.paymail]);
 

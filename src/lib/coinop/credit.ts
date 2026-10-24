@@ -64,9 +64,10 @@ export const hasCredit = (creditUsd: number, priceUsd = MIN_CREDIT_USD) => credi
 export function cleanName(s: string | null | undefined): string | null {
   if (!s) return null;
   const t = s.trim().replace(/^@/, '').toLowerCase();
-  return /^[a-z0-9_]{1,20}$/.test(t) ? t : null;
+  // A plain handle, or the player's full paymail (owner, 24 Oct: "full paymail"), up to 40 characters.
+  if (/^[a-z0-9_]{1,20}$/.test(t)) return t;
+  return /^[a-z0-9._-]{1,30}@[a-z0-9.-]{3,30}\.[a-z]{2,}$/.test(t) && t.length <= 40 ? t : null;
 }
-/** What the input keeps while typing: lower case [a-z0-9_], at most 20 characters. */
 export const typingName = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
 
 /** START works only with credit for this play and a valid name. */
