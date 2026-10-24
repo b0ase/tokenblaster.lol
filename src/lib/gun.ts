@@ -295,11 +295,87 @@ export class Gun {
     });
   }
 
+  /** Lanes split ahead of time by prepareStorm(), so the first trigger pull fires at once. */
+  private ready: { base: Transaction; lanesN: number; perLane: number } | null = null;
+
+  /**
+   * The gun's coin to fire from. The chain index can lag a freshly paid load by many seconds (a BRC-100
+   * wallet broadcasts it itself), so when the index has nothing yet we fall back to the coin load() saved:
+   * ARC accepts a chain that spends an accepted, unconfirmed parent. Merges several coins into one.
+   */
+  private async startCoin(onWait: (secs: number) => void) {
+    const t0 = Date.now();
+    let coins: { tx: Transaction; vout: number }[] = [];
+    for (let i = 0; i < 6; i++) {
+      coins = await this.coinsOnChain().catch(() => []);
+      if (coins.length) break;
+      if (this.coin && this.sats > 0) break; // the saved coin is good enough to start from
+      onWait(Math.round((Date.now() - t0) / 1000));
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    if (!coins.length) {
+      if (!this.coin || this.sats < 1) throw new Error('EMPTY');
+      return;
+    }
+    if (coins.length > 1) {
+      const tx = new Transaction();
+      for (const c of coins.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await tx.sign();
+      await this.send(tx);
+      this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
+    } else this.coin = coins[0];
+    this.save();
+  }
+
+  /**
+   * Do all the slow work before the game starts (LOCK & LOAD): find the coin, split it into lanes and wait
+   * until the network has the split. `onStep(pct, slowSecs)`: progress 0..100; slowSecs > 0 while waiting.
+   * After this, storm() fires on the first trigger pull.
+   */
+  async prepareStorm(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
+    return this.exclusive(async () => {
+      this.refresh();
+      this.ready = null;
+      onStep(10, 0);
+      await this.startCoin((secs) => onStep(15, secs));
+      if (!this.coin) throw new Error('EMPTY');
+      onStep(30, 0);
+      const lanesN = Math.max(1, Math.min(100, Math.ceil(total / 300)));
+      const perLane = Math.ceil(total / lanesN);
+      const budget = this.sats - 300 - lanesN * 40;
+      if (budget < lanesN * perBlast) throw new Error('SHORT');
+      const split = new Transaction();
+      split.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      const each = Math.min(Math.floor(budget / lanesN), perLane * (perBlast + 2) + 100);
+      for (let i = 0; i < lanesN; i++) split.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
+      split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await split.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await split.sign();
+      onStep(45, 0);
+      await this.send(split);
+      const base = Transaction.fromHex(split.toHex());
+      this.coin = { tx: base, vout: lanesN };
+      this.save();
+      // Wait until the network has the split (up to ~60 s), so the first rounds don't arrive as orphans.
+      const t0 = Date.now();
+      for (let i = 0; i < 80 && !(await this.seen(split.id('hex'))); i++) {
+        const secs = Math.round((Date.now() - t0) / 1000);
+        onStep(Math.min(90, 55 + i), secs >= 8 ? secs : 0);
+        await new Promise((r) => setTimeout(r, 750));
+      }
+      this.ready = { base, lanesN, perLane };
+      onStep(100, 0);
+    });
+  }
+
   /**
    * Storm: fire `total` blasts as fast as ARC will take them. The coin is split into up to 100
-   * lanes in one transaction, every lane chains its own blasts, and each round sends a few thousand
-   * at once (500 per ARC request, several requests in flight). Lane ends merge back into one coin.
-   * `onProgress(sent, lastTxid)` after every request; `stop()` returning true ends it early.
+   * lanes in one transaction (or uses the lanes prepareStorm() made), every lane chains its own blasts,
+   * and each round sends a few thousand at once. Lane ends merge back into one coin.
+   * `onProgress(sent, lastTxid)` after every request; `stop()` returning true ends it; `paused()` returning
+   * true holds fire without ending the session (trigger released), so the next pull fires at once.
    */
   async storm(
     token: string,
@@ -311,76 +387,40 @@ export class Gun {
     tag: { game?: string; extra?: string[] } = {},
     /** Sats each blast needs (default STORM_FEE); a longer tag needs more. */
     perBlast: number = STORM_FEE,
+    paused: () => boolean = () => false,
   ): Promise<number> {
+    if (!this.ready) await this.prepareStorm(total, perBlast, (pct) => onStatus(`Loading… ${pct}%`));
     return this.exclusive(async () => {
-      this.refresh();
-      // Always start from what the chain says the gun holds: the saved coin can be stale (spent).
-      {
-        onStatus('Reading the gun\'s coins from the chain…');
-        const coins = await this.coinsOnChain();
-        if (!coins.length) throw new Error('The gun is empty on chain. Load it first.');
-        if (coins.length > 1) {
-          const tx = new Transaction();
-          for (const c of coins.slice(0, 200)) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-          tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-          await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-          await tx.sign();
-          await this.send(tx);
-          this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
-          this.save();
-        } else {
-          this.coin = coins[0];
-          this.save();
-        }
-      }
-      if (!this.coin) throw new Error('The gun is empty. Load it first.');
-      const lanesN = Math.max(1, Math.min(100, Math.ceil(total / 300)));
-      const perLane = Math.ceil(total / lanesN);
-      const budget = this.sats - 300 - lanesN * 40; // leave room for the split tx fee (~34 bytes per lane output)
-      if (budget < lanesN * perBlast) throw new Error('Not enough sats loaded for a storm.');
-      // Split into lanes.
-      onStatus(`Splitting the gun into ${lanesN} lanes…`);
-      const split = new Transaction();
-      split.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-      // Each lane gets what its blasts need (+ margin); the rest stays in the gun as change.
-      const each = Math.min(Math.floor(budget / lanesN), perLane * (perBlast + 2) + 100);
-      for (let i = 0; i < lanesN; i++) split.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
-      split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-      await split.fee(new SatoshisPerKilobyte(FEE_RATE));
-      await split.sign();
-      await this.send(split);
-      // Wait until the network has the split, so the lanes' first blasts don't arrive as orphans.
-      onStatus('Waiting for the network to see the split…');
-      for (let i = 0; i < 20 && !(await this.seen(split.id('hex'))); i++) await new Promise((r) => setTimeout(r, 750));
-      const base = Transaction.fromHex(split.toHex());
+      const r = this.ready;
+      if (!r) throw new Error('The gun is not loaded.');
+      this.ready = null;
+      const { base, lanesN, perLane } = r;
       const lanes0 = Array.from({ length: lanesN }, (_, i) => ({ tx: base, vout: i, left: perLane }));
       let lastWhy: string | undefined;
-      // From here the gun's money is spread over the lanes; save the change so Unload/reload can find it all.
-      this.coin = { tx: base, vout: lanesN };
-      this.save();
-      // Fire: every CPU core signs and broadcasts its own share of lanes, in parallel.
       const cores = Math.max(1, Math.min(lanesN, (navigator.hardwareConcurrency || 4) - 1, 12));
-      onStatus(`Firing on ${cores} cores, ${lanesN} lanes…`);
       let sent = 0;
       let failed: string | null = null;
-      const workers: Worker[] = [];
       await Promise.all(
         Array.from({ length: cores }, (_, w) => {
           const mine = lanes0.filter((_, i) => i % cores === w);
           return new Promise<void>((done) => {
             // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
             const wk = new Worker('/storm-worker.js', { type: 'module' });
-            workers.push(wk);
-            const poll = setInterval(() => stop() && wk.postMessage({ type: 'stop' }), 250);
+            let wasPaused: boolean | null = null;
+            const poll = setInterval(() => {
+              if (stop()) return wk.postMessage({ type: 'stop' });
+              const p = paused();
+              if (p !== wasPaused) wk.postMessage({ type: p ? 'pause' : 'resume' });
+              wasPaused = p;
+            }, 100);
             wk.onmessage = (e: MessageEvent) => {
               const m = e.data as { type: string; n?: number; last?: string; text?: string };
               if (m.type === 'sent') {
                 sent += m.n ?? 0;
                 onProgress(sent, m.last);
-                onStatus(`Firing on ${cores} cores, ${lanesN} lanes…`);
               } else if (m.type === 'why') {
                 lastWhy = m.text;
-                if (!sent) onStatus(`ARC: ${m.text}`);
+                onStatus('STALL');
               } else if (m.type === 'done') {
                 clearInterval(poll);
                 wk.terminate();
@@ -400,15 +440,14 @@ export class Gun {
               step: 50,
               game: tag.game,
               extra: tag.extra,
+              paused: paused(),
               lanes: mine.map((l, k) => ({ hex: base.toHex(), vout: l.vout, count: l.left, n: (w + k * cores) * perLane + 1 })),
             });
           });
         }),
       );
       if (!sent) failed = `ARC took no blasts: ${lastWhy ?? 'no reason given'}`;
-      // Merge every lane end (and the split's change) back into one coin. Give the last blasts a few
-      // seconds to show up first, so the merge never spends a coin a pending blast is using.
-      onStatus('Merging leftover sats back into the gun…');
+      // Merge every lane end (and the split's change) back into one coin, after the last blasts settle.
       await new Promise((r) => setTimeout(r, 6000));
       await this.resync().catch(() => undefined);
       const coins = await this.coinsOnChain().catch(() => [] as { tx: Transaction; vout: number }[]);
@@ -422,7 +461,7 @@ export class Gun {
           await this.send(tx);
           this.coin = { tx: Transaction.fromHex(tx.toHex()), vout: 0 };
         } catch {
-          /* the index may lag; Unload sweeps everything at the address anyway */
+          /* the index may lag; the next load sweeps everything at the address anyway */
         }
       }
       this.save();

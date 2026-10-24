@@ -34,10 +34,10 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
   const payPlay = useCallback(async () => {
     const who = cleanName(coinStore.name()) ?? 'player';
     const sats = usdToSats(price, cab.bsvUsd);
-    if (!sats) throw new Error('No BSV price yet.');
-    if (!hasCredit(coinStore.credit(), price)) throw new Error(`Not enough credit: one play is ${fmtCredit(price)}. Insert coin.`);
-    const txids = await b.fireBatch(++n.current, [playPushes(game, who)], { address: HOUSE, sats }, 'coinop');
-    if (!txids[0]) throw new Error('The play payment did not go through.');
+    if (!sats) throw new Error('Checking the price. Try again in a moment.');
+    if (!hasCredit(coinStore.credit(), price)) throw new Error(`Not enough credit: one play is ${fmtCredit(price)}. Put another coin in.`);
+    const txids = await b.fireBatch(++n.current, [playPushes(game, who)], { address: HOUSE, sats }, 'coinop').catch(() => [] as string[]);
+    if (!txids[0]) throw new Error('That did not go through. Your credit is safe. Try again.');
     return txids[0];
   }, [b, cab.bsvUsd, game, price]);
 
