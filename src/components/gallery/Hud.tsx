@@ -22,10 +22,14 @@ export function Hud(p: {
   packLeft: number;
   bossName: string;
   bossNote: string;
+  stageNote: string;
+  freePlay?: boolean;
 }) {
   const s = p.stats;
-  const hp = s ? Math.max(0, s.bossHp) : 1;
-  const max = s ? Math.max(1, s.bossMax) : 1;
+  const goal = s?.goal;
+  const bossBar = !s || s.bossOn;
+  const hp = bossBar ? (s ? Math.max(0, s.bossHp) : 1) : (goal?.now ?? 0);
+  const max = bossBar ? (s ? Math.max(1, s.bossMax) : 1) : Math.max(1, goal?.max ?? 1);
   const k = Math.min(1, hp / max);
   const php = s ? s.hp : 100;
   const pmax = s ? s.hpMax : 100;
@@ -53,11 +57,11 @@ export function Hud(p: {
       <div className="tbx-in-l tbx-glass min-w-[132px] px-3 py-2 sm:min-w-[188px] sm:px-4">
         <p className="flex items-center gap-1.5 text-[9px] font-bold tracking-[0.28em] text-[var(--tbx-dim)]">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)', boxShadow: `0 0 8px ${p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)'}`, animation: 'tbx-breathe 1.2s ease-in-out infinite' }} />
-          {p.dry ? 'FREE PLAY' : 'LIVE · ON CHAIN'}
+          {p.dry ? 'FREE PLAY · PRACTICE' : 'LIVE · ON CHAIN'}
         </p>
         <Ticker value={p.fired} ease={0.3} className="tbx-display block text-[clamp(32px,5.4vw,56px)] leading-none" style={{ color: 'var(--tbx-text)' }} />
         <p className="text-[10px] text-[var(--tbx-dim)]">
-          rounds fired · <span className="tbx-num">{p.sent.toLocaleString('en-US')}</span> {p.dry ? 'practice rounds' : 'on the record'}
+          {p.dry ? 'practice rounds fired' : <>rounds fired · <span className="tbx-num">{p.sent.toLocaleString('en-US')}</span> on the record</>}
         </p>
         <p className="mt-1 hidden text-[10px] sm:block">
           <span className="font-bold tracking-wider text-[var(--tbx-teal)]">{p.weaponName.toUpperCase()}</span>
@@ -70,42 +74,43 @@ export function Hud(p: {
       <div className="tbx-in-d tbx-glass order-last col-span-3 px-3 py-2 sm:order-none sm:col-span-1 sm:mx-auto sm:w-full sm:max-w-[520px]" data-boss-bar>
         <div className="flex items-center justify-between gap-3 text-[10px] font-bold tracking-[0.22em]">
           <span className="flex items-center gap-1.5 text-[var(--tbx-red)]">
-            <Icon name="skull" size={13} /> {p.bossName}
+            <Icon name="skull" size={13} /> {bossBar ? p.bossName : (goal?.label ?? '')}
           </span>
           <span className="flex items-center gap-1.5 text-[var(--tbx-text)]">
-            <Icon name="wave" size={12} className="text-[var(--tbx-teal)]" /> WAVE <span className="tbx-num">{s?.wave ?? 1}</span>
+            <Icon name="wave" size={12} className="text-[var(--tbx-teal)]" /> STAGE <span className="tbx-num">{s?.stage ?? 1}</span>/4
           </span>
         </div>
         <div className="relative mt-1.5 h-[10px] overflow-hidden rounded-[3px] border border-white/15 bg-black/60">
           {/* trailing damage, then the live health on top */}
           <i className="absolute inset-0 origin-left bg-[var(--tbx-red)]/80" style={{ transform: `scaleX(${k})`, transition: 'transform 0.9s cubic-bezier(.2,.7,.2,1) 0.15s' }} />
-          <i className="absolute inset-0 origin-left" style={{ transform: `scaleX(${k})`, transition: 'transform 0.12s linear', background: 'linear-gradient(90deg,#7f8da1,#f4f8ff 50%,#9fb0c6)', boxShadow: '0 0 12px rgba(190,220,255,.5)' }} />
+          <i className="absolute inset-0 origin-left" style={{ transform: `scaleX(${k})`, transition: 'transform 0.12s linear', background: bossBar ? 'linear-gradient(90deg,#7f8da1,#f4f8ff 50%,#9fb0c6)' : 'linear-gradient(90deg,#0a8ea0,#27e6ff 60%,#c8fbff)', boxShadow: '0 0 12px rgba(190,220,255,.5)' }} />
           <span className="absolute inset-0" style={{ background: 'repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(0,0,0,.45) calc(10% - 1px) 10%)' }} />
         </div>
         <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--tbx-dim)]">
-          <span className="truncate">{push > 0.45 ? 'PUSHED BACK. Keep firing!' : p.bossNote}</span>
-          <span className="tbx-num shrink-0">{s ? `${hp.toLocaleString('en-US')} / ${max.toLocaleString('en-US')}` : ''}</span>
+          <span className="truncate">{bossBar ? (push > 0.45 ? 'PUSHED BACK. Keep firing!' : p.bossNote) : p.stageNote}</span>
+          <span className="tbx-num shrink-0">{s ? (goal?.kind === 'jam' ? `${hp}%` : `${hp.toLocaleString('en-US')} / ${max.toLocaleString('en-US')}`) : ''}</span>
         </div>
       </div>
 
       {/* Credit and numbers */}
       <div className="tbx-in-r tbx-glass min-w-[118px] px-3 py-2 text-right sm:min-w-[170px] sm:px-4">
         <p className="flex items-center justify-end gap-1.5 text-[9px] font-bold tracking-[0.28em] text-[var(--tbx-dim)]">
-          <Icon name="coin" size={11} className="text-[var(--tbx-amber)]" /> CREDIT
+          <Icon name="coin" size={11} className="text-[var(--tbx-amber)]" /> {p.freePlay ? 'FREE PLAY' : 'CREDIT'}
         </p>
         <p className="tbx-display text-[clamp(26px,4vw,40px)] leading-none tbx-num" style={{ color: 'var(--tbx-amber)', textShadow: '0 0 16px rgba(255,182,46,.35)' }} data-hud-credit>
-          {fmtCredit(p.creditUsd)}
+          {p.freePlay ? 'FREE' : fmtCredit(p.creditUsd)}
         </p>
         <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-tight">
-          <dt className="text-[var(--tbx-dim)]">tx/s</dt>
+          <dt className="text-[var(--tbx-dim)]">{p.dry ? 'rounds/s' : 'tx/s'}</dt>
           <dd className="m-0"><Ticker value={p.tps} ease={0.3} style={{ color: 'var(--tbx-teal)' }} /></dd>
           <dt className="text-[var(--tbx-dim)]">score</dt>
           <dd className="m-0"><Ticker value={s?.score ?? 0} /></dd>
           <dt className="hidden text-[var(--tbx-dim)] sm:block">spent</dt>
           <dd className="m-0 hidden tbx-num sm:block">{p.spent}</dd>
-          <dt className="hidden text-[var(--tbx-dim)] sm:block">glass · racks</dt>
+          <dt className="hidden text-[var(--tbx-dim)] sm:block">{s && s.windows > 1 ? 'glass · racks' : 'racks'}</dt>
           <dd className="m-0 hidden tbx-num sm:block">
-            {s ? `${s.windows - s.windowsLeft}/${s.windows}` : '0'} · {s ? 8 - s.racksLeft : 0}/8
+            {s && s.windows > 1 ? `${s.windows - s.windowsLeft}/${s.windows} · ` : ''}
+            {s ? s.racks - s.racksLeft : 0}/{s?.racks ?? 8}
           </dd>
           <dt className="hidden text-[var(--tbx-dim)] sm:block">rounds left</dt>
           <dd className="m-0 hidden tbx-num sm:block">{p.packLeft.toLocaleString('en-US')}</dd>

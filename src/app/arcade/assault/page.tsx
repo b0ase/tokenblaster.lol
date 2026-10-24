@@ -10,7 +10,7 @@ const shareDescription =
 export const metadata = {
   title: '31 Oct BSV Stress Test · TokenBlaster Shooting Gallery',
   description,
-  openGraph: { title: 'TokenBlaster Shooting Gallery: fire a million transactions', description: shareDescription, url: '/arcade/gallery', images: shareImages(GALLERY_CARD).openGraph },
+  openGraph: { title: 'TokenBlaster Shooting Gallery: fire a million transactions', description: shareDescription, url: '/arcade/assault', images: shareImages(GALLERY_CARD).openGraph },
   twitter: { card: 'summary_large_image', title: 'TokenBlaster Shooting Gallery: Assault on Terrornode', description: shareDescription, images: shareImages(GALLERY_CARD).twitter },
 };
 

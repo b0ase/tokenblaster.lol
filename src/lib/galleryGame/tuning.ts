@@ -1,9 +1,11 @@
 /**
- * Every combat number for the Shooting Gallery, in one place (owner, 24 Oct 2026: "HARD and dangerous").
+ * Every combat number for ASSAULT ON TERRORNODE, in one place (owner, 24 Oct 2026: "HARD and dangerous"),
+ * including ALL the stage tuning (`stages`, `stageFlow`): kill goals, the core jam, the Erobot lanes, the boss.
  *
- * Shape of the difficulty: WAVE 1 is survivable for a new player who keeps the trigger down and sweeps the
- * gun across the threats; after that it escalates hard. Per-wave growth is `1 + perWave * (wave - 1)` (see
- * `ramp`), so a value in WAVE_RAMP of 0.2 means +20% on wave 2, +40% on wave 3, and so on.
+ * Shape of the difficulty: STAGE 1 is survivable for a new player who keeps the trigger down and sweeps the
+ * gun across the threats; after that it escalates hard. Per-level growth is `1 + perLevel * (level - 1)` (see
+ * `ramp`), so a value in waveRamp of 0.2 means +20% on level 2, +40% on level 3, and so on. A stage's `level`
+ * is the number its Erobots (and the Liquid Unit's `bossLevel`) are scaled by.
  *
  * Units: seconds, metres, metres per second, hit points. The player stands at the origin and looks down -Z, so a
  * smaller |z| is closer. One accepted round is 1 damage with the stock guns, and the minigun streams up to
@@ -37,6 +39,9 @@ export const TUNING = {
     lowFraction: 0.3,
     /** Wave 1 only: enemies hold their fire this long at the start (s). */
     openingGrace: 3.5,
+    /** STRAFE (A/D, arrows, the touch pad): metres a second, and how far across the set (fraction of its wall half-width). */
+    strafeSpeed: 5.5,
+    strafeRange: 0.55,
     /** Camera kick on a hit: radians at damage 10, scaled by damage. */
     kickPer10: 0.045,
   },
@@ -46,7 +51,6 @@ export const TUNING = {
     erobotDamage: 0.2,
     erobotRate: 0.2,
     erobotSpeed: 0.05,
-    erobotLive: 0.85,
     erobotHp: 0.06,
     bossDamage: 0.22,
     bossSpeed: 0.1,
@@ -59,12 +63,9 @@ export const TUNING = {
     /** Hit spheres are this much bigger than the body, so near-misses count. */
     hitScale: 1.8,
     headMultiplier: 2.5,
-    /** Alive at once: base, plus per wave, plus extra while the trigger is held. Capped by the pool. */
-    liveBase: 3,
+    /** Extra Erobots allowed alive per second the trigger has been held (up to 14 s). */
     holdBonusPerSec: 0.45,
-    /** Most alive at once on wave 1, and how many more each wave allows (the pool caps it). */
-    liveCap: 5,
-    liveCapPerWave: 1.5,
+    /** How many are alive at once is per stage: `stages[].lane.liveBase` / `liveCap`, plus a bonus while the trigger is held. */
     /** Seconds between spawns (wave 1), and the floor. */
     spawnEvery: 1.05,
     spawnMin: 0.28,
@@ -74,12 +75,8 @@ export const TUNING = {
       wave1: { shooter: 0.56, rusher: 0.24, flanker: 0.2 },
       late: { shooter: 0.28, rusher: 0.4, flanker: 0.32 },
     },
-    /** Shooters stop here (z) and then keep creeping closer. */
-    stopZ: [-22, -11] as [number, number],
     creepSpeed: 0.9,
     strafeSpeed: 3.2,
-    /** Flankers run an arc out to this |x| before turning in. */
-    flankX: [11, 16] as [number, number],
     bolt: {
       speed: 34,
       damage: 4,
@@ -101,6 +98,60 @@ export const TUNING = {
       /** The z a rusher plants itself at. */
       stopZ: -2.1,
     },
+  },
+
+  /**
+   * THE FOUR STAGES (the same 3D engine, one set each). A stage ends on its `goal`:
+   *  - `kills`: that many Erobots stopped (a kill of the nearest wins the floor; racks and glass only add points);
+   *  - `jam`: sustained fire on the core. Each round on the core adds 1/`rounds` to the jam; after `holdSecs`
+   *    without a hit it drains `drainPerSec` rounds a second, so only a steady stream gets it over the line;
+   *  - `boss`: the Liquid Unit melts (once; he does not get back up), then the RESCUED beat.
+   * `lane` is where the Erobots come from and how they move in that set: `spawnZ`/`halfW` the line they teleport in
+   * on, `stopZ` where shooters plant, `flankX` the width flankers swing, `strafeX` the most a shooter sidesteps,
+   * `snipeX` how far off-axis a flanker fires, and the live caps. A cap of 0 turns the Erobots off.
+   */
+  stages: [
+    {
+      id: 'street',
+      level: 1,
+      goal: { kind: 'kills', n: 12 },
+      lane: { spawnZ: -63.5, halfW: 12, stopZ: [-22, -11], flankX: [11, 16], strafeX: 14, snipeX: 5, liveBase: 3, liveCap: 5, wallX: 17 },
+    },
+    {
+      id: 'floors',
+      level: 2,
+      goal: { kind: 'kills', n: 16 },
+      lane: { spawnZ: -44, halfW: 3.6, stopZ: [-21, -10], flankX: [3.6, 5.2], strafeX: 5.2, snipeX: 2.2, liveBase: 3, liveCap: 6, wallX: 6.3 },
+    },
+    {
+      id: 'core',
+      level: 3,
+      goal: { kind: 'jam', rounds: 6000, holdSecs: 0.35, drainPerSec: 400 },
+      lane: { spawnZ: -34, halfW: 7, stopZ: [-17, -9], flankX: [6, 9], strafeX: 9, snipeX: 3, liveBase: 2, liveCap: 4, wallX: 12 },
+    },
+    {
+      id: 'roof',
+      level: 4,
+      goal: { kind: 'boss' },
+      /** The Liquid Unit's level (health x1.5 and damage x1.22 per level above 1), once, on this stage. */
+      bossLevel: 2,
+      lane: { spawnZ: -40, halfW: 8, stopZ: [-20, -12], flankX: [8, 11], strafeX: 10, snipeX: 4, liveBase: 0, liveCap: 0, wallX: 11 },
+    },
+  ],
+
+  /** The lift between stages and the RESCUED beat (milliseconds unless noted). */
+  stageFlow: {
+    /** The doors close: how long the screen takes to go black, then the stage swaps while black. */
+    leaveMs: 950,
+    /** Black hold in the lift after the swap, then the doors open on the new stage. */
+    holdMs: 1300,
+    /** Nothing can hurt you for this long after a stage opens (s), and the Erobots hold their fire. */
+    openGraceSecs: 3,
+    /** After the Liquid Unit is down: seconds after the unit pools until Kweg is up and walking, and how long the RESCUED cutscene runs before the results screen. */
+    downToFreeSecs: 0.8,
+    cutsceneSecs: 8,
+    /** Health returned between stages (fraction of max). */
+    healBetween: 0.5,
   },
 
   boss: {

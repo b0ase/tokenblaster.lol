@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { KWEG, BANNERS, BRIEFING, CHARACTERS, LORE, LOADING_SHOTS, PREMISE, RANKS, TAGLINES, TIPS, WAVE_COUNT, characterById, rankFor, shareText, waveBrief } from './gallery/story';
+import { KWEG, BANNERS, BRIEFING, CHARACTERS, FLATLINED, GAME_OVER, GAME_TITLE, LORE, LOADING_SHOTS, PREMISE, RANKS, RESCUED, STAGE_COUNT, TAGLINES, TERRORNODE_SLOGANS, TIPS, characterById, rankFor, shareText, stageBrief, PRACTICE, forPractice, practiceCopy } from './gallery/story';
 
-const all = () => JSON.stringify({ KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, waves: Array.from({ length: 8 }, (_, i) => waveBrief(i + 1)) });
+const all = () => JSON.stringify({ GAME_TITLE, KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, FLATLINED, GAME_OVER, RESCUED, TERRORNODE_SLOGANS, stages: Array.from({ length: STAGE_COUNT }, (_, i) => stageBrief(i + 1)) });
 
 test('story: 5 to 12 lore beats, all with text', () => {
   assert.ok(LORE.length >= 5 && LORE.length <= 12);
@@ -30,13 +30,23 @@ test('story: plain words for players (no tech terms)', () => {
   assert.doesNotMatch(all(), /blockchain|\btxs?\b|transaction|satoshi|\bsats?\b|\bwallet\b|\bnode\b|\bhash\b|\bminer\b|\bOP_RETURN\b|\bARC\b|\bmempool\b/i);
 });
 
-test('story: waves escalate and never run out', () => {
-  assert.equal(waveBrief(1).n, 1);
-  assert.equal(waveBrief(WAVE_COUNT).n, WAVE_COUNT);
-  const past = waveBrief(WAVE_COUNT + 3);
-  assert.equal(past.n, WAVE_COUNT + 3);
-  assert.ok(past.title && past.brief);
-  assert.equal(waveBrief(0).n, 1);
+test('story: four stages, each with a brief and a radio line from Kweg', () => {
+  assert.equal(STAGE_COUNT, 4);
+  assert.deepEqual(['STREET', 'HQ FLOORS', 'SERVER CORE', 'ROOFTOP'], [1, 2, 3, 4].map((n) => stageBrief(n).code.split('· ')[1]));
+  for (let n = 1; n <= STAGE_COUNT; n++) {
+    const b = stageBrief(n);
+    assert.equal(b.n, n);
+    assert.ok(b.title && b.brief && b.goal);
+    assert.equal(b.kweg, KWEG.stages[n - 1]);
+  }
+  assert.equal(stageBrief(0).n, 1);
+  assert.equal(stageBrief(99).n, STAGE_COUNT);
+});
+
+test('story: the Liquid Unit is the final boss and is only on the roof', () => {
+  assert.doesNotMatch(stageBrief(1).brief + stageBrief(2).brief + stageBrief(3).brief, /liquid unit/i);
+  assert.match(stageBrief(4).title, /LIQUID UNIT/);
+  assert.match(BANNERS.boss.top, /FINAL BOSS/);
 });
 
 test('story: ranks cover every count', () => {
@@ -46,35 +56,72 @@ test('story: ranks cover every count', () => {
 });
 
 test('story: share text carries the numbers', () => {
-  const t = shareText({ rounds: 12345, score: 999, waves: 3, name: 'rich' });
+  const t = shareText({ rounds: 12345, score: 999, stage: 3, name: 'rich' });
   assert.match(t, /12,345/);
   assert.match(t, /@rich/);
+  assert.match(t, /stage 3/);
+  assert.match(shareText({ rounds: 1, score: 1, stage: 4, rescued: true }), /rescued Dr Kweg S Wong/);
 });
 
-test('story: Neo-Tokyo 2048, Kweg Wong, the Ninja Punk Girls, nSLAVE', () => {
+test('story: ASSAULT ON TERRORNODE, Neo-Tokyo 2048, Kweg S Wong, the Ninja Punk Girls', () => {
   const a = all();
+  assert.equal(GAME_TITLE, 'ASSAULT ON TERRORNODE');
   assert.match(a, /Neo-Tokyo/);
   assert.match(a, /2048/);
-  assert.match(a, /KWEG WONG/i);
+  assert.match(a, /KWEG S WONG/i);
   assert.match(a, /NINJA PUNK GIRLS/i);
+  assert.match(a, /TERRORNODE/);
+  assert.match(a, /Storm TERRORNODE HQ\. Rescue Dr Kweg\./);
+  assert.doesNotMatch(a, /nSLAVE|エヌスレイブ/i, 'nSLAVE is renamed TERRORNODE everywhere');
   assert.doesNotMatch(a, /bCorp/i, 'bCorp is out of the story');
-  assert.match(a, /nSLAVE/);
   assert.doesNotMatch(a, /OMNICORE/i);
   assert.doesNotMatch(a, /London|1991|\bX Corp/i);
 });
 
-test('story: Kweg is the villain and his text lives in KWEG', () => {
-  assert.equal(characterById('kweg')?.kind, 'villain');
+test('story: Kweg is the good hostage; the Erobots are evil; the Liquid Unit is NOT Kweg', () => {
+  assert.equal(characterById('kweg')?.kind, 'hostage');
   assert.equal(characterById('kweg')?.bio, KWEG.bio);
-  assert.equal(waveBrief(2).kweg, KWEG.waves[1]);
-  assert.equal(waveBrief(99).kweg, KWEG.overtime);
+  assert.equal(characterById('liquid')?.kind, 'boss');
+  for (const c of CHARACTERS.filter((x) => x.kind === 'erobot')) assert.ok(c.threat.length > 10);
+  assert.match(KWEG.bio, /brilliant, devastatingly so/);
+  assert.doesNotMatch(KWEG.bio + KWEG.threat, /villain|evil|Hyde|liquid metal/i, 'no Jekyll/Hyde, no liquid Kweg');
+  assert.doesNotMatch(characterById('liquid')?.bio ?? '', /Dr Kweg Wong\.|It is Dr Kweg/, 'the Liquid Unit is not Kweg');
+  assert.match(all(), /is not Kweg/);
+  assert.match(KWEG.stages[0], /Rescue accepted, with required revisions/);
 });
 
-test('story: the Liquid Unit IS Dr Kweg Wong, and the nSLAVE slogans are in the lore', () => {
-  const liquid = characterById('liquid');
-  assert.match(liquid?.bio ?? '', /Dr Kweg Wong/);
-  assert.match(KWEG.bio, /liquid metal/i);
-  assert.match(all(), /patent… for your soul/);
-  assert.match(all(), /as long as it’s BSV/);
-  assert.doesNotMatch(all(), /T-?1000|Terminator|Skynet/i);
+test('story: the affectionate parody touches survive', () => {
+  const a = all();
+  assert.match(a, /established .{0,40}in 2009/);
+  assert.match(a, /peer-review/i);
+  assert.match(a, /patent… for your soul/);
+  assert.match(a, /as long as it’s BSV/);
+  assert.match(a, /SOUL CHAIN/);
+  assert.match(a, /accident/);
+  assert.match(a, /hacking/);
+  assert.match(a, /incident with the cow/);
+  assert.match(a, /trial/);
+  assert.match(a, /RESCUED/);
+});
+
+test('story: the lines are deadpan hostage lines, short enough for a radio caption', () => {
+  const lines = [KWEG.intro, ...KWEG.stages, ...KWEG.clear, KWEG.boss, KWEG.melt, KWEG.rescued, KWEG.flatlined, KWEG.over];
+  for (const l of lines) assert.ok(l.length > 15 && l.length < 200, l);
+  assert.equal(KWEG.clear.length, STAGE_COUNT - 1);
+});
+
+test('free play: no copy claims live rounds, a chain, the record, real transactions or acceptance', () => {
+  // The hostage's "accepted, with required revisions" is a peer-review joke about the rescue, not about rounds.
+  const text = practiceCopy().join('\n').replace(/accepted, with required revisions/gi, 'reviewed')
+    .replace(/\b(nothing|not)( goes| is)? on chain/gi, 'ok'); // the honest negation ("nothing goes on chain") is the point
+  assert.doesNotMatch(text, /\blive\b|on chain|on the record|real transaction|real BSV|\baccepted\b/i);
+  assert.match(PRACTICE.loaded.bottom, /PRACTICE ROUNDS/);
+  assert.equal(PRACTICE.loaded.top, 'GUN LOADED.');
+  assert.match(PRACTICE.badge, /nothing on chain/);
+  assert.match(PRACTICE.kicker, /FREE PLAY/);
+});
+
+test('live copy keeps its claims (the swap only applies in free play)', () => {
+  assert.match(BANNERS.loaded.bottom, /LIVE ROUNDS/);
+  assert.match(forPractice(BANNERS.loaded.bottom), /PRACTICE ROUNDS/);
 });
