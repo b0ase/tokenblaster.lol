@@ -62,7 +62,7 @@ export const opReturnFor = (token, label, game = 'cli') => {
 };
 
 // worker entry: sign `depth` blasts for each head; reply with one buffer of raws + offsets, chain-major
-if (parentPort && workerData) {
+if (parentPort && workerData && !workerData.stress) {   // the stress worker imports this file too
   const { jwk, heads, depth, fee, token } = workerData;   // heads: [{ c, txid (display hex), vout, value }]
   const s = makeSigner(jwk);
   const parts = [], lens = [];
