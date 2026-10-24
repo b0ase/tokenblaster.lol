@@ -21,7 +21,7 @@ import { brandGun, tintAmount, tintGun } from '../ordnanceGun';
 import { loadLook, makeGradePass, type Look } from '../visuals/look';
 import { AMMO_SFX, minigun, sfx, unlockAudio } from '../sfx';
 import { Fx } from '../bsvgun/fx';
-import { halo } from '../bsvgun/targets';
+import { glowTexture, halo } from '../bsvgun/targets';
 import type { RangeWeapon } from '../bsvgun/weapons';
 import { buildCity, EYE, TOWER, type City, type Rack, type Window } from './city';
 import { LiquidUnit } from './boss';
@@ -77,8 +77,14 @@ export class GalleryEngine {
   private guns = new Map<string, HeldGun>();
   private held: HeldGun | null = null;
   private gunReq = 0;
-  private flash!: THREE.Sprite;
+  private muzzleSprite!: THREE.Sprite;
   private flashLight!: THREE.PointLight;
+  // dynamic light: a fixed pool of point lights (constant count, so no shader recompiles), exposure kick, Low-tier ground decal
+  private pool: { l: THREE.PointLight; t: number; dur: number; peak: number }[] = [];
+  private kick = 0;
+  private decal: THREE.Mesh | null = null;
+  private decalA = 0;
+  private flashK = 0;
   private flashT = 0;
   private recoil = 0;
   private nextShot = 0;
@@ -142,18 +148,33 @@ export class GalleryEngine {
     await this.boss.ready; // the rigged model (a fallback figure stands in if it can't load)
     if (this.disposed) return;
     this.fx = new Fx(this.scene, high);
-    this.erobots = new ErobotWave(this.scene, this.fx, { high, canvas: this.canvas, reticle: () => this.reticle(), light: this.city.hitLight });
+    this.erobots = new ErobotWave(this.scene, this.fx, { high, canvas: this.canvas, reticle: () => this.reticle(), light: this.city.hitLight, flash: (at, c, i, ms) => this.flash(at, c, i, ms) });
     this.boss.onEvent = (k, at) => this.bossEvent(k, at);
     this.scene.add(this.camera);
     this.camera.layers.enable(1); // layer 1: rain, ripples and the held gun (hidden from the street reflection)
     this.camera.position.set(0, EYE, 0);
     this.camera.add(this.mount);
     this.mount.add(this.kickG);
-    this.flash = halo('#ffd9a0', 1.2, 0);
-    this.flash.material.opacity = 0;
-    this.scene.add(this.flash);
-    this.flashLight = new THREE.PointLight('#ffb870', 0, 16, 1.8);
+    this.muzzleSprite = halo('#ffd9a0', 1.2, 0);
+    this.muzzleSprite.material.opacity = 0;
+    this.scene.add(this.muzzleSprite);
+    this.flashLight = new THREE.PointLight('#ffb870', 0, 30, 1.6);
     this.scene.add(this.flashLight);
+    for (let i = 0; i < (high ? 6 : 1); i++) {
+      const l = new THREE.PointLight('#ffffff', 0, 26, 1.7);
+      this.scene.add(l);
+      this.pool.push({ l, t: 0, dur: 0, peak: 0 });
+    }
+    if (!high) {
+      // Low: no lights to spare, so the muzzle throws an emissive glow on the wet street instead
+      const dg = new THREE.PlaneGeometry(1, 1);
+      dg.rotateX(-Math.PI / 2);
+      this.decal = new THREE.Mesh(dg, new THREE.MeshBasicMaterial({ map: glowTexture(), color: '#ffb060', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }));
+      this.decal.scale.set(16, 1, 34);
+      this.decal.position.set(0, 0.06, -9);
+      this.decal.renderOrder = 5;
+      this.scene.add(this.decal);
+    }
     // brass casings
     const bg = new THREE.CylinderGeometry(0.008, 0.008, 0.045, 8);
     bg.rotateZ(Math.PI / 2);
@@ -375,6 +396,7 @@ export class GalleryEngine {
       const rr = spread * Math.sqrt(Math.random());
       jd.addScaledVector(u, Math.cos(a) * rr).addScaledVector(vv, Math.sin(a) * rr).normalize();
       const end = this.landRound(org, jd, per * w.damage, w);
+      if (tracers === 0) this.flash(this.tC.copy(mz).lerp(end, 0.35), w.bolt, 22, 90); // the round lights the wet street as it passes
       if (tracers++ < (w.auto ? 3 : 9)) this.fx.tracer(mz, end, w.bolt, w.ammo === 'laser' ? 0.09 : w.ammo === 'pellet' ? 0.035 : 0.05, w.ammo === 'laser' ? 0.15 : 0.08);
     }
   }
@@ -415,10 +437,13 @@ export class GalleryEngine {
         this.score += 5000 * this.boss.wave;
         this.kills++;
         this.fx.shatter(end, '#e8eef6', 60, 9, 1.2);
+        this.flash(end, '#cfe4ff', 150, 600); // the boss melts: a big flash, then a cold glow as it pools
+        this.flash(this.tA.set(end.x, 0.8, end.z), '#27c8e0', 60, 2200);
         this.shake = 1;
         sfx('explosion', 0.8);
       } else this.score += Math.round(dmg);
       if (Math.random() < 0.3) this.fx.sparks(end, '#eef4ff', 1, 4);
+      if (Math.random() < 0.35) this.flash(end, '#bcd8ff', 35, 70);
       return end;
     }
     const drone = this.drones.find((d) => d.body === o);
@@ -432,6 +457,8 @@ export class GalleryEngine {
         this.fx.ring(end, '#ff6a2a', 3.2, 0.4);
         this.fx.shatter(end, '#2b3550', 24, 8, 0.8);
         this.fx.sparks(end, '#ff6a2a', 40, 12);
+        this.flash(end, '#ff7a30', 130, 500);
+        this.flash(this.tA.copy(end), '#ff5a20', 40, 1600);
         c.hitLight.position.copy(end);
         c.hitLight.color.set('#ff7a30');
         c.hitLight.intensity = 140;
@@ -451,6 +478,7 @@ export class GalleryEngine {
       return end;
     }
     this.fx.sparks(end, o === c.ground ? '#ffd27a' : '#9fc6ff', 1, 4);
+    if (o === c.ground && Math.random() < 0.3) this.flash(end, '#ffd27a', 14, 60);
     return end;
   }
 
@@ -460,6 +488,7 @@ export class GalleryEngine {
       this.city.breakWindow(win);
       this.score += 50;
       this.fx.shatter(at, '#cfeaff', 16, 7, 0.6, true);
+      this.flash(at, '#cfeaff', 55, 140);
       if (Math.random() < 0.3) sfx('hit', 0.3);
       if (this.city.wins.every((w) => w.broke) && this.city.racks.every((r) => r.broke)) {
         this.score += 10_000;
@@ -471,12 +500,15 @@ export class GalleryEngine {
   private hurtRack(rk: Rack, dmg: number, at: THREE.Vector3) {
     rk.hp -= dmg;
     this.fx.sparks(at, '#7cf9ff', 3, 6);
+    if (Math.random() < 0.5) this.flash(at, '#7cf9ff', 35, 80);
     if (rk.hp <= 0) {
       this.city.breakRack(rk);
       this.score += 500;
       this.kills++;
       this.fx.sparks(at, '#7cf9ff', 60, 11);
       this.fx.ring(at, '#27e6ff', 4, 0.5);
+      this.flash(at, '#7cf9ff', 150, 600);
+      this.flash(this.tA.copy(at), '#ff6a2a', 45, 1800); // the rack burns on
       this.city.hitLight.position.copy(at);
       this.city.hitLight.color.set('#27e6ff');
       this.city.hitLight.intensity = 160;
@@ -506,13 +538,16 @@ export class GalleryEngine {
     this.recoil = Math.min(1.6, this.recoil + 0.5 + w.kick * 0.25);
     this.shake = Math.min(1, this.shake + 0.06 + w.kick * 0.05);
     this.flashT = 0.06;
-    this.flash.position.copy(mz);
-    this.flash.scale.setScalar(0.22 + Math.random() * 0.2 + (rounds > 3 ? 0.2 : 0));
-    this.flash.material.color.set(w.bolt);
-    this.flash.material.opacity = 1;
+    this.muzzleSprite.position.copy(mz);
+    this.muzzleSprite.scale.setScalar(0.22 + Math.random() * 0.2 + (rounds > 3 ? 0.2 : 0));
+    this.muzzleSprite.material.color.set(w.bolt);
+    this.muzzleSprite.material.opacity = 1;
     this.flashLight.position.copy(mz);
     this.flashLight.color.set(w.bolt);
-    this.flashLight.intensity = 5;
+    this.flashLight.intensity = (this.high ? 60 : 36) * (0.6 + Math.random() * 0.7) * (rounds > 3 ? 1.3 : 1);
+    this.kick = Math.min(0.12, this.kick + 0.012 + w.kick * 0.004);
+    this.decalA = Math.min(1, this.decalA + 0.5);
+    this.flash(this.tA.copy(this.camera.position).add(this.tB.set(0, 0.6, -9)), w.bolt, 22, 80); // glow pulsing down the street
     if (w.def.id === 'minigun' || w.ordnance?.id === 'minigun-of-the-mempool') {
       if (!this.mgOn) {
         this.mgOn = true;
@@ -605,11 +640,12 @@ export class GalleryEngine {
     this.updateCamera(dt);
     this.flashT -= dt;
     if (this.flashT <= 0) {
-      this.flash.material.opacity *= 0.5;
+      this.muzzleSprite.material.opacity *= 0.5;
       this.flashLight.intensity *= 0.4;
     }
     this.recoil *= Math.pow(0.0008, dt);
     this.shake *= Math.pow(0.02, dt);
+    this.updateFlash(dt);
     this.grade.tick(this.t, 0);
     this.city.beforeRender(this.renderer, this.scene, this.camera);
     if (this.shafts) {
@@ -642,10 +678,63 @@ export class GalleryEngine {
     };
   }
 
+  /**
+   * A short flash of light at a world position: a pooled point light (no allocation; High 6 slots, Low 1 plus
+   * a muzzle ground decal), bloom catches it, and big flashes kick the exposure and the chromatic fringe.
+   * Public so any module (enemies, boss) can call it.
+   */
+  flash(at: THREE.Vector3, color: string, intensity: number, durationMs: number) {
+    if (!this.pool.length) {
+      this.kick = Math.min(0.2, this.kick + intensity / 3000);
+      return;
+    }
+    let slot = this.pool[0];
+    let best = Infinity;
+    for (const s of this.pool) {
+      const rem = s.t <= 0 ? -1 : (s.t / (s.dur / 1000)) * s.peak;
+      if (rem < best) {
+        best = rem;
+        slot = s;
+      }
+    }
+    slot.l.position.copy(at);
+    slot.l.color.set(color);
+    slot.peak = intensity * (this.high ? 1 : 1.4);
+    slot.dur = durationMs;
+    slot.t = durationMs / 1000;
+    if (intensity >= 120) {
+      this.kick = Math.min(0.2, this.kick + intensity / 2600);
+      this.flashK = Math.min(1, this.flashK + intensity / 600);
+    }
+  }
+
+  private updateFlash(dt: number) {
+    for (const s of this.pool) {
+      if (s.t > 0) {
+        s.t -= dt;
+        const k = Math.max(0, s.t / (s.dur / 1000));
+        s.l.intensity = s.peak * k * k * (0.8 + Math.random() * 0.4);
+      } else if (s.l.intensity !== 0) s.l.intensity = 0;
+    }
+    if (this.decal) {
+      this.decalA *= Math.pow(0.004, dt);
+      (this.decal.material as THREE.MeshBasicMaterial).opacity = Math.min(0.55, this.decalA * 0.5);
+    }
+    // the resting scene stays dark: exposure and bloom only lift while something is bright, then settle
+    this.kick *= Math.pow(0.01, dt);
+    this.flashK *= Math.pow(0.003, dt);
+    this.renderer.toneMappingExposure = 1.0 + this.kick;
+    this.bloom.strength = (this.high ? 0.3 : 0.26) + this.kick * 0.7;
+    const u = this.grade.pass.uniforms as { uAberr: { value: number } };
+    u.uAberr.value = 0.0012 + this.flashK * 0.003;
+  }
+
   private bossEvent(kind: 'roar' | 'stomp' | 'lunge' | 'stagger', at: THREE.Vector3) {
     if (kind === 'roar') {
       this.fx.ring(at, '#ff3a22', 9, 0.8);
       this.fx.sparks(at, '#ff6a2a', 30, 10);
+      this.flash(at, '#ff3a22', 160, 600); // the roar lights the street red
+      this.kick = Math.min(0.2, this.kick + 0.06);
       sfx('explosion', 0.4);
     } else if (kind === 'lunge') this.fx.ring(at, '#27e6ff', 7, 0.5);
     else if (kind === 'stagger') this.fx.sparks(at, '#eef4ff', 24, 9);
