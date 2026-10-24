@@ -17,7 +17,7 @@ const BATCH = Number(process.env.BLASTER_BATCH || 250);
 const CONCURRENCY = Number(process.env.BLASTER_CONCURRENCY || 16);
 const n = (x: number) => x.toLocaleString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-export const BLAST_BYTES = 235;
+export const BLAST_BYTES = 260; // 235 typical, but the c:n tag and DER signature grow it; ARC rejected ~10% at 24 sats (smoke test 24 Oct)
 
 /** JSON from WhatsOnChain, retrying through its rate limit (it answers with an HTML page when busy). */
 export async function wocJson<T>(path: string): Promise<T> {
