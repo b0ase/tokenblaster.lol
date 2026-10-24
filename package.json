@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "pnpm content:check && tsx --test src/lib/*.test.ts",
+    "test": "pnpm content:check && tsx --test src/lib/*.test.ts src/lib/coinop/*.test.ts",
     "content:index": "tsx scripts/content-index.ts",
     "content:check": "tsx scripts/content-check.ts",
     "content:score-rows": "tsx scripts/bracer-score-rows.ts",

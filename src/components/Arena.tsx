@@ -2203,7 +2203,7 @@ export function Arena() {
                 onPlay={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: false } }))}
                 playReady={isReady}
                 onPractice={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))}
-                practiceLabel="▶ PLAY PRACTICE (fire away, nothing is sent)"
+                practiceLabel="▶ PLAY · CREDIT GAME (paid at the cabinet)"
                 details={
                   <details className="text-xs text-dim">
                     <summary className="cursor-pointer">gun details</summary>

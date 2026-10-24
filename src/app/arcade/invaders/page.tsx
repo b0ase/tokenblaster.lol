@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function InvadersPage() {
   return (
-    <GameShell
+    <GameShell game="invaders"
       title="Mempool Invaders"
       below={
         <>

@@ -33,7 +33,7 @@ export function AmmoStrip({
   onPlay,
   playReady = true,
   onPractice,
-  practiceLabel = '▶ PLAY PRACTICE',
+  practiceLabel = '▶ PLAY · CREDIT GAME',
   details,
   house,
 }: {

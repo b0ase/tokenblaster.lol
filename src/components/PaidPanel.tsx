@@ -60,7 +60,7 @@ export function ModeBadge({ pp, action, actions }: { pp: Paid; action: string; a
   );
 }
 
-export function PlayButtons({ pp, game, action, actions, onStart, practiceLabel = '▶ PLAY PRACTICE', liveLabel = '▶ PLAY LIVE' }: { pp: Paid; game: string; action: string; actions: string; onStart: () => void; practiceLabel?: string; liveLabel?: string }) {
+export function PlayButtons({ pp, game, action, actions, onStart, practiceLabel = '▶ PLAY · CREDIT GAME', liveLabel = '▶ PLAY LIVE' }: { pp: Paid; game: string; action: string; actions: string; onStart: () => void; practiceLabel?: string; liveLabel?: string }) {
   const { b, setPaid, resume } = pp;
   const [steps, setSteps] = useState(false);
   const enough = b.ammo >= MIN_ACTIONS * COST;
@@ -146,7 +146,7 @@ export function PaidPanel({ pp, game, action, actions }: { pp: Paid; game: strin
       <div className="inset mt-2 flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
         <span className="text-dim">MODE:</span>
         <button onClick={() => setPaid(false)} className={`btn ${!paid ? 'btn-on' : ''}`}>
-          PRACTICE · nothing on chain
+          CREDIT PLAY · no per-action fee
         </button>
         <button onClick={() => setPaid(true)} disabled={!HOUSE} title={HOUSE ? undefined : 'LIVE play is not switched on yet'} className={`btn ${paid ? 'btn-on' : ''} disabled:opacity-40`}>
           LIVE · every {action} is a real tx

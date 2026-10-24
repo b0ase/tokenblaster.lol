@@ -3234,7 +3234,7 @@ export function DoubleO() {
                     </button>
                   )}
                   <button onClick={() => startMode(level, false)} disabled={!ready} className={armed ? 'btn px-4 py-2 font-bold' : 'btn-fire'}>
-                    ▶ PLAY PRACTICE
+                    ▶ PLAY · CREDIT GAME
                   </button>
                   <span className="text-xs text-dim">mission: {L.name}</span>
                 </div>

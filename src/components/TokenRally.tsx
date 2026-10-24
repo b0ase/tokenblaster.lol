@@ -853,7 +853,7 @@ export function TokenRally() {
                       JOIN
                     </button>
                   </div>
-                  <p className="mt-1 text-[10px] text-dim">Empty slots are filled by live-chain AI rivals. Cars do not collide. Each driver pays their own fuel; practice is free.</p>
+                  <p className="mt-1 text-[10px] text-dim">Empty slots are filled by live-chain AI rivals. Cars do not collide. Each driver pays their own fuel; entry is paid at the cabinet.</p>
                 </div>
               )}
               {mpOn && room.info && (
@@ -902,7 +902,7 @@ export function TokenRally() {
               )}
               <div className="grid grid-cols-2 gap-1.5">
                 <button onClick={() => setLiveMode(false)} aria-pressed={!liveMode} className={`btn flex flex-col items-start px-2 py-1.5 text-left ${!liveMode ? 'btn-on' : ''}`}>
-                  <span className="text-xs font-bold">{!liveMode ? '● ' : '○ '}PRACTICE · FREE</span>
+                  <span className="text-xs font-bold">{!liveMode ? '● ' : '○ '}CREDIT PLAY · no fuel burn</span>
                   <span className="text-[10px] opacity-70">Nothing is sent to the chain.</span>
                 </button>
                 <button onClick={() => setLiveMode(true)} aria-pressed={liveMode} disabled={!HOUSE} className={`btn flex flex-col items-start px-2 py-1.5 text-left ${liveMode ? 'btn-on' : ''}`}>
@@ -946,7 +946,7 @@ export function TokenRally() {
         {phase === 'paused' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
             <p className="text-3xl font-black text-hot">PAUSED</p>
-            <p className="text-xs font-bold tracking-widest text-dim">{run.live ? `LIVE · ${spent.sent.toLocaleString()} TXS ON CHAIN` : 'PRACTICE · FREE'}</p>
+            <p className="text-xs font-bold tracking-widest text-dim">{run.live ? `LIVE · ${spent.sent.toLocaleString()} TXS ON CHAIN` : 'CREDIT PLAY'}</p>
             {run.live && <div className="w-[min(92vw,30rem)]">{fuelPanel}</div>}
             <button onClick={() => engine.current?.pause(false)} className="btn-fire px-6 py-2 text-lg">
               RESUME

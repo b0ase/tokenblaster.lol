@@ -15,8 +15,11 @@
  * broadcasts, UNLOAD returns what is left. Free for the stress test (network cost only) until 31 Oct UTC;
  * the platform fee starts automatically on 1 Nov (src/lib/gallery.ts FEE_FROM).
  *
- * FREE PRACTICE never touches the chain. `?dryrun=1` makes LIVE simulate too (no wallet, no broadcast).
- * `?autofire=1` holds the trigger on the boss in practice, for screenshots.
+ * COIN-OP (owner, 24 Oct 2026): no free practice. The loadout is the cabinet (src/components/coinop): coins add
+ * to a total, PAY is one wallet approval that funds the gun, then NAME and LOCK & LOAD. The credit is the
+ * ammunition: each shot draws it down at network cost (+ the platform fee from 1 Nov, paid to the house when
+ * the rounds are locked). Dev only: `?dryrun=1` simulates everything (no wallet, no broadcast); not linked in the UI.
+ * `?autofire=1` (with ?dryrun=1) holds the trigger on the boss, for screenshots.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBlaster } from '@/lib/useBlaster';
@@ -30,19 +33,17 @@ import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons'
 import { GalleryEngine, type Hooks, type Quality, type Stats } from '@/lib/galleryGame/engine';
 import {
   DEFAULT_AMMO,
-  PACKS,
   PLATFORM_FEE,
+  overheadSats,
   PRIZE,
   chainHandle,
   paymailFor,
-  fmtBsv,
   fmtUsd,
   freeForStressTest,
   galleryPushes,
   inEvent,
   patternLabel,
   platformFeeAt,
-  quote,
   shotSats,
   txPattern,
   usdOf,
@@ -54,13 +55,15 @@ import { HazardBar, Sticker } from '../dr';
 import { drFontClass } from '../dr/fonts';
 import { IdentityPicker, useMyHandle } from '../PlayerBadge';
 import { PrizeBanner } from './PrizeBanner';
+import { CoinCabinet, CreditCounter } from '../coinop/CoinCabinet';
+import { useCabinet } from '../coinop/useCabinet';
+import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 
 const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
 const FALLBACK_USD = 17.4;
 const PREFS = 'tb:gallery-prefs';
 const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before the clock is read
 
-type Mode = 'practice' | 'live';
 type Run = { sent: number; started: number; last: string | null; tps: number; status: string | null };
 
 const BLASTERS = ['minigun', 'plasmarifle', 'quadplasma'];
@@ -79,7 +82,10 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 export function ShootingGallery() {
   const b = useBlaster();
   const { storm, fireBatch } = b;
-  const handle = chainHandle(cleanHandle(useMyHandle()));
+  const xHandle = chainHandle(cleanHandle(useMyHandle()));
+  const [name, setName] = useState('');
+  // The NAME typed at the cabinet is the on-chain handle tag and the board name.
+  const handle = cleanName(name);
   const weapons = useMemo(() => {
     // A short rack of heavy hitters built to stream millions of rounds (owner, 24 Oct).
     const all = buildWeapons();
@@ -88,13 +94,11 @@ export function ShootingGallery() {
   const { owned } = useOrdnance(b.wallet);
   const [dry, setDry] = useState(false);
   const [autofire, setAutofire] = useState(false);
-  const [mode, setMode] = useState<Mode>('practice');
   const [weaponId, setWeaponId] = useState('minigun');
   // Rounds carry the player's paymail once a wallet pays; practice fires plain sats.
-  const paymail = b.wallet ? paymailFor(handle) : null;
+  const paymail = b.wallet ? paymailFor(xHandle) : null;
   const ammo = paymail ?? DEFAULT_AMMO;
   const [loadout, setLoadout] = useState(true);
-  const [pack, setPack] = useState<number>(PACKS[0]);
   const [bsvUsd, setBsvUsd] = useState(FALLBACK_USD);
   const [locked, setLocked] = useState(false);
   const [run, setRun] = useState<Run>({ sent: 0, started: 0, last: null, tps: 0, status: null });
@@ -118,19 +122,20 @@ export function ShootingGallery() {
   const burstBusy = useRef(false);
   const chainN = useRef(1);
   const [sid] = useState(() => Math.random().toString(36).slice(2, 10));
-  const live = mode === 'live';
-  const simulated = !live || dry;
+  const live = true; // coin-op: every round is paid
+  const simulated = dry;
   const weapon = weapons.find((w) => w.id === weaponId) ?? weapons[0];
   const pattern = txPattern(weapon);
   const unlocked = useMemo(() => new Set([...STOCK_IDS, ...owned]), [owned]);
-  // Practice and dry runs let you try any gun; LIVE fires the stock guns plus the 1Sat Ordnance you own.
+  // Dry runs let you try any gun; LIVE fires the stock guns plus the 1Sat Ordnance you own.
   const canUse = (w: RangeWeapon) => simulated || unlocked.has(w.id);
   const clock = now || BEFORE_EVENT;
   const fee = platformFeeAt(clock);
   const free = freeForStressTest(clock);
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(handle?.length ?? 0, ammoLen);
-  const q = quote(pack, handle?.length ?? 0, fee, ammoLen);
+  const cab = useCabinet(b, 'Shooting Gallery', { dry });
+  const [locking, setLocking] = useState(false);
   const packLeft = Math.max(0, bought - run.sent);
 
   // ── Prefs, query flags, price, clock ──
@@ -151,15 +156,13 @@ export function ShootingGallery() {
         setLoadout(false);
       }
       if (qs.get('loadout') === '0') setLoadout(false);
-      if (qs.get('mode') === 'live') setMode('live');
     });
-    fetch('/api/price')
-      .then((r) => r.json())
-      .then((j: { bsvUsd?: number }) => j.bsvUsd && setBsvUsd(j.bsvUsd))
-      .catch(() => undefined);
     const i = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(i);
   }, []);
+  useEffect(() => {
+    if (cab.bsvUsd) void Promise.resolve().then(() => setBsvUsd(cab.bsvUsd!));
+  }, [cab.bsvUsd]);
   useEffect(() => {
     try {
       localStorage.setItem(PREFS, JSON.stringify({ w: weaponId, a: ammo ?? DEFAULT_AMMO }));
@@ -209,8 +212,8 @@ export function ShootingGallery() {
     if (ready) void engine.current?.setWeapon(weaponId);
   }, [ready, weaponId]);
   useEffect(() => {
-    engine.current?.setBossBase(live ? Math.min(100_000, Math.max(20_000, Math.round(pack / 8))) : 20_000);
-  }, [live, pack, ready]);
+    engine.current?.setBossBase(Math.min(100_000, Math.max(20_000, Math.round(bought / 8))));
+  }, [bought, ready]);
   useEffect(() => {
     const e = engine.current;
     if (!e || !ready || !autofire) return;
@@ -225,7 +228,7 @@ export function ShootingGallery() {
     sentRef.current += n;
     lastAccept.current = performance.now();
     setRun((r) => ({ ...r, sent: sentRef.current, last: txid ?? r.last, started: r.started || Date.now() }));
-  }, []);
+  }, [setRun]);
   useEffect(() => {
     if (!simulated) return;
     let last = performance.now();
@@ -244,18 +247,6 @@ export function ShootingGallery() {
     }, 50);
     return () => clearInterval(i);
   }, [simulated, live, dry, bought, landed]);
-
-  // ── Practice and live keep separate counters ──
-  const saved = useRef({ practice: 0, live: 0 });
-  const prevMode = useRef<Mode>(mode);
-  useEffect(() => {
-    if (prevMode.current === mode) return;
-    saved.current[prevMode.current] = sentRef.current;
-    prevMode.current = mode;
-    sentRef.current = saved.current[mode];
-    simRef.current.on = false;
-    setRun({ sent: sentRef.current, started: 0, last: null, tps: 0, status: null });
-  }, [mode]);
 
   // ── LIVE stream: the storm ──
   const streamRef = useRef<() => Promise<void>>(async () => undefined);
@@ -382,7 +373,7 @@ export function ShootingGallery() {
       .then((r) => r.json())
       .then((j: { rows?: BoardRow[] }) => setBoard(j.rows ?? []))
       .catch(() => undefined);
-  }, [boardWin]);
+  }, [boardWin, setBoard]);
   useEffect(() => {
     void Promise.resolve().then(loadBoard);
     const i = setInterval(loadBoard, 15_000);
@@ -420,30 +411,36 @@ export function ShootingGallery() {
     if (live && !dry && run.sent) void reportRef.current(!firing);
   }, [live, dry, run.sent, firing]);
 
-  // ── Buy a pack ──
-  const buy = async () => {
+  // ── LOCK & LOAD: turn the loaded credit into rounds (credit is the ammunition) ──
+  const perShotAll = perShot * (1 + fee);
+  const lockAndLoad = async () => {
     setErr(null);
+    unlockAudio();
     if (dry) {
-      setBought((p) => Math.max(p, sentRef.current) + pack);
+      const sats = usdToSats(cab.creditUsd, bsvUsd) ?? 0;
+      setBought(sentRef.current + Math.max(0, Math.floor(sats / perShotAll)));
       sfx('coin');
+      setLoadout(false);
       return;
     }
-    if (!b.wallet) return b.connectWallet();
-    const need = Math.max(0, q.total - b.ammo);
-    if (need > 0) {
-      const ok = await b.load(need, `Shooting Gallery: ${pack.toLocaleString()} shots`);
-      if (!ok) return;
-    }
-    if (q.fee > 0) {
-      try {
-        await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: q.fee }, ammo ?? DEFAULT_AMMO);
-      } catch (e) {
-        setErr(`Platform fee did not go through: ${e instanceof Error ? e.message : String(e)}`);
-        return;
+    setLocking(true);
+    try {
+      const avail = b.ammo; // the gun's sats are the credit
+      let shots = Math.floor(Math.max(0, avail - overheadSats(Math.floor(avail / perShotAll))) / perShotAll);
+      if (shots <= 0) throw new Error('Not enough credit for a round. Insert coin.');
+      const feeSats = Math.ceil(shots * perShot * fee);
+      if (feeSats > 0) {
+        await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
+        shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots)) / perShot));
       }
+      setBought(sentRef.current + shots);
+      sfx('coin');
+      setLoadout(false);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLocking(false);
     }
-    setBought((p) => Math.max(p, sentRef.current) + pack);
-    sfx('coin');
   };
 
   const spent = simulated ? 0 : run.sent * perShot;
@@ -477,7 +474,7 @@ export function ShootingGallery() {
         {!loadout && (
           <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start justify-between gap-2 p-2 sm:p-3">
             <div className="bg-black/65 px-2 py-1 font-mono">
-              <div className="text-[10px] tracking-widest text-dim">{live ? (dry ? 'LIVE · DRY RUN' : 'LIVE · ON CHAIN') : 'FREE PRACTICE · SIMULATED'}</div>
+              <div className="text-[10px] tracking-widest text-dim">{dry ? 'DRY RUN · DEV' : 'LIVE · ON CHAIN'}</div>
               <div className="text-[clamp(26px,5vw,48px)] font-bold leading-none tabular-nums" style={{ color: DR.colour.amber }}>
                 {run.sent.toLocaleString()}
               </div>
@@ -499,6 +496,12 @@ export function ShootingGallery() {
               <div className="mt-0.5 text-[10px] text-dim">Reforms the moment you let up. Keep firing.</div>
             </div>
             <div className="bg-black/65 px-2 py-1 text-right font-mono text-[11px] leading-tight">
+              <div>
+                <span className="text-dim">CREDIT </span>
+                <span className="tabular-nums" style={{ color: DR.colour.amber }}>
+                  {fmtCredit(cab.creditUsd)}
+                </span>
+              </div>
               <div>
                 <span className="text-dim">tx/s </span>
                 <span className="tabular-nums" style={{ color: DR.colour.cyan }}>
@@ -522,7 +525,7 @@ export function ShootingGallery() {
               </div>
               {live && (
                 <div>
-                  <span className="text-dim">pack left </span>
+                  <span className="text-dim">rounds left </span>
                   <span className="tabular-nums">{packLeft.toLocaleString()}</span>
                 </div>
               )}
@@ -533,7 +536,7 @@ export function ShootingGallery() {
         {!loadout && (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 p-2 sm:p-3">
             <div className="max-w-[60%] bg-black/65 px-2 py-1 font-mono text-[11px] text-dim">
-              {run.status ?? (live && packLeft <= 0 ? 'Buy a pack below to fire for real.' : `${patternLabel(pattern)} · HOLD to fire (or SPACE).`)}
+              {run.status ?? (packLeft <= 0 ? 'Out of rounds: open LOADOUT and insert coin.' : `${patternLabel(pattern)} · HOLD to fire (or SPACE).`)}
             </div>
             <div className="pointer-events-auto mb-12 flex gap-2">
               <button type="button" onClick={() => setLoadout(true)} className="btn px-3 py-2 text-xs">
@@ -565,14 +568,7 @@ export function ShootingGallery() {
                     Loadout
                   </h2>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => setMode('practice')} disabled={firing} className={`btn px-3 py-1.5 ${!live ? 'btn-on' : ''}`}>
-                    FREE PRACTICE
-                  </button>
-                  <button onClick={() => setMode('live')} disabled={firing} className={`btn px-3 py-1.5 ${live ? 'btn-on' : ''}`}>
-                    LIVE {dry ? '(DRY RUN)' : '(ON CHAIN)'}
-                  </button>
-                </div>
+                <CreditCounter usd={cab.creditUsd} />
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {weapons.map((w) => {
@@ -622,22 +618,33 @@ export function ShootingGallery() {
                   <>Your paymail attaches to every round when you pay. {perShot} sat per shot.</>
                 )}
               </p>
-              <div className="sticky bottom-0 z-10 -mx-3 flex flex-wrap items-center gap-3 border-t-2 border-white/15 bg-black/90 px-3 py-2 sm:-mx-5 sm:px-5">
-                <button
-                  type="button"
-                  disabled={!ready || !ammo || !canUse(weapon)}
-                  onClick={() => {
-                    unlockAudio();
-                    setLoadout(false);
-                  }}
-                  className="lock-load w-full -skew-x-6 py-4 text-[clamp(32px,6vw,64px)] font-black uppercase italic leading-none tracking-[0.12em] transition hover:scale-[1.02] active:scale-[0.98] disabled:animate-none disabled:opacity-40 sm:w-auto sm:px-14"
-                  style={{ fontFamily: DR.font.display, background: `linear-gradient(180deg, #ff4a3d, ${DR.colour.signal} 55%, #8f0f08)`, color: DR.colour.paper, border: `3px solid ${DR.colour.paper}`, textShadow: '0 3px 0 rgba(0,0,0,.45)' }}
-                >
-                  {ready ? 'Lock & load ▶' : 'Loading…'}
-                </button>
-                <span className="text-xs text-dim">
-                  {live ? (dry ? 'Dry run: nothing is broadcast, nothing is spent.' : 'LIVE: buy a pack below, then every round is a real transaction.') : 'Practice is simulated and free.'}
-                </span>
+              <div className="border-t-2 border-white/15 bg-black/85 px-1 py-4 sm:px-4">
+                <CoinCabinet
+                  title="Shooting Gallery"
+                  creditUsd={cab.creditUsd}
+                  pendingUsd={cab.pending}
+                  bsvUsd={cab.bsvUsd}
+                  onCoin={cab.onCoin}
+                  onClear={cab.onClear}
+                  onPay={() => void cab.pay()}
+                  stage={cab.stage}
+                  stageText={cab.stageText}
+                  name={name}
+                  setName={setName}
+                  priceUsd={satsToUsd(perShotAll, bsvUsd)}
+                  priceNote={`${perShot} sat a shot network cost${fee ? ` + ${Math.round(fee * 100)}% platform fee` : ''}: ${fmtCredit(cab.creditUsd)} ≈ ${Math.floor((usdToSats(cab.creditUsd, bsvUsd) ?? 0) / perShotAll).toLocaleString()} rounds.`}
+                  startLabel={ready ? 'Lock & load ▶' : 'Loading…'}
+                  onStart={() => void lockAndLoad()}
+                  starting={locking}
+                  blocked={!ready || !ammo || !canUse(weapon)}
+                  walletLabel={b.wallet?.name ?? null}
+                  error={err ?? cab.err}
+                  footer={
+                    <span className="text-[11px] text-dim">
+                      {dry ? 'Dry run (dev): nothing is broadcast, nothing is spent.' : free ? 'Free for the stress test: network cost only until 1 Nov.' : `From 1 Nov a ${Math.round(PLATFORM_FEE * 100)}% platform fee applies.`}
+                    </span>
+                  }
+                />
               </div>
             </div>
           </div>
@@ -646,62 +653,31 @@ export function ShootingGallery() {
 
       <PrizeBanner />
 
-      {live && (
-        <section className="panel">
-          <div className="panel-header">
-            <span className="panel-title">Session pack</span>
-            <span className="text-dim">
-              {perShot} sat/shot network fee ·{' '}
-              {free ? <span style={{ color: DR.colour.acid }}>Free for the stress test: no platform fee until 1 Nov</span> : `${Math.round(fee * 100)}% platform fee`} · BSV ${bsvUsd.toFixed(2)}
-            </span>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {PACKS.map((n) => {
-              const qq = quote(n, handle?.length ?? 0, fee, ammoLen);
-              return (
-                <button key={n} onClick={() => setPack(n)} disabled={firing} className={`btn flex flex-col items-start px-4 py-3 text-left ${pack === n ? 'btn-on' : ''}`}>
-                  <span className="text-2xl font-bold">{fmtUsd(usdOf(qq.total, bsvUsd))}</span>
-                  <span className="text-sm">{n.toLocaleString()} shots</span>
-                  <span className="text-[11px] text-dim">
-                    {fmtBsv(qq.total)} · {qq.total.toLocaleString()} sat
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-2 text-sm text-dim">
-            {pack.toLocaleString()} shots: network {fmtUsd(usdOf(q.network, bsvUsd))}
-            {free ? ', no platform fee for the stress test' : ` + platform fee ${fmtUsd(usdOf(q.fee, bsvUsd))}`} = <span className="text-hot">{fmtUsd(usdOf(q.total, bsvUsd))}</span>. The pack
-            is a hard cap. Unspent sats stay in your own gun and UNLOAD sends them back to your wallet.
-            {free && PLATFORM_FEE > 0 ? ` From 1 Nov a ${Math.round(PLATFORM_FEE * 100)}% platform fee applies.` : ''}
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {!dry && !b.wallet ? (
-              <button onClick={b.connectWallet} disabled={!!b.busy} className="btn-fire px-5 py-2">
-                {b.busy === 'connecting' ? 'CONNECTING…' : 'CONNECT bWalletX'}
-              </button>
-            ) : (
-              <button onClick={buy} disabled={!!b.busy || firing || !ammo} className="btn-fire px-5 py-2">
-                {b.busy === 'loading' ? 'APPROVE IN WALLET…' : `BUY ${pack.toLocaleString()} SHOTS · ${fmtUsd(usdOf(q.total, bsvUsd))}`}
-              </button>
-            )}
-            {!dry && b.wallet && b.ammo > 0 && !firing && (
-              <button onClick={b.unload} disabled={!!b.busy} className="btn px-4 py-2">
-                UNLOAD (refund {fmtUsd(usdOf(b.ammo, bsvUsd))})
-              </button>
-            )}
-            <span className="text-sm text-dim">
-              Paid shots ready: <span className="text-hot">{packLeft.toLocaleString()}</span>
-            </span>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-dim">Your name on bsv.lol and the board:</span>
-            <IdentityPicker compact />
-            {!handle && <span className="text-xs text-muted">No handle: shots go out anonymous and are not ranked.</span>}
-          </div>
-          {(err || b.error) && <p className="mt-2 text-sm text-hot">⚠ {err ?? b.error}</p>}
-        </section>
-      )}
+      <section className="panel">
+        <div className="panel-header">
+          <span className="panel-title">Credit</span>
+          <span className="text-dim">
+            {perShot} sat/shot network fee ·{' '}
+            {free ? <span style={{ color: DR.colour.acid }}>Free for the stress test: no platform fee until 1 Nov</span> : `${Math.round(fee * 100)}% platform fee`} · BSV ${bsvUsd.toFixed(2)}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <CreditCounter usd={cab.creditUsd} />
+          <span className="text-dim">
+            Rounds ready: <span className="text-hot">{packLeft.toLocaleString()}</span>. The credit sits in your own gun; UNLOAD sends what is left back to your wallet.
+          </span>
+          {!dry && b.wallet && b.ammo > 0 && !firing && (
+            <button onClick={b.unload} disabled={!!b.busy} className="btn px-4 py-2">
+              UNLOAD (refund {fmtUsd(usdOf(b.ammo, bsvUsd))})
+            </button>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-dim">Paymail on your rounds (from your X handle):</span>
+          <IdentityPicker compact />
+        </div>
+        {(err || b.error) && <p className="mt-2 text-sm text-hot">⚠ {err ?? b.error}</p>}
+      </section>
 
       <section className="panel">
         <div className="panel-header">

@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function CityPage() {
   return (
-    <GameShell
+    <GameShell game="city"
       title="Satoshi City"
       below={
         <>

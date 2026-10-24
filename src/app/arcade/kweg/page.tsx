@@ -13,7 +13,7 @@ export const metadata = {
 
 export default function KwegPage() {
   return (
-    <GameShell
+    <GameShell game="kweg"
       title="Kweg&apos;s Expedition"
       below={
         <>

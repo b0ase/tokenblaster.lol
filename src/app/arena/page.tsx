@@ -13,7 +13,7 @@ export const metadata = {
 
 export default function ArenaPage() {
   return (
-    <GameShell
+    <GameShell game="arena"
       title="Arena" back="/" backLabel="HOME"
       below={
         <>

@@ -95,7 +95,7 @@ export function BSVGun() {
         <button onClick={() => setTab('blast')} className={`btn px-4 py-2 text-lg ${tab === 'blast' ? 'btn-on' : ''}`}>
           BLAST ZONE
         </button>
-        <span className="self-center text-sm text-dim">{tab === 'range' ? 'Shoot the live chain: practice is free, LIVE is one real transaction per shot.' : 'Mass blaster: tens of thousands of real transactions in parallel lanes.'}</span>
+        <span className="self-center text-sm text-dim">{tab === 'range' ? 'Shoot the live chain: entry is paid at the cabinet, LIVE is one real transaction per shot.' : 'Mass blaster: tens of thousands of real transactions in parallel lanes.'}</span>
       </div>
       <section className="game-stage panel overflow-hidden p-0">
         <BSVGunRange b={b} mode={tab} blast={{ active: tab === 'blast' && firing, tps, sent, target }} />

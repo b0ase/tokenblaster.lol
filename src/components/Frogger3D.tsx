@@ -1597,7 +1597,7 @@ export function Frogger3D() {
           aria-pressed={!paid}
           className={`btn flex flex-col items-start gap-1 px-4 py-4 text-left ${!paid ? 'btn-on' : ''}`}
         >
-          <span className="text-xl font-bold">{!paid ? '● ' : '○ '}PRACTICE · FREE</span>
+          <span className="text-xl font-bold">{!paid ? '● ' : '○ '}CREDIT PLAY · no per-hop fee</span>
           <span className="text-sm opacity-80">Nothing is paid. Hops and shots stay off-chain.</span>
         </button>
         <button
@@ -1612,7 +1612,7 @@ export function Frogger3D() {
         </button>
       </div>
       <p className="mt-2 text-center text-base font-bold">
-        {paid ? <span className="text-hot">You are playing PAID: each hop costs money.</span> : <span className="text-dim">You are playing FREE: nothing is paid.</span>}
+        {paid ? <span className="text-hot">You are playing PAID: each hop costs money.</span> : <span className="text-dim">Credit play: paid at the cabinet, no per-hop fee.</span>}
       </p>
       <div className={`inset mt-2 flex-wrap items-center gap-2 px-3 py-2 text-sm ${paid ? 'flex' : 'hidden'}`}>
         {paid && b.wallet && (

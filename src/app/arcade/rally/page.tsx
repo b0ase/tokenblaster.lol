@@ -13,7 +13,7 @@ export const metadata = {
 
 export default function RallyPage() {
   return (
-    <GameShell
+    <GameShell game="rally"
       title="Token Rally"
       below={
         <>

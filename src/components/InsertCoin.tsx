@@ -1,212 +1,121 @@
 'use client';
 
 /**
- * The arcade coin slot (src/lib/coinop.ts). useCoinOp(game, tag) keeps this session's credits (in
- * memory, per game) and the txid of each coin; <InsertCoin> is the big "INSERT COIN · 10p (N sats)"
- * button plus the CREDITS counter. Starting a paid game calls `consume()`, which spends one credit
- * and returns that coin's txid (record it with the run). Render `chooserEl` once (wallet picker).
+ * The game-side coin slot. Coin-op rules (owner, 24 Oct 2026): no free play. Credit is loaded once at the
+ * GameShell cabinet (src/components/coinop/CoinOpGate.tsx: coins add up, ONE wallet approval funds the
+ * player's own gun). Each play is paid from that credit to the HOUSE on chain.
+ *
+ * useCoinOp(game, tag) keeps its old shape so every game wires through unchanged:
+ *  - `credits`: plays already paid (the gate's START pays the first).
+ *  - `playPaid(start)`: use a paid play, or pay one more from the credit and start. Always `start(true)`.
+ *  - `consume()`: take one paid play; returns its payment txid (recorded with the run).
+ * There is no PRACTICE button any more.
  */
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { COINOP_HOUSE, COIN_PENCE, coinSats, insertCoin, isCancel, LIVES_PER_CREDIT, penceToSats } from '@/lib/coinop';
-import type { WalletInterface } from '@bsv/sdk';
-import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
-import { WalletChooser } from './WalletChooser';
+import { useCallback, useState, useSyncExternalStore } from 'react';
+import { COIN_PENCE, LIVES_PER_CREDIT, isCancel } from '@/lib/coinop';
+import { fmtCredit, playPriceUsd } from '@/lib/coinop/credit';
+import { coinStore } from './coinop/store';
 
-/**
- * The wallet a coin is paid from, shared by every game on the site for this visit. Paying a coin needs no
- * identity key, so there is no connect step: we use the in-app or remembered wallet directly and the
- * player sees ONE approval, the 10p (owner, 7 Oct 2026: one "pay 10p to play?" and that's it).
- */
-let coinWallet: WalletInterface | null = null;
-/**
- * waitForAuthentication makes a BRC-73 wallet show the site's grouped permissions (/manifest.json) ONCE,
- * incl. a small monthly spending allowance; after that each coin goes through without its own prompt.
- */
-async function authorise(w: WalletInterface): Promise<WalletInterface> {
-  await w.waitForAuthentication({}).catch(() => undefined);
-  coinWallet = w;
-  return w;
-}
-async function findCoinWallet(): Promise<WalletInterface | 'choose'> {
-  if (coinWallet) return coinWallet;
-  const all = await discoverWallets().catch(() => [] as WalletEntry[]);
-  const id = rememberedWallet();
-  const entry = all.find((w) => w.kind === 'in-app') ?? (id ? all.find((w) => w.id === id) : undefined);
-  if (!entry) return 'choose';
-  return authorise(entry.wallet);
-}
-
-// Credits live for the session (this tab), per game: each entry is the txid of a paid coin.
-const credits = new Map<string, string[]>();
-const subs = new Set<() => void>();
-const emit = () => subs.forEach((f) => f());
-const subscribe = (f: () => void) => {
-  subs.add(f);
-  return () => subs.delete(f);
-};
-let coinN = 0;
-
-/** `pence`: this game's coin (default 10p; NPG Arena's Penny Battles use 1p). */
+/** `pence` is kept for callers; the price is the game's dollar price (src/lib/coinop/credit.ts). */
 export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE) {
-  const count = useSyncExternalStore(subscribe, () => credits.get(tag)?.length ?? 0, () => 0);
-  const [rate, setRate] = useState<number | null>(null);
-  const [rateErr, setRateErr] = useState(false);
+  const count = useSyncExternalStore(coinStore.subscribe, coinStore.prepaidCount, () => 0);
+  const credit = useSyncExternalStore(coinStore.subscribe, coinStore.credit, () => 0);
+  const hasPayer = useSyncExternalStore(coinStore.subscribe, () => coinStore.payer() !== null, () => false);
   const [paying, setPaying] = useState(false);
-  const [choosing, setChoosing] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string; txid?: string } | null>(null);
-  // The game to start as soon as the coin lands (PLAY · 10p): paying IS pressing start.
-  const startNext = useRef<((paid: boolean) => void) | null>(null);
+  const priceUsd = playPriceUsd(tag);
 
-  useEffect(() => {
-    let live = true;
-    const load = () =>
-      fetch('/api/price/gbp')
-        .then((r) => r.json())
-        .then((j: { bsvGbp?: number }) => {
-          if (!live) return;
-          setRate(j.bsvGbp ?? null);
-          setRateErr(!j.bsvGbp);
-        })
-        .catch(() => live && setRateErr(true));
-    void load();
-    const t = setInterval(load, 60_000);
-    return () => {
-      live = false;
-      clearInterval(t);
-    };
-  }, []);
-
-  const sats = pence === COIN_PENCE ? coinSats(rate) : penceToSats(pence, rate);
-
-  const payWith = useCallback(
-    async (client: WalletInterface) => {
-      if (!sats) return;
-      setPaying(true);
-      setMsg(null);
-      try {
-        const txid = await insertCoin(client, { game, tag, sats, n: ++coinN, pence });
-        credits.set(tag, [...(credits.get(tag) ?? []), txid]);
-        emit();
-        setMsg({ ok: true, text: `Coin accepted (${sats.toLocaleString('en-GB')} sats).`, txid });
-        const go = startNext.current;
-        startNext.current = null;
-        go?.(true);
-      } catch (e) {
-        startNext.current = null;
-        if (!isCancel(e)) coinWallet = null; // a dead or locked wallet: look again next time
-        setMsg({ ok: false, text: isCancel(e) ? 'Cancelled in the wallet. No coin taken.' : `Coin not taken: ${e instanceof Error ? e.message : String(e)}` });
-      } finally {
-        setPaying(false);
-      }
-    },
-    [sats, game, tag, pence],
-  );
-
-  const insert = useCallback(async () => {
-    if (!COINOP_HOUSE || !sats || paying) return;
+  /** Pay one play from the loaded credit (no wallet prompt: the credit is already in the player's gun). */
+  const insert = useCallback(async (): Promise<boolean> => {
+    const pay = coinStore.payer();
+    if (!pay || paying) return false;
     setPaying(true);
-    const w = await findCoinWallet();
-    setPaying(false);
-    if (w === 'choose') return setChoosing(true); // first visit only: pick a wallet once
-    void payWith(w);
-  }, [sats, paying, payWith]);
+    setMsg(null);
+    try {
+      const txid = await pay();
+      coinStore.addPrepaid(txid);
+      setMsg({ ok: true, text: `Play paid (${fmtCredit(priceUsd)}).`, txid });
+      return true;
+    } catch (e) {
+      setMsg({ ok: false, text: isCancel(e) ? 'Cancelled. No credit used.' : e instanceof Error ? e.message : String(e) });
+      return false;
+    } finally {
+      setPaying(false);
+    }
+  }, [paying, priceUsd]);
 
-  const pick = useCallback(
-    (entry: WalletEntry) => {
-      setChoosing(false);
-      rememberWallet(entry.id);
-      void authorise(entry.wallet).then(payWith);
-    },
-    [payWith],
-  );
-
-  /** PLAY · 10p: use a credit if there is one, otherwise take a coin and start the moment it lands. */
   const playPaid = useCallback(
     (start: (paid: boolean) => void) => {
-      if ((credits.get(tag)?.length ?? 0) > 0) return start(true);
-      startNext.current = start;
-      void insert();
+      if (coinStore.prepaidCount() > 0) return start(true);
+      void insert().then((ok) => ok && start(true));
     },
-    [tag, insert],
+    [insert],
   );
 
-  const chooserEl = choosing && (
-    <WalletChooser
-      note="Pick the wallet to pay from. You'll only be asked once."
-      onPick={pick}
-      onClose={() => {
-        startNext.current = null;
-        setChoosing(false);
-      }}
-    />
-  );
+  const consume = useCallback((): string | null => coinStore.takePrepaid(), []);
 
-/** Spend one credit; returns its coin's txid, or null when there are no credits. */
-  const consume = useCallback((): string | null => {
-    const list = credits.get(tag) ?? [];
-    if (!list.length) return null;
-    const [txid, ...rest] = list;
-    credits.set(tag, rest);
-    emit();
-    return txid;
-  }, [tag]);
-
-  return { credits: count, sats, pence, rateErr, paying, msg, walletErr: null as string | null, insert, playPaid, consume, chooserEl, enabled: Boolean(COINOP_HOUSE) };
+  return {
+    credits: count,
+    creditUsd: credit,
+    priceUsd,
+    /** Legacy fields (NPG Arena): price in sats is no longer shown; the dollar price is. */
+    sats: hasPayer ? 1 : null,
+    pence,
+    rateErr: false,
+    paying,
+    msg,
+    walletErr: null as string | null,
+    insert: () => void insert(),
+    playPaid,
+    consume,
+    chooserEl: null,
+    enabled: hasPayer,
+    game,
+  };
 }
 
 export type CoinOp = ReturnType<typeof useCoinOp>;
 
-/**
- * The coin slot: ONE big button. With credits left it says PLAY · 1 CREDIT; without, PLAY · 10p, which takes
- * the coin and starts the game the moment it lands (owner, 7 Oct 2026: paying then hunting for a
- * separate start button was bad design). Without `start` it only takes a coin (a credit for later).
- */
+/** The game's PLAY button: PLAY · 1 CREDIT when a play is paid, else PLAY · $0.10 from your credit. */
 export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void }) {
+  const short = co.credits === 0 && co.creditUsd + 1e-9 < co.priceUsd;
   const label = !co.enabled
-    ? 'COIN SLOT CLOSED'
+    ? 'INSERT COIN AT THE CABINET'
     : co.paying
-      ? 'APPROVE IN YOUR WALLET…'
+      ? 'PAYING…'
       : co.credits > 0 && start
-        ? `▶ ${playLabel} · 1 CREDIT (${co.credits} left)`
-        : co.sats
-          ? `🪙 ${start ? `${playLabel} · ` : 'INSERT COIN · '}${co.pence}p (${co.sats.toLocaleString('en-GB')} sats)`
-          : co.rateErr
-            ? 'PRICE UNAVAILABLE'
-            : 'PRICING…';
-  const canUseCredit = Boolean(start) && co.credits > 0;
+        ? `▶ ${playLabel} · 1 CREDIT`
+        : short
+          ? `INSERT COIN · CREDIT ${fmtCredit(co.creditUsd)}`
+          : `▶ ${playLabel} · ${fmtCredit(co.priceUsd)}`;
   return (
     <div className="flex flex-col items-center gap-1" onKeyDown={(e) => e.stopPropagation()}>
       <button
         onClick={() => {
-          onPress?.(); // runs inside the click, so a game can ask for fullscreen while the user gesture is live
+          onPress?.();
           if (start) co.playPaid(start);
-          else void co.insert();
+          else co.insert();
         }}
-        disabled={!co.enabled || co.paying || (!canUseCredit && !co.sats)}
-        className="btn btn-on border-2 border-[#ffd36a] px-5 py-2.5 text-base font-bold tracking-widest text-[#ffd36a] shadow-[0_0_14px_#ffd36a80] disabled:opacity-50 sm:text-lg"
+        disabled={!co.enabled || co.paying || (co.credits === 0 && short)}
+        className="lock-load btn btn-on border-2 border-[#ffd36a] px-8 py-4 text-lg font-black tracking-widest text-[#ffd36a] disabled:animate-none disabled:opacity-50 sm:text-2xl"
       >
         {label}
       </button>
-      {co.enabled ? (
-        <p className="text-[10px] text-dim">
-          {perCredit ?? `1 coin = 1 game, ${LIVES_PER_CREDIT} lives.`} One wallet approval, then the game starts. Plus the network fee. No payouts.
-        </p>
-      ) : (
-        <p className="text-[10px] text-dim">Paid play is off here: no house address is set (NEXT_PUBLIC_TB_HOUSE_ADDRESS). Practice is free.</p>
-      )}
+      <p className="text-[10px] text-dim">
+        {perCredit ?? `1 play = 1 game, ${LIVES_PER_CREDIT} lives.`} {fmtCredit(co.priceUsd)} a play from your credit ({fmtCredit(co.creditUsd)} left), paid to the house on chain. No payouts.
+      </p>
+      {short && co.credits === 0 && <p className="text-xs text-accent">Out of credit. Reload the page to get back to the cabinet and insert coin.</p>}
       {co.msg && !co.msg.ok && <p className="text-xs text-accent">{co.msg.text}</p>}
-      {co.walletErr && <p className="text-xs text-accent">{co.walletErr}</p>}
     </div>
   );
 }
 
-/** Title / game-over controls: PLAY · 10p (pays and starts), PRACTICE (free). */
+/** Title / game-over controls. Owner, 24 Oct 2026: no PRACTICE, only paid play. Extra props kept for callers. */
 export function CoinOpButtons({
   co,
   start,
   perCredit,
   playLabel = 'PLAY',
-  practiceLabel = '▶ PRACTICE · FREE',
   onPress,
 }: {
   co: CoinOp;
@@ -219,18 +128,9 @@ export function CoinOpButtons({
   return (
     <div className="flex flex-col items-center gap-2">
       <InsertCoin co={co} perCredit={perCredit} start={start} playLabel={playLabel} onPress={onPress} />
-      <button
-        onClick={() => {
-          onPress?.();
-          start(false);
-        }}
-        className="btn px-3 py-1 text-sm"
-      >
-        {practiceLabel}
-      </button>
     </div>
   );
 }
 
-/** The run's mode, for the canvas: credit game or free practice. */
-export const coinOpModeLabel = (paid: boolean, credits: number) => `${paid ? 'CREDIT GAME · 10p paid' : 'PRACTICE · free, nothing on chain'} · CREDITS: ${credits}`;
+/** The run's mode, for the canvas. */
+export const coinOpModeLabel = (paid: boolean, credits: number) => `${paid ? 'CREDIT GAME' : 'INSERT COIN'} · PLAYS PAID: ${credits}`;

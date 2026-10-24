@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { FullscreenButton, LeaderboardButton, SoundButton, WalletBar, menuRowClass, roundBtn } from '@/components/walletbar/WalletBar';
 import { BackIcon } from '@/components/walletbar/icons';
 import { SiteLogo } from '@/components/SiteNav';
+import { CoinOpGate } from '@/components/coinop/CoinOpGate';
 import { GameShellContext, canElementFullscreen, isMobileish, readAutoFullscreen, writeAutoFullscreen, type GameShellApi } from '@/lib/useGameFullscreen';
 
 /** Buttons that start a run: pressing one (a user gesture) is when we ask for true fullscreen. */
@@ -24,7 +25,11 @@ const subNothing = () => () => undefined;
  * Games mark their root with `game-root` and the play area with `game-stage` (fills the stage) or
  * `game-stage-fit` + `--ar` (letterboxed, keeps its aspect ratio); the CSS puts the play area first.
  */
-export function GameShell({ title, back = '/arcade', backLabel = 'ARCADE', below, children }: { title: string; back?: string; backLabel?: string; below?: ReactNode; children: ReactNode }) {
+/**
+ * `game`: the coin-op slug (src/lib/coinop/credit.ts PLAY_PRICE_USD). With it, the stage starts behind the coin-op
+ * gate (no free play, owner 24 Oct 2026). The Shooting Gallery passes none: its loadout is its own cabinet.
+ */
+export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, children }: { title: string; game?: string; back?: string; backLabel?: string; below?: ReactNode; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [fs, setFs] = useState(false);
   const auto = useSyncExternalStore(subAuto, readAutoFullscreen, () => true);
@@ -133,7 +138,7 @@ export function GameShell({ title, back = '/arcade', backLabel = 'ARCADE', below
               }
             />
           </header>
-          <div className="gs-stage">{children}</div>
+          <div className="gs-stage">{game ? <CoinOpGate game={game} title={title}>{children}</CoinOpGate> : children}</div>
         </div>
         {below && (
           <div className="gs-below mx-auto flex w-full max-w-[1200px] flex-col gap-3 p-2.5">

@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function Highway21Page() {
   return (
-    <GameShell
+    <GameShell game="highway21"
       title="Highway 21M"
       below={
         <>

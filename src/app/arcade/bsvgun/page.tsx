@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function BSVGunPage() {
   return (
-    <GameShell
+    <GameShell game="bsvgun"
       title="BSVGun"
       below={
         <>

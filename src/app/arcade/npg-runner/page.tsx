@@ -12,7 +12,7 @@ export const metadata = {
 
 export default function NpgRunnerPage() {
   return (
-    <GameShell
+    <GameShell game="npg-runner"
       title="Ninja Punk Girls: Erobot Uprising"
       below={
         <>

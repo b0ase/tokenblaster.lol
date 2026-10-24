@@ -1056,7 +1056,7 @@ export function BRacer() {
                     <button onClick={() => joinCode.length >= 3 && room.joinPrivate(joinCode)} className="btn px-2 py-0.5 text-[11px]">
                       JOIN
                     </button>
-                    <span className="text-dim">Empty slots are filled by live-chain AI rivals. Each pilot pays their own credit; practice is free.</span>
+                    <span className="text-dim">Empty slots are filled by live-chain AI rivals. Each pilot pays their own credit; entry is paid at the cabinet.</span>
                   </div>
                 </div>
               )}

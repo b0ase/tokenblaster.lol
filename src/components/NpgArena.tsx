@@ -784,14 +784,14 @@ export function NpgArena() {
                 <span className="text-white/25">{'▮'.repeat(Math.max(0, MAX_BARS - 1 - co.credits))}</span>
               </div>
               <div className="mt-1 text-[11px] text-white/70">
-                One bar free. Each {COIN_P}p coin is one more energy bar for the match (up to {MAX_BARS}); your opponent fights with the same. Mid-fight, a coin tops you up. Coins go to the house pot, plus the network fee. No payouts yet.
+                One bar comes with the paid match. Each ${co.priceUsd.toFixed(2)} of credit is one more energy bar for the match (up to {MAX_BARS}); your opponent fights with the same. Mid-fight, a coin tops you up. Coins go to the house pot, plus the network fee. No payouts yet.
               </div>
               {co.enabled ? (
                 <button type="button" onClick={() => void co.insert()} disabled={co.paying || !co.sats || co.credits >= MAX_BARS - 1} className="npga-seg mt-2 px-4 py-1 text-sm">
-                  {co.paying ? 'WAITING FOR WALLET…' : co.sats ? `🪙 +1 BAR · ${COIN_P}p (${co.sats.toLocaleString('en-GB')} sats)` : 'PRICE LOADING…'}
+                  {co.paying ? 'WAITING FOR WALLET…' : co.sats ? `🪙 +1 BAR · $${co.priceUsd.toFixed(2)}` : 'PRICE LOADING…'}
                 </button>
               ) : (
-                <div className="mt-2 text-[11px] text-white/50">Paid energy is off here (no house address set). Practice is free.</div>
+                <div className="mt-2 text-[11px] text-white/50">Insert coin at the cabinet to buy energy.</div>
               )}
               {co.msg && <div className={`mt-1 text-[11px] ${co.msg.ok ? 'text-[#7dff3a]' : 'text-[#ff6a1a]'}`}>{co.msg.text}</div>}
             </div>
@@ -829,7 +829,7 @@ export function NpgArena() {
                         {energy[i] > 1 && <span className="npga-name text-xs text-[#ffe100] sm:text-base">×{energy[i]}</span>}
                         {i === 0 && co.enabled && hud.phase === 'fight' && (
                           <button type="button" onClick={topUp} disabled={co.paying || !co.sats || energy[0] >= MAX_BARS + 2} className="npga-seg pointer-events-auto px-2 text-[10px] sm:text-xs">
-                            {co.paying ? '…' : `+${COIN_P}p`}
+                            {co.paying ? '…' : `+$${co.priceUsd.toFixed(2)}`}
                           </button>
                         )}
                         <span className={`flex gap-1 ${flip ? 'mr-auto flex-row-reverse' : 'ml-auto'}`}>
