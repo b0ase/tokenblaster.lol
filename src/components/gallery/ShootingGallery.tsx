@@ -156,6 +156,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(handle?.length ?? 0, ammoLen);
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
+  // FREE PLAY (production while payments are fixed): credit is on the house, so LOCK & LOAD just works.
+  const { setDryCredit } = cab;
+  useEffect(() => {
+    if (freePlay) setDryCredit((c) => (c >= 1 ? c : 1));
+  }, [freePlay, setDryCredit]);
   const [locking, setLocking] = useState(false);
   const [loadedRounds, setLoadedRounds] = useState(0);
   const [feed, setFeed] = useState<FeedRow[]>([]);
@@ -260,6 +265,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [fired, setFired] = useState(0);
   const modeRef = useRef<'off' | 'warm' | 'live'>('off');
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
+  // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
+  useEffect(() => {
+    const e = engine.current;
+    if (e) e.combat = !loadout && mode !== 'off' && !over;
+  }, [loadout, mode, over, ready]);
   const setMode = useCallback((m: 'off' | 'warm' | 'live') => {
     modeRef.current = m;
     setModeState(m);
