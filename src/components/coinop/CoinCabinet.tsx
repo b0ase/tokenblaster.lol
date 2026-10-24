@@ -10,7 +10,9 @@
 import { useRef, useState } from 'react';
 import { sfx, unlockAudio } from '@/lib/sfx';
 import { CoinFace, CoinSlot, ControlPanel, SevenSeg } from './hardware';
-import { Icon, Ticker } from './ui';
+import { Icon, Modal, Ticker, useWaitSecs } from './ui';
+import { loadMark } from '@/lib/gun';
+import type { CabModal } from './useCabinet';
 import { COINS_USD, MIN_CREDIT_USD, addCoin, cleanName, fmtCredit, hasCredit, typingName } from '@/lib/coinop/credit';
 
 export type LoadStage = null | 'approve' | 'loading' | 'ready';
@@ -53,6 +55,11 @@ export function CoinCabinet(p: {
   starting?: boolean;
   blocked?: boolean;
   error?: string | null;
+  /** A plain note above the button, e.g. "You have $X of ammo loaded. Press LOCK & LOAD." */
+  note?: string | null;
+  /** False: the wallet stopped answering (a badge shows at once). */
+  walletLive?: boolean;
+  walletName?: string | null;
 }) {
   const total = addCoin(p.creditUsd, p.pendingUsd);
   const busy = p.stage === 'approve' || p.stage === 'loading' || Boolean(p.starting);
@@ -62,6 +69,7 @@ export function CoinCabinet(p: {
   const nameRef = useRef<HTMLInputElement>(null);
   const [miss, setMiss] = useState<Missing | null>(null);
   const [flash, setFlash] = useState(false);
+  const [nameModal, setNameModal] = useState(false);
   const nameMiss = miss === 'name' || miss === 'bad';
   // A coin pressed drops into the slot (animation + clink).
   const slotRef = useRef<HTMLDivElement>(null);
@@ -84,9 +92,11 @@ export function CoinCabinet(p: {
   const press = () => {
     const why: Missing | null = !nameOk ? 'coin' : !enough ? 'more' : !p.name ? 'name' : !cleanName(p.name) ? 'bad' : !p.bsvUsd ? 'price' : p.blocked ? 'wait' : null;
     setMiss(why);
-    sfx('click');
+    sfx(why ? 'hurt' : 'click');
+    loadMark(why ? `start blocked: ${MISSING[why]}` : 'start pressed');
     if (!why) return p.onStart();
     if (why === 'name' || why === 'bad') {
+      setNameModal(true);
       nameRef.current?.focus();
       setFlash(true);
       setTimeout(() => setFlash(false), 450);
@@ -206,6 +216,21 @@ export function CoinCabinet(p: {
         )}
 
         <div className="flex flex-col gap-2.5">
+          {p.walletName && p.walletLive === false && (
+            <p className="mx-auto rounded-full border border-[var(--tbx-red)] bg-[var(--tbx-red)]/15 px-3 py-1 text-xs font-bold text-[#ff7a70]" role="status" data-wallet-badge>
+              Wallet disconnected ({p.walletName})
+            </p>
+          )}
+          {nameMiss && (
+            <p className="tbx-shake rounded-xl border-2 border-[var(--tbx-red)] bg-[var(--tbx-red)]/15 px-4 py-3 text-center text-lg font-bold text-white" role="alert" data-name-callout>
+              {MISSING[miss!]}
+            </p>
+          )}
+          {p.note && !nameMiss && (
+            <p className="rounded-xl border border-[var(--tbx-amber)] bg-[var(--tbx-amber)]/10 px-4 py-2 text-center text-base font-semibold text-[var(--tbx-text)]" role="status" data-ammo-note>
+              {p.note}
+            </p>
+          )}
           <div className={`tbx-bezel ${startOk ? 'tbx-bezel-ready' : ''} mx-auto w-full`}>
             <button
               type="button"
@@ -233,6 +258,64 @@ export function CoinCabinet(p: {
           )}
         </div>
       </div>
+      {nameModal && (
+        <Modal
+          title="Type your name to play"
+          tone="warn"
+          action="Type my name"
+          onAction={() => {
+            setNameModal(false);
+            setTimeout(() => nameRef.current?.focus(), 0);
+          }}
+        >
+          {MISSING[miss === 'bad' ? 'bad' : 'name']} Your name goes on every round you fire.
+        </Modal>
+      )}
     </ControlPanel>
   );
+}
+
+/**
+ * The cabinet's blocking wallet prompts as true modals: disconnected (Reconnect), approve pending (with the
+ * wallet's name and a timer), refused, timed out. Rendered by the page over everything.
+ */
+export function CabinetModals(p: {
+  modal: CabModal;
+  setModal: (m: CabModal) => void;
+  reconnect: () => void;
+  approving: boolean;
+  approveSince: number | null;
+  walletName: string | null;
+  error?: string | null;
+}) {
+  const secs = useWaitSecs(p.approving ? p.approveSince : null);
+  const name = p.walletName ?? 'your wallet';
+  if (p.modal === 'disconnected')
+    return (
+      <Modal title="Your wallet disconnected" tone="bad" action="Reconnect to pay" onAction={p.reconnect} pulse secondary="Not now" onSecondary={() => p.setModal(null)}>
+        {p.walletName ? `${name} is not answering.` : 'No wallet is connected.'} Reconnect to pay. Nothing was charged.
+      </Modal>
+    );
+  if (p.modal === 'timeout')
+    return (
+      <Modal title="Your wallet did not answer" tone="bad" action="Reconnect" onAction={p.reconnect} pulse secondary="Close" onSecondary={() => p.setModal(null)}>
+        {name} gave no answer. If it shows a payment, that money is safe in your gun and LOCK &amp; LOAD will use it without charging again.
+      </Modal>
+    );
+  if (p.modal === 'refused')
+    return (
+      <Modal title="Your wallet said no" tone="bad" action="OK, try again" onAction={() => p.setModal(null)}>
+        {p.error ?? `${name} did not approve the payment. Nothing was charged.`} Press LOCK &amp; LOAD to try again.
+      </Modal>
+    );
+  if (p.approving)
+    return (
+      <Modal title="Approve in your wallet" tone="wait" secondary={secs >= 20 ? 'Wallet not answering? Reconnect' : undefined} onSecondary={secs >= 20 ? p.reconnect : undefined}>
+        Approve the payment in {name}. It&apos;s waiting for you.
+        <span className="mt-2 block text-sm text-[var(--tbx-mute)]" aria-live="polite">
+          still waiting… {secs}s
+        </span>
+      </Modal>
+    );
+  return null;
 }

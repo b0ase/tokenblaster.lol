@@ -9,9 +9,9 @@ import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } f
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { connect, fund, type Wallet } from './wallet';
+import { connect, fund, walletAlive, withTimeout, type Wallet } from './wallet';
 import { setProofWallet } from './xproof';
-import { setBarWallet } from './walletBar';
+import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
 
 export function useBlaster() {
   const gun = useRef<Gun | null>(null);
@@ -20,7 +20,18 @@ export function useBlaster() {
   useEffect(() => setProofWallet(wallet?.client ?? null), [wallet]);
   // The top bar's wallet chip shows the connected wallet (src/lib/walletBar.ts). Only set, never cleared here:
   // a page mounting with no wallet yet must not wipe one the chip connected.
-  useEffect(() => { if (wallet) setBarWallet({ id: wallet.id, name: wallet.name }); }, [wallet]);
+  // With who you are: identity key now, the paymail once bWallet's lookup answers (re-checked on every connect).
+  useEffect(() => {
+    if (!wallet) return;
+    setBarWallet({ id: wallet.id, name: wallet.name, publicKey: wallet.publicKey, live: true });
+    let live = true;
+    void lookupPaymail(wallet.publicKey, true).then((id) => {
+      if (live && id) patchBarWallet({ publicKey: wallet.publicKey, paymail: id.paymail, alias: id.alias, avatar: id.avatar });
+    });
+    return () => {
+      live = false;
+    };
+  }, [wallet]);
   const [ammo, setAmmo] = useState(0);
   const [token, setToken] = useState<Token | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -33,13 +44,15 @@ export function useBlaster() {
   const [gunAddress, setGunAddress] = useState('');
   /** Last load / unload, shown as a receipt with its transaction. */
   const [receipt, setReceipt] = useState<{ text: string; txid: string } | null>(null);
+  /** False when the connected wallet stopped answering (owner, 24 Oct 2026: the connection drops mid-session). */
+  const [walletLive, setWalletLive] = useState(true);
 
   useEffect(() => {
     const g = new Gun();
     gun.current = g;
     void Promise.resolve().then(() => setGunAddress(g.address)); // client-only key
     g.balance()
-      .then((b) => setAmmo((cur) => Math.max(cur, b)))
+      .then(setAmmo)
       .catch(() => setAmmo(g.sats));
   }, []);
 
@@ -66,6 +79,8 @@ export function useBlaster() {
       const w = await connect(entry);
       rememberWallet(entry.id);
       setWallet(w);
+      setWalletLive(true);
+      loadMark(`wallet connected: ${w.name}`);
       // The tokens really in the wallet (bWallet's bsv21 basket, else the index).
       const first = (held: Token[]) => {
         setTokens(held);
@@ -99,29 +114,78 @@ export function useBlaster() {
     setChooser({ note: id ? 'The wallet you used last time is not available any more.' : null });
   }, [pick]);
 
+  useEffect(() => {
+    if (wallet) patchBarWallet({ live: walletLive });
+  }, [wallet, walletLive]);
+
+  /** Check the wallet answers right now. Updates `walletLive`. */
+  const checkWallet = useCallback(async () => {
+    if (!wallet) return false;
+    const ok = await walletAlive(wallet);
+    setWalletLive(ok);
+    if (!ok) loadMark(`wallet not answering: ${wallet.name}`);
+    return ok;
+  }, [wallet]);
+  // Watch the connection while on the page: a drop shows at once (a badge), and the next pay asks to reconnect.
+  useEffect(() => {
+    if (!wallet) return;
+    const t = setInterval(() => {
+      if (!busy) void checkWallet();
+    }, 20_000);
+    return () => clearInterval(t);
+  }, [wallet, busy, checkWallet]);
+
+  /**
+   * Pay `sats` into the gun. Only after a confirmed live connection; the paid coin is saved straight from the
+   * wallet's response, so a payment can never be taken without the gun holding it.
+   * Returns 'ok', 'disconnected' (nothing was asked of the wallet), 'timeout' or 'refused'.
+   */
+  // The top-bar chip's Reconnect / Switch wallet.
+  useEffect(
+    () =>
+      onWalletAsk((a) => {
+        if (a === 'switch') return setChooser({ note: null });
+        void connectWallet();
+      }),
+    [connectWallet],
+  );
+
   const load = useCallback(
-    async (sats: number, label: string) => {
+    async (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused'> => {
       const g = gun.current;
-      if (!wallet || !g) return false;
+      if (!wallet || !g) return 'disconnected';
       setError(null);
+      if (!(await checkWallet())) return 'disconnected';
       setBusy('loading');
       try {
         loadMark('approve start');
-        const funding = await fund(wallet, g.address, sats, label); // the wallet signs and broadcasts
+        // A real approval can take a while; a wallet that never answers at all counts as disconnected.
+        const funding = await withTimeout(fund(wallet, g.address, sats, label), 180_000, 'WALLET_TIMEOUT');
         loadMark('approved + paid (wallet answered)');
-        await g.load(funding); // the gun takes the paid output straight from the wallet's own response
+        await g.load(funding);
         loadMark('gun has the coin');
-        setAmmo(g.sats);
-        return true;
+        setAmmo(await g.balance().catch(() => g.sats));
+        return 'ok';
       } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        loadMark(`payment not made: ${m}`);
+        if (m === 'WALLET_TIMEOUT') {
+          setWalletLive(false);
+          return 'timeout';
+        }
         fail(e);
-        return false;
+        return 'refused';
       } finally {
         setBusy(null);
       }
     },
-    [wallet],
+    [wallet, checkWallet],
   );
+
+  /** End the gun's running storm session (sender finished, locks released, change saved). */
+  const endSession = useCallback(async () => {
+    await gun.current?.endSession();
+  }, []);
 
   /** One real blast. Resolves to the txid; ammo updates as it goes. */
   const fire = useCallback(
@@ -155,7 +219,7 @@ export function useBlaster() {
       try {
         return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused, step);
       } finally {
-        setAmmo(g.sats);
+        setAmmo(await g.balance().catch(() => g.sats)); // the session's saved change, from the real coin set
       }
     },
     [token],
@@ -168,7 +232,7 @@ export function useBlaster() {
     try {
       await g.prepareStorm(total, perBlast, onStep);
     } finally {
-      setAmmo(g.sats);
+      setAmmo(await g.balance().catch(() => g.sats));
     }
   }, []);
 
@@ -295,11 +359,14 @@ export function useBlaster() {
 
   /** What's in the gun right now: tokens by id (for the Wallet → Gun → Fired strip). */
   const [gunTokens, setGunTokens] = useState<{ id: string; amt: bigint }[]>([]);
-  const refreshGun = useCallback(async () => {
+  /** Re-read the gun: tokens held and the REAL spendable sats (chain + wallet responses + own change). */
+  const refreshGun = useCallback(async (): Promise<number> => {
     const g = gun.current;
-    if (!g) return;
+    if (!g) return 0;
     setGunTokens(await g.tokensHeld().catch(() => []));
-    setAmmo(g.sats);
+    const sats = await g.balance().catch(() => g.sats);
+    setAmmo(sats);
+    return sats;
   }, []);
   useEffect(() => {
     void Promise.resolve().then(refreshGun);
@@ -337,5 +404,5 @@ export function useBlaster() {
     }
   }, [wallet, refreshGun]);
 
-  return { wallet, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

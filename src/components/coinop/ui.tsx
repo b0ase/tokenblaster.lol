@@ -3,7 +3,7 @@
  * TBX primitives: a single consistent icon set (1.75 stroke, 24 grid), a HUD counter that ticks smoothly without
  * re-rendering React, and a probe for optional art (renders that may not exist yet).
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import './ui.css';
 
 const P: Record<string, ReactNode> = {
@@ -119,4 +119,67 @@ export function useExisting(srcs: string[]): Set<string> {
   }, [key]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => new Set(key.split('|').filter((s) => probed.get(s))), [key, v]);
+}
+
+/**
+ * A true modal for every blocking prompt (owner, 24 Oct 2026: prompts must be unmissable): a focused overlay that
+ * blocks the page, one clear primary action, keyboard (focus on the action, Escape = secondary/close) and
+ * screen-reader friendly (role="alertdialog", labelled and described).
+ */
+export function Modal(p: {
+  title: string;
+  children?: ReactNode;
+  action?: string;
+  onAction?: () => void;
+  secondary?: string;
+  onSecondary?: () => void;
+  tone?: 'warn' | 'wait' | 'bad';
+  pulse?: boolean;
+}) {
+  const btn = useRef<HTMLButtonElement>(null);
+  const id = `tbx-m-${useId().replace(/:/g, '')}`;
+  useEffect(() => {
+    btn.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && p.onSecondary) p.onSecondary();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [p]);
+  const colour = p.tone === 'bad' ? 'var(--tbx-red)' : p.tone === 'wait' ? 'var(--tbx-teal)' : 'var(--tbx-amber)';
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-t`} aria-describedby={`${id}-d`} data-fs-skip>
+      <div className="tbx-glass w-full max-w-md rounded-2xl border-2 p-6 text-center shadow-2xl" style={{ borderColor: colour }}>
+        <p id={`${id}-t`} className="tbx-display text-[clamp(22px,4vw,30px)]" style={{ color: colour }}>
+          {p.title}
+        </p>
+        <div id={`${id}-d`} className="mt-3 text-base text-[var(--tbx-text)]">
+          {p.children}
+        </div>
+        <div className="mt-5 flex flex-col items-center gap-2">
+          {p.action && (
+            <button ref={btn} type="button" onClick={p.onAction} className="tbx-btn tbx-btn-red !min-h-[56px] w-full !text-lg" style={p.pulse ? { animation: 'tbx-breathe 1s ease-in-out infinite' } : undefined}>
+              {p.action}
+            </button>
+          )}
+          {p.secondary && (
+            <button ref={p.action ? undefined : btn} type="button" onClick={p.onSecondary} className="tbx-btn w-full">
+              {p.secondary}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Seconds since `since` (ms epoch), ticking once a second; 0 when null. */
+export function useWaitSecs(since: number | null) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since == null) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [since]);
+  return since == null ? 0 : Math.max(0, Math.round((now - since) / 1000));
 }

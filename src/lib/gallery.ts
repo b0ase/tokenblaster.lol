@@ -27,8 +27,12 @@ export const MAX_SHOT_SATS = shotSats(20, 40);
 /** "Ammo": the player's own paymail, attached when they pay (owner, 24 Oct). It rides in the tag's <token>
  * field. Lower case [a-z0-9._@-], 1 to 40 chars; anything else is refused. */
 export const DEFAULT_AMMO = 'sats';
-/** The paymail a connected player's rounds carry: their bWalletX X paymail if they have a handle, else none. */
-export const paymailFor = (handle: string | null | undefined) => (handle ? cleanAmmo(`${handle}.x@bwallet.space`) : null);
+/**
+ * The tag a connected player's rounds carry: the paymail from bWallet's lookup (src/lib/walletBar.ts
+ * lookupPaymail), or its alias when the paymail is too long for the tag. null: fire DEFAULT_AMMO.
+ * (Replaces the old `<handle>.x@bwallet.space` guess, which was wrong for most players.)
+ */
+export const ammoFromPaymail = (id: { paymail?: string | null; alias?: string | null } | null | undefined) => cleanAmmo(id?.paymail) ?? cleanAmmo(id?.alias);
 export function cleanAmmo(s: string | null | undefined): string | null {
   if (s == null) return null;
   if (/[\u0000-\u001f\u007f]/.test(s)) return null;
