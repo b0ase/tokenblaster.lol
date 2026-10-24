@@ -108,7 +108,7 @@ export function broadcasters(): Arc[] {
 
 /** Fan-outs also go to WhatsOnChain, so every chain's parent is on the network whatever ARC does.
  *  Retries through its rate limit (the CLI polls it while waiting for a block, so a 429 is likely). */
-async function wocBroadcast(hex: string): Promise<{ ok: boolean; why: string }> {
+export async function wocBroadcast(hex: string): Promise<{ ok: boolean; why: string }> {
   let why = '';
   for (let attempt = 0; attempt < 8; attempt++) {
     try {
@@ -124,7 +124,7 @@ async function wocBroadcast(hex: string): Promise<{ ok: boolean; why: string }> 
 }
 
 /** Wait until the network (WhatsOnChain's node) has `txid`, up to `ms`. */
-async function onNetwork(txid: string, ms: number): Promise<boolean> {
+export async function onNetwork(txid: string, ms: number): Promise<boolean> {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     const r = await fetch(`${WOC}/tx/${txid}/hex`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
@@ -138,7 +138,7 @@ async function onNetwork(txid: string, ms: number): Promise<boolean> {
 }
 
 /** POST a batch to every broadcaster; a tx is bad only if none of them took it. */
-async function postBatch(raws: Buffer[]): Promise<{ bad: number[]; why?: string }> {
+export async function postBatch(raws: Buffer[]): Promise<{ bad: number[]; why?: string }> {
   const results = await Promise.all(broadcasters().map((a) => postBatchTo(a, raws)));
   const bad = raws.map((_, i) => i).filter((i) => results.every((r) => r.bad.includes(i)));
   return { bad, why: bad.length ? results.map((r, j) => `${broadcasters()[j].name}: ${r.why ?? 'ok'}`).join('; ') : undefined };

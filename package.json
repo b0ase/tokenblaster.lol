@@ -14,6 +14,8 @@
     "content:check": "tsx scripts/content-check.ts",
     "content:score-rows": "tsx scripts/bracer-score-rows.ts",
     "blast": "tsx blaster/blast.ts",
+    "stress": "tsx blaster/stress.ts",
+    "test:stress": "tsx --test blaster/stress.test.ts",
     "worker:build": "esbuild worker/indexer.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/indexer.mjs --external:pg-native --external:bufferutil --external:utf-8-validate --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
     "vault:build": "esbuild worker/vault.ts --bundle --platform=node --format=esm --target=node18 --outfile=worker/dist/vault.mjs"
   },
