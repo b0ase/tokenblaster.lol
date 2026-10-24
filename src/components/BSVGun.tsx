@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { STORM_FEE } from '@/lib/gun';
+import { lanesFor } from '@/lib/gallery';
 import { iconUrl } from '@/lib/tokens';
 import { useBlaster } from '@/lib/useBlaster';
 import { GAME_COINS, houseFirst, houseHeld } from '@/lib/gameCoins';
@@ -18,7 +19,7 @@ import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
 
 const SIZES = [1_000, 10_000, 50_000, 100_000];
-const costOf = (n: number) => n * STORM_FEE + Math.min(100, Math.ceil(n / 300)) * 60 + 1000;
+const costOf = (n: number) => n * STORM_FEE + lanesFor(n) * 60 + 1000;
 
 export function BSVGun() {
   const b = useBlaster();

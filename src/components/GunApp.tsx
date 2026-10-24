@@ -10,6 +10,7 @@ import { discoverWallets, inFrame, rememberWallet, rememberedWallet, type Wallet
 import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
 import { WalletChooser } from './WalletChooser';
 import { disconnectPhone } from '@/lib/pair/site';
+import { tellWalletDisconnected } from '@/lib/walletBar';
 
 type Phase = 'idle' | 'connecting' | 'loading' | 'firing' | 'unloading';
 type Point = { t: number; fired: number; landed: number };
@@ -136,6 +137,7 @@ export function GunApp() {
   /** Forget the wallet. Coin-op (owner, 24 Oct 2026): no refunds, the ammo stays in the gun as credit. */
   const disconnect = async () => {
     rememberWallet(null);
+    tellWalletDisconnected();
     disconnectPhone();
     setWallet(null);
     setTokens([]);

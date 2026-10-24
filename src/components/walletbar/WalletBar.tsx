@@ -8,7 +8,7 @@ import { rememberWallet, type WalletEntry } from '@/lib/discovery';
 import { connect } from '@/lib/wallet';
 import { setProofWallet } from '@/lib/xproof';
 import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
-import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, askWallet, chipState, getBarWallet, idLabel, lookupPaymail, patchBarWallet, setBarWallet, subBarWallet } from '@/lib/walletBar';
+import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, askWallet, chipState, getBarWallet, idLabel, tellWalletDisconnected, lookupPaymail, patchBarWallet, setBarWallet, subBarWallet } from '@/lib/walletBar';
 import { GiftIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MuteIcon, PhoneIcon, TrophyIcon, VolumeIcon } from './icons';
 
 /**
@@ -195,6 +195,7 @@ export function WalletBarChip() {
                 className={row}
                 onClick={() => {
                   rememberWallet(null);
+                  tellWalletDisconnected();
                   setProofWallet(null);
                   setBarWallet(null);
                   setOpen(false);

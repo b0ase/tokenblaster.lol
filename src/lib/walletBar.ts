@@ -129,3 +129,15 @@ export async function lookupPaymail(key: string, fresh = false): Promise<Paymail
   }
   return id;
 }
+
+/**
+ * Tell bWalletX this site disconnected, so its next connect re-asks (opens the approve sheet) instead of answering
+ * silently (bitcoin-corp/bwallet #98). Same-origin postMessage; other wallets ignore it.
+ */
+export function tellWalletDisconnected() {
+  try {
+    window.postMessage({ type: 'bwallet:disconnect' }, location.origin);
+  } catch {
+    /* no window */
+  }
+}
