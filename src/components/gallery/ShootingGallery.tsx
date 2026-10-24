@@ -315,12 +315,13 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       }
       if (n) engine.current?.accept(n);
       if (m === 'live') setFired((f) => (f === firedRef.current ? f : firedRef.current));
-      // LIVE: the HUD shows what ARC accepted per second, never the trigger's rate (src/lib/txMeter.ts).
-      const tps = m === 'live' ? acceptedMeter.current.rate() : Math.round(s.rate);
+      // LIVE (paid): the HUD shows what ARC accepted per second, never the trigger's rate (src/lib/txMeter.ts).
+      // Practice / free play: the gun's simulated stream rate, labelled rounds/s (owner: show the full volume).
+      const tps = m === 'live' && !dry ? acceptedMeter.current.rate() : Math.round(s.rate);
       setRun((r) => (r.tps === tps ? r : { ...r, tps }));
     }, 50);
     return () => clearInterval(i);
-  }, [loadout, pattern]);
+  }, [loadout, pattern, dry]);
 
   // Bursts (shotguns, launchers): every pull fires at once and queues its rounds.
   useEffect(() => {

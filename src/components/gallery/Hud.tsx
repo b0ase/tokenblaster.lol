@@ -120,7 +120,7 @@ export function Hud(p: {
         </p>
         {p.live?.practice && <p className="text-[9px] tracking-[0.18em] text-[var(--tbx-dim)]">PRACTICE · NOTHING ON CHAIN</p>}
         <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-tight">
-          <dt className="text-[var(--tbx-dim)]">{p.dry ? 'rounds/s' : 'tx/s'}</dt>
+          <dt className="text-[var(--tbx-dim)]">{p.dry ? 'practice rounds/s' : 'tx/s accepted'}</dt>
           <dd className="m-0"><Ticker value={p.tps} ease={0.3} format={fixedInt(6)} style={{ ...TAB, color: 'var(--tbx-teal)' }} /></dd>
           <dt className="text-[var(--tbx-dim)]">score</dt>
           <dd className="m-0"><Ticker value={s?.score ?? 0} format={fixedInt(11)} style={TAB} /></dd>
