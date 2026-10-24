@@ -126,7 +126,7 @@ export class GalleryEngine {
     const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !high, powerPreference: 'high-performance', stencil: false }));
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, high ? 1.5 : 1));
     r.toneMapping = THREE.ACESFilmicToneMapping;
-    r.toneMappingExposure = 1.15;
+    r.toneMappingExposure = 1.0;
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.shadowMap.enabled = high;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -207,12 +207,12 @@ export class GalleryEngine {
       });
       comp.addPass(this.shafts);
     }
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), high ? 0.35 : 0.3, 0.4, high ? 1.6 : 1.5);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), high ? 0.3 : 0.26, 0.4, high ? 1.7 : 1.6);
     comp.addPass(this.bloom);
     comp.addPass(new OutputPass());
     this.grade = makeGradePass();
     // night-shift grade: teal shadows, sodium highlights, crushed blacks
-    this.grade.apply({ shadow: [0.82, 0.98, 1.16], high: [1.12, 1.0, 0.88], sat: 1.12, contrast: 1.12, vignette: 0.62 });
+    this.grade.apply({ shadow: [0.76, 1.0, 1.14], high: [1.08, 1.0, 0.9], sat: 0.92, contrast: 1.22, vignette: 0.74 });
     comp.addPass(this.grade.pass);
     this.composer = comp;
 

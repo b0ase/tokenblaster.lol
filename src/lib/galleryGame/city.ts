@@ -55,7 +55,7 @@ export type City = {
 const neon = (c: string, k = 2.4) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(k), toneMapped: false });
 const X0 = 27; // street face of the first row of buildings
 const X1 = 51; // back of the first row / front of the second
-const NEONS = ['#ff3fa4', '#2ee6ff', '#ffb23d', '#7dff6a', '#b57bff', '#ff3b3b', '#4da3ff', '#ffe14a'];
+const NEONS = ['#2ec8e0', '#2ec8e0', '#3a8cff', '#2ec8e0', '#3a8cff', '#ff2a46', '#2ec8e0', '#4da3ff'];
 
 type Roof = { xa: number; xb: number; za: number; zb: number; y: number; kind: FacadeKind; h: number };
 type Bld = { sx: 1 | -1; za: number; zb: number; h: number; h1: number; kind: FacadeKind };
@@ -80,7 +80,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
       new THREE.ShaderMaterial({
         side: THREE.BackSide,
         vertexShader: 'varying vec3 p; void main(){ p = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-        fragmentShader: 'varying vec3 p; void main(){ float h = normalize(p).y; vec3 lo = vec3(0.16,0.06,0.16); vec3 hi = vec3(0.02,0.02,0.08); gl_FragColor = vec4(mix(lo, hi, smoothstep(-0.1,0.7,h)),1.); }',
+        fragmentShader: 'varying vec3 p; void main(){ float h = normalize(p).y; vec3 lo = vec3(0.05,0.10,0.16); vec3 hi = vec3(0.01,0.02,0.07); gl_FragColor = vec4(mix(lo, hi, smoothstep(-0.1,0.7,h)),1.); }',
       }),
     ),
   );
@@ -91,12 +91,12 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     envScene.add(m);
   };
   strip('#ff2a2a', 7, 30, 4, 0, 16, -40);
-  strip('#27e6ff', 6, 34, 3, -30, 10, -10);
-  strip('#ffb35a', 5, 30, 3, 30, 12, -6);
-  strip('#ff2f92', 5, 20, 5, 18, 24, 20);
-  strip('#ff2f92', 5, 8, 16, -34, 18, -26);
-  strip('#2ee6ff', 5, 6, 20, 34, 20, -30);
-  strip('#7dff6a', 4, 6, 12, -20, 14, -44);
+  strip('#27c8e0', 5, 34, 3, -30, 10, -10);
+  strip('#ffa24a', 3, 30, 3, 30, 12, -6);
+  strip('#2ec8e0', 4, 20, 5, 18, 24, 20);
+  strip('#ff2a46', 3, 8, 16, -34, 18, -26);
+  strip('#2ec8e0', 5, 6, 20, 34, 20, -30);
+  strip('#3a8cff', 4, 6, 12, -20, 14, -44);
   strip('#ffffff', 3, 14, 2, -8, 32, -12);
   const pm = new THREE.PMREMGenerator(renderer);
   const env = pm.fromScene(envScene, 0.03).texture;
@@ -111,7 +111,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   scene.environment = env;
   scene.environmentIntensity = 0.85;
   scene.background = new THREE.Color('#05060f');
-  const fog = new THREE.FogExp2('#0b0716', 0.0052);
+  const fog = new THREE.FogExp2('#071420', 0.0066);
   scene.fog = fog;
   const sh = makeShared(fog);
 
@@ -131,11 +131,11 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
         void main(){
           vec3 d = normalize(vP);
           float y = d.y;
-          vec3 c = mix(vec3(0.30,0.08,0.20), vec3(0.05,0.05,0.14), smoothstep(0.0,0.28,y));
+          vec3 c = mix(vec3(0.04,0.11,0.18), vec3(0.02,0.05,0.12), smoothstep(0.0,0.28,y));
           c = mix(c, vec3(0.006,0.01,0.03), smoothstep(0.2,0.8,y));
           vec2 cp = vec2(atan(d.x,d.z)*1.8 + uT*0.006, y*3.0);
           float cl = fbm(cp*2.4);
-          c += vec3(0.50,0.14,0.30) * cl * smoothstep(0.0,0.35,y) * (1.0-smoothstep(0.3,0.8,y)) * 0.6;
+          c += vec3(0.07,0.20,0.30) * cl * smoothstep(0.0,0.35,y) * (1.0-smoothstep(0.3,0.8,y)) * 0.6;
           vec3 td = normalize(vec3(0.0, 0.55, -1.0));
           c += vec3(0.6,0.03,0.02) * pow(max(dot(d, td), 0.0), 18.0) * 0.8;
           vec2 g = floor(vec2(atan(d.x,d.z)*80.0, y*120.0));
@@ -151,8 +151,8 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   group.add(sky);
 
   // ── Lights ──
-  group.add(new THREE.HemisphereLight('#6f5fe0', '#2a0a1c', 0.5));
-  const moon = new THREE.DirectionalLight('#8fa2ff', 1.1);
+  group.add(new THREE.HemisphereLight('#4f78b8', '#150a14', 0.38));
+  const moon = new THREE.DirectionalLight('#78a8ff', 0.9);
   moon.position.set(-40, 70, 10);
   moon.target.position.set(0, 0, -40);
   if (high) {
@@ -477,7 +477,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
         g.translate(x, EXY + 1.32, z);
         dp.push(g);
       }
-    group.add(new THREE.Mesh(track(mergeGeometries(dp, false)!), track(neon('#e8f0ff', 1.1))));
+    group.add(new THREE.Mesh(track(mergeGeometries(dp, false)!), track(neon('#bcd8ec', 0.9))));
     dp.forEach((g) => g.dispose());
   }
 
@@ -559,9 +559,9 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   };
   const heroCells = [8, 9, 10, 11, 12];
   for (const b of firsts) {
-    const n = Math.floor((b.za - b.zb) / pick(3.1, 4)) + 1;
+    const n = Math.floor((b.za - b.zb) / pick(6, 7.5)) + 1;
     for (let i = 0; i < n; i++) {
-      const cell = R() < 0.22 ? heroCells[ri(heroCells.length)] : ri(SIGNS.length);
+      const cell = R() < 0.3 ? heroCells[ri(heroCells.length)] : ri(SIGNS.length);
       const flatSign = R() < 0.45;
       const s = rr(0.7, 1.5);
       const ymax = Math.min(b.h1 - 2, 30);
@@ -610,14 +610,14 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     const at = (arr: Bld[], i: number) => arr[Math.min(arr.length - 1, i)];
     if (rightB.length > 3) {
       const [a, b, c] = [at(rightB, 1), at(rightB, 3), at(rightB, 5)];
-      addAd(1, X0 - 0.4, Math.min(a.h1 - 6, 17), (a.za + a.zb) / 2, 11, -Math.PI / 2 + 0.2, '#fff4d8');
+      addAd(1, X0 - 0.4, Math.min(a.h1 - 6, 17), (a.za + a.zb) / 2, 11, -Math.PI / 2 + 0.2, '#e8f4ff');
       addAd(2, X0 - 0.4, Math.min(b.h1 - 6, 24), (b.za + b.zb) / 2, 10, -Math.PI / 2 + 0.25, '#e6f1ff');
       addAd(4, X0 - 0.4, Math.min(c.h1 - 7, 16), (c.za + c.zb) / 2, 11, -Math.PI / 2 + 0.3, '#ffffff');
     }
     if (leftB.length > 3) {
       const [a, b] = [at(leftB, 2), at(leftB, 4)];
-      addAd(3, -X0 + 0.4, Math.min(a.h1 - 6, 15), (a.za + a.zb) / 2, 11, Math.PI / 2 - 0.2, '#ffe6f4');
-      addAd(7, -X0 + 0.4, Math.min(b.h1 - 6, 22), (b.za + b.zb) / 2, 10, Math.PI / 2 - 0.25, '#e8ffec');
+      addAd(3, -X0 + 0.4, Math.min(a.h1 - 6, 15), (a.za + a.zb) / 2, 11, Math.PI / 2 - 0.2, '#e8f4ff');
+      addAd(7, -X0 + 0.4, Math.min(b.h1 - 6, 22), (b.za + b.zb) / 2, 10, Math.PI / 2 - 0.25, '#e8f4ff');
     }
     const tall = roofs.filter((r) => r.xa > X0 && r.h > 80 && r.zb < -25 && r.za > -150);
     tall.slice(0, 3).forEach((r, i) => addAd([5, 6, 0][i], (r.xa + r.xb) / 2 - 10, r.y + 9, r.za - 2, 22, -0.4, '#ffffff'));
@@ -718,14 +718,14 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   // lanterns (chochin): along shop fronts, across the street on strings, down the alleys
   const lanternM: THREE.Matrix4[] = [];
   const lanternC: THREE.Color[] = [];
-  const LCOL = ['#ff2a14', '#ff2a14', '#ff6a1a', '#ff3b1f', '#ff2a14', '#ff8a3a'];
+  const LCOL = ['#ff3a1a', '#ff7a22', '#ff3a1a', '#ff9a3a'];
   const addLantern = (x: number, y: number, z: number, s = 1) => {
     const c = LCOL[ri(LCOL.length)];
     lanternM.push(M(x, y, z, s, s, s));
     lanternC.push(new THREE.Color(c).multiplyScalar(1.5));
-    addGlow(x, y, z, c, 0.6 * s, 3, 0.3);
+    addGlow(x, y, z, c, 0.5 * s, 3, 0.25);
   };
-  for (const b of firsts) for (let z = b.za - 1.8; z > b.zb + 1.2; z -= rr(2.4, 3.8)) if (R() < 0.8) addLantern(b.sx * (X0 - 0.9), rr(3.1, 3.7), z);
+  for (const b of firsts) for (let z = b.za - 1.8; z > b.zb + 1.2; z -= rr(2.4, 3.8)) if (R() < 0.4) addLantern(b.sx * (X0 - 0.9), rr(3.1, 3.7), z);
   for (const c of cableCurves)
     for (let i = 1; i < 12; i++) {
       const p = c.getPoint(i / 12);
@@ -752,7 +752,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   disp.push(vend.map, vend.em);
   const vendMat = track(new THREE.MeshStandardMaterial({ map: vend.map, emissiveMap: vend.em, emissive: '#ffffff', emissiveIntensity: 1.8, roughness: 0.35, metalness: 0.55 }));
   const vendMats: THREE.Matrix4[][] = [[], [], []];
-  const VC = ['#2ee6ff', '#ff3fa4', '#ffd23d'];
+  const VC = ['#2ec8e0', '#3a8cff', '#ff9a3a'];
   const addVend = (x: number, z: number, ry: number) => {
     const t = ri(3);
     vendMats[t].push(M(x, 0.25, z, 1, 1, 1, ry));
@@ -901,8 +901,8 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   })();
   const carPaint = track(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.22, metalness: 0.9, envMapIntensity: 1.8 }));
   const carLight = track(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
-  const PAINT = ['#0b0d12', '#c8ccd8', '#6b1020', '#0e3a46', '#2a1a4a', '#d8d2c0'];
-  const GLOWC = ['#7ee8ff', '#ff6ad5', '#8aff9a', '#ffcf6a'];
+  const PAINT = ['#0b0d12', '#9aa6b4', '#4a1018', '#0e3a46', '#10203a', '#b8c0c8'];
+  const GLOWC = ['#2ec8e0', '#3a8cff', '#2ec8e0', '#ff2a46'];
   const nPark = pick(12, 7);
   const parkM: THREE.Matrix4[] = [];
   const parkC: THREE.Color[] = [];
@@ -949,7 +949,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   {
     for (const b of firsts) for (let z = b.za - 2.5; z > b.zb + 2; z -= rr(4, 6)) addPool(b.sx * 22.4, z, 8, 5, NEONS[ri(NEONS.length)], 0.5, 0.27);
     addPool(0, T.z + 9, 42, 16, '#ffc98a', 0.9);
-    addPool(0, T.z + 12, 30, 14, '#ff3b2a', 0.35);
+    addPool(0, T.z + 12, 30, 14, '#ff2a3a', 0.35);
     const g = new THREE.PlaneGeometry(1, 1);
     g.rotateX(-Math.PI / 2);
     const im = new THREE.InstancedMesh(
@@ -1083,7 +1083,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   const mtx = new THREE.Matrix4();
   const col = new THREE.Color();
   const litColor = (lit: number) =>
-    lit > 0.93 ? col.set('#ff9ed0').multiplyScalar(1.1) : lit > 0.82 ? col.set('#ffd9a6').multiplyScalar(1.15) : lit > 0.55 ? col.set('#8fd0ff').multiplyScalar(0.95) : col.set('#1a2846').multiplyScalar(0.9);
+    lit > 0.95 ? col.set('#ffc890').multiplyScalar(0.9) : lit > 0.8 ? col.set('#a8c8e8').multiplyScalar(0.6) : lit > 0.62 ? col.set('#6a8cb0').multiplyScalar(0.35) : col.set('#0c1626').multiplyScalar(0.9);
   const placeWindows = () => {
     wins.length = 0;
     let s2 = 4242;
@@ -1248,7 +1248,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
 
   // ── Mist banks, drifting low across the street ──
   for (let i = 0; i < pick(6, 3); i++) {
-    const m = new THREE.Mesh(track(new THREE.PlaneGeometry(64, 8)), track(mistMaterial(sh, i % 2 ? '#6a4a9a' : '#4a5a9a', 0.2)));
+    const m = new THREE.Mesh(track(new THREE.PlaneGeometry(64, 8)), track(mistMaterial(sh, i % 2 ? '#24607c' : '#1e4a78', 0.2)));
     m.position.set(0, 3.2, -8 - i * 14);
     m.userData.noAO = true;
     group.add(m);
@@ -1256,9 +1256,9 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
 
   // ── Layered skyline cards: depth and haze beyond the canyon ──
   for (const [z, tone, haze, dens, k, seed] of [
-    [-185, '#0b0e1e', 'rgba(70,30,95,0.5)', 0.16, 1.0, 1],
-    [-240, '#171230', 'rgba(105,45,120,0.7)', 0.12, 1.35, 2],
-    [-310, '#2a1c45', 'rgba(170,60,130,0.8)', 0.09, 1.8, 3],
+    [-185, '#0b0e1e', 'rgba(20,50,80,0.55)', 0.16, 1.0, 1],
+    [-240, '#0e1a30', 'rgba(25,60,95,0.7)', 0.12, 1.35, 2],
+    [-310, '#142a45', 'rgba(40,90,120,0.8)', 0.09, 1.8, 3],
   ] as [number, string, string, number, number, number][]) {
     const t = track(skylineTex(seed * 13, tone, haze, dens, S));
     const m = new THREE.Mesh(track(new THREE.PlaneGeometry(900 * k, 225 * k)), track(new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false, fog: false, toneMapped: true })));
@@ -1287,7 +1287,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 4));
     g.setAttribute('aEnd', new THREE.BufferAttribute(end, 1));
-    const rain = new THREE.LineSegments(g, track(rainMaterial(sh, '#b8d0f0')));
+    const rain = new THREE.LineSegments(g, track(rainMaterial(sh, '#8fb0d0')));
     rain.frustumCulled = false;
     rain.userData.noAO = true;
     rain.layers.set(1);

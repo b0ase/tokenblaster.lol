@@ -49,7 +49,7 @@ export function facadeTile(kind: FacadeKind, seed: number, S = 1) {
   const cells: { x: number; y: number; state: number; r: number; r2: number }[] = [];
   const r = rng(seed);
   for (let f = 0; f < FACADE.floors; f++) for (let b = 0; b < FACADE.bays; b++) cells.push({ x: b * cw, y: f * ch, state: r(), r: r(), r2: r() });
-  const litP = kind === 'office' ? 0.5 : kind === 'glass' ? 0.38 : kind === 'old' ? 0.3 : 0.34;
+  const litP = kind === 'office' ? 0.2 : kind === 'glass' ? 0.14 : kind === 'old' ? 0.1 : 0.12;
 
   const draw = (g: CanvasRenderingContext2D, em: boolean) => {
     const wall = { office: '#171d2b', resi: '#1b1a24', glass: '#0b1424', old: '#201c20' }[kind];
@@ -105,20 +105,17 @@ export function facadeTile(kind: FacadeKind, seed: number, S = 1) {
         }
       } else if (lit) {
         let col: string;
-        let a = 0.55 + c.r2 * 0.45;
-        if (style < 0.36) col = '#ffd9a0'; // warm room
-        else if (style < 0.62) col = '#d8ecff'; // fluorescent office
-        else if (style < 0.74) col = '#ffb36a'; // amber
-        else if (style < 0.84) { col = '#6f8bff'; a *= 0.7; } // TV blue
-        else if (style < 0.92) col = '#ff6fb4'; // pink neon room
-        else col = '#7bffd0'; // green grow-light
+        let a = 0.3 + c.r2 * 0.4;
+        if (style < 0.12) col = '#ffbf80'; // a few warm rooms
+        else if (style < 0.9) { col = '#a8c8e0'; a *= 0.8; } // dim cold white
+        else col = '#4a8cff'; // TV blue
         g.globalAlpha = a;
         g.fillStyle = col;
         g.fillRect(ix, iy, iw, ih);
         g.globalAlpha = 1;
         // ceiling light bar / desks / people silhouettes (dark = no emission)
         g.fillStyle = 'rgba(0,0,0,0.5)';
-        if (style >= 0.36 && style < 0.62) {
+        if (style >= 0.12 && style < 0.5) {
           g.fillRect(ix, iy + ih * 0.62, iw * 0.4, ih * 0.38); // desk
           g.fillRect(ix + iw * 0.55, iy + ih * 0.7, iw * 0.45, ih * 0.3);
         }
@@ -169,7 +166,7 @@ export function shopTile(seed: number, S = 1) {
   const H = Math.round(288 * S);
   const r = rng(seed);
   const names = ['ネオ麺', 'ゼロ薬局', 'コイン堂', '焼き鳥', '月影', '電脳堂', 'ミライ湯', 'カラオケ'];
-  const hues = ['#ffcf8a', '#8fe8ff', '#ff7ac0', '#b6ff9e', '#ffb35a', '#c6a6ff'];
+  const hues = ['#5fc8e0', '#3fa8ff', '#5fc8e0', '#ff9a4a', '#ff3a4a', '#4a8cff'];
   const stalls = Array.from({ length: 4 }, () => ({ hue: hues[Math.floor(r() * hues.length)], shut: r() < 0.22, name: names[Math.floor(r() * names.length)], awn: r() < 0.6 }));
   const draw = (g: CanvasRenderingContext2D, em: boolean) => {
     g.fillStyle = em ? '#000' : '#14141c';
@@ -250,38 +247,38 @@ export const SIGN_COLS = 8;
 export const SIGN_ROWS = 4;
 type SignDef = { t: string; c: string; latin?: boolean; sub?: string; frame?: 'box' | 'none' };
 export const SIGNS: SignDef[] = [
-  { t: 'ネオン酒場', c: '#ff3fa4' },
-  { t: '夜明け麺', c: '#ffb23d' },
-  { t: 'ミライ湯', c: '#2ee6ff' },
-  { t: '電脳カフェ', c: '#46fff0' },
-  { t: 'ゼロ薬局', c: '#7dff6a' },
-  { t: 'コイン堂', c: '#ffc23d' },
-  { t: '月影バー', c: '#b57bff' },
-  { t: 'トークン市場', c: '#ff3b3b' },
-  { t: 'ニンジャ堂', c: '#ff5fb8', sub: 'NPG' },
-  { t: 'オムニコア', c: '#ff3226', sub: 'OMNICORE' },
+  { t: 'ネオン酒場', c: '#2ec8e0' },
+  { t: '夜明け麺', c: '#ff9a3a' },
+  { t: 'ミライ湯', c: '#3fa8ff' },
+  { t: '電脳カフェ', c: '#2ec8e0' },
+  { t: 'ゼロ薬局', c: '#3fb8d8' },
+  { t: 'コイン堂', c: '#ff9a3a' },
+  { t: '月影バー', c: '#3a7bff' },
+  { t: 'トークン市場', c: '#ff2a46' },
+  { t: 'ニンジャ堂', c: '#ff2a46', sub: 'NPG' },
+  { t: 'オムニコア', c: '#ff2a3a', sub: 'OMNICORE' },
   { t: 'bWalletX', c: '#4da3ff', latin: true },
-  { t: 'TOKENBLASTER', c: '#ffb800', latin: true },
-  { t: 'NPG', c: '#ff4fa8', latin: true },
-  { t: '焼き鳥', c: '#ff7a2b' },
-  { t: 'カラオケ', c: '#ff2fd0' },
-  { t: '二十四時間', c: '#8fe8ff' },
-  { t: 'ゲーム街', c: '#6bff9a' },
-  { t: 'スシ・ゼロ', c: '#ff4a5a' },
-  { t: 'ホテル月光', c: '#c9a8ff' },
-  { t: '人工天使', c: '#ff6ad5' },
-  { t: '電気街', c: '#ffe14a' },
-  { t: 'BLOCK 21', c: '#27e6ff', latin: true },
-  { t: '夜勤', c: '#ff2f6a' },
-  { t: '麻雀', c: '#5dffb0' },
-  { t: 'ビットコイン', c: '#ffa51f' },
-  { t: '仮想通貨', c: '#40d6ff' },
-  { t: '光の庭', c: '#fff08a' },
-  { t: '鉄骨酒場', c: '#ff8a3a' },
-  { t: 'サイバー整体', c: '#7a8bff' },
-  { t: '雨宿り', c: '#4ab8ff' },
-  { t: 'ドローン便', c: '#5aff7a' },
-  { t: '未来堂', c: '#ff5a9e' },
+  { t: 'TOKENBLASTER', c: '#ff9a3a', latin: true },
+  { t: 'NPG', c: '#ff2a46', latin: true },
+  { t: '焼き鳥', c: '#ff9a3a' },
+  { t: 'カラオケ', c: '#3a7bff' },
+  { t: '二十四時間', c: '#6fd8e8' },
+  { t: 'ゲーム街', c: '#2ec8e0' },
+  { t: 'スシ・ゼロ', c: '#ff2a46' },
+  { t: 'ホテル月光', c: '#6fb0ff' },
+  { t: '人工天使', c: '#2ec8e0' },
+  { t: '電気街', c: '#3fa8ff' },
+  { t: 'BLOCK 21', c: '#27d8f0', latin: true },
+  { t: '夜勤', c: '#ff2a46' },
+  { t: '麻雀', c: '#3fb8d8' },
+  { t: 'ビットコイン', c: '#ff9a3a' },
+  { t: '仮想通貨', c: '#2ec8e0' },
+  { t: '光の庭', c: '#8fd8e8' },
+  { t: '鉄骨酒場', c: '#3a7bff' },
+  { t: 'サイバー整体', c: '#3a7bff' },
+  { t: '雨宿り', c: '#3fa8ff' },
+  { t: 'ドローン便', c: '#2ec8e0' },
+  { t: '未来堂', c: '#3fa8ff' },
 ];
 
 export function signAtlas(S = 1) {
@@ -418,29 +415,29 @@ export function adAtlas(S = 1) {
       center(g, 'ビー・ウォレット', 424, 38, '#cfe4ff', `700 38px ${JP}`, 10);
     });
     panel(3, (g) => {
-      center(g, 'NPG', 200, 190, '#ff4fa8', '900 italic 190px Impact, "Arial Black", sans-serif', 28);
-      center(g, 'NINJA PUNK GIRLS', 340, 44, '#ffd0ea', '800 44px Arial, sans-serif', 10);
-      center(g, 'ニンジャ・パンク・ガールズ', 410, 32, '#ff8cc8', `700 32px ${JP}`, 8);
+      center(g, 'NPG', 200, 190, '#ff2a46', '900 italic 190px Impact, "Arial Black", sans-serif', 28);
+      center(g, 'NINJA PUNK GIRLS', 340, 44, '#ffc0c8', '800 44px Arial, sans-serif', 10);
+      center(g, 'ニンジャ・パンク・ガールズ', 410, 32, '#ff7a88', `700 32px ${JP}`, 8);
     });
     panel(4, (g) => {
-      center(g, 'NEO TOKYO', 190, 86, '#2ee6ff', '900 86px "Arial Black", Impact, sans-serif', 24);
-      center(g, '2048', 300, 150, '#ff3fa4', '900 150px "Arial Black", Impact, sans-serif', 26);
-      center(g, 'ネオ東京', 410, 66, '#e6fbff', `900 66px ${JP}`, 14);
+      center(g, 'NEO TOKYO', 190, 86, '#2ec8e0', '900 86px "Arial Black", Impact, sans-serif', 24);
+      center(g, '2048', 300, 150, '#ff2a46', '900 150px "Arial Black", Impact, sans-serif', 26);
+      center(g, 'ネオ東京', 410, 66, '#cfeaf4', `900 66px ${JP}`, 14);
     });
     panel(5, (g) => {
-      center(g, '夜明け麺', 190, 120, '#ffb23d', `900 120px ${JP}`, 22);
-      center(g, 'NOODLE DAWN', 300, 54, '#ffe0a0', '800 54px Arial, sans-serif', 10);
+      center(g, '夜明け麺', 190, 120, '#ff9a3a', `900 120px ${JP}`, 22);
+      center(g, 'NOODLE DAWN', 300, 54, '#ffd0a0', '800 54px Arial, sans-serif', 10);
       center(g, '二十四時間営業', 400, 46, '#ff8a3a', `800 46px ${JP}`, 10);
     });
     panel(6, (g) => {
-      center(g, 'BLOCK', 190, 120, '#27e6ff', '900 120px "Arial Black", Impact, sans-serif', 22);
-      center(g, '21', 320, 170, '#ff3fa4', '900 170px "Arial Black", Impact, sans-serif', 26);
+      center(g, 'BLOCK', 190, 120, '#27c8e0', '900 120px "Arial Black", Impact, sans-serif', 22);
+      center(g, '21', 320, 170, '#ff2a46', '900 170px "Arial Black", Impact, sans-serif', 26);
       center(g, 'ブロック・ツーワン', 430, 36, '#bff7ff', `700 36px ${JP}`, 8);
     });
     panel(7, (g) => {
-      center(g, 'ドローン便', 190, 108, '#5aff7a', `900 108px ${JP}`, 22);
-      center(g, 'DRONE EXPRESS', 300, 56, '#c8ffd6', '800 56px Arial, sans-serif', 10);
-      center(g, '三十分で届く', 400, 46, '#8fffb0', `700 46px ${JP}`, 8);
+      center(g, 'ドローン便', 190, 108, '#2ec8e0', `900 108px ${JP}`, 22);
+      center(g, 'DRONE EXPRESS', 300, 56, '#c0e8f0', '800 56px Arial, sans-serif', 10);
+      center(g, '三十分で届く', 400, 46, '#80d8e8', `700 46px ${JP}`, 8);
     });
   });
   return { texture: tex(c, { aniso: 4 }), rect: (i: number) => [(i % AD_COLS) / AD_COLS, 1 - (Math.floor(i / AD_COLS) + 1) / AD_ROWS, 1 / AD_COLS, 1 / AD_ROWS] as const };
@@ -451,9 +448,9 @@ export function vendingTex(S = 1) {
   const W = 384 * S;
   const H = 256 * S;
   const defs = [
-    { c: '#2ee6ff', name: 'ネオ茶', cans: ['#ff5a5a', '#ffd23d', '#5affc2', '#7a8bff'] },
-    { c: '#ff3fa4', name: 'ゼロ水', cans: ['#8fe8ff', '#ffffff', '#b57bff', '#ffb23d'] },
-    { c: '#ffd23d', name: '電池・麺', cans: ['#ff8a3a', '#ff3b3b', '#7dff6a', '#e6e6e6'] },
+    { c: '#2ec8e0', name: 'ネオ茶', cans: ['#ff4a4a', '#e8b040', '#5fc8e0', '#4a7cd8'] },
+    { c: '#3a8cff', name: 'ゼロ水', cans: ['#8fd8e8', '#d8e8f0', '#4a7cd8', '#ff9a3a'] },
+    { c: '#ff9a3a', name: '電池・麺', cans: ['#ff8a3a', '#ff3b3b', '#5fc8e0', '#e6e6e6'] },
   ];
   const draw = (g: CanvasRenderingContext2D, em: boolean) => {
     g.fillStyle = em ? '#000' : '#1b1e27';
@@ -510,14 +507,14 @@ export function skylineTex(seed: number, tone: string, haze: string, density: nu
         for (let wx = x + 4 * S; wx < x + bw - 4 * S; wx += 7 * S)
           if (r() < density) {
             const v = r();
-            g.fillStyle = v > 0.8 ? '#ff8ec8' : v > 0.5 ? '#ffd9a0' : v > 0.25 ? '#a8d8ff' : '#7bffe0';
+            g.fillStyle = v > 0.93 ? '#ff6a6a' : v > 0.82 ? '#ffc890' : v > 0.3 ? '#8fb8e0' : '#5fd0e0';
             g.globalAlpha = 0.35 + r() * 0.5;
             g.fillRect(wx, wy, 3 * S, 4 * S);
             g.globalAlpha = 1;
           }
       // vertical neon sign on some
       if (r() < 0.22) {
-        const col = ['#ff3fa4', '#2ee6ff', '#ffb23d', '#7dff6a'][Math.floor(r() * 4)];
+        const col = ['#ff2a46', '#2ec8e0', '#3a8cff', '#2ec8e0'][Math.floor(r() * 4)];
         g.fillStyle = col;
         g.globalAlpha = 0.9;
         g.fillRect(x + bw - 6 * S, H - bh + 18 * S, 4 * S, (50 + r() * 100) * S);
@@ -569,9 +566,9 @@ export function curtainWall(S = 1) {
           g.fillRect(x * cw + 1, y * rh + 1, cw - 2, rh * 0.82);
           g.fillStyle = '#0e1626'; // spandrel
           g.fillRect(x * cw, y * rh + rh * 0.84, cw, rh * 0.16);
-        } else if (l > 0.78) {
-          g.globalAlpha = 0.35 + (l - 0.78) * 2.2;
-          g.fillStyle = l > 0.93 ? '#ffd9a6' : '#9fd0ff';
+        } else if (l > 0.88) {
+          g.globalAlpha = 0.25 + (l - 0.88) * 2.2;
+          g.fillStyle = l > 0.97 ? '#ffc890' : '#9fc4e8';
           g.fillRect(x * cw + 2, y * rh + 2, cw - 4, rh * 0.78);
           g.globalAlpha = 1;
         }
