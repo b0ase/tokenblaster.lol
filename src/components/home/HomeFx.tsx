@@ -1,0 +1,47 @@
+'use client';
+
+import { useEffect } from 'react';
+
+/**
+ * Home page effects, no library: arms CSS scroll-reveal for every [data-reveal] element (they show immediately without
+ * JS, or when reduced motion is on) and feeds the cursor spotlight (--mx / --my) to glass panels and cards.
+ */
+export function HomeFx() {
+  useEffect(() => {
+    const root = document.documentElement;
+    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'));
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let io: IntersectionObserver | undefined;
+    if (!reduce && 'IntersectionObserver' in window) {
+      const vh = window.innerHeight;
+      // anything already on screen is revealed at once so the armed state never flashes it away
+      for (const el of els) if (el.getBoundingClientRect().top < vh * 0.92) el.classList.add('is-in');
+      root.classList.add('hp-armed');
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries)
+            if (e.isIntersecting) {
+              e.target.classList.add('is-in');
+              io?.unobserve(e.target);
+            }
+        },
+        { rootMargin: '0px 0px -8% 0px', threshold: 0.06 },
+      );
+      for (const el of els) if (!el.classList.contains('is-in')) io.observe(el);
+    }
+    const move = (e: PointerEvent) => {
+      const t = (e.target as Element | null)?.closest<HTMLElement>('.panel, .hp-card');
+      if (!t) return;
+      const r = t.getBoundingClientRect();
+      t.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      t.style.setProperty('--my', `${e.clientY - r.top}px`);
+    };
+    document.addEventListener('pointermove', move, { passive: true });
+    return () => {
+      io?.disconnect();
+      root.classList.remove('hp-armed');
+      document.removeEventListener('pointermove', move);
+    };
+  }, []);
+  return null;
+}
