@@ -8,7 +8,7 @@ import { rememberWallet, type WalletEntry } from '@/lib/discovery';
 import { connect } from '@/lib/wallet';
 import { setProofWallet } from '@/lib/xproof';
 import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
-import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, askWallet, chipState, getBarWallet, idLabel, setBarWallet, subBarWallet } from '@/lib/walletBar';
+import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, askWallet, chipState, getBarWallet, idLabel, lookupPaymail, patchBarWallet, setBarWallet, subBarWallet } from '@/lib/walletBar';
 import { GiftIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MuteIcon, PhoneIcon, TrophyIcon, VolumeIcon } from './icons';
 
 /**
@@ -114,6 +114,10 @@ export function WalletBarChip() {
       rememberWallet(entry.id);
       setProofWallet(w.client);
       setBarWallet({ id: w.id, name: w.name, publicKey: w.publicKey, live: true });
+      // the paymail too, as useBlaster does, so the chip and the cabinet's YOUR NAME show it
+      void lookupPaymail(w.publicKey, true).then((id) => {
+        if (id && getBarWallet()?.publicKey === w.publicKey) patchBarWallet({ paymail: id.paymail, alias: id.alias, avatar: id.avatar });
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setOpen(true);
