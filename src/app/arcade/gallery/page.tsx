@@ -10,7 +10,21 @@ export const metadata = {
   twitter: { card: 'summary_large_image', title: 'TokenBlaster Shooting Gallery', description },
 };
 
+// Closed on production while the payment flow is fixed (owner, 24 Oct 2026: "the game is eating my money").
+// It still runs on a local dev server, or anywhere NEXT_PUBLIC_GALLERY_OPEN=1 is set.
+const OPEN = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_GALLERY_OPEN === '1';
+
 export default function GalleryPage() {
+  if (!OPEN)
+    return (
+      <GameShell title="Shooting Gallery">
+        <div className="panel flex min-h-[50vh] flex-col items-center justify-center gap-3 p-8 text-center">
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-[var(--accent)]">Temporarily closed</p>
+          <h1 className="text-[clamp(28px,5vw,48px)] font-black uppercase leading-none">The Shooting Gallery is offline for repairs</h1>
+          <p className="max-w-xl text-dim">We&apos;re fixing how coins load the gun. No payments are taken while it&apos;s closed. Any ammo already in your gun stays there and will be usable when it reopens.</p>
+        </div>
+      </GameShell>
+    );
   return (
     <GameShell
       title="31 Oct Stress Test · Shooting Gallery"
