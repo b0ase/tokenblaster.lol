@@ -280,7 +280,6 @@ export const BANNERS = {
 } as const;
 
 /** The lift between stages: the line under the floor counter. */
-export const TRANSITION = { up: 'GOING UP', floors: ['LOBBY', 'FLOOR 14 · LABS', 'SERVER CORE', 'ROOF'] as const } as const;
 
 // ── Loadout: MISSION BRIEFING ───────────────────────────────────────────────────────────
 

@@ -51,11 +51,15 @@ test('block: one ten-minute run, four stages in order, back to back with no gaps
   assert.equal(S[0].at, 0);
   for (let i = 1; i < S.length; i++) assert.ok(S[i].at > S[i - 1].at && S[i].at - S[i - 1].at >= 60, `stage ${i + 1} follows on`);
   assert.ok(S[3].at < R.bossAt && R.bossAt < R.secs - 30, 'the Liquid Unit has the last minutes');
-  assert.ok(R.fogSurge < 3, 'the set swap is a short fog surge, not a pause');
+  // one connected route: each leg starts where the last one ended, walked forward the whole way
+  const E = R.route.enter;
+  assert.equal(E.length, S.length);
+  for (let i = 1; i < E.length; i++) assert.ok(E[i] > E[i - 1], `leg ${i} moves forward`);
+  assert.ok(R.route.end > E[E.length - 1]);
+  assert.ok(R.route.ahead >= 30 && R.route.ahead > R.route.blend, 'the next piece is streamed in ahead of the seam');
   assert.equal('leaveMs' in TUNING.stageFlow, false, 'no lift: nothing stops play between stages');
   S.forEach((x, i) => {
     assert.equal(x.level, i + 1);
-    assert.ok(x.walk > 0, `${x.id}: the player is walked forward`);
   });
 });
 

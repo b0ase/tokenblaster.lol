@@ -32,6 +32,7 @@ import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons'
 import { GalleryEngine, type Hooks, type Quality, type StageEvent, type Stats } from '@/lib/galleryGame/engine';
 import {
   DEFAULT_AMMO,
+  blockRounds,
   overheadSats,
   roundsFor,
   PRIZE,
@@ -66,7 +67,6 @@ import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { Results, type RunSummary } from './Results';
 import { DamageFx, type DamageFxHandle } from './DamageFx';
-import { Flatlined, type FlatStats } from './Flatlined';
 import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 
 import { loadMark } from '@/lib/gun';
@@ -125,9 +125,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const hudWave = useRef(1);
   const finishRef = useRef<() => void>(() => undefined); // set below, once finish exists
   const [over, setOver] = useState<RunSummary | null>(null);
-  // FLATLINED: the player's health hit zero. The CONTINUE? countdown runs on this screen (src/components/gallery/Flatlined.tsx).
-  const [flat, setFlat] = useState<FlatStats | null>(null);
-  const flatRef = useRef(false);
   const statsRef = useRef<Stats | null>(null);
   const dmgFx = useRef<DamageFxHandle>(null);
   const [board, setBoard] = useState<BoardRow[]>([]);
@@ -202,7 +199,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   }, [weaponId, ammo]);
 
   // ── Hooks the engine calls (refs, so the engine never needs re-creating) ──
-  const diedRef = useRef<() => void>(() => undefined);
   const stageRef = useRef<(e: StageEvent) => void>(() => undefined);
   const pullRef = useRef<(w: RangeWeapon) => boolean>(() => false);
   const triggerRef = useRef<(down: boolean) => void>(() => undefined);
@@ -215,7 +211,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     },
     trigger: (d) => triggerRef.current(d),
     hurt: (h) => dmgFx.current?.hit(h.angle, h.dmg),
-    died: () => diedRef.current(),
     stage: (e) => stageRef.current(e),
   });
 
@@ -307,16 +302,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       const s = simRef.current;
       const m = modeRef.current;
       const left = boughtRef.current - firedRef.current;
-      s.on = held.current && !loadout && !flatRef.current && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
+      s.on = held.current && !loadout && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
       s.target = pattern.kind === 'stream' ? pattern.rate : 0;
-      if (flatRef.current) s.rate = s.carry = 0;
-      let n = flatRef.current ? 0 : simTick(s, (t - last) / 1000);
+      let n = simTick(s, (t - last) / 1000);
       last = t;
       if (m === 'live') {
         n = Math.max(0, Math.min(n, left));
         firedRef.current += n;
       }
-      if (n && !flatRef.current) engine.current?.accept(n);
+      if (n) engine.current?.accept(n);
       if (m === 'live') setFired((f) => (f === firedRef.current ? f : firedRef.current));
       const tps = Math.round(s.rate);
       setRun((r) => (r.tps === tps ? r : { ...r, tps }));
@@ -331,7 +325,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       if (down) unlockAudio();
     };
     pullRef.current = (w: RangeWeapon) => {
-      if (loadout || flatRef.current) return false;
+      if (loadout) return false;
       const p = txPattern(w);
       if (p.kind !== 'burst') return false;
       const m = modeRef.current;
@@ -633,8 +627,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     minigun(false);
     setLocked(false);
     clearBanners();
-    flatRef.current = false;
-    setFlat(null);
     setOver({
       fired: firedRef.current,
       sent: sentRef.current,
@@ -651,7 +643,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     setMode('off');
     boughtRef.current = firedRef.current;
     setBought(firedRef.current);
-  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought, setFlat]);
+  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought]);
   useEffect(() => {
     finishRef.current = finish;
   });
@@ -667,6 +659,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // ── LOCK & LOAD: turn the loaded credit into rounds (credit is the ammunition) ──
   // After the payment the player drops straight into the street in WARM-UP while the gun loads.
   const perShotAll = perShot * (1 + fee);
+  // THE FULL BLOCK: how many rounds holding the trigger for all ten minutes takes at this gun's rate, and the price
+  const fullBlock = blockRounds(pattern);
+  const blockNote = freePlay ? `Free play loads ${fullBlock.toLocaleString('en-US')} practice rounds: enough for the full 10:00 block.` : `A full 10:00 block at this gun's rate needs ${fullBlock.toLocaleString('en-US')} rounds, about ${fmtUsd(usdOf(fullBlock * perShotAll, bsvUsd))}.`;
   const goLive = useCallback(
     (rounds: number, continued = false) => {
       setLoadedRounds(rounds);
@@ -703,9 +698,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     setLoad({ kind: 'loading', pct: 5, slowSecs: 0 });
     if (dry) {
       // Dev dry run: a realistic split delay (?splitms=, default 8 s) so the warm-up can be seen.
-      // Free play: the same pack $1 would buy, fixed, no waiting. (Nothing is paid.)
+      // Free play / practice: enough practice rounds to hold the trigger for the whole ten-minute block at this gun's rate
+      // (plus a margin), never less than $1 would buy, no waiting. (Nothing is paid.)
       const sats = usdToSats(freePlay ? 1 : cab.creditUsd, bsvUsd) ?? 0;
-      const n = roundsFor(sats, perShotAll);
+      const n = Math.max(roundsFor(sats, perShotAll), blockRounds(pattern)); // practice: always enough for the full block
       const ms = freePlay ? 300 : Number(new URLSearchParams(location.search).get('splitms') ?? 2500) || 0;
       for (const pct of [15, 30, 45, 60, 75, 90]) {
         setLoad({ kind: 'loading', pct, slowSecs: 0 });
@@ -788,40 +784,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   });
   const startCabinet = () => (freePlay ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
 
-  // ── FLATLINED: health at zero ──
-  useEffect(() => {
-    diedRef.current = () => {
-      held.current = false;
-      simRef.current.on = false;
-      minigun(false);
-      flatRef.current = true;
-      setLocked(false);
-      const st = statsRef.current;
-      setFlat({ fired: firedRef.current, score: st?.score ?? 0, wave: st?.wave ?? 1, kills: st?.kills ?? 0, secs: run.started ? Math.max(1, Math.round((Date.now() - run.started) / 1000)) : 0 });
-    };
-  });
-  /** CONTINUE: the coins on the death screen were paid in ONE approval. Health resets, the new rounds ADD to what is loaded, play resumes. */
-  const resumeAfterPay = async (paidUsd: number) => {
-    const remaining = Math.max(0, boughtRef.current - firedRef.current);
-    flatRef.current = false;
-    setFlat(null);
-    engine.current?.revive();
-    if (dry) {
-      const extra = roundsFor(usdToSats(paidUsd, bsvUsd) ?? 0, perShotAll);
-      goLive(remaining + extra, true);
-      return;
-    }
-    // live: let the rounds already fired finish sending, then load everything in the gun (what was left plus the new coins)
-    setMode('off');
-    boughtRef.current = firedRef.current;
-    setBought(firedRef.current);
-    for (let i = 0; i < 40 && sentRef.current < firedRef.current; i++) await new Promise((r) => setTimeout(r, 250));
-    await lockRef.current(true);
-  };
-  const flatBuys = (usd: number) => {
-    const sats = usdToSats(usd, bsvUsd);
-    return sats == null ? null : roundsFor(sats, perShotAll);
-  };
   const buys = (usd: number) => {
     const sats = usdToSats(usd, bsvUsd);
     return sats == null ? null : roundsFor(sats, perShotAll);
@@ -837,6 +799,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   }, [run.last]);
 
   const spent = simulated ? 0 : run.sent * perShot;
+  // CREDIT COUNTDOWN (owner, 25 Oct): while live the credit ticks down round by round, to the micro-dollar. Paid:
+  // the rounds not yet sent are what is left (real spend is rounds sent x cost). Practice: rounds not yet fired,
+  // at the same cost, so it looks the same and still claims nothing on chain. It agrees with "rounds left".
+  const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * perShotAll, bsvUsd), practice: simulated } : null;
   const names = useMemo(() => new Map(weapons.map((w) => [w.id, w.name])), [weapons]);
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
@@ -874,7 +840,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </div>
         )}
 
-        {!loadout && !over && !rescued && !flat && (
+        {!loadout && !over && !rescued && (
           <div className="pointer-events-none absolute bottom-[104px] left-1/2 z-10 flex -translate-x-1/2 gap-3 sm:hidden" data-strafe-pad>
             {([-1, 1] as const).map((d) => (
               <button
@@ -905,12 +871,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             <button
               type="button"
               onClick={() => (barWallet ? setLoadout(true) : b.setChooser({ note: 'Connect a wallet to put a coin in.' }))}
-              className="pointer-events-auto cursor-pointer bg-transparent font-black tracking-[0.12em] text-[var(--tbx-red)]"
-              style={{ fontSize: 'clamp(40px, 9vw, 112px)', lineHeight: 1, textShadow: '0 0 24px rgba(255,59,48,.75), 0 4px 0 #000', animation: 'tbx-coin-blink 1.1s steps(1) infinite' }}
+              className="pointer-events-auto cursor-pointer rounded-md bg-black/70 px-5 py-2 font-black tracking-[0.12em] text-[var(--tbx-red)] ring-2 ring-[var(--tbx-red)]/70 backdrop-blur-sm"
+              style={{ fontSize: 'clamp(40px, 9vw, 112px)', lineHeight: 1, textShadow: '0 0 18px rgba(255,59,48,.6), 0 3px 0 #000', animation: 'tbx-coin-blink 1.1s steps(1) infinite' }}
             >
               INSERT COIN
             </button>
-            <span className="mt-2 text-xs font-bold tracking-[0.25em] text-white/80 sm:text-sm">
+            <span className="mt-2 rounded bg-black/70 px-3 py-1 text-xs font-bold tracking-[0.25em] text-white sm:text-sm">
               {barWallet ? 'PRACTICE ROUNDS · NOTHING ON CHAIN' : 'CONNECT WALLET · PRACTICE ROUNDS · NOTHING ON CHAIN'}
             </span>
           </div>
@@ -920,14 +886,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             {PRACTICE.badge.toUpperCase()}
           </div>
         )}
-        {stall && !loadout && !over && !flat && (
+        {stall && !loadout && !over && (
           <div className="pointer-events-none absolute inset-x-0 top-[42%] z-10 flex justify-center px-4">
             <p className="tbx-glass tbx-pop flex max-w-[560px] items-center gap-2 px-4 py-2.5 text-center text-base font-semibold" style={{ borderColor: 'var(--tbx-red)' }} role="status">
               <Icon name="bullet" size={18} className="shrink-0 text-[var(--tbx-red)]" /> {stall}
             </p>
           </div>
         )}
-        {((cab.stage === 'approve' && !flat && !freePlay) || load?.kind === 'failed') && (
+        {((cab.stage === 'approve' && !freePlay) || load?.kind === 'failed') && (
           <LoadingScreen
             title={GAME_TITLE}
             kicker={GAME_KICKER}
@@ -958,7 +924,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
         {!loadout && !over && <BannerStage item={bannerCur} practice={simulated} />}
         {rescued && !over && <RescuedBeat />}
-        {queueNote && !simulated && !loadout && !jammed && !over && !flat && (
+        {queueNote && !simulated && !loadout && !jammed && !over && (
           <div className="tbx-glass pointer-events-none absolute bottom-[96px] left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-white/85" role="status">
             Rounds are queueing, the network is catching up.
           </div>
@@ -989,6 +955,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             weaponName={weapon.name}
             ammo={ammo ?? DEFAULT_AMMO}
             creditUsd={cab.creditUsd}
+            live={creditLive}
             tps={run.tps}
             spent={simulated ? '$0.00' : fmtUsd(usdOf(spent, bsvUsd))}
             stats={hud}
@@ -1010,23 +977,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             onLock={() => setLocked((v) => !v)}
             onStop={() => (setLocked(false), engine.current?.setTrigger(false))}
             onEnd={finish}
-          />
-        )}
-
-        {/* FLATLINED: the CONTINUE? countdown */}
-        {flat && !over && (
-          <Flatlined
-            stats={flat}
-            pendingUsd={cab.pending}
-            buys={flatBuys}
-            rounds={flatBuys(cab.pending) ?? 0}
-            hold={cab.stage === 'approve' || cab.stage === 'loading' || locking || cab.modal !== null}
-            onCoin={cab.onCoin}
-            onClear={cab.onClear}
-            onContinue={() => (freePlay ? void resumeAfterPay(1) : cab.payThen(() => void resumeAfterPay(cab.pending)))}
-            onGameOver={() => finishRef.current()}
-            walletName={cab.walletName}
-            freePlay={freePlay}
           />
         )}
 
@@ -1056,7 +1006,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 name={name}
                 setName={setName}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
-                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
+                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
                 buys={buys}
                 unit="shots"
                 startLabel={ready ? 'Lock & load' : 'Loading…'}

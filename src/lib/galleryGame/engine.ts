@@ -61,7 +61,6 @@ export type Stats = {
   hover: string;
   hp: number;
   hpMax: number;
-  dead: boolean;
   bossPush: number;
   bossDist: number;
   /** The Liquid Unit is in play (stage 4). */
@@ -81,7 +80,6 @@ export type Hooks = {
   /** The player took damage (HUD: vignette, direction marker). */
   hurt: (h: Hurt) => void;
   /** Health hit zero. */
-  died: () => void;
   /** Stage flow: the lift, a new stage, the final boss down, the rescue. */
   stage: (e: StageEvent) => void;
 };
@@ -89,6 +87,39 @@ export type Hooks = {
 type Drone = { g: THREE.Group; rotors: THREE.Mesh[]; hp: number; dead: number; t: number; v: THREE.Vector3; base: THREE.Vector3; body: THREE.Mesh };
 
 const v3 = () => new THREE.Vector3();
+/**
+ * A streamable piece of the world: what draws, and its lights. Hiding a piece hides its drawables and zeroes its
+ * lights but leaves the lights in the scene, so the scene's light count never changes and no shader recompiles.
+ */
+type Kit = { draw: { o: THREE.Object3D; v: boolean }[]; lights: { l: THREE.Light; i: number }[]; on: boolean };
+const kitOf = (root: THREE.Object3D): Kit => {
+  const k: Kit = { draw: [], lights: [], on: true };
+  root.traverse((o) => {
+    if ((o as THREE.Light).isLight) k.lights.push({ l: o as THREE.Light, i: (o as THREE.Light).intensity });
+    else if ((o as THREE.Mesh).isMesh || (o as THREE.Sprite).isSprite || (o as THREE.Points).isPoints || (o as THREE.Line).isLine) k.draw.push({ o, v: o.visible });
+  });
+  return k;
+};
+const showKit = (k: Kit, on: boolean) => {
+  if (k.on === on) return;
+  k.on = on;
+  // hiding remembers each piece's own visibility (a smashed pane, a cut rope) and showing puts it back
+  for (const d of k.draw) {
+    if (on) d.o.visible = d.v;
+    else {
+      d.v = d.o.visible;
+      d.o.visible = false;
+    }
+  }
+  for (const x of k.lights) {
+    if (on) {
+      if (x.l.intensity === 0) x.l.intensity = x.i;
+    } else if (x.l.intensity !== 0) {
+      x.i = x.l.intensity;
+      x.l.intensity = 0;
+    }
+  }
+};
 /** Tell the page a new stage has opened (with Dr Wong's line for the stage just cleared). */
 const skipLine = (hooks: Hooks, to: number) => hooks.stage({ kind: 'enter', stage: to + 1, line: KWEG.clear[Math.max(0, to - 1)] ?? '' });
 const BASE_FOV = 60;
@@ -114,9 +145,21 @@ export class GalleryEngine {
   private jamRounds = 0;
   /** Seconds into the ten-minute block (runs while in combat, until the rescue). */
   runT = 0;
-  /** Fog surge hiding a set swap: seconds left, and whether the swap has happened. */
-  private surge: { t: number; to: number; swapped: boolean } | null = null;
+  /** Metres walked along the route (see TUNING.run.route). */
+  private routeD = 0;
   private walkStep = 0;
+  private frameN = 0;
+  private holdT = 0;
+  /** Point-light slots: the route's lights are templates; the nearest/brightest few drive these (constant count). */
+  private slots: THREE.PointLight[] = [];
+  private tpl: { l: THREE.PointLight; home: THREE.Object3D; set: number; world: boolean; score: number }[] = [];
+  /** Per set (street, floors, core, roof): its drawables and lights, for streaming without changing the light count. */
+  private kits: Kit[] = [];
+  private kitOn: boolean[] = [];
+  private bossKit!: Kit;
+  /** The lobby doorway carved through the tower (street materials, world-space planes moved with the walk). */
+  private door = [new THREE.Plane(new THREE.Vector3(0, 0, 1), 1e6), new THREE.Plane(new THREE.Vector3(0, 1, 0), -4.6), new THREE.Plane(new THREE.Vector3(1, 0, 0), -13.5), new THREE.Plane(new THREE.Vector3(-1, 0, 0), -13.5)];
+  private moodC = { fog: new THREE.Color(), bg: new THREE.Color(), a: new THREE.Color(), b: new THREE.Color() };
   private horde!: Horde;
   private coreHitAcc = 0;
   private coreHit = 0;
@@ -191,12 +234,10 @@ export class GalleryEngine {
 
   // the player's body
   hp: number = TUNING.player.hp;
-  dead = false;
   private sinceHurt = 99;
   private hitCd = 0;
   private invuln = 0;
   private hitKick = { p: 0, y: 0, r: 0 };
-  private deadT = 0;
 
   // temps
   private ray = new THREE.Raycaster();
@@ -237,10 +278,11 @@ export class GalleryEngine {
     this.boss.final = true;
     this.boss.onDown = () => this.bossDown();
     this.boss.setEnv(r, this.look.env);
-    this.boss.group.visible = false;
     this.scene.add(this.boss.group);
     await this.boss.ready; // the rigged model (a fallback figure stands in if it can't load)
     if (this.disposed) return;
+    this.bossKit = kitOf(this.boss.group);
+    showKit(this.bossKit, false);
     this.fx = new Fx(this.scene, high);
     this.bolts = new Bolts(this.scene);
     this.erobots = new ErobotWave(this.scene, this.fx, {
@@ -270,6 +312,7 @@ export class GalleryEngine {
       this.scene.add(l);
       this.pool.push({ l, t: 0, dur: 0, peak: 0 });
     }
+    this.buildRoute();
     this.applyStage(0);
     if (!high) {
       // Low: no lights to spare, so the muzzle throws an emissive glow on the wet street instead
@@ -300,7 +343,7 @@ export class GalleryEngine {
     comp.addPass(new RenderPass(this.scene, this.camera));
     if (high) {
       const ao = new GTAOPass(this.scene, this.camera, size.x, size.y);
-      ao.updateGtaoMaterial({ radius: 1.4, distanceExponent: 1.4, thickness: 1.5, scale: 1.1, samples: 12 });
+      ao.updateGtaoMaterial({ radius: 1.4, distanceExponent: 1.4, thickness: 1.5, scale: 1.1, samples: 8 });
       const aoRender = ao.render.bind(ao);
       const hid: THREE.Object3D[] = [];
       ao.render = (...args: Parameters<GTAOPass['render']>) => {
@@ -348,6 +391,20 @@ export class GalleryEngine {
     comp.addPass(this.grade.pass);
     this.composer = comp;
 
+    // PRE-WARM: every set, the boss, the swarm and the effects compile now, off the frame loop, against the
+    // final light set-up (it never changes during the run), so nothing compiles mid-run
+    onProgress(0.7);
+    await r.compileAsync(this.scene, this.camera).catch(() => undefined);
+    this.warmTextures();
+    this.warmFrame();
+    void Promise.all([this.erobots.ready, this.horde.ready]).then(async () => {
+      if (this.disposed) return;
+      await r.compileAsync(this.scene, this.camera).catch(() => undefined);
+      if (this.disposed) return;
+      this.warmTextures();
+      this.warmFrame();
+    });
+    if (this.disposed) return;
     this.bindInput();
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(this.canvas.parentElement ?? this.canvas);
@@ -468,7 +525,6 @@ export class GalleryEngine {
   }
 
   setTrigger(down: boolean) {
-    if (this.dead) down = false;
     if (down === this.trigger) return;
     this.trigger = down;
     this.hooks.current.trigger(down);
@@ -496,7 +552,7 @@ export class GalleryEngine {
   /** `n` newly accepted transactions: each one is a round of the held weapon's damage at the crosshair. */
   accept(n: number) {
     const w = this.weapon;
-    if (!w || n <= 0 || !this.city || this.dead) return;
+    if (!w || n <= 0 || !this.city) return;
     const org = this.tA;
     const dir = this.tB;
     this.aimRay(org, dir);
@@ -515,7 +571,7 @@ export class GalleryEngine {
       const rr = spread * Math.sqrt(Math.random());
       jd.addScaledVector(u, Math.cos(a) * rr).addScaledVector(vv, Math.sin(a) * rr).normalize();
       const end = this.landRound(org, jd, per * w.damage, w, per);
-      if (tracers === 0) this.flash(this.tC.copy(mz).lerp(end, 0.35), w.bolt, 22, 90); // the round lights the wet street as it passes
+      if (tracers === 0) this.flash(this.tC.copy(mz).lerp(end, 0.35), w.bolt, 10, 90); // the round lights the wet street as it passes
       if (tracers++ < (w.auto ? 3 : 9)) this.fx.tracer(mz, end, w.bolt, w.ammo === 'laser' ? 0.09 : w.ammo === 'pellet' ? 0.035 : 0.05, w.ammo === 'laser' ? 0.15 : 0.08);
     }
   }
@@ -614,7 +670,7 @@ export class GalleryEngine {
         this.fx.sparks(end, '#ff6a2a', 40, 12);
         this.flash(end, '#ff7a30', 130, 500);
         this.flash(this.tA.copy(end), '#ff5a20', 40, 1600);
-        c.hitLight.position.copy(end);
+        c.hitLight.position.copy(end); // hit lights are world-space templates (see assignLights)
         c.hitLight.color.set('#ff7a30');
         c.hitLight.intensity = 140;
         sfx('explosion', 0.6);
@@ -694,15 +750,15 @@ export class GalleryEngine {
     this.shake = Math.min(1, this.shake + 0.06 + w.kick * 0.05);
     this.flashT = 0.06;
     this.muzzleSprite.position.copy(mz);
-    this.muzzleSprite.scale.setScalar(0.22 + Math.random() * 0.2 + (rounds > 3 ? 0.2 : 0));
+    this.muzzleSprite.scale.setScalar(0.18 + Math.random() * 0.14 + (rounds > 3 ? 0.1 : 0));
     this.muzzleSprite.material.color.set(w.bolt);
-    this.muzzleSprite.material.opacity = 1;
+    this.muzzleSprite.material.opacity = this.trigger ? 0.65 : 1;
     this.flashLight.position.copy(mz);
     this.flashLight.color.set(w.bolt);
     this.flashLight.intensity = (this.high ? 60 : 36) * (0.6 + Math.random() * 0.7) * (rounds > 3 ? 1.3 : 1);
     this.kick = Math.min(0.12, this.kick + 0.012 + w.kick * 0.004);
     this.decalA = Math.min(1, this.decalA + 0.5);
-    this.flash(this.tA.copy(this.camera.position).add(this.tB.set(0, 0.6, -9)), w.bolt, 22, 80); // glow pulsing down the street
+    this.flash(this.tA.copy(this.camera.position).add(this.tB.set(0, 0.6, -9)), w.bolt, 10, 80); // glow pulsing down the street (kept low: held fire must not white out the view)
     if (w.def.id === 'minigun' || w.ordnance?.id === 'minigun-of-the-mempool') {
       if (!this.mgOn) {
         this.mgOn = true;
@@ -776,7 +832,7 @@ export class GalleryEngine {
     this.t += dt;
     const w = this.weapon;
     // stream weapons show fire while held AND the chain is flowing
-    if (w && this.trigger && !this.dead && w.auto && this.hooks.current.flowing() && now >= this.nextShot) {
+    if (w && this.trigger && w.auto && this.hooks.current.flowing() && now >= this.nextShot) {
       this.nextShot = now + w.fireMs;
       this.muzzleFx(w);
     }
@@ -795,17 +851,15 @@ export class GalleryEngine {
     } else if (this.autoAim) this.autoTarget();
     if (this.rescue?.freed) this.lookAtHostage(dt);
     // the world slows to a crawl while the player is down
-    const sd = this.dead ? dt * 0.18 : dt;
+    const sd = dt;
     this.sinceHurt += dt;
     this.hitCd -= dt;
     this.invuln -= dt;
-    if (!this.dead && this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
-    if (this.dead) this.deadT += dt;
+    if (this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
     if (this.bossOn) this.boss.update(sd);
     this.stageTick(dt);
-    this.erobots.playerAlive = !this.dead;
     this.erobots.update(sd, this.camera, this.trigger);
-    this.horde.update(sd, this.camera, !this.dead);
+    this.horde.update(sd, this.camera, true);
     this.shake = Math.min(1, this.shake + this.horde.impulse);
     this.horde.impulse = 0;
     this.bolts.update(sd, this.camera.position, (from, dmg, kind) => this.hurt(from, dmg, kind));
@@ -813,7 +867,8 @@ export class GalleryEngine {
     this.erobots.impulse = 0;
     if (this.stageIdx === 0) this.updateDrones(dt);
     this.updateBrass(dt);
-    this.world.update(dt, this.t, this.camera);
+    const pieces = [this.city, this.sets.floors, this.sets.core, this.sets.roof];
+    for (let i = 0; i < pieces.length; i++) if (this.kitOn[i]) pieces[i]?.update(dt, this.t, this.camera);
     this.setNow()?.core?.set(this.jamRounds / this.jamGoal(), this.coreHit, this.t);
     this.walk(dt);
     this.fx.update(sd, this.camera);
@@ -827,9 +882,14 @@ export class GalleryEngine {
     this.shake *= Math.pow(0.02, dt);
     this.updateFlash(dt);
     this.grade.tick(this.t, 0);
-    if (this.stageIdx === 0) this.city.beforeRender(this.renderer, this.scene, this.camera);
+    // GTAO is the costliest pass after the mirror; under sustained fire the screen is all muzzle, tracers and
+    // swarm, so it rests while the trigger has been held a moment and comes back when you let go (keeps >=45 fps)
+    this.holdT = this.trigger ? this.holdT + dt : 0;
+    if (this.ao) this.ao.enabled = this.holdT < 0.6;
+    // the street's mirror pass is the most expensive pass: refresh it every other frame (the walk is slow)
+    if (this.kitOn[0] && (this.frameN++ & 1) === 0) this.city.beforeRender(this.renderer, this.scene, this.camera);
     if (this.shafts) {
-      const p = this.shaftP.copy(this.city.lightWorld).project(this.camera);
+      const p = this.shaftP.copy(this.city.lightWorld).add(this.city.group.position).project(this.camera);
       const u = this.shafts.uniforms as { uPos: { value: THREE.Vector2 }; uK: { value: number } };
       u.uPos.value.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
       u.uK.value = p.z < 1 && this.stageIdx === 0 ? 0.1 : 0;
@@ -867,7 +927,6 @@ export class GalleryEngine {
       hover: this.hover,
       hp: Math.ceil(this.hp),
       hpMax: TUNING.player.hp,
-      dead: this.dead,
       bossPush: this.bossOn ? this.boss.pushNorm : 0,
       bossDist: this.bossOn && this.boss.alive ? this.boss.dist : 99,
       bossOn: this.bossOn,
@@ -890,7 +949,7 @@ export class GalleryEngine {
 
   private autoTarget() {
     if (this.bossOn && this.boss.alive) this.boss.chest(this.tA).project(this.camera);
-    else if (this.setNow()?.core) this.tA.copy(this.setNow()!.core!.at).project(this.camera);
+    else if (this.setNow()?.core) this.setNow()!.core!.mesh.getWorldPosition(this.tA).project(this.camera);
     else return;
     this.ndc.set(THREE.MathUtils.clamp(this.tA.x, -0.9, 0.9), THREE.MathUtils.clamp(this.tA.y, -0.9, 0.9));
   }
@@ -905,43 +964,132 @@ export class GalleryEngine {
     this.ndc.y += (THREE.MathUtils.clamp(this.tA.y, -0.6, 0.6) - this.ndc.y) * k;
   }
 
-  /** Build stage `i`'s set if it isn't yet, and compile its shaders while hidden, so the swap never hitches. */
-  private prebuild(i: number) {
+  /**
+   * THE ROUTE (owner, 24 Oct: "a smooth walk all the way to the server room"): every set is built once, at load,
+   * and laid end to end down -Z: the street runs up to TERRORNODE HQ, the lobby doorway is carved through the
+   * tower (clip planes on the street) into the HQ floors, the corridor's open far end runs into the server core
+   * shaft, and an opening in the shaft's far wall walks out onto the roof (the server room). Only the pieces near
+   * the player are drawn (`TUNING.run.route.ahead` / `behind`); the rest are hidden, never rebuilt.
+   */
+  private buildRoute() {
     const ctx = { scene: this.scene, high: this.high, look: this.look };
-    const k = (['street', 'floors', 'core', 'roof'] as const)[i];
-    if (k === 'street' || this.sets[k]) return;
-    const st = (this.sets[k] = k === 'floors' ? buildFloors(ctx) : k === 'core' ? buildCore(ctx) : buildRoof(ctx));
-    st.group.visible = true;
-    this.renderer.compile(this.scene, this.camera);
-    st.group.visible = this.stageIdx === i;
+    this.sets.floors = buildFloors(ctx);
+    this.sets.core = buildCore(ctx);
+    this.sets.roof = buildRoof(ctx);
+    const R = TUNING.run.route;
+    // seams: floor patches so the walk never crosses a hole between a straight floor and the round shaft
+    const patch = (st: StageSet, z0: number, z1: number, w: number, y: number) => {
+      const g = new THREE.PlaneGeometry(w, Math.abs(z1 - z0));
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(g, st.ground.material);
+      m.position.set(0, y, (z0 + z1) / 2);
+      m.receiveShadow = true;
+      st.group.add(m);
+    };
+    patch(this.sets.floors, -62, -70, 27, -0.03);
+    patch(this.sets.roof, 8, 26, 48, -0.02);
+    // the street: carve the lobby doorway (only within the box, see `door`)
+    this.renderer.localClippingEnabled = true;
+    this.city.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh && !(o as THREE.Points).isPoints && !(o as THREE.Line).isLine) return;
+      const mats = (Array.isArray(m.material) ? m.material : [m.material]) as THREE.Material[];
+      for (const mt of mats) {
+        if (!mt) continue;
+        mt.clippingPlanes = this.door;
+        mt.clipIntersection = true;
+      }
+    });
+    const all = [this.city.group, this.sets.floors.group, this.sets.core.group, this.sets.roof.group];
+    // LIGHTS: every point light on the route becomes a template; a fixed few slots in the scene take the values
+    // of the nearest, brightest ones each frame. The scene's light count never changes (no recompiles) and stays
+    // low however many sets are drawn. Hit lights are moved in world space by the game, the rest ride their set.
+    const hits = new Set<THREE.Object3D>([this.city.hitLight, this.sets.floors.hitLight, this.sets.core.hitLight, this.sets.roof.hitLight]);
+    all.forEach((g, i) => {
+      const found: THREE.PointLight[] = [];
+      g.traverse((o) => {
+        if ((o as THREE.PointLight).isPointLight) found.push(o as THREE.PointLight);
+      });
+      for (const l of found) {
+        const home = l.parent!;
+        home.remove(l);
+        this.tpl.push({ l, home, set: i, world: hits.has(l), score: 0 });
+      }
+    });
+    for (let k = 0; k < (this.high ? TUNING.run.lightSlots : TUNING.run.lightSlotsLow); k++) {
+      const s = new THREE.PointLight('#ffffff', 0, 10, 1.6);
+      this.slots.push(s);
+      this.scene.add(s);
+    }
+    all.forEach((g, i) => {
+      g.visible = true;
+      g.position.set(0, R.lift[i], R.base[i]);
+      // the inside sets draw on layer 2, so the street's mirror pass (layer 0 only) never renders them
+      if (i > 0)
+        g.traverse((o) => {
+          if (!(o as THREE.Light).isLight) o.layers.set(2);
+        });
+      this.kits[i] = kitOf(g);
+      this.kitOn[i] = true;
+    });
+    this.camera.layers.enable(2);
+    this.ray.layers.enableAll();
   }
 
-  /** Show stage `i` (0..3): swap what is visible, set the mood and the lane. Nothing stops: enemies keep coming. */
-  private applyStage(i: number) {
-    const ids = ['street', 'floors', 'core', 'roof'] as const;
-    this.prebuild(i);
-    this.stageIdx = i;
-    this.city.group.visible = i === 0;
-    this.city.group.position.z = 0;
-    for (const k of ['floors', 'core', 'roof'] as const) {
-      const st = this.sets[k];
-      if (st) {
-        st.group.visible = ids[i] === k;
-        st.group.position.z = 0;
+  /**
+   * One hidden full render with EVERYTHING shown (every route piece, the boss, every pooled body), so the shadow
+   * and depth variants compile now, behind the loading screen, and never on the frame something first appears.
+   */
+  private warmFrame() {
+    const kits = [...this.kits, this.bossKit];
+    const was = kits.map((k) => k.on);
+    kits.forEach((k) => showKit(k, true));
+    const bodies: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      if ((o.name === 'erobots' || o.name === 'horde') && o.children.length) for (const c of o.children) if (!c.visible) bodies.push(c);
+    });
+    for (const b of bodies) b.visible = true;
+    this.composer.render();
+    for (const b of bodies) b.visible = false;
+    kits.forEach((k, i) => showKit(k, was[i]));
+  }
+
+  /** Upload every texture in the scene now (a first-use upload mid-run is a visible hitch). */
+  private warmTextures() {
+    const seen = new Set<THREE.Texture>();
+    this.scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (!m) return;
+      for (const mt of Array.isArray(m) ? m : [m]) {
+        for (const v of Object.values(mt as unknown as Record<string, unknown>)) if (v instanceof THREE.Texture && !seen.has(v)) seen.add(v);
+        const u = (mt as THREE.ShaderMaterial).uniforms;
+        if (u) for (const x of Object.values(u)) if (x && x.value instanceof THREE.Texture && !seen.has(x.value)) seen.add(x.value);
       }
-    }
-    const st = this.setNow();
-    this.world = st ?? this.city;
-    const mood = st ? st.mood : this.setMood;
-    const fg = this.scene.fog as THREE.FogExp2;
-    fg.color.set(mood.fog);
-    fg.density = mood.density;
-    (this.scene.background as THREE.Color).set(mood.bg);
+    });
+    for (const t of seen) this.renderer.initTexture(t);
+  }
+
+  /** Metres along the route at `t` seconds into the block: each stage walks its leg in its share of the ten minutes. */
+  private routeAt(t: number) {
+    const S = TUNING.stages;
+    const R = TUNING.run;
+    const i = this.stageAt(t);
+    const t0 = S[i].at;
+    const t1 = i < S.length - 1 ? S[i + 1].at : R.secs;
+    const d0 = R.route.enter[i];
+    const d1 = i < S.length - 1 ? R.route.enter[i + 1] : R.route.end;
+    return d0 + (d1 - d0) * THREE.MathUtils.clamp((t - t0) / Math.max(1, t1 - t0), 0, 1);
+  }
+
+  /** Switch the gameplay stage `i` (0..3): the lane, the hit targets, the Erobot level. The scenery is the route's. */
+  private applyStage(i: number) {
+    this.stageIdx = i;
+    this.world = this.setNow() ?? this.city;
     this.droneGroupVisible(i === 0);
     if (this.decal) this.decal.visible = i === 0;
-    if (i !== 3) {
+    if (i !== 3 && this.bossOn) {
       this.bossOn = false;
-      this.boss.group.visible = false;
+      showKit(this.bossKit, false);
     }
     this.jamRounds = i === 2 ? 0 : this.jamRounds;
     const T = TUNING.stages[i];
@@ -949,26 +1097,25 @@ export class GalleryEngine {
     this.erobots.spawning = true;
     this.horde.lane = T.lane;
     this.horde.spawning = true;
-    this.resize();
   }
 
-  /** The Liquid Unit walks in (the last minutes of the block, on the roof). */
+  /** The Liquid Unit walks in (the last minutes of the block, in the server room on the roof). */
   private bossIn() {
     if (this.bossOn) return;
     const T = TUNING.stages[3];
     this.bossOn = true;
-    this.boss.group.visible = true;
+    showKit(this.bossKit, true);
     this.boss.final = false;
     this.boss.setLevel(T.bossLevel);
     this.boss.reset(-36);
     this.hooks.current.stage({ kind: 'boss' });
   }
 
-  /** A fresh run: back to the street, everything rebuilt, the hostage tied up again, the block clock at 0:00. */
+  /** A fresh run: back to the street, everything reset, the hostage tied up again, the block clock at 0:00. */
   startRun() {
-    this.surge = null;
     this.rescue = null;
     this.runT = 0;
+    this.routeD = 0;
     this.jamRounds = 0;
     this.sinceCoreHit = 99;
     this.coreHit = 0;
@@ -979,6 +1126,7 @@ export class GalleryEngine {
     this.horde.clearAll();
     this.bolts.clear();
     this.applyStage(0);
+    this.walk(0);
     this.px = 0;
     this.hp = TUNING.player.hp;
     this.invuln = 0;
@@ -995,42 +1143,93 @@ export class GalleryEngine {
     return i;
   }
 
+  /** The route's sideways bend at `d` metres (around the core's pedestal), so the walk never goes through it. */
+  private bendAt(d: number) {
+    const R = TUNING.run.route;
+    const u = (d - R.enter[2]) / (R.enter[3] - R.enter[2]);
+    return u > 0 && u < 1 ? R.coreBend * Math.sin(Math.PI * u) : 0;
+  }
+
   /**
-   * THE AUTO-MOVE: the set slides past the player (a rail shooter's walk) at the pace that crosses it in the
-   * stage's time, the view bobs with the steps, and a fog surge covers the swap to the next set. Nothing in
-   * here touches the trigger.
+   * THE AUTO-MOVE: the whole route slides past the player (a rail shooter's walk) at the pace that walks each leg
+   * in its stage's time, the view bobs with the steps, the mood blends across each seam, and only nearby pieces
+   * are drawn. Nothing in here touches the trigger, and nothing is built or compiled.
    */
   private walk(dt: number) {
     const R = TUNING.run;
-    const moving = this.combat && !this.rescue && !this.dead;
-    const S = TUNING.stages;
-    const i = this.stageIdx;
-    const at = S[i].at;
-    const end = i < S.length - 1 ? S[i + 1].at : R.secs;
-    const k = THREE.MathUtils.clamp((this.runT - at) / Math.max(1, end - at), 0, 1);
-    const g = (this.setNow() ?? this.city).group;
-    g.position.z = S[i].walk * k;
+    const RT = R.route;
+    const moving = this.combat && !this.rescue;
+    const d = (this.routeD = this.routeAt(this.runT));
     if (moving) this.walkStep += dt * R.stepHz * Math.PI * 2;
-    // the fog surge: thicken, swap at the peak, thin out
+    const bx = -this.bendAt(d);
+    const all = [this.city.group, this.sets.floors!.group, this.sets.core!.group, this.sets.roof!.group];
+    for (let i = 0; i < all.length; i++) {
+      all[i].position.set(bx, RT.lift[i], RT.base[i] + d);
+      const from = RT.enter[i] - RT.ahead;
+      const to = (i < 3 ? RT.enter[i + 1] : RT.end) + RT.behind;
+      const on = d >= from && d <= to;
+      if (on !== this.kitOn[i]) {
+        this.kitOn[i] = on;
+        showKit(this.kits[i], on);
+      }
+    }
+    // the lobby doorway, carried with the street
+    this.door[0].constant = -(RT.doorZ + d);
+    this.door[2].constant = -(13.5 - bx);
+    this.door[3].constant = -(13.5 + bx);
+    // mood: blend across each seam
+    const moods = [this.setMood, this.sets.floors!.mood, this.sets.core!.mood, this.sets.roof!.mood];
+    let a = moods[0];
+    let b = moods[0];
+    let k = 0;
+    for (let i = 1; i < 4; i++) {
+      const u = (d - (RT.enter[i] - RT.blend)) / (RT.blend * 2);
+      if (u >= 1) a = b = moods[i];
+      else if (u > 0) {
+        a = moods[i - 1];
+        b = moods[i];
+        k = u;
+        break;
+      }
+    }
     const fg = this.scene.fog as THREE.FogExp2;
-    const base = (this.setNow()?.mood ?? this.setMood).density;
-    if (this.surge) {
-      const sg = this.surge;
-      sg.t += dt;
-      const half = R.fogSurge / 2;
-      if (!sg.swapped && sg.t >= half) {
-        sg.swapped = true;
-        this.applyStage(sg.to);
-        sfx('level', 0.6);
-        skipLine(this.hooks.current, sg.to);
+    const M = this.moodC;
+    fg.color.copy(M.a.set(a.fog)).lerp(M.b.set(b.fog), k);
+    fg.density = a.density + (b.density - a.density) * k;
+    (this.scene.background as THREE.Color).copy(M.a.set(a.bg)).lerp(M.b.set(b.bg), k);
+    this.assignLights();
+  }
+
+  /** Fill the light slots from the brightest, nearest templates of the pieces being drawn. */
+  private assignLights() {
+    const cam = this.camera.position;
+    const p = this.tC;
+    for (const t of this.tpl) {
+      if (!this.kitOn[t.set] || t.l.intensity <= 0) {
+        t.score = -1;
+        continue;
       }
-      const u = sg.t < half ? sg.t / half : Math.max(0, 1 - (sg.t - half) / half);
-      fg.density = (this.setNow()?.mood ?? this.setMood).density * (1 + (R.fogPeak - 1) * u * u);
-      if (sg.t >= R.fogSurge) {
-        this.surge = null;
-        fg.density = (this.setNow()?.mood ?? this.setMood).density;
+      if (t.world) p.copy(t.l.position);
+      else p.copy(t.l.position).applyMatrix4(t.home.matrixWorld);
+      t.l.userData.wp = (t.l.userData.wp ?? new THREE.Vector3()).copy(p);
+      const r = Math.max(1, t.l.distance || 40);
+      const d2 = p.distanceToSquared(cam);
+      t.score = d2 > (r + 25) * (r + 25) ? -1 : t.l.intensity / (1 + d2 / (r * r));
+    }
+    this.tpl.sort((a, b) => b.score - a.score);
+    for (let k = 0; k < this.slots.length; k++) {
+      const s = this.slots[k];
+      const t = this.tpl[k];
+      if (!t || t.score <= 0) {
+        s.intensity = 0;
+        continue;
       }
-    } else if (fg.density !== base) fg.density = base;
+      s.position.copy(t.l.userData.wp as THREE.Vector3);
+      s.color.copy(t.l.color);
+      s.intensity = t.l.intensity;
+      s.distance = t.l.distance;
+      s.decay = t.l.decay;
+    }
   }
 
   private stageTick(dt: number) {
@@ -1048,12 +1247,13 @@ export class GalleryEngine {
     }
     if (!this.combat) return;
     this.runT += dt;
-    // pre-build the next set well before it is needed (shader compile happens off the swap)
-    const next = this.stageIdx + 1;
-    if (next < TUNING.stages.length && this.runT > TUNING.stages[next].at - 20) this.prebuild(next);
-    // the clock moves the player on: one seamless walk
+    // the clock moves the player on: one seamless walk (the stage is just which leg of the route you are on)
     const want = this.stageAt(this.runT);
-    if (want > this.stageIdx && !this.surge) this.surge = { t: 0, to: want, swapped: false };
+    if (want !== this.stageIdx) {
+      this.applyStage(want);
+      sfx('level', 0.6);
+      skipLine(this.hooks.current, want);
+    }
     // the horde thickens across each stage
     const S = TUNING.stages[this.stageIdx];
     const end = this.stageIdx < 3 ? TUNING.stages[this.stageIdx + 1].at : R.secs;
@@ -1075,7 +1275,8 @@ export class GalleryEngine {
       this.coreHit += (THREE.MathUtils.clamp(rate / 1200, 0, 1) - this.coreHit) * Math.min(1, dt * 8);
       if (this.sinceCoreHit > G.holdSecs) this.jamRounds = Math.max(0, this.jamRounds - G.drainPerSec * dt);
       if (this.jamRounds >= G.rounds) {
-        const at = this.setNow()?.core?.at;
+        const cm = this.setNow()?.core?.mesh;
+        const at = cm ? cm.getWorldPosition(this.tD) : null;
         if (at) {
           this.flash(at, '#7cf9ff', 160, 900);
           this.fx.ring(at, '#27e6ff', 8, 0.6);
@@ -1095,8 +1296,7 @@ export class GalleryEngine {
     this.invuln = 999;
     this.erobots.clearAll();
     this.erobots.spawning = false;
-    this.horde.clearAll();
-    this.horde.spawning = false;
+    this.horde.dismiss();
     this.bolts.clear();
     this.hooks.current.stage({ kind: 'down' });
   }
@@ -1108,7 +1308,7 @@ export class GalleryEngine {
     r.freed = true;
     r.t = 0;
     const h = this.sets.roof?.hostage;
-    h?.free(-9);
+    h?.free(-9 - (this.sets.roof?.group.position.z ?? 0));
     if (h) {
       h.group.getWorldPosition(this.tA);
       this.fx.ring(this.tA.setY(0.3), '#ffb21a', 5, 0.8);
@@ -1161,6 +1361,11 @@ export class GalleryEngine {
     // the resting scene stays dark: exposure and bloom only lift while something is bright, then settle
     this.kick *= Math.pow(0.01, dt);
     this.flashK *= Math.pow(0.003, dt);
+    // sustained fire must never white the screen out (owner, 25 Oct): cap the exposure kick and the fringe
+    if (this.trigger) {
+      this.kick = Math.min(this.kick, TUNING.run.fireKickCap);
+      this.flashK = Math.min(this.flashK, 0.25);
+    }
     this.renderer.toneMappingExposure = 1.0 + this.kick;
     this.bloom.strength = (this.high ? 0.3 : 0.26) + this.kick * 0.7;
     const u = this.grade.pass.uniforms as { uAberr: { value: number } };
@@ -1224,7 +1429,7 @@ export class GalleryEngine {
   combat = false;
 
   hurt(from: THREE.Vector3, dmg: number, kind: HurtKind) {
-    if (!this.combat || this.dead || this.invuln > 0 || dmg <= 0) return;
+    if (!this.combat || this.invuln > 0 || dmg <= 0) return;
     if (kind === 'bolt' && this.hitCd > 0) return;
     this.hitCd = TUNING.player.hitCooldown;
     this.hp = Math.max(0, this.hp - dmg);
@@ -1248,7 +1453,7 @@ export class GalleryEngine {
   }
 
   private heal(n: number) {
-    if (!this.dead) this.hp = Math.min(TUNING.player.hp, this.hp + n);
+    this.hp = Math.min(TUNING.player.hp, this.hp + n);
   }
 
   /**
@@ -1269,34 +1474,6 @@ export class GalleryEngine {
     this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: TUNING.player.hp });
   }
 
-  /** Kept for the old continue flow (never reached in the ten-minute block: see `knockdown`). */
-  die() {
-    this.dead = true;
-    this.deadT = 0;
-    this.bolts.clear();
-    this.setTrigger(false);
-    this.shake = 1;
-    this.kick = 0.2;
-    this.flashK = 1;
-    sfx('gameover', 0.9);
-    this.hooks.current.died();
-  }
-
-  /** Continue: back on your feet with full health and a few seconds of grace; the street is cleared of attackers. */
-  revive() {
-    this.dead = false;
-    this.hp = TUNING.player.hp;
-    this.invuln = TUNING.player.reviveGrace;
-    this.hitCd = 0;
-    this.sinceHurt = 99;
-    this.bolts.clear();
-    this.erobots.clearAll();
-    this.erobots.grace = TUNING.player.reviveGrace + 0.5;
-    if (this.bossOn) this.boss.shove();
-    this.flash(this.camera.position.clone().add(new THREE.Vector3(0, 0.5, -3)), '#7cf9ff', 100, 500);
-    this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: TUNING.player.hp });
-  }
-
   /** Dev only (dry run): poke the combat from the console / screenshot scripts. */
   debug = {
     hurt: (n: number, angle = 0) => this.hurt(this.tD.set(Math.sin(angle) * 6, 1.6, -Math.cos(angle) * 6).clone(), n, 'bolt'),
@@ -1308,7 +1485,6 @@ export class GalleryEngine {
     /** Jump the block clock to `secs` (the stage follows it seamlessly). */
     setTime: (secs: number) => (this.runT = secs),
     setStage: (n: number) => {
-      this.surge = null;
       this.rescue = null;
       this.runT = TUNING.stages[Math.max(0, Math.min(3, n - 1))].at;
       this.applyStage(Math.max(0, Math.min(3, n - 1)));
@@ -1404,8 +1580,10 @@ export class GalleryEngine {
     hk.r *= kd;
     // STRAFE: slide left and right inside the set's walls; the Erobots' bolts aim at where you are
     const dir = THREE.MathUtils.clamp((this.keyR ? 1 : 0) - (this.keyL ? 1 : 0) + this.padMove, -1, 1);
-    const lim = TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange;
-    const frozen = this.dead || !!this.rescue;
+    const RT = TUNING.run.route;
+    const nearSeam = RT.enter.some((e, i) => i > 0 && this.routeD > e - 18 && this.routeD < e + 6) || Math.abs(this.routeD + RT.doorZ) < 18;
+    const lim = nearSeam ? Math.min(TUNING.run.seamLane, TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange) : TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange;
+    const frozen = !!this.rescue;
     this.px = THREE.MathUtils.clamp(this.px + (frozen ? 0 : dir * TUNING.player.strafeSpeed * dt), -lim, lim);
     const bob = this.combat && !this.rescue ? TUNING.run.bobY : 0;
     cam.position.set(this.px + (Math.random() - 0.5) * s * 0.05 + Math.sin(this.walkStep * 0.5) * bob * 0.6, EYE + Math.sin(this.t * 1.1) * 0.006 + Math.abs(Math.sin(this.walkStep * 0.5)) * bob, 0);

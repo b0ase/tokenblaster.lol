@@ -18,30 +18,44 @@
 export const TUNING = {
   /**
    * THE BLOCK (owner, 24 Oct 2026, for the BSV stress test): one continuous ten-minute run, the length of a
-   * block. The player is walked forward automatically through every stage (street, HQ floors, server core, the
-   * server room on the roof) with no lift, no loading screen and no stage card that stops play; each stage starts
-   * at its `at` second and the next set is swapped in under a burst of fog while the fire never stops. The Liquid
-   * Unit walks in at `bossAt` and the run ends at `secs` (if he is still standing then, the block lands on him).
+   * block. The player is walked forward automatically down ONE connected route (street, through the lobby
+   * doorway into the HQ floors, out of the corridor's open end into the server core shaft, out of the shaft onto
+   * the roof and the server room) with no lift, no loading, no cut and no stage card that stops play. Each stage
+   * starts at its `at` second; the Liquid Unit walks in at `bossAt` and the run ends at `secs` (if he is still
+   * standing then, the block lands on him).
    */
   run: {
     secs: 600,
     bossAt: 520,
-    /** Fog surge that hides the set swap (s): thicken, swap at the peak, thin out. Play never pauses. */
-    fogSurge: 1.6,
-    /** How hard the fog thickens at the swap (multiplier on the set's density). */
-    fogPeak: 9,
+    /**
+     * The route, in metres down -Z. `base`: where each set's origin sits (street, floors, core, roof), `lift` a
+     * hair of height so seams never z-fight, `enter`: how far along the route each stage's set begins (the
+     * seams: the street's lobby, the corridor's open end, the shaft's far opening), `end`: where the walk stops
+     * in the server room. `doorZ`: the street's lobby doorway plane (the tower is carved behind it). Pieces are
+     * drawn from `ahead` metres before they begin to `behind` metres after they end. `blend`: metres either side
+     * of a seam over which the fog and sky blend. `coreBend`: the walk swings this far round the core pedestal.
+     */
+    route: {
+      base: [0, -71.5, -140.5, -196.5],
+      lift: [0, 0.02, 0, 0],
+      enter: [0, 66.5, 136.5, 188.5],
+      end: 214.5,
+      doorZ: -69.3,
+      ahead: 40,
+      behind: 12,
+      blend: 8,
+      coreBend: 9,
+    },
+    /** Point-light slots the route's lights share (High / Low), and the exposure-kick cap while the trigger is held. */
+    lightSlots: 8,
+    lightSlotsLow: 4,
+    fireKickCap: 0.05,
+    /** Near a seam the player is kept to the middle (metres either side) so the walk threads the doorway. */
+    seamLane: 2.2,
     /** Head bob while walked forward: metres up/down and steps a second. */
     bobY: 0.035,
     stepHz: 1.7,
   },
-
-  /**
-   * COIN-OP CONTINUE (owner, 24 Oct 2026): the death screen counts down like a classic arcade cabinet. Putting
-   * coins in (one wallet approval) resets the count to `continueSecs`, resets health and ADDS the new ammo to
-   * whatever is still loaded; the count also holds while the wallet approval is pending. At 0 it is GAME OVER
-   * and the results screen opens (leftover ammo stays in the gun as credit).
-   */
-  continueSecs: 9,
 
   player: {
     hp: 100,
@@ -53,7 +67,7 @@ export const TUNING = {
     /** Health from a kill (erobot) and from melting the boss (fraction of max). */
     healOnKill: 2,
     healOnBossMelt: 0.4,
-    /** Invulnerable for this long after Continue or a knockdown (s). */
+    /** Invulnerable for this long after a knockdown (s). */
     reviveGrace: 3,
     /**
      * KNOCKDOWN instead of death (owner, 24 Oct: "death must not end a stress-test run early"): at zero health
@@ -131,9 +145,8 @@ export const TUNING = {
   },
 
   /**
-   * THE FOUR STAGES, one seamless walk (see `run`). Each starts at its `at` second of the block; there are no
-   * goals to clear any more, the clock moves you on. `walk` is how many metres the set slides past the player
-   * over the stage (the auto-move). `lane` is where the Erobots and the horde come from: `spawnZ`/`halfW` the line
+   * THE FOUR STAGES, one seamless walk (see `run.route`). Each starts at its `at` second of the block; there
+   * are no goals to clear any more, the clock moves you on. `lane` is where the Erobots and the horde come from: `spawnZ`/`halfW` the line
    * they arrive on, `stopZ` where shooters plant, `flankX` the width flankers swing, `strafeX` the most a shooter
    * sidesteps, `snipeX` how far off-axis a flanker fires, and the Erobot live caps. `horde` is how many Arena
    * monsters are alive at once (High; Low takes `TUNING.horde.lowLive` of it), ramping across the stage to `hordeEnd`.
@@ -144,7 +157,6 @@ export const TUNING = {
       id: 'street',
       level: 1,
       at: 0,
-      walk: 34,
       horde: 8,
       hordeEnd: 14,
       lane: { spawnZ: -63.5, halfW: 12, stopZ: [-22, -11], flankX: [11, 16], strafeX: 14, snipeX: 5, liveBase: 5, liveCap: 9, wallX: 17 },
@@ -153,7 +165,6 @@ export const TUNING = {
       id: 'floors',
       level: 2,
       at: 150,
-      walk: 30,
       horde: 12,
       hordeEnd: 18,
       lane: { spawnZ: -44, halfW: 3.6, stopZ: [-21, -10], flankX: [3.6, 5.2], strafeX: 5.2, snipeX: 2.2, liveBase: 5, liveCap: 10, wallX: 6.3 },
@@ -162,7 +173,6 @@ export const TUNING = {
       id: 'core',
       level: 3,
       at: 300,
-      walk: 12,
       horde: 14,
       hordeEnd: 20,
       jam: { rounds: 6000, holdSecs: 0.35, drainPerSec: 400 },
@@ -172,7 +182,6 @@ export const TUNING = {
       id: 'roof',
       level: 4,
       at: 430,
-      walk: 18,
       horde: 16,
       hordeEnd: 10,
       /** The Liquid Unit's level (health x1.5 and damage x1.22 per level above 1), once, on this stage. */

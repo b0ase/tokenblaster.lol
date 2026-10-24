@@ -8,6 +8,16 @@ import { fmtCredit } from '@/lib/coinop/credit';
 import type { Stats } from '@/lib/galleryGame/engine';
 import { Icon, Ticker } from '../coinop/ui';
 
+/**
+ * STEADY COUNTERS (owner, 25 Oct): ticking numbers must never shift left and right. Tabular figures, a fixed
+ * width box, right-aligned, and figure-space padding so a change in digit count (e.g. $10.000000 to $9.999999)
+ * never reflows.
+ */
+const FIG = '\u2007';
+const TAB: React.CSSProperties = { fontVariantNumeric: 'tabular-nums', fontFeatureSettings: '"tnum" 1', display: 'inline-block', textAlign: 'right', whiteSpace: 'pre' };
+const pad = (t: string, n: number) => t.padStart(n, FIG);
+const fixedInt = (n: number) => (v: number) => pad(Math.round(v).toLocaleString('en-US'), n);
+
 export function Hud(p: {
   dry: boolean;
   fired: number;
@@ -24,6 +34,8 @@ export function Hud(p: {
   bossNote: string;
   stageNote: string;
   freePlay?: boolean;
+  /** While live: the credit counting down as rounds fire (micro-dollars), and whether it is practice credit. */
+  live?: { usd: number; practice: boolean } | null;
 }) {
   const s = p.stats;
   const goal = s?.goal;
@@ -62,7 +74,7 @@ export function Hud(p: {
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)', boxShadow: `0 0 8px ${p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)'}`, animation: 'tbx-breathe 1.2s ease-in-out infinite' }} />
           {p.dry ? 'FREE PLAY · PRACTICE · NOTHING ON CHAIN' : 'LIVE · ON CHAIN'}
         </p>
-        <Ticker value={p.fired} ease={0.3} className="tbx-display block text-[clamp(32px,5.4vw,56px)] leading-none" style={{ color: 'var(--tbx-text)' }} />
+        <Ticker value={p.fired} ease={0.3} format={fixedInt(9)} className="tbx-display block text-[clamp(32px,5.4vw,56px)] leading-none" style={{ ...TAB, display: 'block', textAlign: 'left', color: 'var(--tbx-text)' }} />
         <p className="text-[10px] text-[var(--tbx-dim)]">
           {p.dry ? 'practice rounds fired' : <>rounds fired · <span className="tbx-num">{p.sent.toLocaleString('en-US')}</span> on the record</>}
         </p>
@@ -101,16 +113,17 @@ export function Hud(p: {
       {/* Credit and numbers */}
       <div className="tbx-in-r tbx-glass min-w-[118px] px-3 py-2 text-right sm:min-w-[170px] sm:px-4">
         <p className="flex items-center justify-end gap-1.5 text-[9px] font-bold tracking-[0.28em] text-[var(--tbx-dim)]">
-          <Icon name="coin" size={11} className="text-[var(--tbx-amber)]" /> {p.freePlay ? 'FREE PLAY' : 'CREDIT'}
+          <Icon name="coin" size={11} className="text-[var(--tbx-amber)]" /> {p.live?.practice || p.freePlay ? 'PRACTICE CREDIT' : 'CREDIT'}
         </p>
         <p className="tbx-display text-[clamp(26px,4vw,40px)] leading-none tbx-num" style={{ color: 'var(--tbx-amber)', textShadow: '0 0 16px rgba(255,182,46,.35)' }} data-hud-credit>
-          {p.freePlay ? 'FREE' : fmtCredit(p.creditUsd)}
+          <span style={{ ...TAB, minWidth: '10ch' }}>{p.live ? pad(`$${p.live.usd.toFixed(6)}`, 10) : p.freePlay ? 'FREE' : fmtCredit(p.creditUsd)}</span>
         </p>
+        {p.live?.practice && <p className="text-[9px] tracking-[0.18em] text-[var(--tbx-dim)]">PRACTICE · NOTHING ON CHAIN</p>}
         <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-tight">
           <dt className="text-[var(--tbx-dim)]">{p.dry ? 'rounds/s' : 'tx/s'}</dt>
-          <dd className="m-0"><Ticker value={p.tps} ease={0.3} style={{ color: 'var(--tbx-teal)' }} /></dd>
+          <dd className="m-0"><Ticker value={p.tps} ease={0.3} format={fixedInt(6)} style={{ ...TAB, color: 'var(--tbx-teal)' }} /></dd>
           <dt className="text-[var(--tbx-dim)]">score</dt>
-          <dd className="m-0"><Ticker value={s?.score ?? 0} /></dd>
+          <dd className="m-0"><Ticker value={s?.score ?? 0} format={fixedInt(11)} style={TAB} /></dd>
           <dt className="hidden text-[var(--tbx-dim)] sm:block">spent</dt>
           <dd className="m-0 hidden tbx-num sm:block">{p.spent}</dd>
           <dt className="hidden text-[var(--tbx-dim)] sm:block">{s && s.windows > 1 ? 'glass · racks' : 'racks'}</dt>
@@ -119,7 +132,7 @@ export function Hud(p: {
             {s ? s.racks - s.racksLeft : 0}/{s?.racks ?? 8}
           </dd>
           <dt className="hidden text-[var(--tbx-dim)] sm:block">rounds left</dt>
-          <dd className="m-0 hidden tbx-num sm:block">{p.packLeft.toLocaleString('en-US')}</dd>
+          <dd className="m-0 hidden tbx-num sm:block" style={TAB}>{pad(p.packLeft.toLocaleString('en-US'), 9)}</dd>
         </dl>
         {p.handle && <p className="mt-1 text-[11px] font-semibold text-[var(--tbx-teal)]">@{p.handle}</p>}
       </div>

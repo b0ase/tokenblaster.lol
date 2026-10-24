@@ -160,6 +160,19 @@ export class Horde {
     this.fx.ring(tmp, '#ff3a22', 2.4 * mob.size, 0.4);
   }
 
+  /**
+   * The block has landed: every live monster drops, staggered over a second or so (no burst of effects, no
+   * allocation, no single-frame spike), then sinks away.
+   */
+  dismiss() {
+    this.spawning = false;
+    for (const mob of this.mobs) {
+      if (mob.state !== 'walk' && mob.state !== 'attack') continue;
+      mob.state = 'dying';
+      mob.t = -Math.random() * 1.2;
+    }
+  }
+
   /** Clear the floor (a fresh run). */
   clearAll() {
     for (const m of this.mobs) {
@@ -220,6 +233,8 @@ export class Horde {
           if (alive && this.grace <= 0) this.opts.melee(tmp.copy(p).setY(1.2 * mob.size), mob.kind.damage);
         }
       } else if (mob.state === 'dying') {
+        if (mob.t < 0) continue; // dismissed: waiting its turn to drop
+        if (mob.t - dt < 0 && mob.m.has('death')) mob.m.play('death', { once: true, fade: 0.1 });
         if (!mob.m.has('death')) {
           const k = Math.min(1, mob.t / 0.45);
           mob.m.body.rotation.x = -k * Math.PI * 0.5;
