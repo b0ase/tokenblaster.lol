@@ -103,22 +103,22 @@ export function HudControls(p: { hint: string; locked: boolean; canLock: boolean
         {p.hint}
       </div>
       <div className="pointer-events-auto mb-11 flex flex-wrap justify-end gap-1.5 sm:mb-12 sm:gap-2">
-        <button type="button" onClick={p.onLoadout} className="tbx-btn !min-h-[38px] !px-3 !text-[11px]">
-          <Icon name="loadout" size={14} /> Loadout
+        <button type="button" onClick={p.onLoadout} aria-label="Loadout" className="tbx-btn !min-h-[40px] !min-w-[40px] !px-2.5 !text-[11px] sm:!px-3">
+          <Icon name="loadout" size={15} /> <span className="hidden sm:inline">Loadout</span>
         </button>
         {p.canEnd && (
-          <button type="button" onClick={p.onEnd} className="tbx-btn !min-h-[38px] !px-3 !text-[11px]" title="Stop and see your results">
-            <Icon name="trophy" size={14} /> Results
+          <button type="button" onClick={p.onEnd} aria-label="Results" className="tbx-btn !min-h-[40px] !min-w-[40px] !px-2.5 !text-[11px] sm:!px-3" title="Stop and see your results">
+            <Icon name="trophy" size={15} /> <span className="hidden sm:inline">Results</span>
           </button>
         )}
         {p.canLock && (
-          <button type="button" onClick={p.onLock} className={`tbx-btn !min-h-[38px] !px-3 !text-[11px] ${p.locked ? 'tbx-btn-on' : ''}`} title="Keep the trigger down without holding">
-            <Icon name={p.locked ? 'lock' : 'unlock'} size={14} /> {p.locked ? 'Locked' : 'Lock trigger'}
+          <button type="button" onClick={p.onLock} aria-label="Lock trigger" className={`tbx-btn !min-h-[40px] !min-w-[40px] !px-2.5 !text-[11px] sm:!px-3 ${p.locked ? 'tbx-btn-on' : ''}`} title="Keep the trigger down without holding">
+            <Icon name={p.locked ? 'lock' : 'unlock'} size={15} /> <span className="hidden sm:inline">{p.locked ? 'Locked' : 'Lock trigger'}</span>
           </button>
         )}
         {p.locked && (
-          <button type="button" onClick={p.onStop} className="tbx-btn tbx-btn-red !min-h-[38px] !px-3 !text-[11px]">
-            <Icon name="close" size={14} /> Stop
+          <button type="button" onClick={p.onStop} aria-label="Stop" className="tbx-btn tbx-btn-red !min-h-[40px] !min-w-[40px] !px-2.5 !text-[11px] sm:!px-3">
+            <Icon name="close" size={15} /> <span className="hidden sm:inline">Stop</span>
           </button>
         )}
       </div>
