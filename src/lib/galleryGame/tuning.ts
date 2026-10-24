@@ -47,15 +47,17 @@ export const TUNING = {
     erobotRate: 0.2,
     erobotSpeed: 0.05,
     erobotLive: 0.85,
-    erobotHp: 0.12,
+    erobotHp: 0.06,
     bossDamage: 0.22,
     bossSpeed: 0.1,
     bossPush: -0.16,
   },
 
   erobots: {
-    /** Standing HP. Low on purpose: they die fast and noisily. */
-    hp: 34,
+    /** Standing HP. Low on purpose: they die fast and noisily (owner, 24 Oct: "too hard, Erobots must die more easily"). */
+    hp: 10,
+    /** Hit spheres are this much bigger than the body, so near-misses count. */
+    hitScale: 1.8,
     headMultiplier: 2.5,
     /** Alive at once: base, plus per wave, plus extra while the trigger is held. Capped by the pool. */
     liveBase: 3,

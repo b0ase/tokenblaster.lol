@@ -599,7 +599,7 @@ export class ErobotWave {
       for (let i = 0; i < s.proxies.length; i++) {
         const pr = s.proxies[i];
         V.a.copy(pr.local).applyMatrix4(pr.bone.matrixWorld);
-        const r = pr.r * HEIGHT * 1.15;
+        const r = pr.r * HEIGHT * TUNING.erobots.hitScale;
         V.d.subVectors(V.a, org);
         const tc = V.d.dot(dir);
         if (tc < 0) continue;
