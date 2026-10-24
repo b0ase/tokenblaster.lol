@@ -685,7 +685,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       pushBanner({ kind: 'loaded' });
       pushBanner({ kind: 'stage', n: 1 });
     },
-    [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
+    [simulated, setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
   const lockAndLoad = async (continued = false) => {
     setErr(null);

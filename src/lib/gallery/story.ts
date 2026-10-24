@@ -290,7 +290,7 @@ export const BRIEFING = {
   from: 'The Ninja Punk Girls',
   objective: 'Storm TERRORNODE HQ. Rescue Dr Kweg. Four stages: the street, the HQ floors, the server core and the roof, where the Liquid Unit waits. You have 100 health: stay alive.',
   rules: [
-    'Hold the trigger to fire. Every round is real and goes on the record.',
+    'Hold the trigger to fire. In paid play every round is real; in free play they are practice rounds and nothing is sent.',
     'Clear the Erobots to move up a stage. In the server core, sustained fire on the core jams the whole tower.',
     'The Liquid Unit is pushed back by sustained fire. Stop and it closes in fast. Erobots shoot and swing: keep the gun moving.',
     'Smash the glass, drop the racks and clear the Erobots for points.',

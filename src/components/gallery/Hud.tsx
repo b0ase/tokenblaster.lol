@@ -57,7 +57,7 @@ export function Hud(p: {
       <div className="tbx-in-l tbx-glass min-w-[132px] px-3 py-2 sm:min-w-[188px] sm:px-4">
         <p className="flex items-center gap-1.5 text-[9px] font-bold tracking-[0.28em] text-[var(--tbx-dim)]">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)', boxShadow: `0 0 8px ${p.dry ? 'var(--tbx-amber)' : 'var(--tbx-red)'}`, animation: 'tbx-breathe 1.2s ease-in-out infinite' }} />
-          {p.dry ? 'FREE PLAY · PRACTICE' : 'LIVE · ON CHAIN'}
+          {p.dry ? 'FREE PLAY · PRACTICE · NOTHING ON CHAIN' : 'LIVE · ON CHAIN'}
         </p>
         <Ticker value={p.fired} ease={0.3} className="tbx-display block text-[clamp(32px,5.4vw,56px)] leading-none" style={{ color: 'var(--tbx-text)' }} />
         <p className="text-[10px] text-[var(--tbx-dim)]">
