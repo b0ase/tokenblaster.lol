@@ -101,15 +101,36 @@ export const PRIZE = {
 export const inEvent = (now = Date.now()) => now >= Date.parse(PRIZE.start) && now < Date.parse(PRIZE.end);
 
 /**
- * How a weapon spends transactions. `stream`: hold the trigger and the chain streams (the storm), `rate` tx/s
- * in practice. `burst`: every trigger pull is `n` transactions in one batch (a shotgun's pellets).
+ * How a weapon spends transactions. `stream`: hold the trigger and the chain streams (the storm), `rate` rounds
+ * a second from the gun (practice draws exactly this). `burst`: every trigger pull is `n` transactions in one
+ * batch (a shotgun's pellets). LIVE sends at min(rate, liveCeiling(rounds)): see below.
  */
 export type TxPattern = { kind: 'stream'; rate: number } | { kind: 'burst'; n: number };
+/** Volume guns (owner, 24 Oct: "this is a STRESS TEST ... ~2000 tx/second"): their stream rate, tx/s. */
+export const STREAM_RATES: Record<string, number> = { minigun: 2000, plasmarifle: 2000, 'big-block': 2000 };
+/** The ASSAULT ON TERRORNODE rack: sustained high-volume streams only, no single shots or bursts. */
+export const ASSAULT_GUNS = ['minigun', 'plasmarifle', 'big-block'] as const;
 export function txPattern(w: { id: string; auto: boolean; fireMs: number; pellets: number }): TxPattern {
-  if (w.auto) return { kind: 'stream', rate: w.id === 'minigun' ? 1500 : Math.round(Math.min(1500, (1500 * 70) / Math.max(70, w.fireMs)) / 10) * 10 };
+  if (w.auto) return { kind: 'stream', rate: STREAM_RATES[w.id] ?? Math.round(Math.min(1500, (1500 * 70) / Math.max(70, w.fireMs)) / 10) * 10 };
   return { kind: 'burst', n: Math.max(1, Math.min(25, w.pellets)) };
 }
 export const patternLabel = (p: TxPattern) => (p.kind === 'stream' ? `STREAM · up to ${p.rate.toLocaleString()} tx/s` : `BURST · ${p.n} tx per pull`);
+
+/**
+ * The LIVE sender (src/lib/gun.ts storm + src/workers/storm.ts): the paid rounds are split into
+ * ceil(rounds / 300) lanes (max 100); each sender round, every lane chains STREAM_STEP blasts and each worker
+ * (up to 12 cores) posts its lanes in one ARC /v1/txs request. So one round carries at most lanes × STREAM_STEP
+ * transactions. ROUND_SECS is an estimate of one round (sign + ARC answer), not a measurement: real tx/s can be
+ * lower on a slow device or a slow ARC, never higher than this.
+ */
+export const STREAM_STEP = 20;
+export const ROUND_SECS = 1;
+export const lanesFor = (rounds: number) => Math.max(1, Math.min(100, Math.ceil(rounds / 300)));
+export const liveCeiling = (rounds: number) => Math.floor((lanesFor(rounds) * STREAM_STEP) / ROUND_SECS);
+/** What a gun can really send LIVE with `rounds` loaded: the lower of its rate and the sender's ceiling. */
+export const liveRate = (p: TxPattern, rounds: number) => (p.kind === 'stream' ? Math.min(p.rate, liveCeiling(rounds)) : 0);
+/** Rounds needed for the sender to reach a gun's full rate (all 100 lanes at 2,000 tx/s). */
+export const roundsForFullRate = (rate: number) => Math.min(100, Math.ceil((rate * ROUND_SECS) / STREAM_STEP)) * 300;
 
 /** Sum per-session rows into a per-player board: a session is counted once, at its highest report. */
 export type SessionRow = { name: string; score: number; meta: Record<string, unknown> };

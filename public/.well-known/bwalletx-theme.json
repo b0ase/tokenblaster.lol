@@ -1,0 +1,12 @@
+{
+  "v": 2,
+  "name": "TokenBlaster",
+  "mode": "dark",
+  "accent": "#FF3B30",
+  "accentHi": "#FFB800",
+  "bg": "#0A0A0C",
+  "surface": "#121317",
+  "text": "#F2EFE6",
+  "logo": "/brand/wallet-logo.png",
+  "cardArt": "/brand/wallet-card.jpg"
+}
