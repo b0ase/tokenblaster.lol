@@ -46,7 +46,16 @@ function liveKey(): PrivateKey {
 
 async function fanOut(key: PrivateKey, chains: number, per: (c: number) => number, feeRate: number) {
   const address = key.toAddress();
-  const coins = (await unspent(address)).filter((c) => c.value >= 100).sort((a, b) => b.value - a.value).slice(0, 200);
+  // Confirmed, not already spent in the mempool, largest first, and only as many as the fan-out needs:
+  // an unconfirmed parent that ARC hasn't seen relayed stalls the fan-out (1M run, 24 Oct).
+  const need = Array.from({ length: chains }, (_, c) => per(c)).reduce((a, b) => a + b, 0) + chains * 34 + 10_000;
+  const pool = (await unspent(address))
+    .filter((c) => c.value >= 100 && (c as { status?: string }).status !== 'unconfirmed' && !c.isSpentInMempoolTx)
+    .sort((a, b) => b.value - a.value);
+  const coins: typeof pool = [];
+  let have = 0;
+  for (const c of pool) { if (have >= need || coins.length >= 200) break; coins.push(c); have += c.value; }
+  if (have < need) throw new Error(`Not enough confirmed coins at ${address}: have ${have}, need ${need}. Wait for a block.`);
   if (!coins.length) throw new Error(`No coins at ${address}.`);
   const fan = new Transaction();
   for (const c of coins) fan.addInput({ sourceTransaction: await fetchTx(c.tx_hash), sourceOutputIndex: c.tx_pos, unlockingScriptTemplate: new P2PKH().unlock(key) });
@@ -97,7 +106,7 @@ async function main() {
     const arc = await postBatch([Buffer.from(fan.toHexEF(), 'hex')]);
     if (!woc.ok && arc.bad.length) throw new Error(`fan-out not accepted: ${woc.why}; ${arc.why}`);
     emit({ ev: 'fanout', txid: fanId, fee: fan.getFee() });
-    if (!(await onNetwork(fanId, 90_000))) throw new Error(`fan-out ${fanId} not seen on network in 90 s; nothing else sent.`);
+    if (!(await onNetwork(fanId, num('fan-wait', 300) * 1000))) throw new Error(`fan-out ${fanId} not seen on network in ${num('fan-wait', 300)} s; nothing else sent.`);
   }
 
   let stop: string | null = null;
