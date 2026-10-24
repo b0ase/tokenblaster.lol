@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadGunModel } from '@/lib/ordnanceModels';
 
 /** A slowly turning 3D model of one gun, for the loadout cards. */
@@ -35,12 +36,17 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
     loadGunModel(url)
       .then((gltf) => {
         if (gone) return;
-        const model = gltf.scene.clone(true);
-        const box = new THREE.Box3().setFromObject(model);
+        // SkeletonUtils keeps rigged guns (Quad Plasma, Minigun) intact; a plain clone() drops their skin.
+        const model = cloneSkinned(gltf.scene);
+        model.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(model, true);
         const size = box.getSize(new THREE.Vector3());
         const centre = box.getCenter(new THREE.Vector3());
         model.position.sub(centre);
-        model.scale.setScalar(1.9 / Math.max(size.x, size.y, size.z, 1e-3));
+        // Fill the card: the long side spans the frame, capped so a tall gun still fits.
+        const k = Math.min(2.9 / Math.max(size.x, size.z, 1e-3), 1.3 / Math.max(size.y, 1e-3));
+        model.scale.setScalar(k);
+        model.position.multiplyScalar(k);
         pivot.add(model);
       })
       .catch(() => {});
