@@ -980,6 +980,14 @@ export function ShootingGallery() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--tbx-dim)]">
           <span>
             Credit: <span className="tbx-num font-bold" style={{ color: 'var(--tbx-amber)' }}>{fmtCredit(cab.creditUsd)}</span>.
+            {b.gunAddress && (
+              <>
+                {' '}
+                <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noreferrer" className="underline opacity-80 hover:opacity-100">
+                  See your gun&apos;s balance on chain
+                </a>
+              </>
+            )}
           </span>
           <span>
             Rounds ready: <span className="tbx-num font-bold text-white">{packLeft.toLocaleString()}</span>. Unused credit stays in your gun for later rounds.
