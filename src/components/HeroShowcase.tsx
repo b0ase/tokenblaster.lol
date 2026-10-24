@@ -18,20 +18,50 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
  * encoded with ffmpeg: <game>.mp4 is 1920x1080 30fps H.264 High (yuv420p, no audio, faststart, ~5-6 MB); <game>-720.mp4
  * is the 1280x720 variant a <source media> hands to phones and small windows; <game>.jpg is the 1920x1080 poster.
  */
-const SLIDES = [
-  { href: '/arcade/bracer', img: '/arcade/bracer.jpg', vid: '/hero/bracer-v2', title: 'bRacer', tag: 'Anti-gravity racer', kana: '反重力レース' },
+type Slide = { href: string; img: string; vid?: string; title: string; tag: string; kana: string };
+// No loop yet for Assault / NPG Arena: their slide shows the poster with the Ken Burns push (no `vid`).
+const SLIDES: readonly Slide[] = [
+  { href: '/arcade/assault', img: '/gallery/loading/boss-fire.webp', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
   { href: '/arena', img: '/arcade/arena.jpg', vid: '/hero/arena', title: 'Arena', tag: 'Hell-forge shooter', kana: 'アリーナ' },
-  { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', vid: '/hero/doubleo', title: 'Double-O Satoshi', tag: 'Spy shooter', kana: 'スパイ作戦' },
-  { href: '/arcade/rally', img: '/arcade/rally.jpg', vid: '/hero/rally', title: 'Token Rally', tag: '3D rally', kana: 'ラリー' },
-  { href: '/arcade/city', img: '/arcade/city.jpg', vid: '/hero/city-v2', title: 'Satoshi City', tag: 'Open-world city', kana: 'サトシ市' },
-] as const;
+  { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
+];
+
+/** The active slide, shared with <HeroTitle> (rendered inside the headline column). */
+let current = 0;
+const subs = new Set<() => void>();
+function setCurrent(n: number) {
+  current = n;
+  subs.forEach((f) => f());
+}
+const subscribeCurrent = (cb: () => void) => {
+  subs.add(cb);
+  return () => {
+    subs.delete(cb);
+  };
+};
+const currentSnapshot = () => current;
+const currentServer = () => 0;
+
+/** The rotating game title, shown big in the hero's display face; re-keyed per slide so it animates in. */
+export function HeroTitle() {
+  const n = useSyncExternalStore(subscribeCurrent, currentSnapshot, currentServer);
+  const s = SLIDES[n];
+  return (
+    <Link href={s.href} className="group mb-3 block w-fit max-w-full" aria-live="polite">
+      <span className="dr-code !text-[var(--accent)]">
+        Now playing {String(n + 1).padStart(2, '0')}/{String(SLIDES.length).padStart(2, '0')} · {s.tag}
+      </span>
+      <span key={n} className="dr-title-in dr-display block text-[clamp(30px,5.2vw,68px)] leading-[0.95] text-[var(--accent)] [text-shadow:0_2px_0_var(--panel),0_0_22px_var(--panel)] group-hover:underline">
+        {s.title}
+      </span>
+    </Link>
+  );
+}
 
 const KB = [
   ['-1.5%', '-1%'],
   ['1.5%', '-1%'],
   ['-1%', '1.2%'],
-  ['1.2%', '1%'],
-  ['-1.5%', '0.5%'],
 ];
 
 type Conn = { saveData?: boolean; addEventListener?: (t: string, cb: () => void) => void; removeEventListener?: (t: string, cb: () => void) => void };
@@ -88,6 +118,7 @@ export function HeroShowcase() {
     setI(to);
     setFirst(false);
   };
+  useEffect(() => setCurrent(i), [i]);
   const s = SLIDES[i];
   const pv = usePreview();
   // Hero height = viewport minus the (sticky, possibly wrapping) nav.
@@ -136,7 +167,7 @@ export function HeroShowcase() {
       {/* Full-bleed art, behind the headline (the hero supplies the scrim). */}
       <div ref={stage} className="pointer-events-none absolute inset-0 overflow-hidden bg-black" aria-hidden>
         {SLIDES.map((x, n) => {
-          const vid = motion && !failed.includes(n); // a loop slide; else the poster (reduced motion / Save-Data) or the old card (video failed)
+          const vid = !!x.vid && motion && !failed.includes(n); // a loop slide; else the poster (reduced motion / Save-Data) or the old card (video failed)
           const live = vid && armed; // its <video> is mounted (after load + idle)
           const near = n === i || n === next || n === prev; // only these slides need their still decoded
           return (
@@ -145,7 +176,7 @@ export function HeroShowcase() {
               {/* Optimised AVIF/WebP sized for the cover crop; only the first slide is the LCP (priority), the next one preloads. */}
               {near && (
                 <Image
-                  src={motion && failed.includes(n) ? x.img : `${x.vid}.jpg`}
+                  src={!x.vid || (motion && failed.includes(n)) ? x.img : `${x.vid}.jpg`}
                   alt=""
                   fill
                   sizes="(max-aspect-ratio: 16/9) 178vh, 100vw" /* object-fit cover: rendered width = max(100vw, 100vh x 16/9) */
@@ -202,11 +233,11 @@ export function HeroShowcase() {
       >
         <div className="dr-hazard !h-1.5" aria-hidden />
         <div className="flex items-center justify-between gap-3 px-2.5 py-2" aria-live={hold ? 'polite' : 'off'}>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="dr-code !text-[var(--accent)]">
               {String(i + 1).padStart(2, '0')}/{String(SLIDES.length).padStart(2, '0')} · TB-F{String(i + 1).padStart(2, '0')}
             </p>
-            <p className="dr-display overflow-hidden text-ellipsis whitespace-nowrap text-[22px] text-hot sm:text-[26px]">{s.title}</p>
+            <p className="dr-display overflow-hidden text-ellipsis !whitespace-nowrap text-[22px] text-hot sm:text-[26px]">{s.title}</p>
             <p className="dr-kana text-[10px] text-[var(--muted)]" aria-hidden>
               {s.kana}
             </p>
