@@ -644,11 +644,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       sfx('coin');
       waveSeen.current = Math.max(1, hudWave.current);
       if (continued) return; // play resumes where it stopped: no new wave banners
-      pushBanner({ kind: 'loaded' });
+      pushBanner({ kind: 'loaded', practice: simulated });
       pushBanner({ kind: 'wave', n: waveSeen.current });
       pushBanner({ kind: 'boss' });
     },
-    [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
+    [simulated, setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
   const lockAndLoad = async (continued = false) => {
     setErr(null);
@@ -832,7 +832,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
 
         {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
-        {!loadout && !over && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={simulated} />}
+        {/* Honesty (owner, 24 Oct): no ON CHAIN panel or fake txids when nothing goes on chain. */}
+        {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={simulated} />}
         {stall && !loadout && !over && !flat && (
           <div className="pointer-events-none absolute inset-x-0 top-[42%] z-10 flex justify-center px-4">
             <p className="tbx-glass tbx-pop flex max-w-[560px] items-center gap-2 px-4 py-2.5 text-center text-base font-semibold" style={{ borderColor: 'var(--tbx-red)' }} role="status">
