@@ -12,7 +12,7 @@ import { HOUSE } from '@/lib/usePaidPlay';
 import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } from '@/lib/coinop/credit';
 import { WalletChooser } from '../WalletChooser';
 import { CoinCabinet } from './CoinCabinet';
-import { HazardBar } from '../dr';
+import { tbxFontClass } from './fonts';
 import { coinStore } from './store';
 import { useCabinet } from './useCabinet';
 
@@ -72,9 +72,9 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
       {open ? (
         children
       ) : (
-        <div className="coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_top,#1a1420,#05060c_70%)] px-4 py-3 sm:items-center">
-          <HazardBar h={6} className="absolute inset-x-0 top-0" />
-          <div className="w-full max-w-[720px] pt-2">
+        <div className={`${tbxFontClass} coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_50%_-10%,#12303a,#071018_55%,#04070b)] px-4 py-4 sm:items-center`}>
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--tbx-red)] to-transparent" />
+          <div className="tbx-screen w-full max-w-[720px] pt-2">
             <CoinCabinet
               title={title}
               creditUsd={cab.creditUsd}
