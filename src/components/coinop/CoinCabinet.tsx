@@ -68,6 +68,10 @@ export function CoinCabinet(p: {
   const startOk = nameOk && enough && cleanName(p.name) !== null && !busy && !p.blocked && Boolean(p.bsvUsd);
   const nameRef = useRef<HTMLInputElement>(null);
   const [miss, setMiss] = useState<Missing | null>(null);
+  // The minimum to play is a total, not one coin (owner, 24 Oct: put 3¢ in and was told "put a coin in first").
+  const short = Math.max(0, MIN_CREDIT_USD - total);
+  const missText = (m: Missing) =>
+    m === 'coin' && total > 0 ? `The minimum to play is ${fmtCredit(MIN_CREDIT_USD)}. Add ${fmtCredit(short)} more.` : m === 'coin' ? `Put at least ${fmtCredit(MIN_CREDIT_USD)} in to play.` : MISSING[m];
   const [flash, setFlash] = useState(false);
   const [nameModal, setNameModal] = useState(false);
   const nameMiss = miss === 'name' || miss === 'bad';
@@ -93,7 +97,7 @@ export function CoinCabinet(p: {
     const why: Missing | null = !nameOk ? 'coin' : !enough ? 'more' : !p.name ? 'name' : !cleanName(p.name) ? 'bad' : !p.bsvUsd ? 'price' : p.blocked ? 'wait' : null;
     setMiss(why);
     sfx(why ? 'hurt' : 'click');
-    loadMark(why ? `start blocked: ${MISSING[why]}` : 'start pressed');
+    loadMark(why ? `start blocked: ${missText(why)}` : 'start pressed');
     if (!why) return p.onStart();
     if (why === 'name' || why === 'bad') {
       setNameModal(true);
@@ -197,7 +201,7 @@ export function CoinCabinet(p: {
           />
           {nameMiss && (
             <span className="text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">
-              {MISSING[miss!]}
+              {missText(miss!)}
             </span>
           )}
         </label>
@@ -223,7 +227,7 @@ export function CoinCabinet(p: {
           )}
           {nameMiss && (
             <p className="tbx-shake rounded-xl border-2 border-[var(--tbx-red)] bg-[var(--tbx-red)]/15 px-4 py-3 text-center text-lg font-bold text-white" role="alert" data-name-callout>
-              {MISSING[miss!]}
+              {missText(miss!)}
             </p>
           )}
           {p.note && !nameMiss && (
@@ -249,7 +253,7 @@ export function CoinCabinet(p: {
             </button>
           </div>
           <p className={`text-center text-sm ${miss ? 'font-semibold' : 'text-[var(--tbx-dim)]'}`} style={miss ? { color: '#ff7a70' } : undefined} data-start-reason>
-            {miss && !nameMiss ? MISSING[miss] : nameMiss ? '' : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, type your name, then press the button.'}
+            {miss && !nameMiss ? missText(miss) : nameMiss ? '' : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, type your name, then press the button.'}
           </p>
           {p.error && (
             <p className="text-center text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">
