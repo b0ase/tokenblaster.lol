@@ -2,13 +2,18 @@ import { GameShell } from '@/components/GameShell';
 import { ShootingGallery } from '@/components/gallery/ShootingGallery';
 
 const description =
-  'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the nSLAVE tower and its liquid-metal robot: every bullet is a real BSV transaction from your own wallet. Free practice, or LIVE packs from about $0.05.';
+  'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the nSLAVE tower and its liquid-metal robot: every bullet is a real BSV transaction from your own wallet. Free play while we finish the coin-op.';
 export const metadata = {
   title: '31 Oct BSV Stress Test · TokenBlaster Shooting Gallery',
   description,
   openGraph: { title: 'TokenBlaster Shooting Gallery: fire a million transactions', description, url: '/arcade/gallery' },
   twitter: { card: 'summary_large_image', title: 'TokenBlaster Shooting Gallery', description },
 };
+
+// FREE PLAY on production while the payment flow is fixed (owner, 24 Oct 2026: "keep it online but let everyone
+// play for free"): the game runs on the simulated network, no wallet, nothing paid or broadcast. Real payments
+// come back with NEXT_PUBLIC_GALLERY_PAID=1 (and always run on a local dev server).
+const PAID = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_GALLERY_PAID === '1';
 
 export default function GalleryPage() {
   return (
@@ -22,7 +27,7 @@ export default function GalleryPage() {
         </p>
       }
     >
-      <ShootingGallery />
+      <ShootingGallery freePlay={!PAID} />
     </GameShell>
   );
 }

@@ -36,7 +36,7 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
   };
   const stats: { label: string; value: number; icon: 'bullet' | 'target' | 'wave' | 'skull' | 'chain' | 'flame'; fmt?: (n: number) => string }[] = [
     { label: 'Rounds fired', value: r.fired, icon: 'bullet' },
-    { label: r.simulated ? 'Sent (dry run)' : 'On the record', value: r.sent, icon: 'chain' },
+    { label: r.simulated ? 'Practice rounds' : 'On the record', value: r.sent, icon: 'chain' },
     { label: 'Score', value: r.score, icon: 'flame' },
     { label: 'Wave reached', value: r.wave, icon: 'wave' },
     { label: 'Kills', value: r.kills, icon: 'skull' },

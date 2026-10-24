@@ -69,8 +69,8 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     if (opts.dry) {
       // Dev dry run with a realistic wallet wait (?approvems=, default 10 s), so the flow can be checked.
       setStage('approve');
-      setStageText('Dry run (dev): nothing is paid or broadcast.');
-      const wait = Number(new URLSearchParams(location.search).get('approvems') ?? 10_000) || 0;
+      setStageText('Free play: nothing is paid.');
+      const wait = Number(new URLSearchParams(location.search).get('approvems') ?? 600) || 0;
       setTimeout(() => {
         setDryCredit((c) => addCoin(c, pending));
         setPending(0);
