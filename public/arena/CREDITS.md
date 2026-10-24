@@ -39,3 +39,11 @@ Credit not required but given with thanks.
   https://sketchfab.com/3d-models/pbr-velociraptor-animated-8f1744af7b0847a2aabe3df90be802f0
 - Zombie (`models/monsters/zombie.glb`): "Low Poly Zombie (Game Animation)" by Jerome Angeles, CC BY 4.0,
   https://sketchfab.com/3d-models/low-poly-zombie-game-animation-9f8f0885b2f94c6890c4debaceac9421
+
+## Mixamo
+
+- Liquid Unit, the Shooting Gallery boss (`models/liquid/xbot.glb`): Mixamo "X Bot" (a generic faceless mannequin, with
+  its idle and walk clips), as shipped in the three.js examples (`examples/models/gltf/Xbot.glb`,
+  https://github.com/mrdoob/three.js). Meshes quantised and meshopt-compressed with gltf-transform; the chrome material,
+  red visor, rim lights, hit flinch and melt are made in code (`src/lib/galleryGame/boss.ts`). Mixamo's terms allow
+  royalty-free use inside a game; they do not allow selling the model on its own.
