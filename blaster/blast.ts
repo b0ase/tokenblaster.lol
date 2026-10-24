@@ -27,7 +27,6 @@ import { blastFee, fetchTx, signAll, turbo, unspent } from './turbo';
 import { cpus } from 'node:os';
 import { chart, lolStatus, rankLine, waitForBlock, type LolStatus } from './bsvlol';
 
-const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const ARC_URL = process.env.BLASTER_ARC_URL || 'https://arc.gorillapool.io';
 const KEY_DIR = join(homedir(), '.tokenblaster');
 

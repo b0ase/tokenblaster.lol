@@ -56,8 +56,8 @@ export function makeSigner({ d, x, y }) {
 }
 
 // <tag> <token> <n> <game>: game 'cli' gives CLI blasts their own line on the leaderboard
-export const opReturnFor = (token, label, game = 'cli') => {
-  const parts = ['tokenblaster.lol', token, label, game].map((s) => push(Buffer.from(s, 'utf8')));
+export const opReturnFor = (token, label, game = 'cli', tag = 'tokenblaster.lol') => {
+  const parts = [tag, token, label, game].map((s) => push(Buffer.from(s, 'utf8')));
   return Buffer.concat([Buffer.from([0x00, 0x6a]), ...parts]);
 };
 
