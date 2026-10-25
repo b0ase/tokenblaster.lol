@@ -27,8 +27,8 @@ export type AmmoCoin = {
 };
 
 export const AMMO_COINS: AmmoCoin[] = [
-  // TERRORNODE: not launched yet. Set tokenId once its BlastPad launch confirms.
-  { key: 'terrornode', sym: 'TERRORNODE', tokenId: '', burnPer: BigInt(1) },
+  // TERRORNODE: launched on BlastPad 25 Oct 2026 (owner).
+  { key: 'terrornode', sym: 'TERRORNODE', tokenId: 'd5ffbbfd8310dcb6763c7180b8dbc725b708d0ce990f93cd27d00ff24aa0de02_1', burnPer: BigInt(1) },
 ];
 
 const isTokenId = (id: string) => /^[0-9a-f]{64}_\d+$/.test(id);
