@@ -17,7 +17,8 @@ export const metadata = {
 // FREE PLAY on production while the payment flow is fixed (owner, 24 Oct 2026: "keep it online but let everyone
 // play for free"): the game runs on the simulated network, no wallet, nothing paid or broadcast. Real payments
 // come back with NEXT_PUBLIC_GALLERY_PAID=1 (and always run on a local dev server).
-const PAID = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_GALLERY_PAID === '1';
+// Paid play is the default (owner, 25 Oct: LOCK & LOAD = connect and pay). NEXT_PUBLIC_GALLERY_PAID=0 brings free play back.
+const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
 
 export default function GalleryPage() {
   return (

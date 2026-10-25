@@ -7,7 +7,7 @@ import { SectionHead } from '@/components/dr/site';
 import { HeroShowcase, HeroTitle } from '@/components/HeroShowcase';
 
 // Production runs free play unless NEXT_PUBLIC_GALLERY_PAID=1; only paid play spends a real tx per bullet.
-const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID === '1';
+const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
 import { HeroSound } from '@/components/HeroSound';
 import { ArcadeGrid } from '@/components/ArcadeGrid';
 import { HeroLive } from '@/components/HeroLive';
