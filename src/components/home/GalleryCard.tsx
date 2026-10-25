@@ -13,7 +13,7 @@ const FRAMES = ['/gallery/loading/street-left.webp', '/gallery/loading/tower.web
 export function GalleryCard() {
   return (
     <section aria-label="Assault on Terrornode" className={`${tbxFontClass} dr-band flex flex-col gap-3`} data-reveal>
-      <Link href="/arcade/assault" className="hp-gal group">
+      <Link href="/arcade/terrornode" className="hp-gal group">
         <div className="hp-gal-main">
           <Image src="/gallery/loading/boss-fire.webp" fill sizes="100vw" alt="The Liquid Unit roars in the rain outside the TERRORNODE tower, Neo-Tokyo 2048" />
           <div className="hp-gal-shade" aria-hidden />

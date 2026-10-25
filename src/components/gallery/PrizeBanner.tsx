@@ -26,7 +26,7 @@ export function PrizeBanner({ cta = false }: { cta?: boolean }) {
             {open ? 'Hide rules' : 'Rules'}
           </button>
           {cta && (
-            <Link href="/arcade/assault" className="tbx-btn tbx-btn-red">
+            <Link href="/arcade/terrornode" className="tbx-btn tbx-btn-red">
               Enter the gallery
             </Link>
           )}

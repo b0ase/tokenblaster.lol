@@ -1,6 +1,6 @@
 'use client';
 /**
- * /arcade/assault/leaderboard (owner, 25 Oct 2026): everything that used to sit below the game. The prize and
+ * /arcade/terrornode/leaderboard (owner, 25 Oct 2026): everything that used to sit below the game. The prize and
  * rules, the Top blasters board, Watch on bsv.lol and the info text. The game page is the game only.
  */
 import Link from 'next/link';
@@ -12,7 +12,7 @@ import { Icon } from '../coinop/ui';
 import { tbxFontClass } from '../coinop/fonts';
 import { PrizeBanner } from './PrizeBanner';
 
-export const INFO_URL = '/arcade/assault/leaderboard';
+export const INFO_URL = '/arcade/terrornode/leaderboard';
 
 export function AssaultInfo({ paid }: { paid: boolean }) {
   const [rows, setRows] = useState<BoardRow[]>([]);
@@ -36,7 +36,7 @@ export function AssaultInfo({ paid }: { paid: boolean }) {
     <div className={`${tbxFontClass} mx-auto flex w-full max-w-[1100px] flex-col gap-3 p-3 sm:p-5`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="tbx-display text-[clamp(28px,5vw,48px)]">Scores &amp; info</h1>
-        <Link href="/arcade/assault" className="tbx-btn tbx-btn-red">
+        <Link href="/arcade/terrornode" className="tbx-btn tbx-btn-red">
           <Icon name="crosshair" size={14} /> Back to the game
         </Link>
       </div>

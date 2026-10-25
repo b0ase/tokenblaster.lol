@@ -29,7 +29,7 @@ export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabin
             <h2 className="tbx-display mt-1.5 text-[clamp(38px,6vw,76px)]">{GAME_TITLE}</h2>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <Link href="/arcade/assault/leaderboard" data-fs-skip className="tbx-btn !min-h-[36px] !px-3 !text-xs" data-info-link>
+            <Link href="/arcade/terrornode/leaderboard" data-fs-skip className="tbx-btn !min-h-[36px] !px-3 !text-xs" data-info-link>
               <Icon name="trophy" size={14} /> Scores &amp; info
             </Link>
             <p className="hidden max-w-[320px] text-right text-sm text-[var(--tbx-dim)] sm:block">{practice ? forPractice(TAGLINE) : TAGLINE}</p>

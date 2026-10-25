@@ -48,9 +48,10 @@ export const CITY_CARD = card(
   'SATOSHI CITY poster in magenta and cyan neon-tube lettering: a low wide shot of a rainy neon night plaza, the gold B monument beside the title and a red supercar on the wet street. Every car is a live BSV tx.',
 );
 
-export const GALLERY_CARD = card(
-  'gallery-neon-v2.jpg',
-  'TokenBlaster Shooting Gallery, ASSAULT ON TERRORNODE: a first-person minigun firing tracers down a rainy Neo-Tokyo 2048 street at Erobots rushing in. Every bullet = 1 real BSV tx.',
+// Red neon dripping blood (25 Oct 2026): scripts/og/compose-neon-card.mjs scripts/og/terrornode-neon-v3.json
+export const TERRORNODE_CARD = card(
+  'terrornode-neon-v3.jpg',
+  'ASSAULT ON TERRORNODE in red neon-tube lettering dripping blood, over a first-person minigun on a rainy Neo-Tokyo 2048 street with an Erobot ahead. Every bullet = 1 real BSV tx.',
 );
 
 // OG refresh (24 Oct 2026): house-style cards from real in-game renders (scripts/og/compose-dr-card.mjs).
