@@ -21,15 +21,11 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
   const b = useBlaster();
   const cab = useCabinet(b, title);
   const price = playPriceUsd(game);
-  const [name, setNameState] = usePlayerName();
+  const { name, hasPaymail } = usePlayerName();
   useEffect(() => coinStore.setName(name), [name]);
   const [open, setOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const n = useRef(0);
-  const setName = (s: string) => {
-    setNameState(s);
-    coinStore.setName(s);
-  };
 
   useEffect(() => coinStore.setCredit(cab.creditUsd), [cab.creditUsd]);
 
@@ -87,7 +83,7 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
               stage={cab.stage}
               stageText={cab.stageText}
               name={name}
-              setName={setName}
+              hasPaymail={hasPaymail}
               priceUsd={price}
               priceNote={`One play costs ${fmtCredit(price)} of credit, paid to the house on chain.`}
               startLabel="Start ▶"

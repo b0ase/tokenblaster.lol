@@ -56,7 +56,7 @@ export const KWEG = {
   fullName: 'Professor Doctor Sir Kweg S Wong esq.',
   role: 'Founder of TERRORNODE · Inventor of SOUL CHAIN · Hostage',
   look: 'Round spectacles, a striped engineer’s cap, a red bow tie and a knitted vest under a lab coat. A tablet in one hand, a magnifying glass in the other. Currently tied to a chair.',
-  bio: 'Professor Doctor Sir Kweg S Wong esq. is brilliant, devastatingly so, and loved by everyone who has met him. He established TERRORNODE in 2009 (he will mention this), invented the SOUL CHAIN, and peer-reviews everything he sees, including his own kidnapping. There was an accident, and a hacking, and an incident with the cow, and a trial. Nobody has ever explained any of it, and he does not intend to start. Lately his inventions went out of control, and the Erobots took his tower with him in it.',
+  bio: 'Dr Kweg S Wong: held hostage at the top of TERRORNODE HQ. Get him out.',
   threat: 'On your side. He is held on the top floor and talks to you over the radio: dry pleas, review comments and the occasional correction.',
   /** Spoken on the loading screen and the briefing. */
   intro: 'This is Dr Wong. I am being held hostage on the top floor of a building I established in 2009. I did not authorise this.',

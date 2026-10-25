@@ -37,12 +37,10 @@ import {
   blockRounds,
   overheadSats,
   roundsFor,
-  PRIZE,
   ammoFromPaymail,
   fmtUsd,
   freeForStressTest,
   galleryPushes,
-  inEvent,
   patternLabel,
   platformFeeAt,
   shotSats,
@@ -50,15 +48,14 @@ import {
   ASSAULT_GUNS,
   STREAM_STEP,
   usdOf,
-  type BoardRow,
 } from '@/lib/gallery';
 import { WalletChooser } from '../WalletChooser';
 import { GameAudio } from '../SoundToggle';
 import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal, Ticker } from '../coinop/ui';
-import { IdentityPicker } from '../PlayerBadge';
-import { PrizeBanner } from './PrizeBanner';
+import { PlayerPanel } from './PlayerPanel';
+import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
@@ -99,8 +96,8 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
   const b = useBlaster();
   const { storm, fireBatch } = b;
-  const [name, setName] = usePlayerName();
-  // The NAME typed at the cabinet is the on-chain handle tag and the board name.
+  const { name, hasPaymail } = usePlayerName();
+  // The NAME is the wallet's paymail (owner, 25 Oct): the on-chain handle tag and the board name.
   const handle = cleanName(name);
   const weapons = useMemo(() => {
     // Volume guns only: sustained ~2,000 tx/s streams, no single shots or bursts (owner, 24 Oct: stress test).
@@ -130,13 +127,13 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [over, setOver] = useState<RunSummary | null>(null);
   const statsRef = useRef<Stats | null>(null);
   const dmgFx = useRef<DamageFxHandle>(null);
-  const [board, setBoard] = useState<BoardRow[]>([]);
-  const [boardWin, setBoardWin] = useState<'event' | '24h'>('event');
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
   const canvas = useRef<HTMLCanvasElement>(null);
   const reticle = useRef<HTMLDivElement>(null);
+  const stickRef = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
   const engine = useRef<GalleryEngine | null>(null);
   const simRef = useRef<Sim>({ on: false, rate: 0, target: 2000, carry: 0 });
   const stop = useRef(false);
@@ -224,6 +221,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     const phone = /iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.hardwareConcurrency ?? 8) <= 4;
     const quality: Quality = new URLSearchParams(location.search).get('q') === 'low' || phone ? 'low' : 'high';
     const eng = new GalleryEngine(cv, hooks, { quality, weapons, bossBase: 20_000 });
+    eng.stickEl = stickRef.current;
+    eng.knobEl = knobRef.current;
     engine.current = eng;
     if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = eng; // dev only: screenshot scripts poke the combat
     let alive = true;
@@ -267,6 +266,13 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [fired, setFired] = useState(0);
   const modeRef = useRef<'off' | 'warm' | 'live'>('off');
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
+  /** GO: real rounds are live (a short banner the moment the load finishes). */
+  const [goAt, setGoAt] = useState(0);
+  useEffect(() => {
+    if (!goAt) return;
+    const t = setTimeout(() => setGoAt(0), 1300);
+    return () => clearTimeout(t);
+  }, [goAt]);
   // Zero wallet prompts during play: from warm-up to the end of the round nothing may reach the wallet (src/lib/wallet.ts).
   useEffect(() => {
     // Only while a round is actually on: back on the loadout / results the wallet is free again (a payment there must
@@ -277,7 +283,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
   useEffect(() => {
     const e = engine.current;
-    if (e) e.combat = !loadout && mode !== 'off' && !over;
+    // LOADING YOUR AMMO (owner, 25 Oct): the warm-up is safe. Nothing spawns, attacks or hurts until GO.
+    if (e) e.combat = !loadout && mode === 'live' && !over;
   }, [loadout, mode, over, ready]);
   const setMode = useCallback((m: 'off' | 'warm' | 'live') => {
     modeRef.current = m;
@@ -549,18 +556,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     [],
   );
 
-  // ── Board ──
-  const loadBoard = useCallback(() => {
-    fetch(`/api/gallery/board?window=${boardWin}`)
-      .then((r) => r.json())
-      .then((j: { rows?: BoardRow[] }) => setBoard(j.rows ?? []))
-      .catch(() => undefined);
-  }, [boardWin, setBoard]);
-  useEffect(() => {
-    void Promise.resolve().then(loadBoard);
-    const i = setInterval(loadBoard, 15_000);
-    return () => clearInterval(i);
-  }, [loadBoard]);
 
   /** Report this session's accepted shots (LIVE, named, real chain only); verified on chain by the last txid. */
   const lastReport = useRef(0);
@@ -586,7 +581,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           xp: cachedProof(handle) ?? undefined,
         }),
       }).catch(() => undefined);
-      loadBoard();
     };
   });
   const sending = fired > run.sent;
@@ -684,16 +678,23 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       sentRef.current = firedRef.current; // warm-up rounds were never queued
       setRun((r) => ({ ...r, sent: sentRef.current }));
       setMode('live');
+      setGoAt(Date.now());
       setLoad(null);
       setOver(null);
       sfx('coin');
       if (continued) return; // play resumes on the same stage: no new banners
-      pushBanner({ kind: 'loaded' });
-      pushBanner({ kind: 'stage', n: 1 });
+      // GO (the overlay below) is the "gun loaded" moment now; the stage banner follows once it has gone
+      setTimeout(() => pushBanner({ kind: 'stage', n: 1 }), 1300);
     },
     [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
+  /** How many rounds are being loaded (for "Loading 30,000 real rounds into your gun"), and when the load began. */
+  const [loadingRounds, setLoadingRounds] = useState(0);
+  const [loadStart, setLoadStart] = useState(0);
+  const [loadNow, setLoadNow] = useState(0);
   const lockAndLoad = async (continued = false) => {
+    setLoadStart(performance.now());
+    setLoadingRounds(0);
     setErr(null);
     if (!continued) {
       // a fresh attempt: back to the street, the doors open, a new song
@@ -716,6 +717,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       // (plus a margin), never less than $1 would buy, no waiting. (Nothing is paid.)
       const sats = usdToSats(freePlay ? 1 : cab.creditUsd, bsvUsd) ?? 0;
       const n = Math.max(roundsFor(sats, perShotAll), blockRounds(pattern)); // practice: always enough for the full block
+      setLoadingRounds(n);
       const ms = freePlay ? 300 : Number(new URLSearchParams(location.search).get('splitms') ?? 2500) || 0;
       for (const pct of [15, 30, 45, 60, 75, 90]) {
         setLoad({ kind: 'loading', pct, slowSecs: 0 });
@@ -742,6 +744,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots)) / perShot));
       }
+      setLoadingRounds(shots);
       if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
       loadMark(`loaded: ${shots} rounds`);
       goLive(shots, continued);
@@ -779,6 +782,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [eased, setEased] = useState(0);
   useEffect(() => {
     const i = setInterval(() => {
+      setLoadNow(performance.now());
       setEased((e) => {
         if (target <= 0) return 0;
         const ceil = Math.min(99, target + 14);
@@ -789,6 +793,13 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     return () => clearInterval(i);
   }, [target]);
   const warmPct = Math.round(Math.max(target, eased));
+  // seconds left on the load, from how fast the bar has moved so far (whole seconds, never negative)
+  const loadEta = (() => {
+    if (warmPct <= 5 || !loadStart || loadNow < loadStart) return null;
+    const el = (loadNow - loadStart) / 1000;
+    return Math.max(1, Math.ceil((el * (100 - warmPct)) / warmPct));
+  })();
+  const loadLine = `Loading ${loadingRounds > 0 ? `${loadingRounds.toLocaleString('en-US')} ` : ''}${simulated ? 'practice' : 'real'} rounds into your gun…${loadEta != null ? ` ${loadEta} s` : ''}`;
   const packLeft = Math.max(0, bought - fired);
 
   // LOCK & LOAD is the bill: pay the coins (one approval), load, then lock the rounds and start by itself.
@@ -817,15 +828,28 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // the rounds not yet sent are what is left (real spend is rounds sent x cost). Practice: rounds not yet fired,
   // at the same cost, so it looks the same and still claims nothing on chain. It agrees with "rounds left".
   const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * perShotAll, bsvUsd), practice: simulated } : null;
-  const names = useMemo(() => new Map(weapons.map((w) => [w.id, w.name])), [weapons]);
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
-  const hint = mode === 'warm' ? (simulated ? 'Getting your practice rounds ready. HOLD to fire.' : 'WARM-UP: practice rounds while your gun loads. HOLD to fire.') : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). A / D to strafe.`));
+  const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.`));
   const toBoard = () => {
     setOver(null);
     setLoadout(true);
-    setTimeout(() => document.getElementById('gallery-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    window.location.assign(INFO_URL);
   };
+
+  // No key scrolls the page while you play (owner, 25 Oct): swallow the scroll keys unless you are typing.
+  useEffect(() => {
+    const SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End']);
+    const kd = (e: KeyboardEvent) => {
+      if (!SCROLL.has(e.code) && !SCROLL.has(e.key)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (e.code === 'Space' && t?.closest('button, a, [role="button"]') && loadout) return; // SPACE still presses a focused button on the loadout
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', kd, { capture: true });
+    return () => window.removeEventListener('keydown', kd, { capture: true });
+  }, [loadout]);
 
   return (
     <div className={`game-root flex flex-col gap-3 ${drFontClass} ${tbxFontClass}`}>
@@ -854,28 +878,16 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </div>
         )}
 
+        {/* Touch: the left side is a virtual stick (it appears under your thumb), the right side drags the view and fires. */}
+        <div ref={stickRef} className="pointer-events-none absolute z-10 hidden h-[104px] w-[104px] rounded-full border-2 border-white/30 bg-black/30" aria-hidden data-move-stick>
+          <div ref={knobRef} className="absolute left-[30px] top-[30px] h-11 w-11 rounded-full bg-[var(--tbx-teal)]/60" />
+        </div>
         {!loadout && !over && !rescued && (
-          <div className="pointer-events-none absolute bottom-[104px] left-1/2 z-10 flex -translate-x-1/2 gap-3 sm:hidden" data-strafe-pad>
-            {([-1, 1] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                data-fs-skip
-                aria-label={d < 0 ? 'Strafe left' : 'Strafe right'}
-                className="tbx-btn pointer-events-auto !min-h-[48px] !min-w-[64px] !px-3 !text-lg"
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  if (engine.current) engine.current.padMove = d;
-                }}
-                onPointerUp={() => engine.current && (engine.current.padMove = 0)}
-                onPointerCancel={() => engine.current && (engine.current.padMove = 0)}
-              >
-                {d < 0 ? '◀' : '▶'}
-              </button>
-            ))}
-          </div>
+          <p className="pointer-events-none absolute bottom-[104px] left-3 z-10 text-[10px] font-bold tracking-[0.18em] text-white/50 sm:hidden" data-touch-help>
+            LEFT: MOVE · RIGHT: LOOK + FIRE
+          </p>
         )}
-        {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
+                {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
         {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={false} />}
         {/* Free play with no coin in (owner, 24 Oct): a big flashing INSERT COIN over the game, like a real cabinet. */}
         {!loadout && !over && simulated && (
@@ -925,15 +937,24 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             <div className="tbx-glass w-full max-w-[460px] px-4 py-3">
               <div className="flex items-baseline justify-between gap-3">
                 <span className="flex items-center gap-2 text-sm font-bold tracking-wide text-white">
-                  <Icon name="chip" size={15} className="text-[var(--tbx-teal)]" /> WARM-UP. Your gun is loading…
+                  <Icon name="chip" size={15} className="text-[var(--tbx-teal)]" /> LOADING YOUR AMMO
                 </span>
                 <Ticker value={warmPct} format={(n) => `${Math.round(n)}%`} className="tbx-display text-xl" />
               </div>
               <div className="tbx-bar mt-2">
                 <i style={{ transform: `scaleX(${warmPct / 100})`, transition: 'transform 0.25s linear' }} />
               </div>
-              <p className="mt-1.5 text-[11px] text-white/65">{simulated ? PRACTICE.nothing : 'Practice rounds: nothing is sent, nothing is scored. Live rounds start when the gun is loaded.'}</p>
+              <p className="mt-1.5 text-sm font-semibold text-white tbx-num" data-load-line>{loadLine}</p>
+              <p className="mt-1 text-[11px] text-white/65">{mode === 'warm' ? 'Warm-up shots while you wait (not live). No enemies until GO.' : 'No enemies until GO.'}</p>
             </div>
+          </div>
+        )}
+        {goAt > 0 && !loadout && !over && (
+          <div className="pointer-events-none absolute inset-x-0 top-[38%] z-30 flex flex-col items-center" role="status" data-go>
+            <p className="tbx-display tbx-pop text-[clamp(72px,16vw,180px)] leading-none text-[var(--tbx-teal)]" style={{ textShadow: '0 0 50px rgba(63,216,232,.6), 0 6px 40px rgba(0,0,0,.85)' }}>
+              GO
+            </p>
+            <p className="mt-1 rounded bg-black/70 px-3 py-1 text-xs font-bold tracking-[0.25em] text-white">{simulated ? 'PRACTICE ROUNDS LIVE' : 'REAL ROUNDS LIVE'}</p>
           </div>
         )}
         {!loadout && !over && <BannerStage item={bannerCur} practice={simulated} />}
@@ -1007,6 +1028,19 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             practice={simulated}
             rounds={bought}
             paymail={paymail}
+            player={
+              <PlayerPanel
+                freePlay={freePlay}
+                free={free}
+                fee={fee}
+                bsvUsd={bsvUsd}
+                credit={fmtCredit(cab.creditUsd)}
+                gunAddress={b.gunAddress}
+                packLeft={packLeft}
+                ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}
+                error={err ?? b.error}
+              />
+            }
             cabinet={
               <CoinCabinet
                 title="Shooting Gallery"
@@ -1018,7 +1052,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 stage={cab.stage}
                 stageText={cab.stageText}
                 name={name}
-                setName={setName}
+                hasPaymail={hasPaymail}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
                 priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
                 buys={buys}
@@ -1038,131 +1072,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
       </section>
 
-      {!simulated && <PrizeBanner />}
-
-      {freePlay ? (
-        <section className="tbx-glass p-4" data-freeplay-note>
-          <p className="text-sm font-semibold text-[var(--tbx-text)]">{PRACTICE.nothing}</p>
-          <p className="mt-1 text-xs text-[var(--tbx-dim)]">Practice rounds are not scored on the board. The paid game puts every round on the record.</p>
-        </section>
-      ) : (
-      <section className="tbx-glass p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="coin" size={14} /> Credit</span>
-          <span className="text-xs text-[var(--tbx-dim)]">
-            {free ? <span style={{ color: 'var(--tbx-ok)' }}>Free for the stress test: no platform fee until 1 Nov</span> : `${Math.round(fee * 100)}% platform fee`} · BSV ${bsvUsd.toFixed(2)}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--tbx-dim)]">
-          <span>
-            Credit: <span className="tbx-num font-bold" style={{ color: 'var(--tbx-amber)' }}>{fmtCredit(cab.creditUsd)}</span>.
-            {b.gunAddress && (
-              <>
-                {' '}
-                <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noreferrer" className="underline opacity-80 hover:opacity-100">
-                  See your gun&apos;s balance on chain
-                </a>
-              </>
-            )}
-          </span>
-          <span>
-            Rounds ready: <span className="tbx-num font-bold text-white">{packLeft.toLocaleString()}</span>. Unused credit stays in your gun for later rounds.
-          </span>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
-          <span>Paymail on your rounds (from your X handle):</span>
-          <IdentityPicker compact />
-        </div>
-        {b.wallet && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
-            {/* Wallet-basket ownership only on this tap, never in the background or during play (src/lib/useOrdnance.ts) */}
-            <button type="button" className="btn px-2 py-0.5 text-xs" disabled={mode !== 'off' || ordnance.checking || ordnance.walletChecked} onClick={() => void ordnance.checkWallet()}>
-              {ordnance.walletChecked ? 'Wallet checked for ordnance' : 'Check my wallet for ordnance'}
-            </button>
-            <span className="text-xs">Your wallet may ask once to show this site your TokenBlaster weapons, so owned guns unlock.</span>
-          </div>
-        )}
-        {(err || b.error) && <p className="mt-2 text-sm font-semibold text-[#ff7a70]">{err ?? b.error}</p>}
-      </section>
-      )}
-
-      {!simulated && <section className="tbx-glass p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="chain" size={14} /> See them land</span>
-          <span className="text-xs text-[var(--tbx-dim)]">{simulated ? 'practice numbers, not on the record' : 'live'}</span>
-        </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-          <a href="https://bsv.lol" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[var(--tbx-teal)] underline decoration-white/20 underline-offset-2">
-            Watch on bsv.lol <Icon name="external" size={12} />
-          </a>
-          {run.last && !simulated && (
-            <a href={`https://whatsonchain.com/tx/${run.last}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[var(--tbx-teal)] underline decoration-white/20 underline-offset-2">
-              latest shot {run.last.slice(0, 12)}… <Icon name="external" size={12} />
-            </a>
-          )}
-          {run.last && simulated && <span className="font-mono text-xs text-[var(--tbx-mute)]">sim {run.last.slice(0, 16)}…</span>}
-        </div>
-      </section>}
-
-      <section id="gallery-board" className="tbx-glass p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="trophy" size={14} className="text-[var(--tbx-amber)]" /> Top blasters</span>
-          <div className="flex gap-1.5">
-            {(['event', '24h'] as const).map((w) => (
-              <button key={w} onClick={() => setBoardWin(w)} className={`tbx-btn !min-h-[32px] !px-3 !text-[11px] ${boardWin === w ? 'tbx-btn-on' : ''}`}>
-                {w === 'event' ? '31 OCT EVENT' : '24H'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <GalleryBoard rows={board} me={handle} mine={live && !dry ? run.sent : 0} myWeapon={weaponId} myAmmo={ammo ?? DEFAULT_AMMO} names={names} />
-        <p className="mt-3 text-xs text-[var(--tbx-mute)]">
-          Accepted LIVE shots carrying your handle, checked on chain by the tokenblaster.lol &quot;gallery&quot; tag.{' '}
-          {inEvent(clock) ? 'The event is on now.' : `Event: ${new Date(PRIZE.start).toUTCString().slice(0, 16)} (UTC).`}
-        </p>
-      </section>
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </div>
-  );
-}
-
-export function GalleryBoard({
-  rows,
-  me,
-  mine = 0,
-  myWeapon,
-  myAmmo,
-  names,
-}: {
-  rows: BoardRow[];
-  me?: string | null;
-  mine?: number;
-  myWeapon?: string;
-  myAmmo?: string;
-  names?: Map<string, string>;
-}) {
-  // This session's live count, merged in so the player sees themselves climb before the next report lands.
-  const list = [...rows];
-  if (me && mine) {
-    const i = list.findIndex((r) => r.handle === me);
-    if (i >= 0) list[i] = { ...list[i], shots: Math.max(list[i].shots, mine) };
-    else list.push({ handle: me, shots: mine, sessions: 1, weapon: myWeapon, ammo: myAmmo });
-    list.sort((a, b) => b.shots - a.shots);
-  }
-  if (!list.length) return <p className="text-sm text-[var(--tbx-dim)]">No ranked shots yet. Be the first name on the board.</p>;
-  return (
-    <ol className="flex flex-col gap-1.5 text-sm">
-      {list.slice(0, 10).map((r, i) => (
-        <li key={r.handle} className={`tbx-rise flex flex-wrap items-center justify-between gap-x-3 rounded-lg px-3 py-2 ${r.handle === me ? 'border border-[var(--tbx-teal)]/50 bg-[var(--tbx-teal)]/10' : 'bg-white/[0.035]'}`} style={{ ['--d' as string]: `${i * 0.04}s` }}>
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="tbx-display w-7 text-xl" style={{ color: i === 0 ? 'var(--tbx-amber)' : 'var(--tbx-mute)' }}>{String(i + 1).padStart(2, '0')}</span>
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap font-semibold">@{r.handle}</span>
-            {r.weapon && <span className="text-xs text-[var(--tbx-dim)]">{names?.get(r.weapon) ?? r.weapon}</span>}
-            {r.ammo && <span className="text-xs text-[var(--tbx-amber)]">{r.ammo}</span>}
-          </span>
-          <span className="tbx-num font-bold">{r.shots.toLocaleString()}</span>
-        </li>
-      ))}
-    </ol>
   );
 }

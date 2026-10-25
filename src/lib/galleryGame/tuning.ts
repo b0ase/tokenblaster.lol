@@ -81,6 +81,14 @@ export const TUNING = {
     /** STRAFE (A/D, arrows, the touch pad): metres a second, and how far across the set (fraction of its wall half-width). */
     strafeSpeed: 5.5,
     strafeRange: 0.55,
+    /**
+     * FREE MOVE (owner, 25 Oct: "full movement like the Arena, plus slow automatic forward travel"): how far you
+     * can walk ahead of (-) or drop behind (+) the auto-walk's spot (m), the arrow-key turn rate (rad/s) and how
+     * far the view can turn from straight down the route (rad).
+     */
+    freeZ: [-5, 3] as [number, number],
+    turnSpeed: 2.2,
+    lookYaw: 2.4,
     /** Camera kick on a hit: radians at damage 10, scaled by damage. */
     kickPer10: 0.045,
   },
@@ -123,11 +131,11 @@ export const TUNING = {
     strafeSpeed: 3.2,
     bolt: {
       speed: 34,
-      damage: 1.2,
+      damage: 1.0,
       /** Seconds between shots per shooter (wave 1), random in range. */
-      every: [1.6, 3.0] as [number, number],
+      every: [1.9, 3.4] as [number, number],
       /** Chance a bolt is aimed wide and misses (wave 1), falling by missPerWave to missMin. */
-      miss: 0.34,
+      miss: 0.4,
       missPerWave: 0.05,
       missMin: 0.08,
       /** Bolts are small: a round that passes this close shoots one down. */
@@ -135,12 +143,12 @@ export const TUNING = {
       hitRadius: 0.55,
     },
     melee: {
-      range: 2.7,
+      range: 5.2,
       damage: 2,
       windup: 0.32,
       every: 0.95,
-      /** The z a rusher plants itself at. */
-      stopZ: -2.1,
+      /** The z (in front of the player) a rusher plants itself at: never inside point-blank range. */
+      stopZ: -4.2,
     },
   },
 
@@ -157,33 +165,33 @@ export const TUNING = {
       id: 'street',
       level: 1,
       at: 0,
-      horde: 8,
-      hordeEnd: 14,
-      lane: { spawnZ: -63.5, halfW: 12, stopZ: [-22, -11], flankX: [11, 16], strafeX: 14, snipeX: 5, liveBase: 5, liveCap: 9, wallX: 17 },
+      horde: 7,
+      hordeEnd: 12,
+      lane: { spawnZ: -63.5, halfW: 12, stopZ: [-22, -11], flankX: [11, 16], strafeX: 14, snipeX: 5, liveBase: 4, liveCap: 8, wallX: 17 },
     },
     {
       id: 'floors',
       level: 2,
       at: 150,
-      horde: 12,
-      hordeEnd: 18,
-      lane: { spawnZ: -44, halfW: 3.6, stopZ: [-21, -10], flankX: [3.6, 5.2], strafeX: 5.2, snipeX: 2.2, liveBase: 5, liveCap: 10, wallX: 6.3 },
+      horde: 10,
+      hordeEnd: 15,
+      lane: { spawnZ: -44, halfW: 3.6, stopZ: [-21, -10], flankX: [3.6, 5.2], strafeX: 5.2, snipeX: 2.2, liveBase: 4, liveCap: 8, wallX: 6.3 },
     },
     {
       id: 'core',
       level: 3,
       at: 300,
-      horde: 14,
-      hordeEnd: 20,
+      horde: 12,
+      hordeEnd: 17,
       jam: { rounds: 6000, holdSecs: 0.35, drainPerSec: 400 },
-      lane: { spawnZ: -34, halfW: 7, stopZ: [-17, -9], flankX: [6, 9], strafeX: 9, snipeX: 3, liveBase: 4, liveCap: 9, wallX: 12 },
+      lane: { spawnZ: -34, halfW: 7, stopZ: [-17, -9], flankX: [6, 9], strafeX: 9, snipeX: 3, liveBase: 4, liveCap: 8, wallX: 12 },
     },
     {
       id: 'roof',
       level: 4,
       at: 430,
-      horde: 16,
-      hordeEnd: 10,
+      horde: 13,
+      hordeEnd: 9,
       /** The Liquid Unit's level (health x1.5 and damage x1.22 per level above 1), once, on this stage. */
       bossLevel: 2,
       lane: { spawnZ: -40, halfW: 8, stopZ: [-20, -12], flankX: [8, 11], strafeX: 10, snipeX: 4, liveBase: 4, liveCap: 8, wallX: 11 },
@@ -209,8 +217,18 @@ export const TUNING = {
     lowLive: 0.55,
     spawnEvery: 0.35,
     burst: 3,
-    biteEvery: 1.6,
+    biteEvery: 2.0,
     hitScale: 1.15,
+    /**
+     * FAIRER CLOSE RANGE (owner, 25 Oct): a monster plants at least `minDist` + its size x `sizeDist` metres in
+     * front of you, at most `maxClose` bite at once (the rest hold back `holdBack` metres further, still in the
+     * line of fire), bodies push apart, and a bite only lands within `biteReach` (+ size) metres sideways.
+     */
+    minDist: 3.6,
+    sizeDist: 1.2,
+    maxClose: 3,
+    holdBack: 6,
+    biteReach: 3,
   },
 
   /** The seamless stage flow and the RESCUED beat (milliseconds unless noted). */

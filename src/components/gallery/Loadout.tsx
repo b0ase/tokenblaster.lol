@@ -4,6 +4,7 @@
  * Presentational: the Shooting Gallery owns the state and passes the cabinet in. All copy is from
  * src/lib/gallery/story.ts.
  */
+import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
 import { liveCeiling, liveRate, patternLabel, roundsForFullRate, txPattern, type TxPattern } from '@/lib/gallery';
 import type { RangeWeapon } from '@/lib/bsvgun/weapons';
@@ -12,7 +13,7 @@ import { Icon, useExisting } from '../coinop/ui';
 import { CharacterCard } from '../coinop/LoadingScreen';
 import { GunPreview } from './GunPreview';
 
-export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabinet, practice = false, rounds = 0 }: { practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
+export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, practice = false, rounds = 0 }: { player?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
   const have = useExisting(CHARACTERS.map((c) => c.portrait));
   const c = CHARACTERS.find((x) => x.id === who) ?? CHARACTERS[0];
@@ -27,7 +28,12 @@ export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabin
             </p>
             <h2 className="tbx-display mt-1.5 text-[clamp(38px,6vw,76px)]">{GAME_TITLE}</h2>
           </div>
-          <p className="hidden max-w-[320px] text-right text-sm text-[var(--tbx-dim)] sm:block">{practice ? forPractice(TAGLINE) : TAGLINE}</p>
+          <div className="flex flex-col items-end gap-2">
+            <Link href="/arcade/assault/leaderboard" data-fs-skip className="tbx-btn !min-h-[36px] !px-3 !text-xs" data-info-link>
+              <Icon name="trophy" size={14} /> Scores &amp; info
+            </Link>
+            <p className="hidden max-w-[320px] text-right text-sm text-[var(--tbx-dim)] sm:block">{practice ? forPractice(TAGLINE) : TAGLINE}</p>
+          </div>
         </header>
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)] xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)_minmax(0,560px)] lg:items-start">
@@ -112,7 +118,7 @@ export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabin
           </section>
 
           {/* Cabinet */}
-          <div className="tbx-in-r min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1 xl:col-start-3 xl:row-span-1">{cabinet}</div>
+          <div className="tbx-in-r flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 xl:col-start-3 xl:row-span-1">{cabinet}{player}</div>
         </div>
       </div>
     </div>
