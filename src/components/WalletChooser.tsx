@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { discoverWallets, type WalletEntry } from '@/lib/discovery';
+import { diagLine, discoverWallets, lastDiscovery, type WalletEntry } from '@/lib/discovery';
 import { GET_BWALLETX_URL, openInBwalletUrl, startPairing, type PairState } from '@/lib/pair/site';
 import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { getSiteWallet } from '@/lib/siteWallet';
@@ -135,7 +135,7 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-end justify-center p-4 sm:items-center"
+      className="fixed inset-0 z-[1000] flex items-end justify-center p-4 sm:items-center"
       style={{ background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(4px)', fontFamily: font }}
       onClick={onClose}
     >
@@ -172,6 +172,13 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
         {asleep && (
           <p data-phone-asleep-chooser className="mb-3 rounded-none px-3 py-2" style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', fontSize: 13 }}>
             Phone asleep or disconnected: open bWallet on your phone to resume, or scan the new code below.
+          </p>
+        )}
+
+        {wallets !== null && !wallets.some((w) => w.kind !== 'phone') && !isPhone && (
+          <p data-no-wallet-found className="mb-3 rounded-none px-3 py-2" style={{ background: 'color-mix(in srgb, var(--bad) 12%, transparent)', color: 'var(--bad)', fontSize: 13 }}>
+            No browser wallet answered this page. If bWalletX is installed and open, reload this page (an extension that was
+            updated or reloaded only reaches pages opened after it), then press Connect again.
           </p>
         )}
 
@@ -277,6 +284,12 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
             </div>
           )}
         </div>
+        {/* Diagnostic line (owner, 25 Oct): which wallets this page actually discovered, so "won't connect" has a reason. */}
+        {wallets !== null && (
+          <p data-wallet-diag className="mt-3 break-words" style={{ color: 'var(--muted)', fontSize: 10, lineHeight: 1.4, opacity: 0.8 }}>
+            {diagLine(lastDiscovery())}
+          </p>
+        )}
       </div>
     </div>
   );

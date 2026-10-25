@@ -4,10 +4,10 @@
  * the count fired this session, and the settlement at session end (the gun pays, the server sends the tokens).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RECEIPT_GAS, rangeSats, settlementAsm, shotsFor } from '@/lib/launch/receipts';
+import { RECEIPT_GAS, rangeSats, settlementAsm } from '@/lib/launch/receipts';
+import { SETTLE_FEE, shotsForSats, type ReceiptCurve } from '@/lib/coinop/shots';
 
 export type ReceiptQuote = { live: boolean; issued: number; pennySats: number; nextPriceSats: number; creator: string; gasAddress: string | null; gasSats: number; bsvUsd: number };
-const SETTLE_FEE = 300; // the settlement tx's own network fee margin
 
 async function quote(): Promise<ReceiptQuote | null> {
   const r = await fetch('/api/terrornode/receipts', { cache: 'no-store' }).catch(() => null);
@@ -35,11 +35,10 @@ export function useReceipts(on: boolean) {
   }, [on]);
   const live = on && !!q?.live && !!q.gasAddress;
 
-  /** Shots `sats` buys: each = `feeSats` + its receipt, with the settlement's gas and fee held back. */
-  const shots = useCallback(
-    (sats: number, feeSats: number) => (live && q ? shotsFor(sats - RECEIPT_GAS - SETTLE_FEE, feeSats, q.issued, q.pennySats) : null),
-    [live, q],
-  );
+  /** Where the receipt curve is now (null: receipts off). Every "buys N shots" uses it via src/lib/coinop/shots.ts. */
+  const curve: ReceiptCurve = live && q ? { issued: q.issued, pennySats: q.pennySats } : null;
+  /** Shots `sats` buys: each = `feeSats` + its receipt, with the load overhead and the settlement's gas and fee held back. */
+  const shots = useCallback((sats: number, feeSats: number) => (live && q ? shotsForSats(sats, feeSats, { issued: q.issued, pennySats: q.pennySats }) : null), [live, q]);
   const rangeCost = useCallback((n: number) => (live && q && n > 0 ? Number(rangeSats(q.issued + 1, n, q.pennySats)) + RECEIPT_GAS + SETTLE_FEE : 0), [live, q]);
 
   const fired = useCallback(
@@ -88,5 +87,5 @@ export function useReceipts(on: boolean) {
     [q],
   );
 
-  return { q, live, earned, note, shots, rangeCost, fired, settle, resetSession: () => setEarned(0) };
+  return { q, live, curve, earned, note, shots, rangeCost, fired, settle, resetSession: () => setEarned(0) };
 }

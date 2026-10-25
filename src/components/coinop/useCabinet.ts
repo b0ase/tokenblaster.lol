@@ -54,6 +54,8 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
   /** When the wallet approval request went out (for the "still waiting… 12s" timer). */
   const [approveSince, setApproveSince] = useState<number | null>(null);
   const creditUsd = opts.dry ? dryCredit : satsToUsd(b.ammo, bsvUsd);
+  /** CREDIT is the gun's on-chain balance: known only once both the balance and the BSV price have loaded. */
+  const creditReady = Boolean(opts.dry) || (b.ammoKnown && bsvUsd != null);
 
   const onCoin = useCallback((c: number) => setPending((t) => Math.min(MAX_PAY_USD, addCoin(t, c))), []);
   const onClear = useCallback(() => setPending(0), []);
@@ -157,5 +159,5 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
   }, [b.error]);
 
-  return { modal, setModal, reconnect, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, setDryCredit };
+  return { modal, setModal, reconnect, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
 }

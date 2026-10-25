@@ -68,7 +68,31 @@ const nameFromVersion = (v: string) => {
 /** Opened inside a host app's frame (bWallet's Apps tab): the host is the wallet, reached over XDM. */
 export const inFrame = () => typeof window !== 'undefined' && window.self !== window.top;
 
+/** What the last discovery saw, for the chooser's diagnostic line (owner, 25 Oct: "won't connect", no reason shown). */
+export type DiscoveryDiag = { at: number; ms: number; announced: string[]; cwi: boolean; found: string[] };
+let lastDiag: DiscoveryDiag | null = null;
+export const lastDiscovery = () => lastDiag;
+export function diagLine(d: DiscoveryDiag | null): string {
+  if (!d) return 'Discovery: not run yet.';
+  const ann = d.announced.length ? d.announced.join(', ') : 'none';
+  return `Discovery ${d.ms} ms: announced ${ann}; window.CWI ${d.cwi ? 'present' : 'absent'}; offered ${d.found.length ? d.found.join(', ') : 'none'}.`;
+}
+
 export async function discoverWallets(): Promise<WalletEntry[]> {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const list = await discoverAll();
+  const cwi = typeof window !== 'undefined' && Boolean((window as { CWI?: unknown }).CWI);
+  lastDiag = {
+    at: Date.now(),
+    ms: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0),
+    announced: list.filter((w) => w.id !== 'window.CWI' && w.kind !== 'phone' && w.kind !== 'desktop').map((w) => `${w.name} (${w.id})`),
+    cwi,
+    found: list.map((w) => w.name),
+  };
+  return list;
+}
+
+async function discoverAll(): Promise<WalletEntry[]> {
   // bWallet's Apps tab frames us and injects nothing; the wallet answers postMessage (BRC-100 XDM)
   // from its own frame only. That is the one wallet on offer there (docs/wallet-connect.md §2.3).
   if (inFrame()) {

@@ -33,7 +33,10 @@ export function useBlaster() {
   // also keeps the top bar chip and the X-proof wallet in step.
   const site = useSiteWallet();
   const wallet = site.wallet;
-  const [ammo, setAmmo] = useState(0);
+  // null until the gun's balance has been read once: CREDIT shows "checking", never a false $0.00 (owner, 25 Oct).
+  const [ammoRead, setAmmo] = useState<number | null>(null);
+  const ammo = ammoRead ?? 0;
+  const ammoKnown = ammoRead !== null;
   const [token, setToken] = useState<Token | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [ownBusy, setBusy] = useState<null | 'connecting' | 'loading' | 'loading-tokens' | 'unloading'>(null);
@@ -506,5 +509,5 @@ export function useBlaster() {
     [],
   );
 
-  return { payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { ammoKnown, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }
