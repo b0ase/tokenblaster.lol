@@ -14,7 +14,7 @@
 import { PublicKey } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { PairError, disconnectPhone, getPhoneEnd, getPhoneStatus, subPhoneStatus } from './pair/site';
-import { cancelWalletCalls, connect, serialised, withTimeout, WALLET_CANCELLED, type Wallet } from './wallet';
+import { cancelWalletCalls, connect, onWalletHold, serialised, walletHeld, withTimeout, WALLET_CANCELLED, WALLET_HELD, type Wallet } from './wallet';
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
 
@@ -114,6 +114,9 @@ export const setSiteWalletWaiting = (w: SiteWalletState['waiting']) => set({ wai
  * in wallet.connect), Cancel gives up on it, and a fresh pick (the chooser) replaces it instead of joining it.
  */
 export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {}): Promise<Wallet | null> {
+  // A round is live: the wallet must not be asked anything, and that is not a disconnect (owner, 25 Oct 2026: a
+  // Reconnect during warm-up left "Wallet disconnected" and "A round is still live" up after the round had gone).
+  if (walletHeld()) return (discoveryDone(), Promise.resolve(state.wallet));
   if (!entry.fresh && !opts.retry && state.wallet && state.wallet.id === entry.id && state.live) return (discoveryDone(), Promise.resolve(state.wallet));
   if (connecting) {
     if (!opts.retry && !entry.fresh && connecting.entry.id === entry.id) return (discoveryDone(), connecting.promise);
@@ -146,7 +149,10 @@ export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {})
     } catch (e) {
       if (connecting === mine) {
         const cancelled = e instanceof Error && e.message === WALLET_CANCELLED;
-        set({ busy: false, waiting: null, error: cancelled ? null : walletErrorText(e, entry) });
+        const held = e instanceof Error && e.message === WALLET_HELD;
+        // Refused by the play guard: nothing reached the wallet, so it is neither an error nor a disconnect.
+        set({ busy: false, waiting: null, error: cancelled || held ? null : walletErrorText(e, entry), ...(held && state.wallet ? { live: true } : {}) });
+        if (held && state.wallet) patchBarWallet({ live: true });
         if (!cancelled) console.warn('[tokenblaster] wallet connect failed', entry.id, e);
       }
       return null;
@@ -279,6 +285,17 @@ export function setSiteWalletLive(live: boolean) {
 }
 
 export const setSiteWalletError = (error: string | null) => set({ error });
+
+/** The text a play-guard refusal turns into (walletErrorText): stale as soon as no round holds the wallet. */
+export const HELD_TEXT = /round is still live on this page/;
+/** The hold is off: drop a leftover "round is still live" note, and stop calling a wallet "disconnected" for it. */
+export function clearHeldNote() {
+  if (walletHeld()) return;
+  if (state.error && HELD_TEXT.test(state.error)) set({ error: null });
+}
+onWalletHold((held) => {
+  if (!held) clearHeldNote();
+});
 
 /** Quietly reconnect the remembered wallet once per page load (no chooser popping up uninvited). */
 let resumed = false;

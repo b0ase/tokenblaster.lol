@@ -275,6 +275,17 @@ export function useBlaster() {
     }
   }, []);
 
+  /** Turn whatever credit is at the gun's address into its one firing coin (no wallet call). Returns the sats. */
+  const gatherGun = useCallback(async () => {
+    const g = gun.current;
+    if (!g) throw new Error('No gun.');
+    try {
+      return await g.gather();
+    } finally {
+      setAmmo(await g.balance().catch(() => g.sats));
+    }
+  }, []);
+
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
     async (startN: number, extras: string[][], pay?: { address: string; sats: number }, tokenLabel?: string) => {
@@ -535,5 +546,5 @@ export function useBlaster() {
     [],
   );
 
-  return { ammoKnown, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

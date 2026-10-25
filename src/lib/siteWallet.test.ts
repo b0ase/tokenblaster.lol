@@ -91,3 +91,23 @@ test('a refused connect is plain words, never the raw "Permission denied."', asy
   assert.match(err, /scan a new code/);
   assert.match(walletErrorText(new Error('WALLET_TIMEOUT'), { kind: 'phone', name: 'x' }), /asleep/);
 });
+
+test('play hold: Connect during a live round asks nothing and leaves no "disconnected" / "round is still live" behind', async () => {
+  const { holdWalletForPlay } = await import('./wallet');
+  const { setSiteWalletError, HELD_TEXT } = await import('./siteWallet');
+  await connectEntry(entry());
+  const before = asks;
+  holdWalletForPlay(true, 'play');
+  try {
+    await connectEntry(entry(), { retry: true });
+    assert.equal(asks, before); // the wallet was not asked
+    assert.equal(getSiteWallet().error, null);
+    // A note left by an earlier refusal (the owner's page) is dropped the moment no round holds the wallet.
+    setSiteWalletError(walletErrorText(new Error('WALLET_HELD_DURING_PLAY')));
+    assert.match(getSiteWallet().error ?? '', HELD_TEXT);
+  } finally {
+    holdWalletForPlay(false, 'play');
+  }
+  assert.equal(getSiteWallet().error, null);
+  assert.ok(getSiteWallet().wallet);
+});

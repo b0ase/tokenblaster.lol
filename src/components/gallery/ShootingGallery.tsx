@@ -892,6 +892,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       setLiveCoin(null);
       liveCoinRef.current = null;
       // The REAL spendable balance (chain + the wallet's payment + our own change), never a stale number.
+      // Credit already in the gun becomes the firing coin first (no wallet charge): a payment the wallet only
+      // answered with a txid sits at the gun's address but not in the gun's own coin (owner, 25 Oct 2026).
+      await b.gatherGun().catch((e) => loadMark(`gather: ${e instanceof Error ? e.message : e}`));
       const avail = await b.refreshGun();
       loadMark(`lock & load: gun has ${avail} sats`);
       const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
@@ -916,11 +919,19 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       loadMark(`load failed: ${m || 'unknown'}`);
       const have = await b.refreshGun().catch(() => 0);
       setMode('off');
+      boughtRef.current = firedRef.current;
+      setBought(firedRef.current);
       setLoadout(true);
       setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       setLocking(false);
       setCoinStatus(null);
+      // Never leave the page in warm-up after a load that did not go live: that keeps the wallet held ("A round is
+      // still live on this page") with no round running (owner, 25 Oct 2026).
+      if (modeRef.current === 'warm') {
+        setMode('off');
+        setLoadout(true);
+      }
     }
   };
   // Opening LOADOUT ends live fire; rounds already fired still finish sending, the rest stays as credit.
@@ -1259,7 +1270,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             setWeaponId={setWeaponId}
             canUse={canUse}
             practice={simulated}
-            rounds={bought}
+            rounds={packLeft}
             paymail={paymail}
             player={
               <PlayerPanel
