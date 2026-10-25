@@ -309,6 +309,12 @@ export function CabinetModals(p: {
         {name} gave no answer. If it shows a payment, that money is safe in your gun and LOCK &amp; LOAD will use it without charging again.
       </Modal>
     );
+  if (p.modal === 'failed')
+    return (
+      <Modal title="That did not go through" tone="bad" action="OK, try again" onAction={() => p.setModal(null)} onClose={() => p.setModal(null)}>
+        {p.error ?? 'The payment did not complete.'} If your wallet shows a payment, it is safe in your gun: LOCK &amp; LOAD uses it, never charges twice.
+      </Modal>
+    );
   if (p.modal === 'refused')
     return (
       <Modal title="Your wallet said no" tone="bad" action="OK, try again" onAction={() => p.setModal(null)} onClose={() => p.setModal(null)}>
