@@ -71,6 +71,7 @@ import { TUNING } from '@/lib/galleryGame/tuning';
 import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { Results, type RunSummary } from './Results';
+import { Flatlined, type FlatStats } from './Flatlined';
 import { DamageFx, type DamageFxHandle } from './DamageFx';
 import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 
@@ -83,6 +84,8 @@ const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam
 const FALLBACK_USD = 17.4;
 const PREFS = 'tb:gallery-prefs';
 /** Trigger held this long with rounds queued and none sent: the gun shows JAMMED (ms). */
+/** Out of rounds and nobody has overrun you yet: the run ends after this long anyway (ms). */
+const OUT_OF_ROUNDS_MS = 30000;
 const JAM_MS = 6000;
 const TUNING_FLOW = TUNING.stageFlow;
 const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before the clock is read
@@ -135,6 +138,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const hudWave = useRef(1);
   const finishRef = useRef<() => void>(() => undefined); // set below, once finish exists
   const [over, setOver] = useState<RunSummary | null>(null);
+  // FLATLINED: the player's health hit zero (death is back, owner 25 Oct). The CONTINUE? countdown runs on this screen.
+  const [flat, setFlat] = useState<FlatStats | null>(null);
+  const flatRef = useRef(false);
+  const diedRef = useRef<() => void>(() => undefined);
   const statsRef = useRef<Stats | null>(null);
   const dmgFx = useRef<DamageFxHandle>(null);
   const [progress, setProgress] = useState(0);
@@ -228,6 +235,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     trigger: (d) => triggerRef.current(d),
     hurt: (h) => dmgFx.current?.hit(h.angle, h.dmg),
     stage: (e) => stageRef.current(e),
+    died: () => diedRef.current(),
   });
 
   // ── Engine ──
@@ -350,7 +358,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       const s = simRef.current;
       const m = modeRef.current;
       const left = boughtRef.current - firedRef.current;
-      s.on = held.current && !loadout && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
+      s.on = held.current && !loadout && !flatRef.current && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
       s.target = pattern.kind === 'stream' ? pattern.rate : 0;
       let n = simTick(s, (t - last) / 1000);
       last = t;
@@ -377,7 +385,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       if (down) unlockAudio();
     };
     pullRef.current = (w: RangeWeapon) => {
-      if (loadout) return false;
+      if (loadout || flatRef.current) return false;
       const p = txPattern(w);
       if (p.kind !== 'burst') return false;
       const m = modeRef.current;
@@ -715,6 +723,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // GAME OVER: out of rounds and everything fired has been sent (or the player pressed RESULTS).
   const finish = useCallback(() => {
     setRescued(false);
+    flatRef.current = false;
+    setFlat(null);
     held.current = false;
     simRef.current.on = false;
     engine.current?.setTrigger(false);
@@ -737,7 +747,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     setMode('off');
     boughtRef.current = firedRef.current;
     setBought(firedRef.current);
-  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought]);
+  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought, setFlat]);
   useEffect(() => {
     finishRef.current = finish;
   });
@@ -745,10 +755,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     hudWave.current = hud?.stage ?? 1;
   }, [hud?.stage]);
   useEffect(() => {
-    if (mode !== 'live' || loadedRounds <= 0 || bought - fired > 0 || run.sent < fired) return;
-    const t = setTimeout(() => finishRef.current(), 1600);
+    // OUT OF ROUNDS no longer ends the run on the spot (owner, 25 Oct): the swarm closes in and an empty gun gets
+    // overrun (FLATLINED, CONTINUE?). This is only the fallback if nothing reaches the player in time.
+    if (mode !== 'live' || loadedRounds <= 0 || bought - fired > 0 || run.sent < fired || flat) return;
+    const t = setTimeout(() => finishRef.current(), OUT_OF_ROUNDS_MS);
     return () => clearTimeout(t);
-  }, [mode, loadedRounds, bought, fired, run.sent]);
+  }, [mode, loadedRounds, bought, fired, run.sent, flat]);
 
   // ── LOCK & LOAD: turn the loaded credit into rounds (credit is the ammunition) ──
   // After the payment the player drops straight into the street in WARM-UP while the gun loads.
@@ -927,6 +939,37 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const buys = (usd: number) => {
     const sats = usdToSats(usd, bsvUsd);
     return sats == null ? null : roundsFor(sats, perShotAll);
+  };
+
+  // ── FLATLINED: health at zero ──
+  useEffect(() => {
+    diedRef.current = () => {
+      held.current = false;
+      simRef.current.on = false;
+      minigun(false);
+      flatRef.current = true;
+      setLocked(false);
+      const st = statsRef.current;
+      setFlat({ fired: firedRef.current, score: st?.score ?? 0, wave: st?.stage ?? 1, kills: st?.kills ?? 0, secs: run.started ? Math.max(1, Math.round((Date.now() - run.started) / 1000)) : 0 });
+    };
+  });
+  /** CONTINUE: the coins on the death screen were paid in ONE approval. Health resets, the new rounds ADD to what is loaded, play resumes. */
+  const resumeAfterPay = async (paidUsd: number) => {
+    const remaining = Math.max(0, boughtRef.current - firedRef.current);
+    flatRef.current = false;
+    setFlat(null);
+    engine.current?.revive();
+    if (dry || freePlay) {
+      const extra = freePlay ? blockRounds(pattern) : roundsFor(usdToSats(paidUsd, bsvUsd) ?? 0, perShotAll);
+      goLive(remaining + extra, true);
+      return;
+    }
+    // live: let the rounds already fired finish sending, then load everything in the gun (what was left plus the new coins)
+    setMode('off');
+    boughtRef.current = firedRef.current;
+    setBought(firedRef.current);
+    for (let i = 0; i < 40 && sentRef.current < firedRef.current; i++) await new Promise((r) => setTimeout(r, 250));
+    await lockRef.current(true);
   };
 
   // ON CHAIN feed: sample the latest accepted txid a few times a second (no polling per tx).
@@ -1145,6 +1188,23 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             onLock={() => setLocked((v) => !v)}
             onStop={() => (setLocked(false), engine.current?.setTrigger(false))}
             onEnd={finish}
+          />
+        )}
+
+        {/* FLATLINED: the CONTINUE? countdown (INSERT $b, or GAME OVER) */}
+        {flat && !over && (
+          <Flatlined
+            stats={flat}
+            pendingUsd={cab.pending}
+            buys={buys}
+            rounds={buys(cab.pending) ?? 0}
+            hold={cab.stage === 'approve' || cab.stage === 'loading' || locking || cab.modal !== null}
+            onCoin={cab.onCoin}
+            onClear={cab.onClear}
+            onContinue={() => (freePlay ? void resumeAfterPay(1) : cab.payThen(() => void resumeAfterPay(cab.pending)))}
+            onGameOver={() => finishRef.current()}
+            walletName={cab.walletName}
+            freePlay={freePlay}
           />
         )}
 

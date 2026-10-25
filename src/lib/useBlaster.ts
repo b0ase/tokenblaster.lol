@@ -6,7 +6,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WalletEntry } from './discovery';
-import { closeChooser, connectEntry, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive } from './siteWallet';
+import { closeChooser, connectEntry, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive, setSiteWalletWaiting } from './siteWallet';
+import { WALLET_CANCELLED } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import type { StormNet } from './stormRun';
@@ -53,6 +54,8 @@ export function useBlaster() {
   const [receipt, setReceipt] = useState<{ text: string; txid: string } | null>(null);
   /** False when the connected wallet stopped answering (owner, 24 Oct 2026: the connection drops mid-session). */
   const walletLive = site.live;
+  /** A payment whose outcome we never heard (timeout / Cancel): checked against the gun balance before any re-pay. */
+  const unknownPay = useRef<{ sats: number; before: number } | null>(null);
 
   useEffect(() => {
     const g = new Gun();
@@ -117,8 +120,29 @@ export function useBlaster() {
       const g = gun.current;
       if (!wallet || !g) return 'disconnected';
       setError(null);
+      // An earlier payment's outcome is unknown (timed out / cancelled while its sheet was open): read the gun's own
+      // balance first, and if that payment landed, use it instead of charging again (owner, 25 Oct 2026).
+      const unk = unknownPay.current;
+      if (unk) {
+        setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
+        const bal = await g.balance().catch(() => null);
+        setSiteWalletWaiting(null);
+        if (bal !== null) setAmmo(bal);
+        if (bal !== null && bal >= unk.before + Math.floor(unk.sats * 0.9)) {
+          unknownPay.current = null;
+          loadMark('the earlier payment landed: using it, no new charge');
+          return 'ok';
+        }
+        if (bal === null) {
+          setError('Could not read the gun balance to check your last payment. Try again in a moment (no charge was made).');
+          return 'refused';
+        }
+        unknownPay.current = null;
+      }
       if (!(await checkWallet())) return 'disconnected';
       setBusy('loading');
+      const before = await g.balance().catch(() => g.sats);
+      setSiteWalletWaiting({ text: `Waiting for ${wallet.name}… open it to approve the payment.`, since: Date.now(), kind: 'pay' });
       try {
         loadMark('approve start');
         // A real approval can take a while; a wallet that never answers at all counts as disconnected.
@@ -138,6 +162,12 @@ export function useBlaster() {
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
         loadMark(`payment not made: ${m}`);
+        // Timed out or cancelled with the sheet open: it may still go through. Remember, so the next press checks first.
+        if (m === 'WALLET_TIMEOUT' || m === WALLET_CANCELLED) unknownPay.current = { sats, before };
+        if (m === WALLET_CANCELLED) {
+          setError('Payment cancelled. If your wallet still shows it, you can approve it: the next LOCK & LOAD checks your gun first, so you are never charged twice.');
+          return 'refused';
+        }
         if (m === 'WALLET_TIMEOUT') {
           setSiteWalletLive(false);
           return 'timeout';
@@ -145,6 +175,7 @@ export function useBlaster() {
         fail(e);
         return 'refused';
       } finally {
+        setSiteWalletWaiting(null);
         setBusy(null);
       }
     },

@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { discoverWallets, type WalletEntry } from '@/lib/discovery';
-import { startPairing, type PairState } from '@/lib/pair/site';
+import { GET_BWALLETX_URL, openInBwalletUrl, startPairing, type PairState } from '@/lib/pair/site';
 import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { getSiteWallet } from '@/lib/siteWallet';
 
 /** Where a phone with no wallet gets one (no App Store / Play listing links yet: bwalletx.com routes to them). */
-export const GET_BWALLETX = { site: 'https://bwalletx.com/get', web: 'https://web.bwalletx.com' } as const;
+export const GET_BWALLETX = { site: GET_BWALLETX_URL, web: 'https://web.bwalletx.com' } as const;
 
 const KIND: Record<WalletEntry['kind'], string> = {
   extension: 'browser ext.',
@@ -198,9 +198,9 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
               icon="/wallets/bwalletx.png"
               name="bWallet on your phone"
               sub={pair.k === 'code' ? `Check bWallet shows ${pair.code}, then tap Connect.` : pair.k === 'error' ? pair.message : 'Opens bWallet to connect, then come back here.'}
-              href={pair.k === 'qr' ? pair.link : undefined}
+              href={pair.k === 'qr' ? openInBwalletUrl(pair.link) : undefined}
               onClick={pair.k === 'qr' ? undefined : () => undefined}
-              action={pair.k === 'code' ? pair.code : pair.k === 'qr' ? 'Open bWallet' : '…'}
+              action={pair.k === 'code' ? pair.code : pair.k === 'qr' ? 'Open in bWallet' : '…'}
               self
             />
           )}

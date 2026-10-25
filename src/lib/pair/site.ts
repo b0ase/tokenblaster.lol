@@ -44,6 +44,62 @@ export function setPhoneStatus(s: PhoneStatus) {
   phoneStatus = s;
   for (const f of statusSubs) f();
 }
+/**
+ * bWallet's paired-phone reply codes (bWallet #122). Every refused request comes back as {t:'res', id, error:{code, message}}.
+ *   ERR_PERMISSION_DENIED  the user said no (only that). Say so; do not re-pair.
+ *   REPAIR_NEEDED          the pairing is over on the phone (a {t:'close', reason:'REPAIR_NEEDED'} follows). Fresh QR, no retry.
+ *   REJECTED               any other refusal (reserved protocol, blocked). Show the wallet's own message.
+ *   ERROR                  a wallet failure (locked, network). Retry later; tell the player to open/unlock bWallet.
+ *   LOCKED                 paired CLI/MCP agents only.
+ * UNPAIRED is ours: {t:'close', reason:'user unpaired'}.
+ */
+export type PairCode = 'ERR_PERMISSION_DENIED' | 'REPAIR_NEEDED' | 'REJECTED' | 'ERROR' | 'LOCKED' | 'UNPAIRED';
+export const DECLINED_TEXT = 'You declined in bWallet.';
+export const REPAIR_TEXT = 'This pairing has ended. Scan the QR code on the site again to reconnect.';
+
+/** A refusal from the paired phone, carrying bWallet's code. */
+export class PairError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PairError';
+  }
+}
+
+/** Plain words for each code (the site shows these as-is). */
+/** "Open in bWallet" on a phone: the universal link with the same query as the QR. */
+export const openInBwalletUrl = (qrLink: string) => `https://www.bwallet.space/pair?${new URL(qrLink).searchParams}`;
+/** Where a player with no wallet gets one. */
+export const GET_BWALLETX_URL = 'https://bwalletx.com/get';
+
+export function pairErrorText(code: string, message = ''): string {
+  const m = message.trim().replace(/\.+$/, '');
+  switch (code) {
+    case 'ERR_PERMISSION_DENIED':
+      return DECLINED_TEXT;
+    case 'REPAIR_NEEDED':
+      return REPAIR_TEXT;
+    case 'UNPAIRED':
+      return 'You unpaired this site in bWallet. Scan the new QR code to connect again.';
+    case 'REJECTED':
+      return m ? `bWallet refused: ${m}.` : 'bWallet refused this request.';
+    case 'LOCKED':
+      return 'bWallet is locked. Unlock it and try again.';
+    case 'ERROR':
+    default:
+      return `bWallet could not do that right now${m ? ` (${m})` : ''}. Open and unlock bWallet on your phone, then try again.`;
+  }
+}
+
+/** Why the last pairing ended (REPAIR_NEEDED / UNPAIRED), for the chooser's note; null while paired. */
+let phoneEnd: PairError | null = null;
+export const getPhoneEnd = () => phoneEnd;
+
+/** joined and ready this close together = one resend (pre-#122 bWallet sends no ready, only the relay's joined). */
+export const RESEND_DEDUPE_MS = 1000;
+
 /** How long a request may wait with no word from the phone before the site says it is asleep. */
 export const ASLEEP_AFTER_MS = 8000;
 
@@ -56,6 +112,8 @@ class Channel {
   private sleepTimer: ReturnType<typeof setTimeout> | undefined;
   private outbox: string[] = [];
   private closed = false;
+  private joinTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastResend = 0;
 
   constructor(
     private saved: Saved,
@@ -80,11 +138,12 @@ class Channel {
     if ((f as RelayFrame).t === 'relay') {
       const rf = f as RelayFrame;
       if (rf.role === 'wallet' && rf.peer === 'left') setPhoneStatus('asleep');
+      // Back again. bWallet #122+ follows with {t:'ready'}; older builds (5.2.41) never do, so resend on joined too,
+      // after a short wait so a ready that follows makes it one resend.
       if (rf.role === 'wallet' && rf.peer === 'joined') {
         setPhoneStatus('awake');
-        // The relay holds frames for 60 s only: ask again for anything still unanswered (bWallet answers a repeated
-        // request id from its reply cache, never runs it twice).
-        void this.resend();
+        clearTimeout(this.joinTimer);
+        this.joinTimer = setTimeout(() => void this.resend(), RESEND_DEDUPE_MS);
       }
       return;
     }
@@ -98,13 +157,36 @@ class Channel {
       const p = this.pending.get(msg.id);
       if (!p) return;
       this.pending.delete(msg.id);
-      if (msg.error) p.reject(new Error(msg.error.message || 'Refused on your phone'));
-      else p.resolve(msg.result);
+      if (msg.error) {
+        const code = msg.error.code || 'ERROR';
+        p.reject(new PairError(code, pairErrorText(code, msg.error.message)));
+        // REPAIR_NEEDED: the pairing is over. The close frame that follows ends the channel; end it now in case it is lost.
+        if (code === 'REPAIR_NEEDED') this.end('REPAIR_NEEDED');
+      } else p.resolve(msg.result);
+    } else if (msg.t === 'ready') {
+      clearTimeout(this.joinTimer);
+      // Sent at first pairing and on every rejoin: ask again for anything unanswered, with the SAME ids (bWallet
+      // replays a stored answer for a repeated id, never runs it twice).
+      void this.resend();
     } else if (msg.t === 'close') {
-      this.close(false);
-      setPhoneStatus('gone');
-      this.onGone('Disconnected on your phone');
+      this.end(msg.reason === 'REPAIR_NEEDED' ? 'REPAIR_NEEDED' : 'UNPAIRED');
     }
+  }
+
+  /** The phone ended the pairing: reject what is waiting with its code, forget the channel, show a fresh QR. */
+  private end(code: 'REPAIR_NEEDED' | 'UNPAIRED') {
+    if (this.closed) return;
+    const err = new PairError(code, pairErrorText(code));
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
+    this.close(false);
+    phoneEnd = err;
+    if (current === this) {
+      current = null;
+      resumed = null;
+    }
+    setPhoneStatus('gone');
+    this.onGone(err.message);
   }
 
   private flush() {
@@ -129,6 +211,10 @@ class Channel {
   }
 
   private async resend() {
+    // One resend per rejoin: joined and ready within RESEND_DEDUPE_MS of each other count once.
+    clearTimeout(this.joinTimer);
+    if (Date.now() - this.lastResend < RESEND_DEDUPE_MS) return;
+    this.lastResend = Date.now();
     for (const [id, p] of this.pending) await this.send(id, p.action, p.params);
   }
 
@@ -142,6 +228,7 @@ class Channel {
   close(notify = true) {
     this.closed = true;
     clearTimeout(this.sleepTimer);
+    clearTimeout(this.joinTimer);
     const finish = () => this.ws?.close();
     if (notify && this.ws?.readyState === WebSocket.OPEN)
       void this.sealer.seal({ t: 'close', reason: 'site disconnected' }).then((f) => {
@@ -262,6 +349,7 @@ export function startPairing(onState: (s: PairState) => void): () => void {
           /* the session just won't survive a reload */
         }
         const ch = new Channel(saved, sealer, () => {});
+        phoneEnd = null;
         ch.open(sock);
         current?.close();
         current = ch;
@@ -269,7 +357,8 @@ export function startPairing(onState: (s: PairState) => void): () => void {
         setPhoneStatus('awake');
         handedOver = true;
         onState({ k: 'ready', wallet: ch.wallet(), phone });
-      } else if (msg?.t === 'close') onState({ k: 'error', message: 'Cancelled on the phone.' });
+      } else if (msg?.t === 'res' && msg.error) onState({ k: 'error', message: pairErrorText(msg.error.code, msg.error.message) });
+      else if (msg?.t === 'close') onState({ k: 'error', message: 'Cancelled on the phone.' });
     };
     refresh = setTimeout(() => {
       if (sealer || stopped) return;

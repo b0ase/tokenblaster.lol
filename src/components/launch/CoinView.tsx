@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { presetBsv } from '@/lib/buyPreset';
 import { GRAD_SOLD, MAX_BUY, MIN_BUY, SUPPLY, fmtTokens, quoteBuy, quoteSell } from '@/lib/launch/curve';
 import { burnStats, fmtBurn } from '@/lib/launch/burn';
 import { trade } from '@/lib/launch/client';
@@ -54,7 +55,7 @@ function soldAt(trades: Trade[], now: number, ms: number) {
   return trades.find((t) => now - new Date(t.created_at).getTime() >= ms)?.sold_after ?? 0;
 }
 
-export function CoinView({ id }: { id: string }) {
+export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: number | null }) {
   const { wallet, open, busy, chooserEl } = useLaunchWallet();
   const rate = useBsvUsd();
   const [data, refreshCoin] = usePoll<{ coin?: Coin; reserves?: Reserves; indexed?: boolean | null; error?: string }>(`/api/launch/coin?token=${id}`, 5000, {});
@@ -194,6 +195,7 @@ export function CoinView({ id }: { id: string }) {
 
       <aside className="flex flex-col gap-3">
         <TradePanel
+          presetUsd={presetUsd}
           indexed={data.indexed ?? null}
           coin={c}
           icon={icon}
@@ -656,7 +658,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { coin: Coin; icon: string; wallet: ReturnType<typeof useLaunchWallet>['wallet']; onConnect: () => void; rate: number; onDone: () => void; indexed: boolean | null }) {
+function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed, presetUsd = null }: { coin: Coin; icon: string; wallet: ReturnType<typeof useLaunchWallet>['wallet']; onConnect: () => void; rate: number; onDone: () => void; indexed: boolean | null; presetUsd?: number | null }) {
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [amount, setAmount] = useState('');
   const [slip, setSlip] = useState(300);
@@ -676,6 +678,27 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { 
       .catch(() => setHeld(null));
   };
   useEffect(loadHeld, [wallet, coin.token_id]);
+
+  const readBsvHeld = () => {
+    if (!wallet) return;
+    wallet.client
+      .listOutputs({ basket: 'default', limit: 1000 })
+      .then((r) => setBsvHeld(r.outputs.filter((o) => o.spendable).reduce((n, o) => n + o.satoshis, 0)))
+      .catch(() => setBsvHeld(null));
+  };
+
+  // `?buy=<usd>` (bChatX's "BUY $TOKEN to join" chips): once the live rate is in, fill the Buy
+  // amount and open the buy panel. Applied once; the user still reads the quote and confirms.
+  const [presetDone, setPresetDone] = useState(false);
+  const presetAmount = presetUsd && rate ? presetBsv(presetUsd, rate) : null;
+  // Adjusted during render (not in an effect) so the panel opens on the same paint the rate lands.
+  if (!presetDone && presetAmount) {
+    setPresetDone(true);
+    setSide('buy');
+    setAmount(presetAmount);
+    setPicking(true);
+  }
+  useEffect(readBsvHeld, [wallet, picking]);
 
   const n = Number(amount);
   const units = side === 'buy' ? BigInt(Math.floor((n || 0) * 1e8)) : BigInt(Math.floor(n || 0));
@@ -719,6 +742,11 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { 
                 ? <>You have <span className="text-hot">{bsvHeld === null ? '…' : bsv(bsvHeld)}</span>{bsvHeld !== null && rate ? ` (${usd(bsvHeld, rate)})` : ''} · one buy 0.0001–20 BSV, 1% fee included</>
                 : <>You hold <span className="text-hot">{held === null ? '…' : Number(held).toLocaleString()} ${coin.sym}</span></>}
             </p>
+            {presetUsd && side === 'buy' && amount === presetAmount && (
+              <p className="inset p-2 text-xs text-hot" data-buy-preset="">
+                ${presetUsd.toLocaleString()} of ${coin.sym} at ${rate.toFixed(2)}/BSV, filled in for you. Check the quote, then confirm in your wallet.
+              </p>
+            )}
             <label className="flex items-center gap-2 inset px-3 py-2" htmlFor="trade-amt">
               <input id="trade-amt" autoFocus className="w-full bg-transparent text-2xl text-hot outline-none" inputMode="decimal" placeholder="0" value={amount}
                 onChange={(e) => setAmount(e.target.value.replace(side === 'buy' ? /[^0-9.]/g : /[^0-9]/g, ''))} />
@@ -754,8 +782,8 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { 
             {side === 'buy' && bsvHeld !== null && units > BigInt(Math.max(0, bsvHeld - 5_000)) && <p className="text-xs text-red-400">That&apos;s more than your wallet can spend after fees.</p>}
             {side === 'sell' && invalid && <p className="text-xs text-red-400">That&apos;s more than you hold.</p>}
             {error && <p className="text-xs text-red-400">{error}</p>}
-            <button className="btn btn-fire w-full" disabled={busy || !q || q.tokens <= BigInt(0) || invalid} onClick={() => void go()}>
-              {busy ? (status ?? 'Working…') : side === 'buy' ? `Buy $${coin.sym}` : `Sell $${coin.sym}`}
+            <button className="btn btn-fire w-full" disabled={busy || (!!wallet && (!q || q.tokens <= BigInt(0) || invalid))} onClick={() => void go()}>
+              {busy ? (status ?? 'Working…') : !wallet ? 'Connect wallet to buy' : side === 'buy' ? `Buy $${coin.sym}` : `Sell $${coin.sym}`}
             </button>
             <p className="text-xs text-muted">One atomic BSV transaction. Your wallet shows it before anything is signed.</p>
             <button className="btn w-full" disabled={busy} onClick={() => setPicking(false)}>Close</button>
@@ -813,10 +841,6 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed }: { 
           if (!wallet) return onConnect();
           // Every Buy/Sell press opens the trade modal: amount, quick amounts from the wallet's balance, live quote.
           setPicking(true);
-          wallet.client
-            .listOutputs({ basket: 'default', limit: 1000 })
-            .then((r) => setBsvHeld(r.outputs.filter((o) => o.spendable).reduce((n, o) => n + o.satoshis, 0)))
-            .catch(() => setBsvHeld(null));
         }}
       >
         {busy ? (status ?? 'Working…') : !wallet ? 'Connect wallet' : `${side === 'buy' ? 'Buy' : 'Sell'} $${coin.sym}`}

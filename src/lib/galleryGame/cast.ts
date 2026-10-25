@@ -82,8 +82,22 @@ export const WEAPONS: Record<WeaponKind, WeaponSpec> = {
   paddle: { ranged: false, burst: 1, burstGap: 0, charge: 0, speed: 1, damage: 0, kind: 'bolt', throws: false, melee: 1 },
 };
 
-/** Close-range fairness: never nearer than `minDist` metres, at most `maxClose` Erobots swinging at once. */
-export const CLOSE = { minDist: 6, maxClose: 3 } as const;
+/**
+ * Close range (owner, 25 Oct: "the monsters can't reach me, I realised I couldn't die"): the old >= 6 m stand-off
+ * and 3-attacker cap are gone. Bodies now get right up to contact (`minDist`, just outside the camera) and up to
+ * `maxClose` swing at once. What keeps it fair is the PROXIMITY SLOWDOWN below: they wade in slower and slower.
+ */
+export const CLOSE = { minDist: 1.8, maxClose: 6 } as const;
+
+/** PROXIMITY SLOWDOWN: full speed beyond `from` metres, easing down to `min` of it at contact. */
+export const PROXIMITY = { from: 8, min: 0.35 } as const;
+
+/** Speed factor for a body `dist` metres from the player whose contact distance is `contact`. */
+export function approachK(dist: number, contact: number): number {
+  const u = Math.min(1, Math.max(0, (dist - contact) / Math.max(0.01, PROXIMITY.from - contact)));
+  const s = u * u * (3 - 2 * u);
+  return PROXIMITY.min + (1 - PROXIMITY.min) * s;
+}
 
 /** Weighted pick of a cast index from those `free` (indices into CAST); `r` in [0,1). Returns -1 if none. */
 export function pickCast(free: readonly number[], r: number): number {
@@ -98,8 +112,8 @@ export function pickCast(free: readonly number[], r: number): number {
   return free[free.length - 1];
 }
 
-/** Stand-off for a body of scale `size`: CLOSE.minDist plus room for its bulk (heavies hold further out). */
-export const standOff = (size: number) => CLOSE.minDist + Math.max(0, size - 1) * 0.8;
+/** Contact distance for a body of scale `size`: CLOSE.minDist plus room for its bulk (so it never fills the camera). */
+export const standOff = (size: number) => CLOSE.minDist + Math.max(0, size - 1) * 0.6;
 
 /**
  * Hold a body at least `min` metres (on the ground plane) from the player at (cx, cz), and never beside or
