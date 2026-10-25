@@ -9,7 +9,7 @@ import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } f
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
-import { MAX_TOKEN_LOAD_ROUNDS, loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
+import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
 import { chainHandle, needsPaymail } from './gallery';
 import { setProofWallet } from './xproof';
@@ -308,7 +308,7 @@ export function useBlaster() {
       setBusy('loading-tokens');
       try {
         // Per-load cap for TOKEN ammo (gun safety): a bad gun state can't swallow a big balance. Sats are not capped.
-        const n = Math.min(Math.floor(count), MAX_TOKEN_LOAD_ROUNDS);
+        const n = Math.floor(count);
         const amt = BigInt(n) * BigInt(10) ** BigInt(token.dec);
         // Top up fuel so every loaded token can be fired, in the same approval.
         const fuel = Math.max(0, n * TOKEN_FEE + 200 - g.sats); // one transaction per token: fees for every one

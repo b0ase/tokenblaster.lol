@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import { statSync } from 'node:fs';
 import { COIN_META, SITE, coinExtras } from './launch/coinMeta';
 import { price } from './launch/curve';
-import { MAX_TOKEN_LOAD_ROUNDS } from './tokenLoad';
 
 const lum = (h: string) => {
   const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
@@ -46,6 +45,3 @@ test('coinExtras: price from the curve, absolute same-origin images, nothing for
   assert.deepEqual(Object.keys(coinExtras({ token_id: 'nope', sold: 0 })), ['price_sats']);
 });
 
-test('token load cap is a sane constant', () => {
-  assert.ok(Number.isInteger(MAX_TOKEN_LOAD_ROUNDS) && MAX_TOKEN_LOAD_ROUNDS > 0 && MAX_TOKEN_LOAD_ROUNDS <= 10_000);
-});
