@@ -3,7 +3,7 @@
  * scripts/storm-bench.ts): split the lanes over up to `cores` workers (public/storm-worker.js, built from
  * src/workers/storm.ts), forward stop / pause, and add up what ARC accepted.
  */
-export type StormLane = { vout: number; count: number; n: number };
+export type StormLane = { vout: number; count: number; n: number; tok?: { vout: number; amt: string } };
 export type StormRunOpts = {
   workerUrl: string;
   /** The split tx (hex) whose outputs 0..lanes-1 are the lane coins. */
@@ -19,6 +19,8 @@ export type StormRunOpts = {
   cores: number;
   stop: () => boolean;
   paused: () => boolean;
+  /** Coin ammo: burn `per` of token `id` to `toLockHex` per shot (src/lib/stormCore.ts StartMsg.burn). */
+  burn?: { id: string; per: string; toLockHex: string };
   /** ARC X-WaitFor header for every POST (off by default: see src/lib/stormCore.ts). */
   waitFor?: string;
   /** Called with the running total of ARC-ACCEPTED blasts (never attempted ones), and of those ARC says are on
@@ -82,6 +84,7 @@ export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy
           extra: o.extra,
           arcs: o.arcs,
           waitFor: o.waitFor,
+          burn: o.burn,
           paused: o.paused(),
           hex: o.baseHex,
           lanes: mine,

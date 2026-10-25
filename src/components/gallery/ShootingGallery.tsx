@@ -58,6 +58,8 @@ import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal, Ticker } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
+import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
+import { PER_SHOT_BURN, type AmmoCoin } from '@/lib/launch/ammoCoins';
 import { GunUnload } from '../GunUnload';
 import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
@@ -163,6 +165,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
+  // Swap on load (owner, 25 Oct 2026): an ammo coin bought on BlastPad at LOCK & LOAD (one approval), burned per shot.
+  const [ammoCoin, setAmmoCoin] = useState<AmmoCoin | null>(null);
+  const [liveCoin, setLiveCoin] = useState<AmmoCoin | null>(null);
+  const [slipBps, setSlipBps] = useState(300);
+  const [coinStatus, setCoinStatus] = useState<string | null>(null);
+  const liveCoinRef = useRef<AmmoCoin | null>(null); // read by the storm session (set before it starts)
   // FREE PLAY (production while payments are fixed): credit is on the house, so LOCK & LOAD just works.
   const { setDryCredit } = cab;
   useEffect(() => {
@@ -414,7 +422,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
 
   // Live, bursts: drain the queue with batches; failures retry with a backoff and never touch the gun.
   useEffect(() => {
-    if (dry || mode !== 'live' || pattern.kind !== 'burst') return;
+    if (dry || mode !== 'live' || pattern.kind !== 'burst' || (PER_SHOT_BURN && liveCoin)) return;
     let alive = true;
     let backoff = 0;
     void (async () => {
@@ -442,7 +450,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     return () => {
       alive = false;
     };
-  }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed]);
+  }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed, liveCoin]);
 
   // Live, streams: one storm session over the prepared lanes, paused whenever the queue is empty. If it ends
   // with rounds still queued (a network failure), it reloads by itself and carries on; after 3 tries: jammed.
@@ -463,19 +471,22 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       stop.current = false;
       let prev = 0;
       const seenBase = netSeenRef.current;
+      // Coin ammo (option A): the rounds carry the coin's token id; every accepted round is owed as a burn.
+      const coin = liveCoinRef.current;
       void storm(
         rounds,
         (n, last, net) => {
           if (net) setNetSeen((netSeenRef.current = seenBase + net.seen));
           const d = n - prev;
           prev = n;
+          if (coin && d > 0) b.oweCoinRounds(coin.tokenId, d);
           landed(d, last ?? null);
         },
         () => stop.current,
         () => undefined,
         { game: 'gallery', extra: galleryPushes(handle).slice(1) },
         perShot,
-        ammo,
+        coin ? coin.tokenId : ammo,
         () => sentRef.current >= firedRef.current, // nothing queued: hold, keep the lanes
         STREAM_STEP, // most blasts per lane per ARC round: up to 100 lanes x 100 a round
       )
@@ -484,6 +495,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           console.warn('[tb-fire] sender stopped', e);
         })
         .finally(() => {
+          // Coin ammo: ONE bulk burn for the rounds this session fired (a failure stays owed for the next load/unload).
+          if (coin) void b.settleCoinBurn(coin.burnPer).catch((e) => console.warn('[tb-fire] bulk burn deferred', e));
           if (gen !== sessionGen.current) return;
           sessionAlive.current = false;
           console.info(`[tb-fire] session ${gen} ended`);
@@ -507,6 +520,43 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         console.warn('[tb-fire] reload failed', e);
         senderDead.current = true;
       }
+    };
+  });
+
+  // Live, ammo coin: the coin storm (multi-lane token burns in the storm workers, src/lib/stormCore.ts burn mode).
+  // Each burn is tagged "tokenblaster.lol" <token id> <n> gallery <paymail>: bsv.lol shows it as TokenBlaster with
+  // the coin's symbol. Held while nothing is queued, like the sats storm.
+  const { coinStorm } = b;
+  const coinSession = useRef<(rounds: number) => void>(() => undefined);
+  useEffect(() => {
+    coinSession.current = (rounds: number) => {
+      if (sessionAlive.current || rounds <= 0) return;
+      const gen = ++sessionGen.current;
+      sessionAlive.current = true;
+      stop.current = false;
+      let prev = 0;
+      const seenBase = netSeenRef.current;
+      void coinStorm(
+        (n, last, net) => {
+          if (net) setNetSeen((netSeenRef.current = seenBase + net.seen));
+          const d = n - prev;
+          prev = n;
+          landed(d, last ?? null);
+        },
+        () => stop.current,
+        () => sentRef.current >= firedRef.current,
+        { game: 'gallery', extra: galleryPushes(handle).slice(1) },
+        STREAM_STEP,
+      )
+        .catch((e) => {
+          sendErrors.current++;
+          console.warn('[tb-fire] coin storm stopped', e);
+        })
+        .finally(() => {
+          if (gen !== sessionGen.current) return;
+          sessionAlive.current = false;
+          if (!stop.current && boughtRef.current - sentRef.current > 0 && modeRef.current === 'live') senderDead.current = true;
+        });
     };
   });
 
@@ -703,6 +753,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // ── LOCK & LOAD: turn the loaded credit into rounds (credit is the ammunition) ──
   // After the payment the player drops straight into the street in WARM-UP while the gun loads.
   const perShotAll = perShot * (1 + fee);
+  // Coin ammo quote: rounds = min(tokens, what the gunpowder pays at this gun's shot cost).
+  const coinQ = useAmmoCoinQuote(ammoCoin, usdToSats(cab.pending, bsvUsd), b.ammo, slipBps, perShotAll);
   // THE FULL BLOCK: how many rounds holding the trigger for all ten minutes takes at this gun's rate, and the price
   const fullBlock = blockRounds(pattern);
   const blockNote = freePlay ? `Free play loads ${fullBlock.toLocaleString('en-US')} practice rounds: enough for the full 10:00 block.` : `A full 10:00 block at this gun's rate needs ${fullBlock.toLocaleString('en-US')} rounds, about ${fmtUsd(usdOf(fullBlock * perShotAll, bsvUsd))}.`;
@@ -769,6 +821,32 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       sessionGen.current++;
       sessionAlive.current = false;
       await b.endSession();
+      if (ammoCoin) {
+        // Swap on load: ONE approval buys the coin into the gun with the gunpowder (src/lib/launch/swapLoad.ts).
+        if (!coinQ.quote) throw new Error(`No live $${ammoCoin.sym} quote yet. Try again in a moment.`);
+        const r = await b.swapLoadCoin(ammoCoin, coinQ.quote, setCoinStatus);
+        cab.onClear(); // the coins in the slot paid for the swap
+        setLoad({ kind: 'loading', pct: 60, slowSecs: 0 });
+        const want = Math.min(coinQ.quote.rounds, Number(r.tokens / ammoCoin.burnPer));
+        setLiveCoin(ammoCoin);
+        if (PER_SHOT_BURN) {
+          // Off by default: per-shot token burns in lanes (one gun-signed fan-out, then the workers burn them).
+          const { rounds: shots } = await b.prepareCoinStorm(ammoCoin, want, coinQ.quote.lanes);
+          setLoadingRounds(shots);
+          goLive(shots, continued);
+          coinSession.current(shots);
+          return;
+        }
+        // Option A: plain sats storm rounds tagged with the coin's id; the tokens are burned in bulk at session end.
+        liveCoinRef.current = ammoCoin;
+        setLoadingRounds(want);
+        await b.prepareStorm(want, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
+        goLive(want, continued);
+        sessionRef.current(want);
+        return;
+      }
+      setLiveCoin(null);
+      liveCoinRef.current = null;
       // The REAL spendable balance (chain + the wallet's payment + our own change), never a stale number.
       const avail = await b.refreshGun();
       loadMark(`lock & load: gun has ${avail} sats`);
@@ -794,6 +872,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       setLocking(false);
+      setCoinStatus(null);
     }
   };
   // Opening LOADOUT ends live fire; rounds already fired still finish sending, the rest stays as credit.
@@ -843,7 +922,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   useEffect(() => {
     lockRef.current = lockAndLoad;
   });
-  const startCabinet = () => (freePlay ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
+  const startCabinet = () => (freePlay || (ammoCoin && !dry) ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
 
   const buys = (usd: number) => {
     const sats = usdToSats(usd, bsvUsd);
@@ -1097,6 +1176,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
               />
             }
             cabinet={
+              <>
+              <AmmoCoinPick chosen={ammoCoin} setChosen={setAmmoCoin} payUsd={cab.pending} quote={coinQ.quote} quoteErr={coinQ.err} slippageBps={slipBps} setSlippageBps={setSlipBps} status={coinStatus} disabled={locking} />
               <CoinCabinet
                 title="Shooting Gallery"
                 creditUsd={cab.creditUsd}
@@ -1122,6 +1203,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 freePlay={freePlay}
                 walletName={cab.walletName}
               />
+              </>
             }
           />
         )}
