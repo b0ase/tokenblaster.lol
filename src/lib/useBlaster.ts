@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WalletEntry } from './discovery';
-import { closeChooser, connectEntry, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive, setSiteWalletWaiting } from './siteWallet';
+import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSiteWalletAnswered, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive, setSiteWalletWaiting, walletErrorText } from './siteWallet';
 import { WALLET_CANCELLED } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
 import { Gun, TOKEN_FEE, loadMark } from './gun';
@@ -71,9 +71,9 @@ export function useBlaster() {
 
   const fail = useCallback((e: unknown) => {
     const m = e instanceof Error ? e.message : String(e);
-    // bWalletX answers "reload this page" when the extension was reloaded or updated under an open tab.
-    setError(/reload/i.test(m) ? 'Your wallet lost touch with this page. Reload the page (your ammo is safe).' : m);
-  }, [setError]);
+    // The wallet's real reason, never a guess (owner, 25 Oct: "reload" in any error became "lost touch").
+    setError(/reload/i.test(m) ? walletErrorText(e, wallet ? { kind: wallet.id === 'phone' ? 'phone' : 'extension', name: wallet.name } : undefined) : m);
+  }, [setError, wallet]);
 
   /** Coins TokenBlaster returned to the wallet without a note (the wallet can't see them). */
   const [stranded, setStranded] = useState<(Token & { amt: bigint; why: 'hidden' | 'icon' | 'untagged' })[]>([]);
@@ -152,6 +152,7 @@ export function useBlaster() {
         // No timeout on a payment (bWalletX): the player may take as long as they like to approve.
         const funding = await fund(wallet, g.address, sats, label);
         loadMark('approved + paid (wallet answered)');
+        markSiteWalletAnswered(wallet); // the header and badge show the wallet that just paid
         // The wallet has paid the gun's address: from here the money is in the gun whatever happens next,
         // so never report this as "payment not made" (owner, 24 Oct: paid $0.05, then told to reconnect).
         try {
@@ -230,6 +231,9 @@ export function useBlaster() {
         }
       }
       console.info(`[tb-fire] round tag: tokenblaster.lol ${tokenLabel ?? token?.id ?? ''} <n> ${tag?.game ?? 'bsvgun'} ${(tag?.extra ?? []).join(' ')}`);
+      // Nothing may be waiting on the wallet once play starts (owner, 25 Oct: a "Waiting for bWalletX… 185s" card
+      // was still up after the game): drop any leftover wait, it can not be answered during play anyway.
+      if (getSiteWallet().waiting) cancelSiteWalletWait();
       holdWalletForPlay(true, 'storm'); // the gun signs every round itself: nothing may ask the wallet meanwhile
       try {
         return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused, step);
@@ -498,6 +502,9 @@ export function useBlaster() {
     async (onProgress: (sent: number, last?: string, net?: StormNet) => void, stop: () => boolean, paused: () => boolean, tag: { game?: string; extra?: string[] }, step?: number) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
+      // Nothing may be waiting on the wallet once play starts (owner, 25 Oct: a "Waiting for bWalletX… 185s" card
+      // was still up after the game): drop any leftover wait, it can not be answered during play anyway.
+      if (getSiteWallet().waiting) cancelSiteWalletWait();
       holdWalletForPlay(true, 'storm'); // the gun signs every burn itself: nothing may ask the wallet meanwhile
       try {
         return await g.coinStorm(onProgress, stop, paused, tag, step);

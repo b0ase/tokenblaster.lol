@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
 import { holdWalletForPlay } from '@/lib/wallet';
+import { getSiteWallet } from '@/lib/siteWallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { LiveTxBadge } from './LiveTxBadge';
 import { cachedProof } from '@/lib/xproof';
@@ -179,9 +180,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
   // $TERRORNODE receipts (owner, 25 Oct): every LIVE bullet also buys 1 receipt at the curve price (src/lib/launch/receipts.ts).
   const rc = useReceipts(!freePlay && !dry);
+  // The receipts go to the connected wallet. No wallet attached right now: they stay owed (and say so), never dropped.
   const settleReceipts = () => {
-    if (!b.wallet) return;
-    void rc.settle({ pay: b.payReceipts, recipient: b.wallet.address, session: sid, handle: handle ?? "", shownAs: barWallet?.paymail ?? b.wallet.address });
+    const w = b.wallet ?? getSiteWallet().wallet;
+    void rc.settle({ pay: b.payReceipts, recipient: w?.address ?? null, session: sid, handle: handle ?? "", shownAs: barWallet?.paymail ?? w?.address ?? "your wallet" });
   };
   // Swap on load (owner, 25 Oct 2026): an ammo coin bought on BlastPad at LOCK & LOAD (one approval), burned per shot.
   const [ammoCoin, setAmmoCoin] = useState<AmmoCoin | null>(null);
@@ -768,6 +770,18 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   useEffect(() => {
     finishRef.current = finish;
   });
+  // Receipts still owed with no storm running (a session replaced before its end ran, an earlier page load, a wallet
+  // attached only now): settle them once play is off. The storm's own end settles the normal case.
+  const settleRef = useRef(settleReceipts);
+  useEffect(() => {
+    settleRef.current = settleReceipts;
+  });
+  const walletAddr = b.wallet?.address ?? null;
+  useEffect(() => {
+    if (!rc.live || rc.owed <= 0 || mode !== 'off' || locking || sessionAlive.current) return;
+    const t = setTimeout(() => settleRef.current(), 1500);
+    return () => clearTimeout(t);
+  }, [rc.live, rc.owed, mode, locking, walletAddr]);
   useEffect(() => {
     hudWave.current = hud?.stage ?? 1;
   }, [hud?.stage]);
@@ -1174,7 +1188,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             {load.text}
           </Modal>
         )}
-        <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
+        <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} cancel={cab.cancel} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
 
         {!loadout && !over && mode === 'live' && !dry && <LiveTxBadge last={run.last} sent={run.sent} seen={netSeen} />}
         {!loadout && !over && <DamageFx ref={dmgFx} hp={hud?.hp ?? TUNING.player.hp} hpMax={TUNING.player.hp} />}

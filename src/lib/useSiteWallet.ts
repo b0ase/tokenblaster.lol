@@ -3,7 +3,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { getSiteWallet, resumeSiteWallet, subSiteWallet, type SiteWalletState } from './siteWallet';
 
-const server = (): SiteWalletState => ({ wallet: null, live: true, busy: false, error: null, chooser: null, waiting: null });
+const server = (): SiteWalletState => ({ wallet: null, live: true, busy: false, error: null, chooser: null, waiting: null, cancels: 0 });
 let serverSnap: SiteWalletState | null = null;
 
 /** The site's one wallet (src/lib/siteWallet.ts). Mounting any user resumes the remembered wallet once. */

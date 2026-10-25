@@ -135,21 +135,37 @@ export function Modal(p: {
   onSecondary?: () => void;
   tone?: 'warn' | 'wait' | 'bad';
   pulse?: boolean;
+  /** Dismiss (X, Escape, a click outside). Defaults to the secondary action. Every modal can be dismissed (owner, 25 Oct). */
+  onClose?: () => void;
 }) {
+  const close = p.onClose ?? p.onSecondary;
   const btn = useRef<HTMLButtonElement>(null);
   const id = `tbx-m-${useId().replace(/:/g, '')}`;
   useEffect(() => {
     btn.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && p.onSecondary) p.onSecondary();
+      if (e.key === 'Escape') (p.onClose ?? p.onSecondary)?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [p]);
   const colour = p.tone === 'bad' ? 'var(--tbx-red)' : p.tone === 'wait' ? 'var(--tbx-teal)' : 'var(--tbx-amber)';
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-t`} aria-describedby={`${id}-d`} data-fs-skip>
-      <div className="tbx-glass w-full max-w-md rounded-2xl border-2 p-6 text-center shadow-2xl" style={{ borderColor: colour }}>
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={`${id}-t`}
+      aria-describedby={`${id}-d`}
+      data-fs-skip
+      onClick={(e) => e.target === e.currentTarget && close?.()}
+    >
+      <div className="tbx-glass relative w-full max-w-md rounded-2xl border-2 p-6 text-center shadow-2xl" style={{ borderColor: colour }}>
+        {close && (
+          <button type="button" aria-label="Close" data-modal-close onClick={close} className="absolute right-2 top-1 px-2 text-2xl leading-none text-white/60 hover:text-white">
+            ×
+          </button>
+        )}
         <p id={`${id}-t`} className="tbx-display text-[clamp(22px,4vw,30px)]" style={{ color: colour }}>
           {p.title}
         </p>

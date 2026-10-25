@@ -28,9 +28,11 @@ export type SiteWalletState = {
   chooser: { note: string | null } | null;
   /** We are waiting on the wallet (shown by <SiteWalletWaiting/> with Cancel / Try again). Never a silent wait. */
   waiting: { text: string; since: number; kind: 'discover' | 'connect' | 'pay' } | null;
+  /** Bumped by every Cancel: pages waiting on the wallet (the coin-op cabinet) reset their own "approve" state. */
+  cancels: number;
 };
 
-const EMPTY: SiteWalletState = { wallet: null, live: true, busy: false, error: null, chooser: null, waiting: null };
+const EMPTY: SiteWalletState = { wallet: null, live: true, busy: false, error: null, chooser: null, waiting: null, cancels: 0 };
 let state: SiteWalletState = EMPTY;
 const subs = new Set<() => void>();
 export const getSiteWallet = () => state;
@@ -76,7 +78,8 @@ export function walletErrorText(e: unknown, entry?: Pick<WalletEntry, 'kind' | '
   if (/WALLET_HELD_DURING_PLAY/.test(m)) return 'A round is still live on this page, so the wallet is paused. Finish or end the round, then connect.';
   if (/disconnected on your phone|disconnected$/i.test(m)) return 'Your phone disconnected. Scan a new code to pair again.';
   if (/locked/i.test(m)) return `${entry?.name ?? 'Your wallet'} is locked. Unlock it and try again.`;
-  if (/reload/i.test(m)) return 'Your wallet lost touch with this page. Reload the page (your ammo is safe).';
+  // The wallet's own words (owner, 25 Oct: every error that merely mentioned "reload" became a vague "lost touch").
+  if (/reload/i.test(m)) return `${entry?.name ?? 'Your wallet'} says: ${m}. (Your ammo is safe.)`;
   if (/timeout|did not answer|not answering/i.test(m))
     return phone ? 'Your phone is asleep or offline. Open bWallet on your phone to resume, or scan a new code.' : `${entry?.name ?? 'Your wallet'} did not answer. Open it and try again.`;
   return `${entry?.name ?? 'Your wallet'} could not connect: ${m}.`;
@@ -166,7 +169,23 @@ export function cancelSiteWalletWait() {
   connecting = null;
   if (state.wallet) cancelWalletCalls(state.wallet.client);
   discoverGen++;
-  set({ busy: false, waiting: null });
+  set({ busy: false, waiting: null, cancels: state.cancels + 1 });
+}
+
+/**
+ * A wallet call just succeeded (a payment, a read): the wallet is plainly connected, so the site says so everywhere
+ * (owner, 25 Oct 2026: after a paid game the header still said "Connect wallet" with an empty badge).
+ */
+export function markSiteWalletAnswered(w: Wallet | null = state.wallet) {
+  if (!w) return;
+  if (state.wallet?.id !== w.id || !state.live || state.waiting?.kind === 'connect') set({ wallet: w, live: true, error: null, waiting: state.waiting?.kind === 'connect' ? null : state.waiting });
+  const bar = getBarWallet();
+  if (!bar || bar.publicKey !== w.publicKey) {
+    setBarWallet({ id: w.id, name: w.name, publicKey: w.publicKey, live: true });
+    void lookupPaymail(w.publicKey).then((id) => {
+      if (id && getBarWallet()?.publicKey === w.publicKey) patchBarWallet({ publicKey: w.publicKey, paymail: id.paymail, alias: id.alias, avatar: id.avatar });
+    });
+  } else if (bar.live === false) patchBarWallet({ live: true });
 }
 
 let discoverGen = 0;
@@ -227,7 +246,7 @@ export function disconnectSiteWallet() {
   if (was?.id === 'phone') disconnectPhone();
   setProofWallet(null);
   setBarWallet(null);
-  set({ ...EMPTY });
+  set({ ...EMPTY, cancels: state.cancels });
 }
 
 /**
@@ -241,7 +260,7 @@ subPhoneStatus(() => {
   saveKey(null);
   setProofWallet(null);
   setBarWallet(null);
-  set({ ...EMPTY, chooser: { note: why } });
+  set({ ...EMPTY, cancels: state.cancels, chooser: { note: why } });
 });
 
 export function setSiteWalletLive(live: boolean) {

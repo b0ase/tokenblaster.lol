@@ -112,3 +112,33 @@ test('site connect: a refusal shows plain words and clears the waiting state', a
   assert.equal(getSiteWallet().waiting, null);
   assert.match(getSiteWallet().error ?? '', /did not approve/);
 });
+
+// Paid-play fixes (owner, 25 Oct 2026: the payment prompt only appeared after Esc; Cancel did nothing).
+test('a status check that hangs never blocks the payment queued after it', async () => {
+  const { walletAlive } = await import('./wallet');
+  let created = 0;
+  const raw = {
+    isAuthenticated: () => never(),
+    createAction: async () => (created++, { txid: 'x' }),
+  } as unknown as WalletInterface;
+  const client = serialised(raw);
+  const w = { client, publicKey: KEY, address: '', id: 'shim', name: 'Shim' };
+  assert.equal(await walletAlive(w, 20), false);
+  await Promise.race([client.createAction({ description: 'pay', outputs: [] }), new Promise((_, no) => setTimeout(() => no(new Error('queued behind the status check')), 200))]);
+  assert.equal(created, 1);
+});
+
+test('Cancel bumps the cancel counter and clears the wait', async () => {
+  const { setSiteWalletWaiting } = await import('./siteWallet');
+  const before = getSiteWallet().cancels;
+  setSiteWalletWaiting({ text: 'Waiting', since: Date.now(), kind: 'pay' });
+  cancelSiteWalletWait();
+  assert.equal(getSiteWallet().waiting, null);
+  assert.equal(getSiteWallet().cancels, before + 1);
+});
+
+test('an error mentioning reload shows the wallet\'s own words', async () => {
+  const { walletErrorText } = await import('./siteWallet');
+  const t = walletErrorText(new Error('Extension context invalidated, please reload the page'), { kind: 'extension', name: 'bWalletX' });
+  assert.match(t, /Extension context invalidated/);
+});

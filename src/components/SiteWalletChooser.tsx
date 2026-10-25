@@ -30,6 +30,8 @@ export function SiteWalletChooser() {
     };
   }, [id]);
   const first = useSyncExternalStore(subHosts, firstHost, () => null);
+  // In element fullscreen only the fullscreen element is drawn: portal into it, or the card can't be seen or clicked.
+  const fsEl = useSyncExternalStore(subFs, () => (typeof document === 'undefined' ? null : document.fullscreenElement), () => null);
   if (first !== id || typeof document === 'undefined') return null;
   // Portalled to <body> (owner, 25 Oct: "won't connect to my wallet"): the first host is often the site nav, which a
   // game page hides (display:none), so the chooser and the waiting card rendered inside it were invisible.
@@ -39,9 +41,17 @@ export function SiteWalletChooser() {
       {chooser && <WalletChooser note={chooser.note} onPick={(e) => void pickWallet(e)} onClose={closeChooser} />}
       {waiting && <SiteWalletWaiting text={waiting.text} since={waiting.since} kind={waiting.kind} />}
     </>,
-    document.body,
+    fsEl ?? document.body,
   );
 }
+
+const subFs = (f: () => void) => {
+  document.addEventListener('fullscreenchange', f);
+  return () => document.removeEventListener('fullscreenchange', f);
+};
+
+/** Past this, a wait the wallet never answered is dropped by itself (connect gives up at 45 s, a payment at 180 s). */
+const GIVE_UP_SECS = { discover: 30, connect: 60, pay: 200 } as const;
 
 /**
  * Whenever we wait on the wallet, say so, with a way out (owner, 25 Oct 2026: Connect and LOCK & LOAD did nothing,
@@ -54,6 +64,16 @@ function SiteWalletWaiting({ text, since, kind }: { text: string; since: number;
     return () => clearInterval(t);
   }, []);
   const secs = Math.max(0, Math.round((now - since) / 1000));
+  // Never a spinner that outlives the request (owner, 25 Oct: "Waiting for bWalletX… 185s" after the game ended).
+  useEffect(() => {
+    if (secs > GIVE_UP_SECS[kind]) cancelSiteWalletWait();
+  }, [secs, kind]);
+  // Esc always closes it (and gives up on the wait).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && cancelSiteWalletWait();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const retry = () => {
     cancelSiteWalletWait();
     if (kind !== 'pay') void openSiteWallet();
@@ -64,6 +84,9 @@ function SiteWalletWaiting({ text, since, kind }: { text: string; since: number;
         <span className="inline-block h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden />
         <span className="flex-1">{text}</span>
         <span className="text-xs text-white/50 tabular-nums">{secs}s</span>
+        <button type="button" aria-label="Close" data-testid="wallet-waiting-close" onClick={cancelSiteWalletWait} className="-mr-1 rounded px-1.5 text-lg leading-none text-white/60 hover:text-white">
+          ×
+        </button>
       </div>
       {kind === 'pay' && <p className="mt-2 text-xs text-white/60">If you cancel here and the wallet already paid, the coin is in your gun: you will not be charged twice.</p>}
       <div className="mt-3 flex justify-end gap-2">
