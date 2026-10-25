@@ -20,7 +20,8 @@ const FEATURED: { key: string; name: string; icon: string; get: string; match: (
     icon: '/wallets/bwalletx.png',
     // Points at the Chrome Web Store once bWalletX is listed (one link to keep current).
     get: 'https://bwalletx.com/extension',
-    match: (w) => w.id === 'com.bwalletx.extension',
+    // announced, or an unannounced window.CWI that names itself bWalletX
+    match: (w) => w.id === 'com.bwalletx.extension' || (w.id === 'window.CWI' && /bwalletx/i.test(w.name)),
   },
   {
     key: 'yours',
