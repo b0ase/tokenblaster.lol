@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { INDEX_LAUNCH, LAUNCH_FEE } from '@/lib/launch/curve';
 import { launchCoin } from '@/lib/launch/client';
 import { ROUTES, type Route } from '@/lib/launch/shape';
@@ -9,6 +9,16 @@ import { LaunchNav } from './LaunchNav';
 import { useLaunchWallet } from './useLaunchWallet';
 
 /** Square-crop and shrink the picture to a 512px WebP (keeps the inscription small and cheap). */
+/** Ready-made coins for /launch/new?preset=<key> (owner, 25 Oct): fills the form; the creator still checks, ticks and signs. */
+const PRESETS: Record<string, { sym: string; name: string; about: string; image: string }> = {
+  terrornode: {
+    sym: 'TERRORNODE',
+    name: 'Terrornode',
+    about: 'Ammo for Assault on Terrornode. Every round you fire is burned on chain. Load it, hold the trigger.',
+    image: '/brand/terrornode-logo.png',
+  },
+};
+
 async function prepImage(file: File): Promise<{ bytes: Uint8Array; type: string; url: string }> {
   const bmp = await createImageBitmap(file);
   const side = Math.min(bmp.width, bmp.height);
@@ -43,6 +53,27 @@ export function LaunchForm() {
   const [signed, setSigned] = useState(false);
 
   const [payout, setPayout] = useState('');
+  useEffect(() => {
+    const p = PRESETS[new URLSearchParams(window.location.search).get('preset')?.toLowerCase() ?? ''];
+    if (!p) return;
+    let live = true;
+    void (async () => {
+      if (!live) return;
+      setSym(p.sym);
+      setName(p.name);
+      setAbout(p.about);
+      try {
+        const blob = await (await fetch(p.image)).blob();
+        const img = await prepImage(new File([blob], p.image.split('/').pop() ?? 'coin.png', { type: blob.type }));
+        if (live) setImage(img);
+      } catch (e) {
+        if (live) setError(`Could not load the preset image: ${e instanceof Error ? e.message : e}`);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
   const route = (): Route => {
     if (kind === 'creator') return { kind, address: (payout || wallet?.address || '').trim() };
     if (kind !== 'split') return { kind } as Route;
