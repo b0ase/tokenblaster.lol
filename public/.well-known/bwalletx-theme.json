@@ -8,5 +8,9 @@
   "surface": "#121317",
   "text": "#F2EFE6",
   "logo": "/brand/wallet-logo.png",
-  "cardArt": "/brand/wallet-card.jpg"
+  "cardArt": "/brand/wallet-card.jpg",
+  "room": "TOKENBLASTER",
+  "paths": {
+    "/arcade/assault": "/.well-known/bwalletx-theme.assault.json"
+  }
 }
