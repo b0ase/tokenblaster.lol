@@ -114,9 +114,9 @@ export const setSiteWalletWaiting = (w: SiteWalletState['waiting']) => set({ wai
  * in wallet.connect), Cancel gives up on it, and a fresh pick (the chooser) replaces it instead of joining it.
  */
 export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {}): Promise<Wallet | null> {
-  if (!entry.fresh && !opts.retry && state.wallet && state.wallet.id === entry.id && state.live) return Promise.resolve(state.wallet);
+  if (!entry.fresh && !opts.retry && state.wallet && state.wallet.id === entry.id && state.live) return (discoveryDone(), Promise.resolve(state.wallet));
   if (connecting) {
-    if (!opts.retry && !entry.fresh && connecting.entry.id === entry.id) return connecting.promise;
+    if (!opts.retry && !entry.fresh && connecting.entry.id === entry.id) return (discoveryDone(), connecting.promise);
     connecting.abort(WALLET_CANCELLED);
   }
   set({ busy: true, error: null, chooser: null, waiting: { text: waitText(entry), since: Date.now(), kind: 'connect' } });
@@ -189,14 +189,22 @@ export function markSiteWalletAnswered(w: Wallet | null = state.wallet) {
 }
 
 let discoverGen = 0;
-/** Wallet discovery with a timeout (and visible state while it runs). */
+/**
+ * Wallet discovery with a timeout (and visible state while it runs).
+ * It leaves `busy`/`waiting` ON: the caller hands over in ONE update (connectEntry's own waiting, the chooser, or
+ * `discoveryDone`). Clearing it here left a render with nothing connecting, no chooser and no wallet between
+ * discovery and the connect, and the cabinet read that as "the connect ended" and dropped LOCK & LOAD's payment
+ * (owner, 25 Oct: connect worked, the payment never asked).
+ */
 async function discoverVisible(): Promise<WalletEntry[] | null> {
   const gen = ++discoverGen;
   set({ busy: true, error: null, waiting: { text: 'Looking for your wallet…', since: Date.now(), kind: 'discover' } });
   const all = await withTimeout(discoverWallets(), DISCOVERY_TIMEOUT_MS, 'WALLET_TIMEOUT').catch(() => null);
   if (gen !== discoverGen) return null; // cancelled
-  set({ busy: false, waiting: null });
   return all;
+}
+function discoveryDone() {
+  if (state.waiting?.kind === 'discover') set({ busy: false, waiting: null });
 }
 
 /** A chooser row was clicked: look again for that wallet (it may have been reloaded) and ask it afresh, every click. */
@@ -208,10 +216,11 @@ export async function pickWallet(entry: WalletEntry): Promise<Wallet | null> {
   const all = await discoverVisible();
   if (discoverGen !== gen) return null; // the player pressed Cancel
   const found = all?.find((w) => w.id === entry.id) ?? entry;
-  return connectEntry(found, { retry: true });
+  return connectEntry(found, { retry: true }); // replaces the discover wait with its own, in one update
 }
 
-export const openChooser = (note: string | null = null) => set({ chooser: { note }, error: null });
+export const openChooser = (note: string | null = null) =>
+  set({ chooser: { note }, error: null, ...(state.waiting?.kind === 'discover' ? { busy: false, waiting: null } : {}) });
 export const closeChooser = () => set({ chooser: null });
 
 /** Any "Connect" button: the in-app wallet (inside bWallet), else the remembered one, else the chooser. */
