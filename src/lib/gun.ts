@@ -10,22 +10,49 @@ import { runStorm, type StormNet } from './stormRun';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
-const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const GP_RAW = 'https://ordinals.gorillapool.io/api/tx';
 
 /**
- * A transaction's hex: WhatsOnChain, else GorillaPool's raw bytes (25 Oct 2026: WhatsOnChain rate-limits
- * a busy browser and its 429 carries no CORS header, so the page saw "blocked by CORS" and the gun could
- * not read its own coins; GorillaPool allows www.tokenblaster.lol).
+ * A transaction's hex, never fetched twice (a txid's bytes never change): this page's memory, then this browser's
+ * storage, then our own /api/tx proxy (server-side WhatsOnChain, cached), then GorillaPool's raw bytes (CORS allowed).
+ * The browser never calls WhatsOnChain itself: it has no CORS header on its errors (owner log, 25 Oct 2026:
+ * hundreds of "blocked by CORS" refetches of the same txids made reading the gun's 104 coins take 56 s).
  */
-async function txHex(txid: string): Promise<string> {
+const HEX_MEM = new Map<string, string>();
+const HEX_LS = 'tokenblaster.txhex.';
+export function rememberTxHex(txid: string, hex: string) {
+  HEX_MEM.set(txid, hex);
   try {
-    const r = await fetch(`${WOC}/tx/${txid}/hex`);
-    if (r.ok) return (await r.text()).trim();
-  } catch { /* fall through to GorillaPool */ }
-  const r = await fetch(`${GP_RAW}/${txid}/raw`);
-  if (!r.ok) throw new Error(`Could not fetch transaction ${txid.slice(0, 8)}… (${r.status}).`);
-  return Array.from(new Uint8Array(await r.arrayBuffer()), (b) => b.toString(16).padStart(2, '0')).join('');
+    if (hex.length < 200_000) localStorage.setItem(HEX_LS + txid, hex);
+  } catch {
+    /* storage full or blocked: memory still has it for this session */
+  }
+}
+const hexInFlight = new Map<string, Promise<string>>();
+export async function txHex(txid: string): Promise<string> {
+  const mem = HEX_MEM.get(txid);
+  if (mem) return mem;
+  try {
+    const ls = localStorage.getItem(HEX_LS + txid);
+    if (ls) return HEX_MEM.set(txid, ls), ls;
+  } catch {
+    /* no storage */
+  }
+  const running = hexInFlight.get(txid);
+  if (running) return running;
+  const p = (async () => {
+    const viaUs = await fetch(`/api/tx/${txid}`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+    let hex = viaUs?.ok ? (await viaUs.text()).trim() : '';
+    if (!/^[0-9a-f]+$/i.test(hex)) {
+      const r = await fetch(`${GP_RAW}/${txid}/raw`, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) throw new Error(`Could not fetch transaction ${txid.slice(0, 8)}… (${r.status}).`);
+      hex = Array.from(new Uint8Array(await r.arrayBuffer()), (b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    rememberTxHex(txid, hex);
+    return hex;
+  })().finally(() => hexInFlight.delete(txid));
+  hexInFlight.set(txid, p);
+  return p;
 }
 const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
 const STORE = 'tokenblaster.gun';
@@ -1154,25 +1181,44 @@ export class Gun {
     return tx.id('hex');
   }
 
-  /** Unspent outputs at the gun's address, confirmed or not (WhatsOnChain). */
-  private async coinsOnChain(): Promise<{ tx: Transaction; vout: number }[]> {
-    // Our server asks WOC (it sees mempool spends at once and doesn't rate-limit servers like it
-    // does browsers). Never fall back to GorillaPool's lagging index: stale coins mean double spends.
-    try {
-      const r = await fetch(`/api/coins?address=${this.address}`, { cache: 'no-store' });
-      if (r.ok && r.headers.get('x-coins-upstream') !== 'failed') {
-        const list = (await r.json()) as { vout: number; hex: string }[];
+  /** The last chain read, shared for a few seconds: gather, the balance and the split all ask within one LOCK & LOAD. */
+  private chainRead: { at: number; p: Promise<{ tx: Transaction; vout: number }[]> } | null = null;
+  /** Unspent outputs at the gun's address, confirmed or not, via our server (WhatsOnChain server-side). */
+  private coinsOnChain(): Promise<{ tx: Transaction; vout: number }[]> {
+    const c = this.chainRead;
+    if (c && Date.now() - c.at < 4000) return c.p;
+    const p = this.readCoins();
+    this.chainRead = { at: Date.now(), p };
+    p.catch(() => {
+      if (this.chainRead?.p === p) this.chainRead = null;
+    });
+    return p;
+  }
+  private async readCoins(): Promise<{ tx: Transaction; vout: number }[]> {
+    // Our server asks WOC (it sees mempool spends at once and doesn't rate-limit servers like it does browsers).
+    // Never fall back to GorillaPool's lagging index (stale coins mean double spends), and never to the browser
+    // calling WOC (CORS). Txids this browser already holds are sent as `have`, so the server skips their hex.
+    const have = [...HEX_MEM.keys()].slice(-100).join(',');
+    for (let i = 0; i < 2; i++) {
+      const t0 = Date.now();
+      const r = await fetch(`/api/coins?address=${this.address}${have ? `&have=${have}` : ''}`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) }).catch(() => null);
+      if (r?.ok && r.headers.get('x-coins-upstream') !== 'failed') {
+        const list = (await r.json()) as { txid: string; vout: number; hex?: string }[];
         const cache = new Map<string, Transaction>();
-        return list.map((c) => {
-          const tx = cache.get(c.hex) ?? Transaction.fromHex(c.hex);
-          cache.set(c.hex, tx);
-          return { tx, vout: c.vout };
-        });
+        const out: { tx: Transaction; vout: number }[] = [];
+        for (const c of list) {
+          const hex = c.hex || (await txHex(c.txid));
+          if (c.hex) rememberTxHex(c.txid, c.hex);
+          const tx = cache.get(c.txid) ?? Transaction.fromHex(hex);
+          cache.set(c.txid, tx);
+          out.push({ tx, vout: c.vout });
+        }
+        loadMark(`chain read: ${out.length} coin(s) in ${Date.now() - t0} ms`);
+        return out;
       }
-    } catch {
-      /* fall through to asking WOC from the browser */
+      await new Promise((ok) => setTimeout(ok, 800));
     }
-    return this.coinsWoc();
+    throw new Error("Couldn't read the gun's coins from the network right now. Try again in a moment.");
   }
 
   private async coinsGp(): Promise<{ tx: Transaction; vout: number }[]> {
@@ -1193,24 +1239,4 @@ export class Gun {
     return out;
   }
 
-  private async coinsWoc(): Promise<{ tx: Transaction; vout: number }[]> {
-    const get = (path: string) =>
-      fetch(`${WOC}${path}`).then((r) => {
-        if (r.status === 404) return { result: [] }; // an unused gun address: no coins yet
-        if (!r.ok) throw new Error(`WOC ${r.status}`);
-        return r.json();
-      });
-    const [conf, unconf] = await Promise.all([
-      get(`/address/${this.address}/confirmed/unspent`),
-      get(`/address/${this.address}/unconfirmed/unspent`),
-    ]);
-    const utxos = [...(conf.result ?? []), ...(unconf.result ?? [])] as { tx_hash: string; tx_pos: number; value: number; isSpentInMempoolTx?: boolean }[];
-    const out: { tx: Transaction; vout: number }[] = [];
-    // 1-sat outputs hold tokens (BSV-21 inscriptions): spending them as plain sats would destroy the tokens.
-    for (const u of utxos.filter((u) => !u.isSpentInMempoolTx && u.value > 1)) {
-      const hex = await txHex(u.tx_hash);
-      out.push({ tx: Transaction.fromHex(hex), vout: u.tx_pos });
-    }
-    return out;
-  }
 }

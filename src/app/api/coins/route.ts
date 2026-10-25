@@ -3,21 +3,7 @@
  * [{ txid, vout, sats, hex }]. Server-side because WhatsOnChain rate-limits browsers (503), and
  * GorillaPool's index can lag on mempool spends (it would hand back coins that are already spent).
  */
-const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
-
-/** WOC answers 404 for an address it has never seen (a fresh gun): that means no coins, not an error. */
-const NONE = Symbol('none');
-
-async function woc(path: string, text = false): Promise<unknown> {
-  for (let i = 0; ; i++) {
-    // Keep well inside the function timeout: 3 tries with a 4s cap each, short backoff.
-    const r = await fetch(`${WOC}${path}`, { cache: 'no-store', signal: AbortSignal.timeout(4000) }).catch(() => null);
-    if (r?.ok) return text ? r.text() : r.json();
-    if (r?.status === 404) return NONE;
-    if (i >= 2) throw new Error(`WOC ${r ? r.status : 'timeout'}`);
-    await new Promise((ok) => setTimeout(ok, 400 * (i + 1)));
-  }
-}
+import { NONE, txHexCached, woc } from '@/lib/wocServer';
 
 export async function GET(req: Request) {
   const address = new URL(req.url).searchParams.get('address') ?? '';
@@ -29,15 +15,16 @@ export async function GET(req: Request) {
     ) as { result?: U[] }[];
     // 1-sat outputs hold tokens: never treat them as sats.
     const list = [...(c.result ?? []), ...(u.result ?? [])].filter((x) => !x.isSpentInMempoolTx && x.value > 1).slice(0, 200);
+    // The browser already holds these txs' bytes: skip them (owner log, 25 Oct: 104 coins took 56 s, one by one).
+    const have = new Set((new URL(req.url).searchParams.get('have') ?? '').split(',').filter((t) => /^[0-9a-f]{64}$/.test(t)));
+    const need = [...new Set(list.map((x) => x.tx_hash))].filter((t) => !have.has(t));
     const hex = new Map<string, string>();
-    for (const x of list) {
-      if (hex.has(x.tx_hash)) continue;
-      const h = await woc(`/tx/${x.tx_hash}/hex`, true);
-      if (h === NONE) throw new Error('WOC tx 404');
-      hex.set(x.tx_hash, h as string);
+    // In parallel, 8 at a time, each tx's hex cached for the life of this server instance (a txid never changes).
+    for (let i = 0; i < need.length; i += 8) {
+      await Promise.all(need.slice(i, i + 8).map(async (t) => hex.set(t, await txHexCached(t))));
     }
     return Response.json(
-      list.map((x) => ({ txid: x.tx_hash, vout: x.tx_pos, sats: x.value, hex: hex.get(x.tx_hash) })),
+      list.map((x) => ({ txid: x.tx_hash, vout: x.tx_pos, sats: x.value, ...(have.has(x.tx_hash) ? {} : { hex: hex.get(x.tx_hash) }) })),
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch {

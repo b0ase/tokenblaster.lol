@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { useBlaster } from '@/lib/useBlaster';
-import { MAX_PAY_USD, addCoin, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
+import { MAX_PAY_USD, addCoin, payLabel, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import type { LoadStage } from './CoinCabinet';
 import { loadMark } from '@/lib/gun';
 import { isRefusal } from '@/lib/wallet';
@@ -107,8 +107,16 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     // Say what the one wallet sheet is before it opens (owner, 25 Oct: players had no idea why the wallet asked).
     setStageText(`Approve this once in ${b.wallet.name}: ${fmtCredit(pending)} loads your gun. It is the only wallet approval: nothing asks again while you play.`);
     const cancelsBefore = cancelsRef.current;
-    const res = await b.load(sats, `${label}: ${pending.toFixed(2)} USD credit`);
+    const go = after.current; // a successful payment always starts the game, whatever was cancelled meanwhile
+    const res = await b.load(sats, payLabel(label, pending));
     setApproveSince(null);
+    if (res === 'ok') {
+      // Paid: clear the slot at once so no later press, Cancel or Reconnect can bill the same coins again.
+      setPending(0);
+      setModal(null);
+      setPayAfterConnect(false);
+      after.current = after.current ?? go;
+    }
     if (res !== 'ok' && cancelsRef.current !== cancelsBefore) {
       // The player pressed Cancel: everything is already reset, no "your wallet said no" on top.
       after.current = null;

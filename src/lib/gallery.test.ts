@@ -23,8 +23,8 @@ test('handles are sanitised for the chain', () => {
   assert.equal(chainHandle('has space'), null);
   assert.equal(chainHandle('x'.repeat(21)), null);
   assert.equal(chainHandle(''), null);
-  assert.deepEqual(galleryPushes(null), ['gallery']);
-  assert.deepEqual(galleryPushes('kweg'), ['gallery', 'kweg']);
+  assert.deepEqual(galleryPushes(null), ['terrornode']);
+  assert.deepEqual(galleryPushes('kweg'), ['terrornode', 'kweg']);
 });
 
 test('board counts each session once at its highest report', () => {

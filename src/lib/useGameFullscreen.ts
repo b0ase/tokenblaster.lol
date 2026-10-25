@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type RefObject } from 'react';
 
-/** Per-viewer preference: go true fullscreen when START / INSERT COIN / PLAY is pressed. Default ON. */
+/** Legacy per-viewer preference. Nothing goes fullscreen automatically any more (owner, 25 Oct 2026); kept for old stored values only. */
 const AUTO_FS_KEY = 'tb-auto-fullscreen';
 export const readAutoFullscreen = () => {
   try {
@@ -76,8 +76,17 @@ export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing
     }
   }, []);
 
-  /** Call from inside a click handler (the user gesture). */
+  /**
+   * Game start / PLAY / INSERT COIN call this. It no longer goes fullscreen on its own (owner, 25 Oct 2026: "I don't
+   * like the screen going fullscreen either. It doesn't help."): fullscreen is only ever the player's own tap on a
+   * fullscreen button (`toggle`).
+   */
   const enter = useCallback(() => {
+    pending.current = false;
+  }, []);
+
+  /** The player's own fullscreen tap (the user gesture). */
+  const enterNow = useCallback(() => {
     pending.current = true;
     if (shellRef.current) return shellRef.current.enter();
     const el = wrap.current;
@@ -97,7 +106,7 @@ export function useGameFullscreen(wrap: RefObject<HTMLElement | null>, { playing
     }
   }, [wrap]);
 
-  const toggle = useCallback(() => (document.fullscreenElement ? exit() : enter()), [enter, exit]);
+  const toggle = useCallback(() => (document.fullscreenElement ? exit() : enterNow()), [enterNow, exit]);
 
   useEffect(() => {
     const on = () => {

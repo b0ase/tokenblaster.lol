@@ -10,7 +10,8 @@ import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSi
 import { WALLET_CANCELLED, WALLET_SENT_PENDING, isRefusal } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
 import { GUN_LOCKED, Gun, GunNeedsSats, TOKEN_FEE, loadMark } from './gun';
-import { syncGunBackup } from './gunBackup';
+import { restoreGunIfNeeded, scheduleGunBackup } from './gunBackup';
+import { payIntoGun } from './lockLoadPay';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
@@ -76,37 +77,42 @@ export function useBlaster() {
     void Promise.resolve().then(() => setGunLocked(Boolean(gun.current?.locked)));
   }, []);
   /**
-   * Recoverable gun (25 Oct 2026): back the gun key up, encrypted by the player's own wallet, and restore it when
-   * this browser has none or can't read it. Once per gun per wallet (src/lib/gunBackup.ts); never during play.
+   * Recoverable gun (25 Oct 2026). ON CONNECT: restore only, and only when this browser has no readable gun (no wallet
+   * call at all when it has one). The BACKUP runs once per gun per identity AFTER a paid LOCK & LOAD, in the
+   * background, never awaited (one-prompt play, #45: LOCK & LOAD is the payment and nothing else).
    */
-  const syncing = useRef<Promise<string> | null>(null);
+  const restoring = useRef<string | null>(null);
   const syncBackup = useCallback(async (): Promise<string> => {
     const g = gun.current;
     if (!wallet || !g || walletHeld()) return 'skip';
-    if (!syncing.current)
-      syncing.current = syncGunBackup(wallet, g)
-        .then((r) => {
-          if (r === 'restored') {
-            setGunAddress(g.address);
-            void g.balance().then(setAmmo).catch(() => undefined);
-          }
-          setGunLocked(g.locked);
-          if (r === 'locked') setError(`${GUN_LOCKED}. This browser has a gun record it can't read, and no backup in this wallet matched. It has been kept, not replaced.`);
-          return r;
-        })
-        .catch((e) => {
-          setGunLocked(g.locked);
-          loadMark(`gun backup not saved: ${e instanceof Error ? e.message : 'error'}`);
-          return 'error';
-        })
-        .finally(() => {
-          syncing.current = null;
-        });
-    return syncing.current;
+    const id = `${wallet.publicKey}:${g.address}`;
+    if (restoring.current === id) return 'skip'; // double connect / re-render: one restore per wallet per gun
+    restoring.current = id;
+    return restoreGunIfNeeded(wallet, g)
+      .then((r) => {
+        if (r === 'restored') {
+          setGunAddress(g.address);
+          void g.balance().then(setAmmo).catch(() => undefined);
+        }
+        setGunLocked(g.locked);
+        if (r === 'locked') setError(`${GUN_LOCKED}. This browser has a gun record it can't read, and no backup in this wallet matched. It has been kept, not replaced.`);
+        return r;
+      })
+      .catch((e) => {
+        setGunLocked(g.locked);
+        loadMark(`gun restore skipped: ${e instanceof Error ? e.message : 'error'}`);
+        return 'error';
+      });
   }, [wallet, setError]);
   useEffect(() => {
     if (wallet) void syncBackup();
   }, [wallet, syncBackup]);
+  /** After a paid LOCK & LOAD: back the gun up in the background. Never awaited, never blocks play. */
+  const backupLater = useCallback(() => {
+    const g = gun.current;
+    if (!wallet || !g) return;
+    void scheduleGunBackup(wallet, g, { canAsk: () => !walletHeld(), onError: (e) => loadMark(`gun backup not saved yet: ${e instanceof Error ? e.message : 'error'}`) });
+  }, [wallet]);
   /** The "Back up gun key" button, after the player confirmed: the WIF, never logged. */
   const exportGunKey = useCallback(() => gun.current?.exportWif() ?? null, []);
 
@@ -159,18 +165,16 @@ export function useBlaster() {
    * Returns 'ok', 'disconnected' (nothing was asked of the wallet), 'timeout' or 'refused'.
    */
 
-  const load = useCallback(
+  const loadOnce = useCallback(
     async (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> => {
       const g = gun.current;
       if (!wallet || !g) return 'disconnected';
       setError(null);
-      // Never pay into a gun we can't read back, and back the gun up before money goes into it.
-      if (g.locked) await syncBackup();
+      // Never pay into a gun we can't read back. No wallet call here: LOCK & LOAD is ONE request, the payment (#45).
       if (g.locked) {
         setError(GUN_LOCKED);
         return 'failed';
       }
-      await syncBackup();
       // An earlier payment's outcome is unknown (timed out / cancelled while its sheet was open): read the gun's own
       // balance first, and if that payment landed, use it instead of charging again (owner, 25 Oct 2026).
       const unk = unknownPay.current;
@@ -191,7 +195,8 @@ export function useBlaster() {
         unknownPay.current = null;
       }
       // The liveness check and the gun's balance read run together: one round trip of wait, not two (latency, 25 Oct).
-      const beforeP = g.balance().catch(() => g.sats);
+      // Capped at 3 s: a slow chain read must never hold the wallet sheet back (owner log, 25 Oct).
+      const beforeP = Promise.race([g.balance().catch(() => g.sats), new Promise<number>((ok) => setTimeout(() => ok(g.sats), 3000))]);
       if (!(await checkWallet())) return 'disconnected';
       setBusy('loading');
       const before = await beforeP;
@@ -200,18 +205,19 @@ export function useBlaster() {
         loadMark('approve start');
         // A real approval can take a while; a wallet that never answers at all counts as disconnected.
         // No timeout on a payment (bWalletX): the player may take as long as they like to approve.
-        const funding = await fund(wallet, g.address, sats, label);
-        loadMark('approved + paid (wallet answered)');
-        markSiteWalletAnswered(wallet); // the header and badge show the wallet that just paid
-        // The wallet has paid the gun's address: from here the money is in the gun whatever happens next,
-        // so never report this as "payment not made" (owner, 24 Oct: paid $0.05, then told to reconnect).
-        try {
-          await g.load(funding);
-          loadMark('gun has the coin');
-        } catch (e) {
-          loadMark(`paid, but saving the coin failed (${e instanceof Error ? e.message : e}); reading the balance instead`);
-        }
-        setAmmo(await g.balance().catch(() => g.sats));
+        await payIntoGun(wallet, g, sats, label, {
+          fund,
+          // Paid: the wallet wait is over NOW. Nothing after this (a slow balance read) may leave the waiting card up,
+          // where a timeout or Cancel used to reset the cabinet and charge again (owner log, 25 Oct: paid twice).
+          onAnswered: () => {
+            markSiteWalletAnswered(wallet);
+            setSiteWalletWaiting(null);
+          },
+          afterPaid: backupLater, // in the background: never chained to the pay
+        });
+        // The coin is in the gun from the wallet's own response: the CREDIT shows it at once, the chain read follows.
+        setAmmo(g.sats);
+        void g.balance().then(setAmmo).catch(() => undefined);
         return 'ok';
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
@@ -250,7 +256,24 @@ export function useBlaster() {
         setBusy(null);
       }
     },
-    [wallet, checkWallet, fail, setError, syncBackup],
+    [wallet, checkWallet, fail, setError, backupLater],
+  );
+
+  /** The LOCK & LOAD payment in flight: a second press (or a Reconnect) joins it, never opens a second sheet. */
+  const paying = useRef<Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> | null>(null);
+  const load = useCallback(
+    (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> => {
+      if (paying.current) {
+        loadMark('pay: a payment is already in flight, joining it (no second wallet request)');
+        return paying.current;
+      }
+      const p = loadOnce(sats, label).finally(() => {
+        if (paying.current === p) paying.current = null;
+      });
+      paying.current = p;
+      return p;
+    },
+    [loadOnce],
   );
 
   /** End the gun's running storm session (sender finished, locks released, change saved). */
@@ -319,7 +342,9 @@ export function useBlaster() {
     try {
       await g.prepareStorm(total, perBlast, onStep);
     } finally {
-      setAmmo(await g.balance().catch(() => g.sats));
+      // Never block the start on a chain read (owner log, 25 Oct: stuck at 100% for 68 s on this balance).
+      setAmmo(g.sats);
+      void g.balance().then(setAmmo).catch(() => undefined);
     }
   }, []);
 
@@ -330,7 +355,7 @@ export function useBlaster() {
     try {
       return await g.gather();
     } finally {
-      setAmmo(await g.balance().catch(() => g.sats));
+      setAmmo(g.sats);
     }
   }, []);
 

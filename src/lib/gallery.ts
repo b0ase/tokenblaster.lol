@@ -8,7 +8,10 @@
  * shot; the only extra is the platform fee below, paid once per pack.
  */
 
-export const GALLERY_GAME = 'gallery';
+/** The <game> push on every TerrorNode round (owner, 25 Oct 2026: it said 'gallery'). Old 'gallery' rounds still count. */
+export const GALLERY_GAME = 'terrornode';
+/** Chain tags the TerrorNode board accepts (rounds fired before the rename carry 'gallery'). */
+export const GALLERY_TAGS = ['terrornode', 'gallery'];
 
 /**
  * Bytes per shot. A shot is 1 P2PKH input (~148 B), a change output (34 B), ~19 B of framing and the

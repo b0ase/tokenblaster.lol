@@ -221,12 +221,9 @@ export async function returnTokens(
   // The wallet wants the tx with its history back to mined transactions (BEEF).
   const beef = new Beef();
   for (const src of new Set(tx.inputs.map((i) => i.sourceTXID ?? i.sourceTransaction!.id('hex')))) {
-    const hex = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${src}/beef`).then((r) => (r.ok ? r.text() : ''));
-    if (hex) beef.mergeBeef(Utils.toArray(hex.trim(), 'hex'));
-    else {
-      const bin = await fetch(`https://junglebus.gorillapool.io/v1/transaction/beef/${src}`).then((r) => (r.ok ? r.arrayBuffer() : null));
-      if (bin) beef.mergeBeef(Array.from(new Uint8Array(bin)));
-    }
+    // GorillaPool (CORS allowed), never WhatsOnChain from the browser (no CORS on its errors).
+    const bin = await fetch(`https://junglebus.gorillapool.io/v1/transaction/beef/${src}`).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+    if (bin) beef.mergeBeef(Array.from(new Uint8Array(bin)));
   }
   beef.mergeTransaction(tx);
   await wallet.internalizeAction({
