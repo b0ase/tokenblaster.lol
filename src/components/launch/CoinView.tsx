@@ -24,6 +24,7 @@ type Coin = {
   description: string;
   creator: string;
   creator_key: string;
+  launched_by?: { paymail: string | null; key: string; address: string };
   route: { kind: 'creator' | 'split' | 'holders' | 'buyback'; to?: { address: string; bps: number }[] };
   launch_msg: string;
   launch_sig: string;
@@ -138,6 +139,21 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
                 {short(c.creator)}
               </a>{' '}
               · launched {ago(c.created_at)} ago
+            </p>
+            <p className="mt-1 text-xs text-muted">
+              {c.launched_by?.paymail ? (
+                <>
+                  Launched by <span className="text-accent">{c.launched_by.paymail}</span>
+                </>
+              ) : (
+                <>
+                  Launched by wallet {(c.launched_by?.key || c.creator_key).slice(0, 4)}…{(c.launched_by?.key || c.creator_key).slice(-4)} ·{' '}
+                  <a className="underline" href={`${WOC}/address/${c.launched_by?.address || c.creator}`} target="_blank" rel="noreferrer">
+                    {c.launched_by?.address || c.creator}
+                  </a>{' '}
+                  · no paymail yet
+                </>
+              )}
             </p>
             <p className="mt-1 text-sm text-dim">{c.description}</p>
           </div>

@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { rpc } from '@/lib/launch/server';
 import { withExtras } from '@/lib/launch/coinMeta';
+import { withLaunchedBy } from '@/lib/launch/launchedBy';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ export async function GET() {
       rpc<unknown[]>('tokenblaster_launch_board', {}, false),
       rpc<unknown[]>('tokenblaster_launch_trades_for', { p_limit: 40 }, false),
     ]);
-    return NextResponse.json({ coins: shown(coins).map((c) => withExtras(c as { token_id?: string; sold?: number })), feed: shown(feed) }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
+    return NextResponse.json({ coins: shown(coins).map((c) => withLaunchedBy(withExtras(c as { token_id?: string; sold?: number; creator?: string; creator_key?: string; launch_paymail?: string | null }))), feed: shown(feed) }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
   } catch (e) {
     return NextResponse.json({ coins: [], feed: [], error: e instanceof Error ? e.message : String(e) }, { status: 200 });
   }
