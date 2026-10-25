@@ -122,13 +122,19 @@ export function WalletBarChip() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => (state.kind === 'disconnected' && !err ? void openSiteWallet() : setOpen((o) => !o))}
+        onClick={() => ((state.kind === 'disconnected' || wallet?.live === false) && !err ? void openSiteWallet() : setOpen((o) => !o))}
         className="flex h-9 min-w-0 max-w-[min(9.5rem,40vw)] items-center gap-1.5 rounded-full border border-[#2A2A2C] bg-transparent px-3 text-[12px] font-semibold text-[#F2F2F0] transition-colors hover:bg-white/[0.06] sm:max-w-none"
         style={{ fontFamily: font }}
       >
         {state.kind === 'disconnected' ? (
           <span>
             Connect<span className="hidden sm:inline"> wallet</span>
+          </span>
+        ) : wallet?.live === false && phone !== 'asleep' ? (
+          // Dropped: say so and offer the fix, instead of the paymail beside "Disconnected" (owner, 25 Oct 2026:
+          // "if it's disconnected, surely it shouldn't show my paymail"). The name stays in the tooltip.
+          <span data-wallet-dropped title={`Reconnect ${wallet?.paymail ?? wallet?.name ?? 'your wallet'}`}>
+            Reconnect<span className="hidden sm:inline"> wallet</span>
           </span>
         ) : (
           <>
