@@ -39,10 +39,15 @@ function announced(ms: number): Promise<Announce[]> {
     };
     window.addEventListener('brc100:announceWallet', on);
     window.dispatchEvent(new Event('brc100:requestWallet'));
-    setTimeout(() => {
+    // A just-woken extension can answer late: ask again, and wait longer if nothing has answered yet
+    // (owner, 25 Oct: bWalletX was installed and open but the chooser offered "Get it").
+    const again = setTimeout(() => window.dispatchEvent(new Event('brc100:requestWallet')), ms);
+    const finish = () => {
+      clearTimeout(again);
       window.removeEventListener('brc100:announceWallet', on);
       done([...found.values()]);
-    }, ms);
+    };
+    setTimeout(() => (found.size ? finish() : setTimeout(finish, ms * 3)), ms);
   });
 }
 
