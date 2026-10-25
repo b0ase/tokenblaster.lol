@@ -120,10 +120,10 @@ export type Character = {
   /** Accent colour for its card. */
   colour: string;
   /**
-   * Portrait slot. Drop a render at this path and it is picked up by itself (the loader and the briefing
-   * check the file exists; until then a drawn badge is shown). 4:5, at least 640x800, WebP.
+   * Portrait render (4:5, at least 640x800, WebP). Set it only once the file is committed under
+   * public/gallery/characters/; until then a drawn badge is shown.
    */
-  portrait: string;
+  portrait?: string;
   /** Key-art slot: a wide render of this character. Optional; used as a loading-screen shot when it exists. */
   shot?: string;
 };
@@ -137,7 +137,6 @@ export const CHARACTERS: Character[] = [
     bio: 'Used to fix hover-trams across Neo-Tokyo. Let go by a text message. Kept the keys to the old armoury and one very big gun. The Ninja Punk Girls took one look and said the trigger is yours.',
     threat: 'You. A rotary gun that never jams while there are rounds in it.',
     colour: '#ffb21a',
-    portrait: '/gallery/characters/gunner.webp',
   },
   {
     id: 'npg',
@@ -147,7 +146,6 @@ export const CHARACTERS: Character[] = [
     bio: 'Neon hair, sharp blades and a van with no brakes. They know every back alley and every way into the tower. They are here to get Dr Wong out. You keep the guns loud so they can reach the top floor.',
     threat: 'On your side. They keep the way clear while you hold the trigger.',
     colour: '#ff2f92',
-    portrait: '/gallery/characters/npg.webp',
   },
   {
     id: 'kweg',
@@ -157,8 +155,6 @@ export const CHARACTERS: Character[] = [
     bio: KWEG.bio,
     threat: KWEG.threat,
     colour: '#ffb21a',
-    portrait: '/gallery/characters/kweg.webp',
-    shot: '/gallery/loading/kweg.webp',
   },
   {
     id: 'liquid',
@@ -168,8 +164,7 @@ export const CHARACTERS: Character[] = [
     bio: 'One of Dr Wong’s inventions: seven metres of living mercury with one red eye, built to clean up after disasters. Something went wrong with it, and now it guards the roof for the Erobots. Shoot it apart and it melts into the floor. It does not tire and it does not hurry, until you stop firing.',
     threat: 'Charges, lunges and smashes anything in reach. Sustained fire pushes it back; ease off and it closes the gap fast.',
     colour: '#dfe8f5',
-    portrait: '/gallery/characters/liquid.webp',
-    shot: '/gallery/loading/boss-v2.webp',
+    shot: '/gallery/loading/boss.webp',
   },
   {
     id: 'bot',
@@ -179,7 +174,6 @@ export const CHARACTERS: Character[] = [
     bio: 'The standard EROBOT. A camera, four rotors and a fear of heights it was never given. One of Dr Wong’s inventions, out of control. Cheap, loud, and there are thousands.',
     threat: 'Swarms in from above. Worth a few points each.',
     colour: '#ff5a4a',
-    portrait: '/gallery/characters/bot.webp',
   },
   {
     id: 'frog',
@@ -189,7 +183,6 @@ export const CHARACTERS: Character[] = [
     bio: 'Built for the drains. Springs for legs, a chrome green shell and a habit of landing exactly where you were standing.',
     threat: 'Leaps across the floor in long arcs. Hard to track, easy to pop.',
     colour: '#c8ff1a',
-    portrait: '/gallery/characters/frog-bot.webp',
   },
   {
     id: 'graf',
@@ -199,7 +192,6 @@ export const CHARACTERS: Character[] = [
     bio: 'A spray-can arm and a dented head. It paints over every sign that is not the Erobots’. It thinks it is an artist. It is not.',
     threat: 'Covers the glass in paint, so you have to keep shooting to see.',
     colour: '#ff2f92',
-    portrait: '/gallery/characters/graf-bot.webp',
   },
   {
     id: 'stripey',
@@ -209,7 +201,6 @@ export const CHARACTERS: Character[] = [
     bio: 'Black and yellow, because a warning should be seen. A riot shield on one arm and a baton on the other. Slow, stubborn and very hard to move.',
     threat: 'Soaks up rounds before it goes down. Aim high, and keep the trigger down.',
     colour: '#ffd23a',
-    portrait: '/gallery/characters/stripey-bot.webp',
   },
   {
     id: 'tech',
@@ -219,7 +210,6 @@ export const CHARACTERS: Character[] = [
     bio: 'The one with the toolbox. Climbs the tower, patches the racks and brings broken bots back online. Leave it alone and it fixes everything you just broke.',
     threat: 'Rebuilds smashed racks and glass. Take it out first.',
     colour: '#27e6ff',
-    portrait: '/gallery/characters/tech.webp',
   },
 ];
 export const characterById = (id: string) => CHARACTERS.find((c) => c.id === id);
@@ -236,23 +226,13 @@ export const characterById = (id: string) => CHARACTERS.find((c) => c.id === id)
  */
 export type LoadingShot = { src: string; beat: string; focus?: string; pos?: string; caption?: string };
 export const LOADING_SHOTS: LoadingShot[] = [
-  { src: '/gallery/loading/street-left-v2.webp', beat: 'city', focus: 'gunner', pos: '50% 50%', caption: 'Neo-Tokyo, 01:14' },
-  { src: '/gallery/loading/tower-v2.webp', beat: 'terrornode', focus: 'kweg', pos: '50% 50%', caption: 'TERRORNODE HQ' },
-  { src: '/gallery/loading/street-right-v2.webp', beat: 'army', focus: 'frog', pos: '60% 50%', caption: 'The Erobots hold the street' },
-  { src: '/gallery/loading/floors-v2.webp', beat: 'control', focus: 'tech', pos: '50% 50%', caption: 'HQ floors' },
-  { src: '/gallery/loading/core-v2.webp', beat: 'record', focus: 'npg', pos: '50% 50%', caption: 'Jam the core' },
-  { src: '/gallery/loading/boss-v2.webp', beat: 'liquid', focus: 'liquid', pos: '55% 50%', caption: 'The Liquid Unit' },
-  { src: '/gallery/loading/boss-fire-v2.webp', beat: 'record', focus: 'npg', pos: '60% 50%', caption: 'Open fire' },
-  { src: '/gallery/loading/roof-v2.webp', beat: 'fall', focus: 'kweg', pos: '50% 50%', caption: 'The roof. The hostage.' },
-  { src: '/gallery/loading/muzzle-v2.webp', beat: 'girls', focus: 'npg', pos: '62% 50%', caption: 'Hold the trigger' },
-  // ── Slots for new renders (skipped until the file exists) ──
-  { src: '/gallery/loading/kweg.webp', beat: 'kweg', focus: 'kweg', pos: '50% 40%', caption: 'Dr Kweg S Wong' },
-  { src: '/gallery/loading/npg.webp', beat: 'girls', focus: 'npg', pos: '50% 50%', caption: 'The Ninja Punk Girls' },
-  { src: '/gallery/loading/erobots.webp', beat: 'army', focus: 'bot', pos: '50% 50%', caption: 'Erobots on the street' },
-  { src: '/gallery/loading/graf-bot.webp', beat: 'army', focus: 'graf', pos: '50% 50%', caption: 'Graf-bot at work' },
-  { src: '/gallery/loading/tech.webp', beat: 'army', focus: 'tech', pos: '50% 50%', caption: 'Tech in the server room' },
-  { src: '/gallery/loading/stripey-bot.webp', beat: 'army', focus: 'stripey', pos: '50% 50%', caption: 'Stripey-bot holds the line' },
-  { src: '/gallery/loading/liquid-melt.webp', beat: 'record', focus: 'liquid', pos: '50% 60%', caption: 'It melts. It stays down.' },
+  { src: '/gallery/loading/street-left.webp', beat: 'city', focus: 'gunner', pos: '50% 50%', caption: 'Neo-Tokyo, 01:14' },
+  { src: '/gallery/loading/tower.webp', beat: 'terrornode', focus: 'kweg', pos: '50% 50%', caption: 'TERRORNODE HQ' },
+  { src: '/gallery/loading/street-right.webp', beat: 'army', focus: 'frog', pos: '60% 50%', caption: 'The Erobots hold the street' },
+  { src: '/gallery/loading/boss.webp', beat: 'liquid', focus: 'liquid', pos: '55% 50%', caption: 'The Liquid Unit' },
+  { src: '/gallery/loading/boss-fire.webp', beat: 'record', focus: 'npg', pos: '60% 50%', caption: 'Open fire' },
+  { src: '/gallery/loading/muzzle.webp', beat: 'girls', focus: 'npg', pos: '62% 50%', caption: 'Hold the trigger' },
+  // Add a row here only once its file is committed to public/gallery/loading/ (25 Oct: listing missing files 404'd).
 ];
 
 // ── Stages ──────────────────────────────────────────────────────────────────────────────
@@ -293,7 +273,7 @@ export const BRIEFING = {
     'Clear the Erobots to move up a stage. In the server core, sustained fire on the core jams the whole tower.',
     'The Liquid Unit is pushed back by sustained fire. Stop and it closes in fast. Erobots shoot and swing: keep the gun moving.',
     'Smash the glass, drop the racks and clear the Erobots for points.',
-    'Unused credit stays in your gun, or press UNLOAD to take it back.',
+    'Unused credit stays in your gun. UNLOAD in the Your gun panel takes it back.',
   ],
 } as const;
 

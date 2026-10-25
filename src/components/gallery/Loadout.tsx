@@ -15,7 +15,7 @@ import { GunPreview } from './GunPreview';
 
 export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, practice = false, rounds = 0 }: { player?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
-  const have = useExisting(CHARACTERS.map((c) => c.portrait));
+  const have = useExisting(CHARACTERS.map((c) => c.portrait ?? ''));
   const c = CHARACTERS.find((x) => x.id === who) ?? CHARACTERS[0];
   const w1 = stageBrief(1);
   return (
@@ -70,7 +70,7 @@ export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabin
               ))}
             </div>
             <div key={c.id} className="tbx-fade">
-              <CharacterCard c={c} portrait={have.has(c.portrait)} />
+              <CharacterCard c={c} portrait={!!c.portrait && have.has(c.portrait)} />
             </div>
           </section>
 
