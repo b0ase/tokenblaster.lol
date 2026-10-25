@@ -9,7 +9,7 @@
 import { Beef, Hash, P2PKH, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
 import { bsv21 } from './gun';
 import { tokenCoins } from './tokens';
-import { ONESAT, receiveKey, receiveNote, siteCoins } from './siteTokens';
+import { ONESAT, listedTokenCoins, receiveKey, receiveNote, siteCoins } from './siteTokens';
 
 export { ONESAT };
 
@@ -64,7 +64,9 @@ export async function pickCoins(wallet: WalletInterface, id: string, amount: big
   };
   const own = pick(all.filter((c) => c.id === id && c.keyID && filter(c)).map((c) => ({ outpoint: c.outpoint, amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! })));
   if (own.sum >= amount) return { ...own, beef };
-  const site = pick((await siteCoins(id)).map((c) => ({ outpoint: c.outpoint.replace('_', '.'), amt: c.amt, protocolID: ONESAT, keyID: '', walletSigns: true })));
+  // bWalletX: its one-token listing (#128), else the receive addresses it gave us (token index).
+  const listed = await listedTokenCoins(wallet, id);
+  const site = pick((listed ?? (await siteCoins(id))).map((c) => ({ outpoint: c.outpoint.replace('_', '.'), amt: c.amt, protocolID: ONESAT, keyID: '', walletSigns: true })));
   if (site.sum > own.sum) return { ...site, beef: undefined };
   return { ...own, beef };
 }

@@ -5,9 +5,9 @@
  */
 import { Beef, P2PKH, PublicKey, Transaction, UnlockingScript, Utils, type WalletInterface } from '@bsv/sdk';
 import { BSV21 } from '@1sat/templates';
-import { inscriptionScript } from '../inscribe';
 import { noteFor, ourSpends, pickCoins, stampIds, tokenChange, type Coin } from '../tokenLoad';
 import { receiveKey, receiveNote, type ReceiveKey } from '../siteTokens';
+import { launchImageOutput } from './launchImage';
 import type { Wallet } from '../wallet';
 import { INDEX_LAUNCH, LAUNCH_FEE, quoteBuy, quoteSell } from './curve';
 import { matchesPlan, type Route, type TradePlan } from './shape';
@@ -32,10 +32,13 @@ export async function launchCoin(w: Wallet, f: LaunchForm): Promise<string> {
 
   const { signature } = await w.client.createSignature({ data: Utils.toArray(p.message, 'utf8'), protocolID: [1, 'tokenblaster launch'], keyID: p.slot, counterparty: 'anyone' });
   const deploy = BSV21.deployMint(f.sym, BigInt(1_000_000_000), 0, '_0').lock(new P2PKH().lock(p.tokenAddress));
+  // The image is the creator's: in bWalletX it goes to an ordinal key the wallet picked, as a plain
+  // inscription (nothing after the P2PKH) into '1sat'. The supply goes to the POOL key, never the wallet.
+  const image = await launchImageOutput(w, f);
   const r = await w.client.createAction({
     description: `Launch $${f.sym} on TokenBlaster: 1,000,000,000 tokens into its bonding curve`,
     outputs: [
-      { lockingScript: inscriptionScript(w.address, { contentType: f.image.type, data: Array.from(f.image.bytes) }, { app: 'tokenblaster.lol', type: 'launch', sym: f.sym }).toHex(), satoshis: 1, outputDescription: `$${f.sym} image (yours)` },
+      image,
       { lockingScript: deploy.toHex(), satoshis: 1, outputDescription: `$${f.sym}: 1B supply into the curve` },
       { lockingScript: new P2PKH().lock(p.house).toHex(), satoshis: LAUNCH_FEE, outputDescription: 'TokenBlaster launch fee' },
       { lockingScript: new P2PKH().lock(p.indexAddress).toHex(), satoshis: INDEX_LAUNCH, outputDescription: `$${f.sym} token index fund (0.1 BSV)` },

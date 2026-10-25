@@ -99,3 +99,48 @@ export async function siteCoins(tokenId: string, fetcher: typeof fetch = fetch):
   }
   return out.sort((a, b) => (b.amt > a.amt ? 1 : -1));
 }
+
+// ── bWalletX #128: one token's coins, deploy and icon keys ─────────────────
+
+/**
+ * The player's coins of one token as bWalletX lists them to a site: `listOutputs` on `bsv21` with
+ * exactly one `bsv21:<id>` tag (one sheet per site per token). Returns null when the wallet does
+ * not answer that way (other wallets return full outputs without `amount`, or refuse).
+ * Throws when the player says no, so the caller can tell them.
+ */
+export async function listedTokenCoins(wallet: WalletInterface, tokenId: string): Promise<SiteCoin[] | null> {
+  const out: SiteCoin[] = [];
+  for (let offset = 0; offset < 20_000; offset += 1000) {
+    let r: { outputs: { outpoint: string; spendable?: boolean; amount?: string }[] };
+    try {
+      r = (await wallet.listOutputs({ basket: 'bsv21', tags: [`bsv21:${tokenId}`], limit: 1000, offset })) as never;
+    } catch (e) {
+      if (/You said no/i.test(String((e as Error)?.message ?? e))) throw e;
+      return offset ? out : null;
+    }
+    if (r.outputs.length && r.outputs.some((o) => typeof o.amount !== 'string')) return null; // not the bWalletX shape
+    for (const o of r.outputs) if (o.spendable !== false && BigInt(o.amount!) > BigInt(0)) out.push({ outpoint: o.outpoint.replace('.', '_'), amt: BigInt(o.amount!) });
+    if (r.outputs.length < 1000) break;
+  }
+  return out.sort((a, b) => (b.amt > a.amt ? 1 : -1));
+}
+
+export const ORDINAL_RECEIVE: WalletProtocol = [1, 'bwalletx ordinal receive'];
+
+/** The image types bWalletX takes into `1sat` as an ordinal (1 byte to 1 MB). */
+export const ORDINAL_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/avif'];
+export const ordinalOk = (contentType: string, size: number) => ORDINAL_TYPES.includes(contentType) && size >= 1 && size <= 1_000_000;
+
+/**
+ * A wallet-picked key for a deploy ('deploy') or an image ordinal ('ordinal'). Returns null for
+ * wallets that do not pick keyIDs (callers keep their old path).
+ */
+export async function walletPickedKey(wallet: WalletInterface, kind: 'deploy' | 'ordinal'): Promise<{ keyID: string; address: string } | null> {
+  try {
+    const r = (await wallet.getPublicKey({ protocolID: kind === 'deploy' ? RECEIVE : ORDINAL_RECEIVE, keyID: kind, counterparty: 'self' })) as { publicKey: string; keyID?: string };
+    if (typeof r.keyID !== 'string' || !r.keyID.startsWith(`${kind}-`)) return null;
+    return { keyID: r.keyID, address: PublicKey.fromString(r.publicKey).toAddress() };
+  } catch {
+    return null;
+  }
+}

@@ -62,6 +62,35 @@ export function matchesPlan(tx: Transaction, plan: Pick<TradePlan, 'inputs' | 'o
   return { ok: true };
 }
 
+/**
+ * Every extra input/output must leave this coin's tokens alone (except the seller's own).
+ * The wallet's signable/signed AtomicBEEF carries the raw source tx of every input (bWalletX
+ * includes its own token inputs), so each seller coin's script is read from its real source.
+ */
+export type TokenPlan = Pick<TradePlan, 'inputs' | 'outputs' | 'side' | 'tokenId'> & { sellerCoins: string[]; allowedTokenOut: string };
+export function checkTokens(tx: Transaction, plan: TokenPlan): string | null {
+  for (let i = plan.inputs.length; i < tx.inputs.length; i++) {
+    const inp = tx.inputs[i];
+    const src = inp.sourceTransaction?.outputs[inp.sourceOutputIndex];
+    const op = `${inp.sourceTXID ?? inp.sourceTransaction?.id('hex')}_${inp.sourceOutputIndex}`;
+    const j = src ? bsv20Json(src.lockingScript.toHex()) : null;
+    const carries = j && (j.id === plan.tokenId || (j.op === 'deploy+mint' && op === plan.tokenId));
+    if (carries && !plan.sellerCoins.includes(op)) return 'The transaction spends tokens it was not quoted for.';
+    if (!src && plan.sellerCoins.includes(op)) return 'Missing history for your token coin.';
+  }
+  let extra = BigInt(0);
+  for (let i = plan.outputs.length; i < tx.outputs.length; i++) {
+    const j = bsv20Json(tx.outputs[i].lockingScript.toHex());
+    if (j?.id === plan.tokenId) extra += BigInt(j.amt ?? 0);
+  }
+  if (extra > BigInt(plan.allowedTokenOut)) return 'The transaction sends more of this coin than it spends.';
+  if (plan.side === 'sell') {
+    const spent = plan.sellerCoins.filter((c) => tx.inputs.some((inp) => `${inp.sourceTXID ?? inp.sourceTransaction?.id('hex')}_${inp.sourceOutputIndex}` === c));
+    if (spent.length !== plan.sellerCoins.length) return 'Your token coins are missing from the transaction.';
+  }
+  return null;
+}
+
 /** The launch message the creator signs: everything that can never change about the coin. */
 export function launchMessage(c: {
   slot: string;

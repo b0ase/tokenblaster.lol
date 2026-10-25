@@ -14,6 +14,7 @@ import { inscriptionScript } from './inscribe';
 import { bsv21 } from './gun';
 import { noteFor, ourSpends, pickCoins, stampIds, tokenChange } from './tokenLoad';
 import { ONESAT, receiveKey, receiveNote } from './siteTokens';
+import { deployToWallet, imageOrdinalOutput } from './walletDeploy';
 import type { AmmoDef } from './ammo';
 
 export const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
@@ -57,20 +58,21 @@ export async function inscribeAmmoIcon(wallet: WalletInterface, def: AmmoDef): P
   const res = await fetch(png);
   if (!res.ok) throw new Error(`Could not load ${png}`);
   const data = Array.from(new Uint8Array(await res.arrayBuffer()));
-  const keyID = `ammo-icon-${def.sym}`;
-  const to = await freshAddress(wallet, keyID);
+  const file = { contentType: 'image/png', data };
+  const output = await imageOrdinalOutput(wallet, file, `$${def.sym} icon`, async () => {
+    const keyID = `ammo-icon-${def.sym}`;
+    return {
+      lockingScript: inscriptionScript(await freshAddress(wallet, keyID), file, { app: 'tokenblaster.lol', type: 'ord', name: `${def.sym} icon` }).toHex(),
+      satoshis: 1,
+      outputDescription: `$${def.sym} icon`,
+      basket: '1sat',
+      customInstructions: JSON.stringify({ protocolID: ONESAT, keyID, counterparty: 'self' }),
+      tags: ['ammo', `ammo:${def.sym}`],
+    };
+  });
   const r = await wallet.createAction({
     description: `Inscribe the $${def.sym} ammo icon`,
-    outputs: [
-      {
-        lockingScript: inscriptionScript(to, { contentType: 'image/png', data }, { app: 'tokenblaster.lol', type: 'ord', name: `${def.sym} icon` }).toHex(),
-        satoshis: 1,
-        outputDescription: `$${def.sym} icon`,
-        basket: '1sat',
-        customInstructions: JSON.stringify({ protocolID: ONESAT, keyID, counterparty: 'self' }),
-        tags: ['ammo', `ammo:${def.sym}`],
-      },
-    ],
+    outputs: [output],
     labels: ['tokenblaster', 'ammo'],
     options: { randomizeOutputs: false },
   });
@@ -81,29 +83,11 @@ export async function inscribeAmmoIcon(wallet: WalletInterface, def: AmmoDef): P
 
 /** Deploy+mint the ammo token with its whole supply to the owner's wallet. Returns the token id. */
 export async function deployAmmo(wallet: WalletInterface, def: AmmoDef, iconOutpoint: string): Promise<string> {
-  const keyID = `ammo-${def.sym}-${Date.now()}`;
-  const to = await freshAddress(wallet, keyID);
-  const lock = BSV21.deployMint(def.sym, def.supply, def.dec, iconOutpoint || undefined).lock(new P2PKH().lock(to));
-  const r = await wallet.createAction({
-    description: `Deploy the $${def.sym} ammo token (${def.supply.toLocaleString()} rounds) to your wallet`,
-    outputs: [
-      {
-        lockingScript: lock.toHex(),
-        satoshis: 1,
-        outputDescription: `$${def.sym} ammo: deploy+mint`,
-        basket: 'bsv21',
-        // The id is this output's own outpoint, unknown until the txid exists: the wallet note is
-        // written after (reNote below if the wallet needs it). tokenCoins also reads deploy outputs.
-        customInstructions: JSON.stringify({ op: 'deploy+mint', sym: def.sym, amt: def.supply.toString(), dec: String(def.dec), icon: iconOutpoint, protocolID: ONESAT, keyID, counterparty: 'self' }),
-        tags: ['ammo', `ammo:${def.sym}`],
-      },
-    ],
-    labels: ['tokenblaster', 'ammo'],
-    options: { randomizeOutputs: false },
-  });
-  const txid = txidOf(r);
-  if (!txid) throw new Error('The wallet did not report a txid.');
-  return `${txid}_0`;
+  return deployToWallet(
+    wallet,
+    { sym: def.sym, supply: def.supply, dec: def.dec, icon: iconOutpoint || undefined, description: `Deploy the $${def.sym} ammo token (${def.supply.toLocaleString()} rounds) to your wallet`, labels: ['tokenblaster', 'ammo'], tags: ['ammo', `ammo:${def.sym}`] },
+    (keyID) => freshAddress(wallet, keyID),
+  );
 }
 
 // ── Owner: list a pack ──────────────────────────────────────────────────────
