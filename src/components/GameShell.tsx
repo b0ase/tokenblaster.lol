@@ -6,6 +6,7 @@ import { FullscreenButton, LeaderboardButton, SoundButton, WalletBar, menuRowCla
 import { BackIcon } from '@/components/walletbar/icons';
 import { SiteLogo } from '@/components/SiteNav';
 import { CoinOpGate } from '@/components/coinop/CoinOpGate';
+import { GoLiveButton } from '@/components/GoLiveButton';
 import { GameShellContext, canElementFullscreen, isMobileish, readAutoFullscreen, writeAutoFullscreen, type GameShellApi } from '@/lib/useGameFullscreen';
 
 /** Buttons that start a run: pressing one (a user gesture) is when we ask for true fullscreen. */
@@ -28,8 +29,9 @@ const subNothing = () => () => undefined;
 /**
  * `game`: the coin-op slug (src/lib/coinop/credit.ts PLAY_PRICE_USD). With it, the stage starts behind the coin-op
  * gate (no free play, owner 24 Oct 2026). The Shooting Gallery passes none: its loadout is its own cabinet.
+ * `liveTicker`: the token room this game streams into (GO LIVE, src/lib/goLive.ts), e.g. 'TERRORNODE'.
  */
-export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, lock = false, children }: { title: string; game?: string; back?: string; backLabel?: string; below?: ReactNode; lock?: boolean; children: ReactNode }) {
+export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, lock = false, liveTicker, children }: { title: string; game?: string; liveTicker?: string; back?: string; backLabel?: string; below?: ReactNode; lock?: boolean; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [fs, setFs] = useState(false);
   const auto = useSyncExternalStore(subAuto, readAutoFullscreen, () => true);
@@ -115,6 +117,7 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
                   <Link href={back} className={roundBtn} aria-label={`Back to ${backLabel.toLowerCase()}`} title={`Back to ${backLabel.toLowerCase()}`}>
                     <BackIcon size={16} />
                   </Link>
+                  {liveTicker && <GoLiveButton ticker={liveTicker} root={root} />}
                   <LeaderboardButton />
                   <SoundButton />
                   {canFs && <FullscreenButton on={fs} onToggle={() => (fs ? exit() : enter())} />}

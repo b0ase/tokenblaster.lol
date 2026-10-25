@@ -173,6 +173,19 @@ export function sharedAudio(): { ctx: AudioContext; out: AudioNode } | null {
   return c ? { ctx: c, out: sfxBus } : null;
 }
 
+/** GO LIVE (src/lib/goLive.ts): the game's mixed sound (sfx + music) as a MediaStream to publish. Null until audio exists. */
+let liveTap: MediaStreamAudioDestinationNode | null = null;
+export function gameAudioStream(): MediaStream | null {
+  installAudio();
+  const c = ensureCtx();
+  if (!c) return null;
+  if (!liveTap) {
+    liveTap = c.createMediaStreamDestination();
+    master.connect(liveTap);
+  }
+  return liveTap.stream;
+}
+
 let tapNode: AnalyserNode | null = null;
 /** For visuals that move with the music: an analyser on the music buses (null until the audio context exists). */
 export function musicAnalyser(): AnalyserNode | null {
