@@ -76,6 +76,8 @@ import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit'
 const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
 const FALLBACK_USD = 17.4;
 const PREFS = 'tb:gallery-prefs';
+/** Trigger held this long with rounds queued and none sent: the gun shows JAMMED (ms). */
+const JAM_MS = 6000;
 const TUNING_FLOW = TUNING.stageFlow;
 const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before the clock is read
 
@@ -296,6 +298,17 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   }, [bought]);
   const lastSent = useRef(0);
   const sendErrors = useRef(0);
+  /** Storm-session restarts since rounds last landed. */
+  const tries = useRef(0);
+  /** The stream sender gave up (3 failed restarts): it needs RELOAD. Never shown on its own, see the jam watch. */
+  const senderDead = useRef(false);
+  /** When the trigger went down (0 = up): the jam watch only counts time with the trigger held. */
+  const heldSince = useRef(0);
+  /**
+   * JAMMED (owner, 25 Oct): only when the trigger has been held for JAM_MS with rounds queued and NOT ONE round
+   * sent or accepted in that time. It clears itself the moment a round lands. It used to latch on a count of
+   * old errors and stay up while the gun kept firing.
+   */
   const [jammed, setJammed] = useState(false);
   const [queueNote, setQueueNote] = useState(false);
 
@@ -308,6 +321,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       // A sender round can run a few rounds ahead of the trigger: those count as fired too.
       if (sentRef.current > firedRef.current) firedRef.current = sentRef.current;
       lastAccept.current = lastSent.current = performance.now();
+      tries.current = 0;
+      setJammed(false); // rounds are flowing: never jammed
       setRun((r) => ({ ...r, sent: sentRef.current, last: txid ?? r.last, started: r.started || Date.now() }));
     },
     [setRun],
@@ -342,6 +357,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // Bursts (shotguns, launchers): every pull fires at once and queues its rounds.
   useEffect(() => {
     triggerRef.current = (down: boolean) => {
+      if (down && !held.current) heldSince.current = performance.now();
+      if (!down) heldSince.current = 0;
       held.current = down;
       if (down) unlockAudio();
     };
@@ -369,7 +386,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     if (!dry || mode !== 'live') return;
     const qs = new URLSearchParams(location.search);
     const rate = Number(qs.get('sendrate') ?? 600) || 600;
-    const failP = Number(qs.get('sendfail') ?? 0.25);
+    const failP = Number(qs.get('sendfail') ?? 0); // practice never fakes a bad network unless asked (?sendfail=)
     const stallMs = Number(qs.get('stallms') ?? 2500);
     let stallUntil = 0;
     let lastRoll = 0;
@@ -407,11 +424,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           chainN.current += txids.length;
           landed(txids.length, txids[txids.length - 1] ?? null);
           backoff = 0;
+          sendErrors.current = 0;
         } catch (e) {
           sendErrors.current++;
           backoff = Math.min(8000, backoff ? backoff * 2 : 500);
           console.warn('[tb-fire] batch failed, retrying', e);
-          if (sendErrors.current >= 12) setJammed(true);
           await new Promise((r) => setTimeout(r, backoff));
         }
       }
@@ -426,7 +443,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const sessionAlive = useRef(false);
   const reloadRef = useRef<() => Promise<void>>(async () => undefined);
   const sessionRef = useRef<(rounds: number) => void>(() => undefined);
-  const tries = useRef(0);
   /** Each storm session's number: a finished old session never touches the new one's state. */
   const sessionGen = useRef(0);
   useEffect(() => {
@@ -465,7 +481,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           console.info(`[tb-fire] session ${gen} ended`);
           const left = boughtRef.current - sentRef.current;
           if (stop.current || left <= 0 || modeRef.current !== 'live') return;
-          if (++tries.current > 3) return setJammed(true);
+          if (++tries.current > 3) return void (senderDead.current = true);
           void reloadRef.current();
         });
     };
@@ -477,18 +493,21 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       if (left <= 0) return;
       try {
         if (!dry) await b.prepareStorm(left, perShot);
-        setJammed(false);
+        senderDead.current = false;
         if (!dry) sessionRef.current(left);
       } catch (e) {
         console.warn('[tb-fire] reload failed', e);
-        setJammed(true);
+        senderDead.current = true;
       }
     };
   });
 
-  // Queue note + [tb-fire] timing logs.
+  // Queue note, the jam watch + [tb-fire] timing logs.
+  const liveSince = useRef(0);
+  const reloading = useRef(false);
   useEffect(() => {
     if (mode !== 'live') return;
+    liveSince.current = performance.now();
     let prevSent = sentRef.current;
     let tLog = performance.now();
     const i = setInterval(() => {
@@ -496,6 +515,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       const q = firedRef.current - sentRef.current;
       const behind = q > 0 && (q > 1500 || t - lastSent.current > 3000);
       setQueueNote((v) => (v === behind ? v : behind));
+      // the jam watch: trigger held JAM_MS, rounds queued, nothing sent in that whole window
+      const since = Math.max(heldSince.current, lastSent.current, liveSince.current);
+      const jam = held.current && heldSince.current > 0 && q > 0 && t - since > JAM_MS;
+      setJammed((v) => (v === jam ? v : jam));
+      if (jam && senderDead.current && !reloading.current) {
+        // the sender gave up: try one quiet reload by itself before asking
+        reloading.current = true;
+        void reloadRef.current().finally(() => (reloading.current = false));
+      }
       if (t - tLog >= 2000) {
         const rate = Math.round(((sentRef.current - prevSent) * 1000) / (t - tLog));
         console.info(`[tb-fire] queue ${q} · sent/s ${rate} · sent ${sentRef.current} · fired ${firedRef.current} · loaded ${boughtRef.current} · errors ${sendErrors.current}`);
@@ -837,6 +865,18 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     window.location.assign(INFO_URL);
   };
 
+  // While JAMMED, R reloads the sender (works while pointer-locked, where no button can be clicked).
+  useEffect(() => {
+    const kd = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyR' || e.repeat || loadout) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (jammed && modeRef.current === 'live') void reloadRef.current();
+    };
+    window.addEventListener('keydown', kd);
+    return () => window.removeEventListener('keydown', kd);
+  }, [loadout, jammed]);
+
   // No key scrolls the page while you play (owner, 25 Oct): swallow the scroll keys unless you are typing.
   useEffect(() => {
     const SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End']);
@@ -965,12 +1005,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             Rounds are queueing, the network is catching up.
           </div>
         )}
-        {jammed && !loadout && !over && (
-          <div className="absolute inset-x-0 top-1/3 z-20 flex justify-center px-4" role="alert">
-            <div className="tbx-glass tbx-pop flex flex-col items-center gap-3 px-6 py-4 text-center">
-              <p className="text-lg font-bold text-white">Your gun jammed. Your rounds are safe, press RELOAD.</p>
-              <button type="button" data-fs-skip onClick={() => { tries.current = 0; sendErrors.current = 0; void reloadRef.current(); }} className="tbx-btn tbx-btn-red !min-h-[48px] !px-7 !text-base">
-                <Icon name="refresh" size={16} /> Reload
+        {/* JAMMED: a small screen-fixed toast, never a modal (owner, 25 Oct: the old box could not be reached while
+            pointer-locked and stayed after the gun recovered). R reloads from the keyboard; ESC frees the mouse. */}
+        {jammed && mode === 'live' && !loadout && !over && (
+          <div className="pointer-events-none fixed inset-x-0 top-[72px] z-[60] flex justify-center px-4" role="status" aria-live="polite" data-jam-toast>
+            <div className="tbx-glass tbx-pop pointer-events-auto flex items-center gap-3 rounded-full px-4 py-2 text-sm" style={{ borderColor: 'var(--tbx-red)' }}>
+              <Icon name="refresh" size={16} className="shrink-0 text-[var(--tbx-red)]" />
+              <span className="font-semibold text-white">No rounds getting through. Your rounds are safe.</span>
+              <button type="button" data-fs-skip onClick={() => void reloadRef.current()} className="tbx-btn tbx-btn-red !min-h-[32px] !px-3 !py-1 !text-xs">
+                RELOAD <kbd className="ml-1 rounded bg-black/40 px-1 font-mono">R</kbd>
               </button>
             </div>
           </div>
