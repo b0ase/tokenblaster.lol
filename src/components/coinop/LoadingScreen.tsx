@@ -28,7 +28,7 @@ export type LoadState =
 
 export type LoadShot = { src: string; beat: string; focus?: string; pos?: string; caption?: string };
 export type LoadBeat = { id: string; title: string; line: string; focus?: string };
-export type LoadCharacter = { id: string; name: string; role: string; bio: string; threat: string; colour: string; portrait: string; kind: string };
+export type LoadCharacter = { id: string; name: string; role: string; bio: string; threat: string; colour: string; portrait?: string; kind: string };
 
 function statusText(s: LoadState) {
   switch (s.kind) {
@@ -133,7 +133,7 @@ export function LoadingScreen({
     playMusic(track);
   }, [track]);
 
-  const have = useExisting([...shots.map((s) => s.src), ...characters.map((c) => c.portrait)]);
+  const have = useExisting([...shots.map((s) => s.src), ...characters.map((c) => c.portrait ?? '')]);
   const live = useMemo(() => shots.filter((s) => have.has(s.src)), [shots, have]);
 
   const failed = state.kind === 'failed';
@@ -233,10 +233,10 @@ export function LoadingScreen({
                 {who && (
                   <div key={`who${who.id}${i}`} className="tbx-in-r w-full lg:max-w-[460px]">
                     <div className="hidden sm:block">
-                      <CharacterCard c={who} portrait={have.has(who.portrait)} />
+                      <CharacterCard c={who} portrait={!!who.portrait && have.has(who.portrait)} />
                     </div>
                     <div className="sm:hidden">
-                      <CharacterCard c={who} portrait={have.has(who.portrait)} compact />
+                      <CharacterCard c={who} portrait={!!who.portrait && have.has(who.portrait)} compact />
                     </div>
                   </div>
                 )}

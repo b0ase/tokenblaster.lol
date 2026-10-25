@@ -20,7 +20,16 @@ export function GunKeyNote({ className = 'text-xs text-dim' }: { className?: str
 
 export function GunUnload({ b, disabled = false, className = '' }: { b: Blaster; disabled?: boolean; className?: string }) {
   const [asking, setAsking] = useState(false);
-  if (!b.wallet) return null;
+  // No wallet yet: show the control disabled with a hint, so copy that mentions UNLOAD always has a button to point at.
+  if (!b.wallet)
+    return (
+      <div className={`flex flex-col gap-1 ${className}`} data-gun-unload>
+        <button type="button" className="btn px-2 py-0.5 text-xs font-bold" disabled>
+          UNLOAD to my wallet
+        </button>
+        <span className="text-[10px] text-dim">Connect your wallet with LOCK &amp; LOAD first.</span>
+      </div>
+    );
   const toks = b.gunTokens.filter((t) => t.amt > BigInt(0));
   const empty = !toks.length && b.ammo <= 0;
   const busy = b.busy === 'unloading';
