@@ -33,6 +33,20 @@ type Mob = {
   odd: boolean;
   acc: number;
   tint: { value: number };
+  /** EXPERIMENT (?fused=1): an Arena monster silhouette in Erobot skin (pink chrome, glossy, a hot rim). */
+  fused: boolean;
+};
+
+/**
+ * FUSED VARIANTS, behind `?fused=1`: the Arena monsters' silhouettes (raptor, zombie warrior) re-skinned as
+ * Erobots: pink chrome, glossy, a magenta Fresnel rim and cyan seams. Built as extra bodies in the pool and
+ * spawned at a low share (FUSED.chance), so the stock swarm is unchanged with the flag off.
+ */
+const FUSED = {
+  on: typeof location !== 'undefined' && new URLSearchParams(location.search).get('fused') === '1',
+  kinds: ['raptor', 'zombiewarrior'] as readonly string[],
+  perKind: 2,
+  chance: 0.12,
 };
 export type HordeHit = { mob: Mob; point: THREE.Vector3; dist: number };
 
@@ -85,7 +99,9 @@ export class Horde {
       const g = i >= 0 ? gl[i] : null;
       if (!g) return;
       const n = this.opts.high ? k.pool : Math.max(1, Math.ceil(k.pool * H.lowPool));
-      for (let j = 0; j < n; j++) {
+      const nf = FUSED.on && FUSED.kinds.includes(k.id) ? FUSED.perKind : 0;
+      for (let j = 0; j < n + nf; j++) {
+        const fused = j >= n;
         const m = new Monster(defs[i], g);
         const tint = { value: 0 };
         m.root.traverse((o) => {
@@ -95,13 +111,22 @@ export class Horde {
           const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
           const out = mats.map((mt) => {
             const c = (mt as THREE.MeshStandardMaterial).clone();
+            if (fused && 'emissive' in c) {
+              // Erobot skin: keep the texture's light and dark as relief, push it pink and mirror-glossy
+              c.color.set('#ff6fb8');
+              c.metalness = 0.85;
+              c.roughness = 0.22;
+              c.envMapIntensity = 1.6;
+            }
             if ('emissive' in c) {
+              const rim = fused ? '\nfloat fr = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 2.5);\ntotalEmissiveRadiance += vec3(1.0, 0.18, 0.62) * fr * 1.4;' : '';
               c.onBeforeCompile = (sh) => {
                 sh.uniforms.uHit = tint;
                 sh.fragmentShader = sh.fragmentShader
                   .replace('#include <common>', '#include <common>\nuniform float uHit;')
-                  .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.42, 0.12) * uHit * 1.6;');
+                  .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.42, 0.12) * uHit * 1.6;' + rim);
               };
+              if (fused) c.customProgramCacheKey = () => 'erobot-fused';
             }
             return c;
           });
@@ -109,13 +134,17 @@ export class Horde {
         });
         m.root.visible = false;
         this.group.add(m.root);
-        this.mobs.push({ m, kind: k, state: 'off', t: 0, hp: 0, size: 1, speed: 1, stopZ: -3, aimX: 0, swing: 0, odd: j % 2 === 0, acc: 0, tint });
+        this.mobs.push({ m, kind: k, state: 'off', t: 0, hp: 0, size: 1, speed: 1, stopZ: -3, aimX: 0, swing: 0, odd: j % 2 === 0, acc: 0, tint, fused });
       }
     });
   }
 
   /** Pick a kind by weight among the ones with a free body. */
   private pick(): Mob | null {
+    if (FUSED.on && Math.random() < FUSED.chance) {
+      const f = this.mobs.find((m) => m.fused && m.state === 'off');
+      if (f) return f;
+    }
     let total = 0;
     for (const k of TUNING.horde.kinds) total += k.weight;
     for (let tries = 0; tries < 4; tries++) {
@@ -128,10 +157,10 @@ export class Horde {
           break;
         }
       }
-      const free = this.mobs.find((m) => m.state === 'off' && m.kind.id === kind.id);
+      const free = this.mobs.find((m) => m.state === 'off' && !m.fused && m.kind.id === kind.id);
       if (free) return free;
     }
-    return this.mobs.find((m) => m.state === 'off') ?? null;
+    return this.mobs.find((m) => m.state === 'off' && !m.fused) ?? null;
   }
 
   private spawn(mob: Mob) {
