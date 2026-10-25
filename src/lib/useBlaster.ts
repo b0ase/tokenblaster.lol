@@ -9,11 +9,16 @@ import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } f
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { connect, fund, walletAlive, type Wallet } from './wallet';
+import { connect, fund, walletAlive, walletHeld, type Wallet } from './wallet';
 import { setProofWallet } from './xproof';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
 
-export function useBlaster() {
+/**
+ * `tokens: false` (Assault on Terrornode): the page never reads the wallet's token baskets. Those reads are what
+ * opened basket-permission sheets at connect, after the payment and on every tab refocus mid-play (playtest 25 Oct).
+ */
+export function useBlaster(opts: { tokens?: boolean } = {}) {
+  const readTokens = opts.tokens !== false;
   const gun = useRef<Gun | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   // The hall of fame asks this wallet to sign for the player's X handle (src/lib/xproof.ts).
@@ -90,6 +95,7 @@ export function useBlaster() {
         setTokens(held);
         setToken((cur) => (cur && held.some((t) => t.id === cur.id) ? held.find((t) => t.id === cur.id)! : (held[0] ?? null)));
       };
+      if (!readTokens) return;
       void checkStranded(w);
       walletTokens(w, first)
         .then((held) => {
@@ -102,7 +108,7 @@ export function useBlaster() {
     } finally {
       setBusy(null);
     }
-  }, [checkStranded]);
+  }, [checkStranded, readTokens]);
 
   /** Inside bWallet: its wallet, no chooser. Else the remembered wallet, else the chooser. */
   const connectWallet = useCallback(async () => {
@@ -134,7 +140,7 @@ export function useBlaster() {
   useEffect(() => {
     if (!wallet) return;
     const t = setInterval(() => {
-      if (!busy) void checkWallet();
+      if (!busy && !walletHeld()) void checkWallet();
     }, 20_000);
     return () => clearInterval(t);
   }, [wallet, busy, checkWallet]);
@@ -362,11 +368,11 @@ export function useBlaster() {
   }, [wallet, checkStranded]);
   // Coming back to the tab (e.g. after buying tokens elsewhere): look again.
   useEffect(() => {
-    if (!wallet) return;
-    const onFocus = () => document.visibilityState === 'visible' && void refreshWallet();
+    if (!wallet || !readTokens) return;
+    const onFocus = () => document.visibilityState === 'visible' && !walletHeld() && void refreshWallet();
     document.addEventListener('visibilitychange', onFocus);
     return () => document.removeEventListener('visibilitychange', onFocus);
-  }, [wallet, refreshWallet]);
+  }, [wallet, refreshWallet, readTokens]);
 
   /** What's in the gun right now: tokens by id (for the Wallet → Gun → Fired strip). */
   const [gunTokens, setGunTokens] = useState<{ id: string; amt: bigint }[]>([]);

@@ -19,6 +19,18 @@ export const inBwallet = () =>
  * call to a wallet goes through one queue per wallet object.
  */
 const queues = new WeakMap<object, { tail: Promise<unknown>; inFlight: number }>();
+
+/**
+ * PLAY GUARD (owner playtest, 25 Oct 2026: wallet sheets kept opening mid-fire). While a paid round is live the
+ * gun signs every bullet with its own in-browser key, so nothing may ask the wallet anything: any call through a
+ * connected wallet is refused here, before it reaches the extension, and a dev-console warning names the caller.
+ */
+let playHeld = false;
+export const WALLET_HELD = 'WALLET_HELD_DURING_PLAY';
+export const holdWalletForPlay = (on: boolean) => {
+  playHeld = on;
+};
+export const walletHeld = () => playHeld;
 export const walletBusy = (client: object) => (queues.get(client)?.inFlight ?? 0) > 0;
 export function serialised(client: WalletInterface): WalletInterface {
   const q = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0 };
@@ -28,6 +40,11 @@ export function serialised(client: WalletInterface): WalletInterface {
       const v = Reflect.get(target, prop, recv);
       if (typeof v !== 'function') return v;
       return (...args: unknown[]) => {
+        if (playHeld) {
+          if (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_TB_ADMIN === '1')
+            console.warn(`[tokenblaster] wallet.${String(prop)} refused: a round is live (no wallet prompts during play)`, new Error().stack);
+          return Promise.reject(new Error(WALLET_HELD));
+        }
         q.inFlight++;
         const run = q.tail.then(() => (v as (...a: unknown[]) => unknown).apply(target, args));
         q.tail = run.catch(() => undefined).finally(() => q.inFlight--);
@@ -60,7 +77,7 @@ export async function fund(w: Wallet, address: string, sats: number, description
   const req = w.client.createAction({
     description,
     outputs: [{ lockingScript: new P2PKH().lock(address).toHex(), satoshis: sats, outputDescription: description }],
-    labels: ['tokenblaster'],
+    // No labels: a BRC-100 wallet asks permission for every new label, an extra sheet before the payment (playtest 25 Oct).
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
   });
   paying = req;
@@ -91,6 +108,7 @@ export function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<
  * on a timeout or error we retry ONCE after a short pause before calling the wallet gone (bWalletX advice, 24 Oct).
  */
 export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean> {
+  if (playHeld) return true; // a round is live: never touch the wallet, assume it is still there
   if (walletBusy(w.client)) return true; // a request is open in the wallet: it is alive, just waiting on the player
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

@@ -25,6 +25,7 @@ import { TxMeter } from '@/lib/txMeter';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
+import { holdWalletForPlay } from '@/lib/wallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, skipTrack, unlockAudio } from '@/lib/sfx';
@@ -96,7 +97,7 @@ function simTick(s: Sim, dt: number) {
 const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
 
 export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
-  const b = useBlaster();
+  const b = useBlaster({ tokens: false }); // sats ammo only: no token-basket reads, so no basket sheets
   const { storm, fireBatch } = b;
   const [name, setName] = usePlayerName();
   // The NAME typed at the cabinet is the on-chain handle tag and the board name.
@@ -106,7 +107,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     const all = buildWeapons();
     return ASSAULT_GUNS.map((id) => all.find((w) => w.id === id)).filter((w): w is RangeWeapon => !!w);
   }, []);
-  const { owned } = useOrdnance(b.wallet);
+  const { owned } = useOrdnance(b.wallet, [], 0, false); // chain index only: never asks the wallet
   const [dry, setDry] = useState(false);
   const [autofire, setAutofire] = useState(false);
   const [weaponId, setWeaponId] = useState('minigun');
@@ -265,6 +266,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [fired, setFired] = useState(0);
   const modeRef = useRef<'off' | 'warm' | 'live'>('off');
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
+  // Zero wallet prompts during play: from warm-up to the end of the round nothing may reach the wallet (src/lib/wallet.ts).
+  useEffect(() => {
+    holdWalletForPlay(mode !== 'off');
+    return () => holdWalletForPlay(false);
+  }, [mode]);
   // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
   useEffect(() => {
     const e = engine.current;

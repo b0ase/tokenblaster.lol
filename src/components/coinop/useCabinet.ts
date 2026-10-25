@@ -93,6 +93,8 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     setStageText(`Checking ${b.wallet.name} is connected…`);
     setApproveSince(Date.now());
     loadMark(`pay: ${fmtCredit(pending)} via ${b.wallet.name}`);
+    // Say what the one wallet sheet is before it opens (owner, 25 Oct: players had no idea why the wallet asked).
+    setStageText(`Approve this once in ${b.wallet.name}: ${fmtCredit(pending)} loads your gun. It is the only wallet approval: nothing asks again while you play.`);
     const res = await b.load(sats, `${label}: ${pending.toFixed(2)} USD credit`);
     setApproveSince(null);
     if (res !== 'ok') {

@@ -118,7 +118,8 @@ export const saveOrdinalAddresses = (a: string[]) => {
 };
 
 /** Owned weapon ids for a connected wallet (plus any ordinals addresses the player added). */
-export function useOrdnance(wallet: { client: WalletInterface; address: string } | null, extraAddresses: string[] = [], nonce = 0) {
+/** `walletBaskets: false` checks the chain index only and never asks the wallet (its ordinal baskets each open a permission sheet). */
+export function useOrdnance(wallet: { client: WalletInterface; address: string } | null, extraAddresses: string[] = [], nonce = 0, walletBaskets = true) {
   const [owned, setOwned] = useState<Set<string>>(() => new Set());
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +140,7 @@ export function useOrdnance(wallet: { client: WalletInterface; address: string }
       setError(null);
       const all = new Set<string>();
       const results = await Promise.allSettled([
-        wallet ? ordnanceInWallet(wallet.client) : Promise.resolve(new Set<string>()),
+        wallet && walletBaskets ? ordnanceInWallet(wallet.client) : Promise.resolve(new Set<string>()),
         ordnanceAtAddresses([wallet?.address ?? '', ...extraKey.split(',')]),
       ]);
       for (const r of results) if (r.status === 'fulfilled') r.value.forEach((id) => all.add(id));
@@ -151,6 +152,6 @@ export function useOrdnance(wallet: { client: WalletInterface; address: string }
     return () => {
       cancelled = true;
     };
-  }, [wallet, extraKey, nonce]);
+  }, [wallet, extraKey, nonce, walletBaskets]);
   return { owned, checking, error };
 }
