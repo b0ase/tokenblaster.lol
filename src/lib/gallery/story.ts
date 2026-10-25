@@ -293,7 +293,7 @@ export const BRIEFING = {
     'Clear the Erobots to move up a stage. In the server core, sustained fire on the core jams the whole tower.',
     'The Liquid Unit is pushed back by sustained fire. Stop and it closes in fast. Erobots shoot and swing: keep the gun moving.',
     'Smash the glass, drop the racks and clear the Erobots for points.',
-    'Unused credit stays in your gun, or press UNLOAD to send it back to your wallet.',
+    'Unused credit stays in your gun, or press UNLOAD to take it back.',
   ],
 } as const;
 
