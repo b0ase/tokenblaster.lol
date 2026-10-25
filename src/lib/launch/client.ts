@@ -30,7 +30,8 @@ async function freshTokenKey(wallet: WalletInterface, id: string) {
 export type LaunchForm = { sym: string; name: string; description: string; route: Route; image: { bytes: Uint8Array; type: string } };
 
 /** Launch a coin. Returns its token id. */
-export async function launchCoin(w: Wallet, f: LaunchForm): Promise<string> {
+/** `paymail`: the connected wallet's paymail if known; the server keeps it only if the signing key's lookup lists it. */
+export async function launchCoin(w: Wallet, f: LaunchForm, paymail?: string): Promise<string> {
   const imageSha256 = await sha256hex(f.image.bytes);
   const base = { sym: f.sym, name: f.name, description: f.description, route: f.route, creator: w.address, creatorKey: w.publicKey, imageSha256, imageType: f.image.type };
   const p = await post<{ slot: string; tokenAddress: string; message: string; house: string; launchFee: number; indexAddress: string; indexFund: number }>('/api/launch/new', { step: 'prepare', ...base });
@@ -50,7 +51,7 @@ export async function launchCoin(w: Wallet, f: LaunchForm): Promise<string> {
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
   });
   if (!r.tx) throw new Error('The wallet returned no transaction.');
-  const done = await post<{ token: string }>('/api/launch/new', { step: 'commit', ...base, slot: p.slot, signature: Utils.toHex(signature), tx: Utils.toHex(r.tx) });
+  const done = await post<{ token: string }>('/api/launch/new', { step: 'commit', ...base, paymail, slot: p.slot, signature: Utils.toHex(signature), tx: Utils.toHex(r.tx) });
   return done.token;
 }
 

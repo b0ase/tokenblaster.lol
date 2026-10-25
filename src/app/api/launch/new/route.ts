@@ -12,6 +12,7 @@ import { INDEX_LAUNCH, LAUNCH_FEE, SUPPLY } from '@/lib/launch/curve';
 import { bsv20Json, launchMessage, p2pkh, validRoute } from '@/lib/launch/shape';
 import { HOUSE, broadcast, compactBeef, configured, poolAddress, rpc } from '@/lib/launch/server';
 import { forwardIndexFund } from '@/lib/launch/vault';
+import { launchPaymail } from '@/lib/launch/launchedBy';
 
 export const dynamic = 'force-dynamic';
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
@@ -71,6 +72,8 @@ export async function POST(req: Request) {
         throw new Error('The 0.1 BSV index fund is missing (reload the page: BlastPad was updated).');
       await broadcast(tx); // the wallet normally sent it already; this is idempotent
       const txid = tx.id('hex');
+      // Who funded it, by name: the signing key's paymail (the client's claimed one only if the key's lookup lists it).
+      const paymail = await launchPaymail(f.creatorKey, b.paymail).catch(() => null);
 
       await rpc('tokenblaster_launch_create', {
         p_row: {
@@ -84,6 +87,7 @@ export async function POST(req: Request) {
           route: f.route,
           launch_msg: message,
           launch_sig: sig,
+          launch_paymail: paymail,
           token_address: addrs.tokenAddress,
           reserve_address: addrs.reserveAddress,
           vault_address: addrs.vaultAddress,

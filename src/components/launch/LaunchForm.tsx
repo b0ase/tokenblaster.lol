@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { INDEX_LAUNCH, LAUNCH_FEE } from '@/lib/launch/curve';
 import { launchCoin } from '@/lib/launch/client';
 import { ROUTES, type Route } from '@/lib/launch/shape';
+import { getBarWallet } from '@/lib/walletBar';
 import { LaunchNav } from './LaunchNav';
 import { useLaunchWallet } from './useLaunchWallet';
 
@@ -93,7 +94,7 @@ export function LaunchForm() {
     setBusy(true);
     setError(null);
     try {
-      const id = await launchCoin(wallet, { sym, name: name.trim(), description: about.trim(), route: route(), image });
+      const id = await launchCoin(wallet, { sym, name: name.trim(), description: about.trim(), route: route(), image }, getBarWallet()?.publicKey === wallet.publicKey ? getBarWallet()?.paymail : undefined);
       router.push(`/launch/${id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
