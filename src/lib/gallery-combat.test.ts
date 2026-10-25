@@ -63,12 +63,13 @@ test('block: one ten-minute run, four stages in order, back to back with no gaps
   });
 });
 
-test('block: the player almost never dies (knockdown, fast regen, light damage)', () => {
+test('block: real danger, but fair (death + CONTINUE?, regen when not hit, damage not instant)', () => {
   const P = TUNING.player;
-  assert.ok(P.knockdownHp >= 0.5, 'a knockdown puts you straight back in');
-  assert.ok(P.regenPerSec >= 10 && P.regenDelay <= 2);
-  assert.ok(TUNING.erobots.bolt.damage <= 2 && TUNING.erobots.melee.damage <= 3);
-  for (const k of TUNING.horde.kinds) assert.ok(k.damage <= 5, k.id);
+  assert.equal('knockdownHp' in P, false, 'no knockdown shield: you can die');
+  assert.ok(P.continueSecs >= 5 && P.continueSecs <= 20, 'a CONTINUE? countdown');
+  assert.ok(P.regenPerSec > 0 && P.regenDelay <= 4, 'health comes back when not hit');
+  assert.ok(TUNING.erobots.bolt.damage <= 2 && TUNING.erobots.melee.damage <= 6);
+  for (const k of TUNING.horde.kinds) assert.ok(k.damage <= 10 && k.damage < P.hp / 8, k.id);
 });
 
 test('block: a constant swarm of different sizes, inside the pools', () => {

@@ -14,6 +14,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { Monster, MONSTERS } from '../arenaHD';
 import type { Fx } from '../bsvgun/fx';
+import { approachK } from './cast';
 import { TUNING } from './tuning';
 
 type Kind = (typeof TUNING.horde.kinds)[number];
@@ -249,7 +250,8 @@ export class Horde {
       }
       mob.tint.value = Math.max(0, mob.tint.value - dt * 6);
       if (mob.state === 'walk') {
-        p.z += mob.speed * dt;
+        // PROXIMITY SLOWDOWN: they crawl the last metres, so a player who keeps firing holds the line
+        p.z += mob.speed * approachK(cz - p.z, -mob.stopZ) * dt;
         const u = THREE.MathUtils.clamp(1 - (mob.stopZ - p.z) / 30, 0, 1);
         p.x += (mob.aimX - p.x) * Math.min(1, dt * (0.3 + u * 1.4));
         p.x += Math.sin(mob.t * 2.2 + mob.aimX) * dt * 0.6;
