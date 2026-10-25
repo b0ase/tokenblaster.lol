@@ -36,6 +36,8 @@ export function Hud(p: {
   freePlay?: boolean;
   /** While live: the credit counting down as rounds fire (micro-dollars), and whether it is practice credit. */
   live?: { usd: number; practice: boolean } | null;
+  /** $TERRORNODE receipts earned this session and the current receipt price (sats). */
+  receipts?: { earned: number; priceSats: number } | null;
 }) {
   const s = p.stats;
   const goal = s?.goal;
@@ -122,6 +124,14 @@ export function Hud(p: {
         <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-tight">
           <dt className="text-[var(--tbx-dim)]">{p.dry ? 'practice rounds/s' : 'tx/s accepted'}</dt>
           <dd className="m-0"><Ticker value={p.tps} ease={0.3} format={fixedInt(6)} style={{ ...TAB, color: 'var(--tbx-teal)' }} /></dd>
+          {p.receipts && (
+            <>
+              <dt className="text-[var(--tbx-dim)]">$TERRORNODE</dt>
+              <dd className="m-0 tbx-num" data-hud-receipts>{p.receipts.earned.toLocaleString('en-US')}</dd>
+              <dt className="text-[var(--tbx-dim)]">receipt price</dt>
+              <dd className="m-0 tbx-num">{p.receipts.priceSats.toLocaleString('en-US')} sats</dd>
+            </>
+          )}
           <dt className="text-[var(--tbx-dim)]">score</dt>
           <dd className="m-0"><Ticker value={s?.score ?? 0} format={fixedInt(11)} style={TAB} /></dd>
           <dt className="hidden text-[var(--tbx-dim)] sm:block">spent</dt>

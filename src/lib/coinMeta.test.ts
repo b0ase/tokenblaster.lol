@@ -42,6 +42,6 @@ test('coinExtras: price from the curve, absolute same-origin images, nothing for
   const x = coinExtras({ token_id: id, sold: 1000 });
   assert.equal(x.price_sats, price(BigInt(1000)));
   assert.ok(x.theme?.logo.startsWith(`${SITE}/`));
-  assert.deepEqual(Object.keys(coinExtras({ token_id: 'nope', sold: 0 })), ['price_sats']);
+  assert.deepEqual(Object.keys(coinExtras({ token_id: 'nope', sold: 0 })), ['price_sats', 'trading']);
 });
 

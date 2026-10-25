@@ -68,3 +68,21 @@ Every coin row (in `coins[]` and in `coin`) also carries (CORS `*`, as before):
 `theme`, `room` and `merch_url` live in `src/lib/launch/coinMeta.ts` keyed by `token_id` (no DB migration);
 `src/lib/coinMeta.test.ts` checks the schema, contrast (text 4.5:1, accent 3:1) and image sizes. Fields are left out
 when a coin has none.
+
+## Play-to-earn coins: `trading` and `earn_url` (25 Oct 2026)
+
+`/api/launch/coins` and `/api/launch/coin` give every coin `trading: true | false`. For play-to-earn coins
+(today only $TERRORNODE, `d5ffbbfd…de02_1`) it is `false`, with `earn_url: "https://www.tokenblaster.lol/arcade/terrornode"`.
+The trade route refuses buy and sell for them (403), the coin page shows "Earn $TERRORNODE by playing Assault on
+Terrornode", and the bWalletX Exchange hides curve buy/sell when `trading` is false. The list lives in
+`src/lib/launch/receipts.ts` (`NO_TRADE`).
+
+### $TERRORNODE receipts
+
+Every LIVE bullet in Assault on Terrornode buys 1 receipt. Receipt #n costs
+`1 + (pennySats − 1) × (n − 1) / (1e9 − 1)` sats (1 sat → 1 US penny at the live rate). At session end the gun sends
+ONE settlement tx: an OP_RETURN `tokenblaster.lol terrornode receipts <count> <recipient> <session> <handle>`, the
+receipt money to the creator `1F4J9KkMoqtznXPJuCgb98LRymssc8MFfd` and 300 sats of transfer gas to the pool's token
+address. `POST /api/terrornode/receipts {txid}` reads it from the chain, reserves the receipt range in the ledger
+(`db/022_terrornode_receipts.sql`, checks the payment, idempotent per txid) and sends the tokens from the pool in one
+transfer. Off until `RECEIPTS_LIVE=1`.

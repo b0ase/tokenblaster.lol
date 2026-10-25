@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { Beef, Transaction } from '@bsv/sdk';
 import { GRAD_SOLD, INDEX_FEE, MAX_BUY, MIN_BUY, quoteBuy, quoteSell } from '@/lib/launch/curve';
 import { bsv20Json, matchesPlan, p2pkh, tokenOut, type OutSpec, type TradePlan } from '@/lib/launch/shape';
+import { NO_TRADE, TERRORNODE_SYM } from '@/lib/launch/receipts';
 import { HOUSE, broadcast, compactBeef, configured, fundAddressOf, indexedTokenAmt, poolKey, rpc, signInput, spentBy, type CoinRow } from '@/lib/launch/server';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +40,8 @@ export async function POST(req: Request) {
   } catch {
     return bad('Bad request.');
   }
+  // Play-to-earn coins (no buy, no sell-back): $TERRORNODE is earned by playing Assault on Terrornode.
+  if (NO_TRADE.has(String(body.token ?? ''))) return bad(`$${TERRORNODE_SYM} cannot be bought or sold on BlastPad. Earn it by playing Assault on Terrornode: tokenblaster.lol/arcade/terrornode`, 403);
   try {
     if (body.step === 'prepare') return await prepare(body);
     if (body.step === 'sign') return await sign(body);
