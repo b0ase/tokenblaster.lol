@@ -41,6 +41,8 @@ export const PLAY_PRICE_USD: Record<string, number> = {
   // The Shooting Gallery has no play price: the credit is the ammunition (network cost per shot + platform fee).
   gallery: 0,
 };
+/** The wallet sheet's description for a coin-op payment: the game's own name, never another game's. */
+export const payLabel = (game: string, usd: number) => `${game}: ${usd.toFixed(2)} USD credit`;
 export const playPriceUsd = (game: string) => PLAY_PRICE_USD[game] ?? DEFAULT_PLAY_USD;
 
 /** Add a coin to the pending total, in whole cents so 0.1 + 0.2 is 0.30, not 0.30000000000000004. */

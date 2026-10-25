@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FEED_EVENT, type FeedTx } from '@/lib/feed';
 import { GUN_LOCKED, Gun } from '@/lib/gun';
-import { syncGunBackup } from '@/lib/gunBackup';
+import { restoreGunIfNeeded, scheduleGunBackup } from '@/lib/gunBackup';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl, tokenById, walletTokens, type Token } from '@/lib/tokens';
@@ -63,6 +63,17 @@ export function GunApp() {
       .then((d: { bsvUsd?: number }) => d.bsvUsd && setBsvUsd(d.bsvUsd))
       .catch(() => undefined);
   }, []);
+
+  // On connect: restore the gun from the wallet backup ONLY when this browser has no readable gun (no wallet call otherwise).
+  const restoredFor = useRef<string | null>(null);
+  useEffect(() => {
+    const g = gun.current;
+    if (!wallet || !g || restoredFor.current === wallet.publicKey) return;
+    restoredFor.current = wallet.publicKey;
+    void restoreGunIfNeeded(wallet, g)
+      .then((r) => (r === 'restored' ? g.balance().then(setAmmo) : undefined))
+      .catch(() => undefined);
+  }, [wallet]);
 
   // Count our blasts as the live feed sees them.
   useEffect(() => {
@@ -147,12 +158,13 @@ export function GunApp() {
     setPhase('loading');
     try {
       const need = cost; // top-ups merge into the gun's coin
-      // Recoverable gun: restore an unreadable gun / back this one up (wallet-encrypted) before paying into it.
-      await syncGunBackup(wallet, gun.current).catch(() => undefined);
+      // One wallet request: the payment (#45). Restore of an unreadable gun happens on connect, never here.
       if (gun.current.locked) throw new Error(GUN_LOCKED);
       const tx = await fund(wallet, gun.current.address, need, `TokenBlaster: load ${formatCount(pack)} blasts`);
       await gun.current.load(tx);
       setAmmo(gun.current.sats);
+      // Back the gun up after the payment, in the background (never awaited, failures swallowed and retried).
+      void scheduleGunBackup(wallet, gun.current);
     } catch (e) {
       fail(e);
     } finally {

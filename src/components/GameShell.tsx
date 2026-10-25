@@ -7,20 +7,15 @@ import { BackIcon } from '@/components/walletbar/icons';
 import { SiteLogo } from '@/components/SiteNav';
 import { CoinOpGate } from '@/components/coinop/CoinOpGate';
 import { GoLiveButton } from '@/components/GoLiveButton';
-import { GameShellContext, canElementFullscreen, isMobileish, readAutoFullscreen, writeAutoFullscreen, type GameShellApi } from '@/lib/useGameFullscreen';
+import { GameShellContext, canElementFullscreen, isMobileish, type GameShellApi } from '@/lib/useGameFullscreen';
 
-/** Buttons that start a run: pressing one (a user gesture) is when we ask for true fullscreen. */
-const START_RE = /\b(start|play|insert coin|coin|race|go|launch|deal|fight|practice|new game|continue|retry|again|mission|deploy|enter|run|drive|begin|resume)\b/i;
-
-const autoSubs = new Set<() => void>();
-const subAuto = (l: () => void) => (autoSubs.add(l), () => void autoSubs.delete(l));
 const subNothing = () => () => undefined;
 
 /**
  * Fullscreen-first frame for every game page: the site chrome is hidden (globals.css, body:has([data-game-shell])),
  * a slim DR bar sits on top, the game stage fills the rest of the viewport on load, and the page text
- * (descriptions, credits, scores) sits below the fold. START / PLAY / INSERT COIN asks for real fullscreen on the
- * shell (bar + stage) when the viewer's "auto fullscreen" preference is on (default). iPhone Safari has no element
+ * (descriptions, credits, scores) sits below the fold. Real fullscreen is only the bar button (the player taps it), on the
+ * shell (bar + stage); nothing enters it automatically. iPhone Safari has no element
  * fullscreen, so there the immersive layout is the fullscreen.
  *
  * Games mark their root with `game-root` and the play area with `game-stage` (fills the stage) or
@@ -34,7 +29,6 @@ const subNothing = () => () => undefined;
 export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, lock = false, liveTicker, tabs, children }: { title: string; game?: string; liveTicker?: string; back?: string; backLabel?: string; below?: ReactNode; lock?: boolean; tabs?: ReactNode; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [fs, setFs] = useState(false);
-  const auto = useSyncExternalStore(subAuto, readAutoFullscreen, () => true);
   const canFs = useSyncExternalStore(subNothing, canElementFullscreen, () => true);
 
   useEffect(() => {
@@ -80,26 +74,8 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
 
   const api = useMemo<GameShellApi>(() => ({ enter, exit, isFs: () => Boolean(document.fullscreenElement) && document.fullscreenElement === root.current, root }), [enter, exit]);
 
-  // Any START / PLAY / INSERT COIN style button inside the stage (or one marked data-fs-start) enters fullscreen.
-  useEffect(() => {
-    const el = root.current;
-    if (!el) return;
-    const onClick = (e: MouseEvent) => {
-      if (!readAutoFullscreen() || document.fullscreenElement) return;
-      const t = e.target as HTMLElement | null;
-      if (!t || t.closest('[data-gs-bar]')) return;
-      const b = t.closest('button, [role="button"], [data-fs-start]') as HTMLElement | null;
-      if (!b || b.hasAttribute('disabled') || b.hasAttribute('data-fs-skip')) return;
-      if (b.hasAttribute('data-fs-start') || START_RE.test(b.textContent ?? '') || START_RE.test(b.getAttribute('aria-label') ?? '')) enter();
-    };
-    el.addEventListener('click', onClick, true);
-    return () => el.removeEventListener('click', onClick, true);
-  }, [enter]);
-
-  const flipAuto = () => {
-    writeAutoFullscreen(!auto);
-    for (const l of autoSubs) l();
-  };
+  // No automatic fullscreen on START / PLAY / LOCK & LOAD (owner, 25 Oct 2026: "I don't like the screen going
+  // fullscreen either. It doesn't help."). The bar's fullscreen button is the only way in: the player's own tap.
 
   return (
     <GameShellContext.Provider value={api}>
@@ -130,12 +106,6 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
                   <Link href={back} role="menuitem" className={menuRowClass}>
                     &lt; {backLabel}
                   </Link>
-                  {canFs && (
-                    <label className={`${menuRowClass} cursor-pointer`} title="Go fullscreen automatically when you press START">
-                      <input type="checkbox" checked={auto} onChange={flipAuto} className="h-3.5 w-3.5 accent-[#F5B800]" />
-                      Auto fullscreen on START
-                    </label>
-                  )}
                   <Link href="/arcade" role="menuitem" className={menuRowClass}>
                     All games
                   </Link>

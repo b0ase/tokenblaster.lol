@@ -126,7 +126,7 @@ function pushes(script: string): string[] {
  * OP_FALSE OP_RETURN "tokenblaster.lol" <token> <n> <game> with this game's tag.
  */
 /** `handle`: also require it as the push after <game> (the Shooting Gallery names its shots). */
-export async function verifyRunTx(txid: string, tag: string, handle?: string): Promise<boolean> {
+export async function verifyRunTx(txid: string, tag: string | string[], handle?: string): Promise<boolean> {
   try {
     const r = await fetch(`https://arc.gorillapool.io/v1/tx/${txid}`, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
     if (!r.ok) return false;
@@ -143,12 +143,12 @@ export async function verifyRunTx(txid: string, tag: string, handle?: string): P
     const { Transaction } = await import('@bsv/sdk');
     const tx = Transaction.fromHex(raw);
     if (tx.id('hex') !== txid) return false;
-    const gameHex = Buffer.from(tag).toString('hex');
+    const gameHex = (Array.isArray(tag) ? tag : [tag]).map((t) => Buffer.from(t).toString('hex'));
     return tx.outputs.some((o) => {
       const s = o.lockingScript.toHex();
       if (!s.startsWith('006a')) return false;
       const p = pushes(s);
-      return p[0] === TAG_HEX && p[3] === gameHex && (!handle || p[4] === Buffer.from(handle).toString('hex'));
+      return p[0] === TAG_HEX && gameHex.includes(p[3]) && (!handle || p[4] === Buffer.from(handle).toString('hex'));
     });
   } catch {
     return false;

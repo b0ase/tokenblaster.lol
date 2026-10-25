@@ -929,10 +929,13 @@ export class GalleryEngine {
   }
 
   // ── Frame ──
+  /** PAUSE (owner, 25 Oct 2026): the world freezes (time stands still), the scene keeps drawing. */
+  paused = false;
   private frame = (now: number) => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.frame);
-    const dt = Math.max(0, Math.min(0.05, (now - this.last) / 1000));
+    const dt = this.paused ? 0 : Math.max(0, Math.min(0.05, (now - this.last) / 1000));
+    if (this.paused) this.trigger = false;
     this.last = now;
     this.t += dt;
     const w = this.weapon;

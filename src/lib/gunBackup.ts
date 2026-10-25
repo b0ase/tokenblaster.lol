@@ -114,40 +114,134 @@ export type GunLike = {
   exportWif(): string;
 };
 
-export type SyncResult = 'restored' | 'backed-up' | 'ok' | 'locked';
+/** Refused backups: (identity key, gun address) pairs whose wallet said no to the backup. We stop asking. */
+const DECLINED = 'tokenblaster.gunBackup.declined';
+const declinedList = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(DECLINED) ?? '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+export const isBackupDeclined = (identityKey: string, address: string) => declinedList().includes(`${identityKey}:${address}`);
+const markDeclined = (identityKey: string, address: string) => {
+  try {
+    localStorage.setItem(DECLINED, JSON.stringify([...new Set([...declinedList(), `${identityKey}:${address}`])].slice(-50)));
+  } catch {
+    /* asked again next session at most */
+  }
+};
+const refused = (e: unknown) => /cancel|denied|reject|declin|abort|not approved|user (?:said no|refused)/i.test(e instanceof Error ? e.message : String(e));
+
+export type RestoreResult = 'restored' | 'ok' | 'locked';
 
 /**
- * On connect (and before every load): restore the gun from the wallet backup when this browser has none (fresh and
- * empty) or can't read it (locked), checking the key against its stored address; then back up the gun in use, once.
- * Never replaces a gun that holds coins. 'locked' = the stored gun is unreadable and no backup could restore it.
+ * ON CONNECT ONLY, and only when this browser has no readable gun (fresh, never backed up here, or locked): look for
+ * the player's wallet backup and adopt it, checking the key against its stored address. A readable local gun is never
+ * touched and costs no wallet call ('ok'). Never replaces a gun that holds coins. 'locked' = unreadable, no backup.
  */
-export async function syncGunBackup(w: Pick<Wallet, 'client' | 'publicKey'>, g: GunLike, api: BackupApi = httpBackupApi): Promise<SyncResult> {
-  if (g.locked || (g.fresh && !isBackedUp(w.publicKey, g.address))) {
-    const list = await api.get(await signBackupRequest(w, 'get')).catch(() => null);
-    for (const b of list ?? []) {
-      let key: PrivateKey;
-      try {
-        key = await openGunKey(w.client, b);
-      } catch {
-        continue; // another wallet's, corrupt, or the wrong address: never used
-      }
-      if (!g.locked) {
-        // A fresh gun gives way only if it truly holds nothing (chain included).
-        const bal = await g.balance().catch(() => -1);
-        const toks = await g.tokensHeld().catch(() => null);
-        if (bal !== 0 || !toks || toks.length) break;
-      }
-      if (g.adoptKey(key)) {
-        markBackedUp(w.publicKey, g.address);
-        return 'restored';
-      }
-      break;
+export async function restoreGunIfNeeded(w: Pick<Wallet, 'client' | 'publicKey'>, g: GunLike, api: BackupApi = httpBackupApi): Promise<RestoreResult> {
+  if (!g.locked && !(g.fresh && !isBackedUp(w.publicKey, g.address))) return 'ok';
+  const list = await api.get(await signBackupRequest(w, 'get')).catch(() => null);
+  for (const b of list ?? []) {
+    let key: PrivateKey;
+    try {
+      key = await openGunKey(w.client, b);
+    } catch {
+      continue; // another wallet's, corrupt, or the wrong address: never used
     }
-    if (g.locked) return 'locked';
+    if (!g.locked) {
+      // A fresh gun gives way only if it truly holds nothing (chain included).
+      const bal = await g.balance().catch(() => -1);
+      const toks = await g.tokensHeld().catch(() => null);
+      if (bal !== 0 || !toks || toks.length) break;
+    }
+    if (g.adoptKey(key)) {
+      markBackedUp(w.publicKey, g.address);
+      return 'restored';
+    }
+    break;
   }
+  return g.locked ? 'locked' : 'ok';
+}
+
+export type BackupResult = 'backed-up' | 'ok' | 'declined' | 'locked';
+
+/**
+ * Back the gun key up (wallet encrypt + one identity signature + POST). At most once per gun per identity; a refusal
+ * is remembered and never asked again. Called only AFTER a successful payment, in the background (scheduleGunBackup).
+ */
+export async function backupGun(w: Pick<Wallet, 'client' | 'publicKey'>, g: GunLike, api: BackupApi = httpBackupApi): Promise<BackupResult> {
+  if (g.locked) return 'locked';
   if (isBackedUp(w.publicKey, g.address)) return 'ok';
-  const ciphertext = await sealGunKey(w.client, PrivateKey.fromWif(g.exportWif()));
-  await api.put(await signBackupRequest(w, 'put', g.address, ciphertext));
+  if (isBackupDeclined(w.publicKey, g.address)) return 'declined';
+  try {
+    const ciphertext = await sealGunKey(w.client, PrivateKey.fromWif(g.exportWif()));
+    await api.put(await signBackupRequest(w, 'put', g.address, ciphertext));
+  } catch (e) {
+    if (refused(e)) {
+      markDeclined(w.publicKey, g.address);
+      return 'declined';
+    }
+    throw e;
+  }
   markBackedUp(w.publicKey, g.address);
   return 'backed-up';
+}
+
+const inFlight = new Map<string, Promise<BackupResult | 'error'>>();
+const retryAt = new Map<string, ReturnType<typeof setTimeout>>();
+/** Retry a failed backup this long after the failure, at the next idle moment. */
+export const BACKUP_RETRY_MS = 60_000;
+const whenIdle = (f: () => void) => {
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+  if (ric) ric(f, { timeout: 10_000 });
+  else setTimeout(f, 0);
+};
+
+/**
+ * Fire-and-forget backup after a paid LOCK & LOAD. Never awaited by the play flow; every failure is swallowed (and
+ * retried once the page is idle a minute later); one in flight per gun per identity. `canAsk` is checked again before
+ * a retry, so it never opens a wallet sheet while a game is holding the wallet. Returns the promise for tests only.
+ */
+export function scheduleGunBackup(
+  w: Pick<Wallet, 'client' | 'publicKey'>,
+  g: GunLike,
+  opts: { api?: BackupApi; canAsk?: () => boolean; retryMs?: number; onError?: (e: unknown) => void } = {},
+): Promise<BackupResult | 'error'> {
+  const id = `${w.publicKey}:${g.address}`;
+  const running = inFlight.get(id);
+  if (running) return running;
+  const t = retryAt.get(id);
+  if (t) {
+    clearTimeout(t);
+    retryAt.delete(id);
+  }
+  const p = backupGun(w, g, opts.api)
+    .catch((e: unknown) => {
+      opts.onError?.(e);
+      const later = setTimeout(() => {
+        retryAt.delete(id);
+        whenIdle(() => {
+          if (opts.canAsk && !opts.canAsk()) return; // the next paid LOCK & LOAD schedules it again
+          void scheduleGunBackup(w, g, opts);
+        });
+      }, opts.retryMs ?? BACKUP_RETRY_MS);
+      (later as { unref?: () => void }).unref?.();
+      retryAt.set(id, later);
+      return 'error' as const;
+    })
+    .finally(() => inFlight.delete(id));
+  inFlight.set(id, p);
+  return p;
+}
+
+/** Old name (restore, then back up), kept for scripts and tests. The play flow never calls it. */
+export type SyncResult = 'restored' | 'backed-up' | 'ok' | 'locked';
+export async function syncGunBackup(w: Pick<Wallet, 'client' | 'publicKey'>, g: GunLike, api: BackupApi = httpBackupApi): Promise<SyncResult> {
+  const r = await restoreGunIfNeeded(w, g, api);
+  if (r !== 'ok') return r;
+  const b = await backupGun(w, g, api);
+  return b === 'backed-up' ? 'backed-up' : 'ok';
 }

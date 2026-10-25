@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { GALLERY_TAGS } from '@/lib/gallery';
 import { checkProof } from '@/lib/xproof';
 import { cleanHandle } from '@/lib/identity';
 import { cleanName, isScoreGame, isScorePeriod, SCORE_GAMES, submitScore, topScores, verifyRunTx } from '@/lib/scores';
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
     tx = txid.toLowerCase();
   }
   if (mode === 'practice') tx = null;
-  const verified = mode === 'live' && tx ? await verifyRunTx(tx, SCORE_GAMES[game].tag, game === 'gallery' && typeof m.x === 'string' ? m.x.toLowerCase() : undefined) : false;
+  const verified = mode === 'live' && tx ? await verifyRunTx(tx, game === 'gallery' ? GALLERY_TAGS : SCORE_GAMES[game].tag, game === 'gallery' && typeof m.x === 'string' ? m.x.toLowerCase() : undefined) : false;
   const ipHash = createHash('sha256').update(`tokenblaster-scores:${ip}`).digest('hex').slice(0, 32);
   try {
     const r = await submitScore({ game, mode, name: cleanName(name), score, secs, meta: m, txid: verified ? tx : null, verified, ipHash });

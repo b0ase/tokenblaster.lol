@@ -80,6 +80,7 @@ import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 import { loadMark } from '@/lib/gun';
 import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo';
 import { useCabinet } from '../coinop/useCabinet';
+import { GALLERY_GAME } from '@/lib/gallery';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
 
@@ -177,7 +178,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const free = freeForStressTest(clock);
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(HANDLE_BUDGET, ammoLen);
-  const cab = useCabinet(b, 'Shooting Gallery', { dry });
+  // The wallet sheet names the game the player is in (owner, 25 Oct 2026: it said "Shooting Gallery" on TerrorNode).
+  const cab = useCabinet(b, 'TerrorNode', { dry });
   // $TERRORNODE receipts (owner, 25 Oct): every LIVE bullet also buys 1 receipt at the curve price (src/lib/launch/receipts.ts).
   const rc = useReceipts(!freePlay && !dry);
   // The receipts go to the connected wallet. No wallet attached right now: they stay owed (and say so), never dropped.
@@ -303,6 +305,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [fired, setFired] = useState(0);
   const modeRef = useRef<'off' | 'warm' | 'live'>('off');
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
+  const pausedRef = useRef(false);
+  const [paused, setPaused] = useState(false);
   /** GO: real rounds are live (a short banner the moment the load finishes). */
   const [goAt, setGoAt] = useState(0);
   useEffect(() => {
@@ -372,7 +376,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       const s = simRef.current;
       const m = modeRef.current;
       const left = boughtRef.current - firedRef.current;
-      s.on = held.current && !loadout && !flatRef.current && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
+      s.on = held.current && !pausedRef.current && !loadout && !flatRef.current && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
       s.target = pattern.kind === 'stream' ? pattern.rate : 0;
       let n = simTick(s, (t - last) / 1000);
       last = t;
@@ -399,7 +403,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       if (down) unlockAudio();
     };
     pullRef.current = (w: RangeWeapon) => {
-      if (loadout || flatRef.current) return false;
+      if (loadout || flatRef.current || pausedRef.current) return false;
       const p = txPattern(w);
       if (p.kind !== 'burst') return false;
       const m = modeRef.current;
@@ -507,10 +511,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         },
         () => stop.current,
         () => undefined,
-        { game: 'gallery', extra: galleryPushes(handle).slice(1) },
+        { game: GALLERY_GAME, extra: galleryPushes(handle).slice(1) },
         perShot,
         coin ? coin.tokenId : ammo,
-        () => sentRef.current >= firedRef.current, // nothing queued: hold, keep the lanes
+        () => pausedRef.current || sentRef.current >= firedRef.current, // PAUSE or nothing queued: hold, keep the lanes
         STREAM_STEP, // most blasts per lane per ARC round: up to 100 lanes x 100 a round
       )
         .catch((e) => {
@@ -571,8 +575,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           landed(d, last ?? null);
         },
         () => stop.current,
-        () => sentRef.current >= firedRef.current,
-        { game: 'gallery', extra: galleryPushes(handle).slice(1) },
+        () => pausedRef.current || sentRef.current >= firedRef.current,
+        { game: GALLERY_GAME, extra: galleryPushes(handle).slice(1) },
         STREAM_STEP,
       )
         .catch((e) => {
@@ -586,6 +590,36 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         });
     };
   });
+
+  // NOT SENDING watch (owner log, 25 Oct: "queue 3062 · sent 0" for good, nothing on screen): rounds are queued
+  // and nothing has reached the network for a while. Say so on screen, retry the sender once by itself, then offer
+  // the fix (no new charge: the rounds are still in the gun).
+  const [notSending, setNotSending] = useState<string | null>(null);
+  useEffect(() => {
+    if (mode !== 'live') return void Promise.resolve().then(() => setNotSending(null));
+    let retried = false;
+    const t0 = performance.now();
+    const i = setInterval(() => {
+      if (pausedRef.current) return;
+      const q = firedRef.current - sentRef.current;
+      const since = performance.now() - Math.max(lastSent.current, t0);
+      let msg: string | null = null;
+      if (q > 0 && since > 15_000) {
+        const secs = Math.round(since / 1000);
+        if (!retried && !reloading.current) {
+          retried = true;
+          reloading.current = true;
+          loadMark(`sender: ${q} rounds queued, nothing sent for ${secs} s: restarting the sender`);
+          void reloadRef.current().finally(() => (reloading.current = false));
+        }
+        msg = since > 40_000
+          ? `Your rounds are not reaching the network (${secs} s, ${q.toLocaleString('en-US')} queued${sendErrors.current ? `, ${sendErrors.current} send error(s)` : ''}). Press R or LOADOUT, then LOCK & LOAD: no new charge, the rounds are still in your gun.`
+          : `Waiting for the network to take your rounds (${secs} s)… retrying.`;
+      }
+      setNotSending((m) => (m === msg ? m : msg));
+    }, 1000);
+    return () => clearInterval(i);
+  }, [mode]);
 
   // Queue note, the jam watch + [tb-fire] timing logs.
   const liveSince = useRef(0);
@@ -823,7 +857,18 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [loadingRounds, setLoadingRounds] = useState(0);
   const [loadStart, setLoadStart] = useState(0);
   const [loadNow, setLoadNow] = useState(0);
+  const loadingNow = useRef(false);
   const lockAndLoad = async (continued = false) => {
+    // One load at a time: a second START / LOCK & LOAD press while this one runs is ignored (never a second load).
+    if (loadingNow.current) return loadMark('lock & load: already loading, press ignored');
+    loadingNow.current = true;
+    try {
+      await lockAndLoadOnce(continued);
+    } finally {
+      loadingNow.current = false;
+    }
+  };
+  const lockAndLoadOnce = async (continued = false) => {
     setLoadStart(performance.now());
     setLoadingRounds(0);
     setErr(null);
@@ -894,8 +939,13 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       // The REAL spendable balance (chain + the wallet's payment + our own change), never a stale number.
       // Credit already in the gun becomes the firing coin first (no wallet charge): a payment the wallet only
       // answered with a txid sits at the gun's address but not in the gun's own coin (owner, 25 Oct 2026).
-      await b.gatherGun().catch((e) => loadMark(`gather: ${e instanceof Error ? e.message : e}`));
-      const avail = await b.refreshGun();
+      // gather() already read the chain and built the one coin: its sats ARE the balance (no second chain read).
+      const t0 = performance.now();
+      const avail = await b.gatherGun().catch(async (e) => {
+        loadMark(`gather: ${e instanceof Error ? e.message : e}`);
+        return b.refreshGun();
+      });
+      loadMark(`gather: ${Math.round(performance.now() - t0)} ms`);
       loadMark(`lock & load: gun has ${avail} sats`);
       const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
       // The same count the cabinet showed (src/lib/coinop/shots.ts): each shot = round fee + its $TERRORNODE receipt,
@@ -904,7 +954,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       if (plan.short || shots <= 0) throw new Error('SHORT');
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
-        await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
+        await b.fireBatch(0, [[GALLERY_GAME, 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots) - rc.rangeCost(shots)) / perShot));
       }
       if (rc.live) while (shots > 0 && shots * perShot + rc.rangeCost(shots) + overheadSats(shots) > avail - feeSats) shots--;
@@ -1046,11 +1096,42 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       if (e.code !== 'KeyR' || e.repeat || loadout) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
-      if (jammed && modeRef.current === 'live') void reloadRef.current();
+      if ((jammed || notSending) && modeRef.current === 'live') void reloadRef.current();
     };
     window.addEventListener('keydown', kd);
     return () => window.removeEventListener('keydown', kd);
-  }, [loadout, jammed]);
+  }, [loadout, jammed, notSending]);
+
+  // PAUSE (owner, 25 Oct 2026): P or Esc, or the on-screen button. Freezes the world and the round sender: nothing
+  // is fired or broadcast while paused. RESUME carries on with the same loaded rounds, no new payment.
+  const togglePause = useCallback(() => {
+    if (modeRef.current !== 'live' || loadout) return;
+    const next = !pausedRef.current;
+    pausedRef.current = next;
+    held.current = false;
+    if (engine.current) engine.current.paused = next;
+    if (next) document.exitPointerLock?.();
+    setPaused(next);
+    loadMark(next ? 'paused' : 'resumed');
+  }, [loadout]);
+  useEffect(() => {
+    const kd = (e: KeyboardEvent) => {
+      if (e.repeat || (e.code !== 'KeyP' && e.code !== 'Escape')) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (e.code === 'Escape' && !pausedRef.current && modeRef.current !== 'live') return;
+      togglePause();
+    };
+    window.addEventListener('keydown', kd);
+    return () => window.removeEventListener('keydown', kd);
+  }, [togglePause]);
+  // Leaving live play (LOADOUT, round over) always unpauses.
+  useEffect(() => {
+    if (mode === 'live' && !loadout) return;
+    pausedRef.current = false;
+    if (engine.current) engine.current.paused = false;
+    void Promise.resolve().then(() => setPaused(false));
+  }, [mode, loadout]);
 
   // No key scrolls the page while you play (owner, 25 Oct): swallow the scroll keys unless you are typing.
   useEffect(() => {
@@ -1260,6 +1341,54 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           <p className="tbx-glass absolute bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-[var(--tbx-teal)]" role="status" data-receipt-sent>
             {rc.note}
           </p>
+        )}
+
+        {/* NOT SENDING: rounds queued, nothing reaching the network (always on screen, never only in the console) */}
+        {notSending && mode === 'live' && !paused && (
+          <p className="tbx-glass absolute left-1/2 top-16 z-40 max-w-[92%] -translate-x-1/2 rounded px-4 py-2 text-center text-xs text-[#ffb3b3]" role="alert" data-not-sending>
+            {notSending}
+          </p>
+        )}
+
+        {/* PAUSE button (works on phones) */}
+        {mode === 'live' && !loadout && !over && (
+          <button
+            type="button"
+            onClick={togglePause}
+            className="tbx-glass absolute right-3 top-3 z-40 rounded-full px-3 py-1.5 text-xs font-bold tracking-widest text-white"
+            aria-label={paused ? 'Resume' : 'Pause'}
+            data-pause
+          >
+            {paused ? '▶ RESUME' : 'II PAUSE'}
+          </button>
+        )}
+
+        {/* PAUSED: the world and the round sender are frozen; nothing is fired or broadcast */}
+        {paused && mode === 'live' && !loadout && !over && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-label="Paused" data-paused>
+            <div className="tbx-glass flex w-[min(92%,360px)] flex-col gap-3 rounded-lg p-5 text-center text-white">
+              <p className="text-lg font-bold tracking-[0.3em]">PAUSED</p>
+              <p className="text-xs text-white/80">
+                Loaded {bought.toLocaleString('en-US')} rounds · {packLeft.toLocaleString('en-US')} left
+                {creditLive ? ` · credit ${fmtUsd(creditLive.usd)}${creditLive.practice ? ' (practice)' : ''}` : ''}
+              </p>
+              <p className="text-xs text-white/60">Nothing is fired or sent while paused. Resume uses the same rounds: no new payment.</p>
+              <button type="button" onClick={togglePause} className="btn btn-on px-4 py-2 font-bold tracking-widest">
+                RESUME
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  togglePause();
+                  setLoadout(true); // ends live fire; the rest stays as credit and UNLOAD is on the loadout
+                }}
+                className="btn px-4 py-2 text-xs font-bold tracking-widest"
+              >
+                END ROUND &amp; UNLOAD
+              </button>
+              <p className="text-[10px] text-white/50">P or Esc to resume</p>
+            </div>
+          </div>
         )}
 
         {/* LOADOUT */}
