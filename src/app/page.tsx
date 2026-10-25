@@ -4,7 +4,7 @@ import { GitHubLink } from '@/components/GitHubLink';
 import { ChainDashboard } from '@/components/ChainDashboard';
 import { Barcode, Pictogram } from '@/components/dr';
 import { SectionHead } from '@/components/dr/site';
-import { HeroShowcase, HeroTitle } from '@/components/HeroShowcase';
+import { HeroKick, HeroShowcase, HeroTitle } from '@/components/HeroShowcase';
 
 // Production runs free play unless NEXT_PUBLIC_GALLERY_PAID=1; only paid play spends a real tx per bullet.
 const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
@@ -54,6 +54,7 @@ export default function Home() {
               </span>
             </div>
             <HeroTitle />
+            <HeroKick kind="kick" className="hp-kick">
             <h1 className="dr-display dr-mega dr-skew text-hot [text-shadow:0_2px_0_var(--panel),0_0_18px_var(--panel)]">
               <span className="dr-line" style={{ ['--d' as string]: '0.05s' }}>
                 Load your
@@ -68,9 +69,14 @@ export default function Home() {
                 chain<span className="hp-glow text-[var(--accent)]">.</span>
               </span>
             </h1>
+            </HeroKick>
             <div className="mt-4 flex flex-wrap items-center gap-3">
+              <HeroKick kind="stamp" className="hp-stamp">
               <span className="dr-sticker text-base sm:text-xl">{PAID ? 'Every bullet = 1 real BSV tx' : 'Every bullet = 1 real BSV tx in paid play'}</span>
+              </HeroKick>
+              <HeroKick kind="stamp" className="hp-stamp hp-stamp-2">
               <span className="dr-sticker dr-sticker-red text-xs sm:text-sm">No fake coins</span>
+              </HeroKick>
             </div>
             <div className="mt-4"><HeroSound /></div>
             <div className="flex flex-wrap items-center gap-3 sm:gap-4">
