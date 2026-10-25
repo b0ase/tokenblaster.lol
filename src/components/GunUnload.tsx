@@ -6,6 +6,8 @@
  */
 import { useState } from 'react';
 import { GUN_KEY_NOTE } from '@/lib/tokenLoad';
+import { fmtCredit } from '@/lib/coinop/credit';
+import { showUnload, unloadLabel } from '@/lib/coinop/playButton';
 import type { useBlaster } from '@/lib/useBlaster';
 
 type Blaster = ReturnType<typeof useBlaster>;
@@ -147,6 +149,48 @@ export function GunUnload({ b, disabled = false, className = '' }: { b: Blaster;
         </div>
       )}
       <GunKeyBackup b={b} />
+    </div>
+  );
+}
+
+/**
+ * The always-visible UNLOAD (owner, 25 Oct 2026, after #95): wherever the gun has credit, one plain button
+ * "UNLOAD $x.xx → wallet" that returns the sats and any tokens. A live round is ended first, behind a confirm.
+ * `endRound` (live only) ends the round and runs the unload once play has stopped; without it, it unloads at once.
+ */
+export function UnloadButton({ b, creditUsd, live = false, endRound, className = '' }: { b: Blaster; creditUsd: number; live?: boolean; endRound?: () => void; className?: string }) {
+  const [asking, setAsking] = useState(false);
+  const toks = b.gunTokens.filter((t) => t.amt > BigInt(0)).length;
+  if (!showUnload(creditUsd, toks) || b.gunLocked) return null;
+  const busy = b.busy === 'unloading';
+  const go = () => {
+    setAsking(false);
+    if (live && endRound) return endRound();
+    if (!b.wallet) return void b.connectWallet(); // a press: connecting is allowed now; press UNLOAD again after
+    void b.unload();
+  };
+  return (
+    <div className={`flex flex-col items-center gap-1 ${className}`} data-unload-button>
+      {!asking ? (
+        <button type="button" className="btn px-3 py-1 text-xs font-bold tracking-wider" disabled={busy || !!b.busy} onClick={() => setAsking(true)}>
+          {busy ? 'UNLOADING…' : unloadLabel(creditUsd)}
+        </button>
+      ) : (
+        <div className="flex flex-col items-center gap-1 text-xs" role="alertdialog" aria-label="Confirm unload">
+          <span>
+            {live ? 'This ends the round. ' : ''}
+            {b.wallet ? `Send ${fmtCredit(creditUsd)}${toks ? ' and your tokens' : ''} back to ${b.wallet.name}?` : 'Connect your wallet first, then UNLOAD sends it back.'}
+          </span>
+          <div className="flex gap-2">
+            <button type="button" className="btn btn-on px-2 py-0.5 text-xs font-bold" onClick={go}>
+              {live ? 'End round & unload' : b.wallet ? 'Yes, unload' : 'Connect'}
+            </button>
+            <button type="button" className="btn px-2 py-0.5 text-xs" onClick={() => setAsking(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
