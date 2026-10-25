@@ -1554,3 +1554,187 @@ body:has(.gs-lock) {
 .dr-chev-march[data-off] {
   animation-play-state: paused;
 }
+
+/* ---- hero overlay motion, tied to the slide change (HeroTitle / HeroKick in HeroShowcase.tsx) ----
+   Transform and opacity only (compositor), so the video and #36's perf work are untouched. */
+.hp-np {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  animation: hp-np-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.hp-np-dot {
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: hp-blink 1.1s ease-in-out infinite;
+}
+@keyframes hp-np-in {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes hp-blink {
+  50% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+}
+.hp-title {
+  padding-bottom: 0.12em;
+}
+.hp-ch {
+  display: inline-block;
+  animation: hp-slam 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+  animation-delay: calc(var(--k) * 24ms + 80ms);
+}
+@keyframes hp-slam {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -0.55em, 0) scale(1.9) rotate(-8deg);
+  }
+  45% {
+    opacity: 1;
+    transform: translate3d(0, 0.06em, 0) scale(0.92) rotate(1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* the neon: a glow copy behind the letters whose opacity flickers like a tube catching, then breathes */
+.hp-title-glow,
+.hp-title-split {
+  position: absolute;
+  inset: 0 0 0.12em 0;
+  pointer-events: none;
+}
+.hp-title-glow {
+  color: transparent;
+  text-shadow:
+    0 0 14px color-mix(in srgb, var(--accent) 85%, transparent),
+    0 0 42px color-mix(in srgb, var(--accent) 55%, transparent);
+  opacity: 0;
+  animation:
+    hp-flicker 0.9s steps(1) 0.35s both,
+    hp-breathe 2.3s ease-in-out 1.25s infinite;
+}
+@keyframes hp-flicker {
+  0% { opacity: 0; }
+  12% { opacity: 1; }
+  20% { opacity: 0.1; }
+  34% { opacity: 0.9; }
+  42% { opacity: 0.2; }
+  60% { opacity: 1; }
+  100% { opacity: 0.85; }
+}
+@keyframes hp-breathe {
+  0%,
+  100% { opacity: 0.85; }
+  50% { opacity: 0.45; }
+}
+/* chromatic split: a red and a cyan copy start apart and collapse onto the letters */
+.hp-title-split {
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: hp-split 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) 0.05s both;
+}
+.hp-title-r {
+  color: rgb(255 40 90);
+  --sx: -14px;
+}
+.hp-title-c {
+  color: rgb(0 230 255);
+  --sx: 14px;
+}
+@keyframes hp-split {
+  0% {
+    opacity: 0.9;
+    transform: translate3d(var(--sx), 0, 0) skewX(-6deg);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translate3d(calc(var(--sx) * -0.3), 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: none;
+  }
+}
+/* the underline fills with the slide's 4.6 s progress (same clock as the corner ticks) */
+.hp-title-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--hot));
+  transform-origin: left;
+  animation: dr-fill 4.6s linear both;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.hp-kick {
+  will-change: transform;
+}
+.hp-stamp {
+  display: inline-block;
+  animation: hp-wobble 3.2s ease-in-out infinite;
+}
+.hp-stamp-2 {
+  animation-duration: 2.7s;
+  animation-direction: reverse;
+}
+@keyframes hp-wobble {
+  0%,
+  100% { transform: rotate(-1.2deg); }
+  50% { transform: rotate(1.4deg) translateY(-1px); }
+}
+.hp-card-code {
+  animation: hp-np-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.hp-card-title {
+  animation: hp-card-in 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.1) 0.08s both;
+}
+@keyframes hp-card-in {
+  0% {
+    opacity: 0;
+    transform: translate3d(24px, 0, 0) skewX(-12deg);
+  }
+  60% {
+    opacity: 1;
+    transform: translate3d(-3px, 0, 0) skewX(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hp-np,
+  .hp-np-dot,
+  .hp-ch,
+  .hp-title-glow,
+  .hp-title-split,
+  .hp-title-bar,
+  .hp-stamp,
+  .hp-card-code,
+  .hp-card-title {
+    animation: none;
+  }
+  .hp-title-split {
+    display: none;
+  }
+  .hp-title-glow {
+    opacity: 0.6;
+  }
+}
