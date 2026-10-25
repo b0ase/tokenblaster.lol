@@ -8,7 +8,7 @@
  *      record its txid, broadcast, book the pool's new coin
  * A row already 'sent' returns at once; a row 'sending' whose transfer reached the chain is booked, not resent.
  */
-import { P2PKH, Script, Transaction, type PrivateKey } from '@bsv/sdk';
+import { P2PKH, SatoshisPerKilobyte, Script, Transaction, type PrivateKey } from '@bsv/sdk';
 import { RECEIPT_GAS, TERRORNODE_ID, pennySatsAt, readSettlement } from './receipts';
 import { tokenOut } from './shape';
 
@@ -100,7 +100,10 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
     const rest = have - count;
     if (rest > BigInt(0)) tx.addOutput({ lockingScript: Script.fromHex(tokenOut(TERRORNODE_ID, rest, pool.token_address)), satoshis: 1 });
     tx.addOutput({ lockingScript: new P2PKH().lock(pool.token_address), change: true });
-    await tx.fee(50); // flat 50 sats out of the 300-sat gas; the change stays at the pool address
+    // ⚠ FEE BY SIZE (25 Oct 2026): a flat 50 sats was under ARC's 100 sat/kB once the transfer passed ~500 bytes,
+    // so the network refused it ('Fees are insufficient') and the receipt stuck at 'sending'. Still paid from the
+    // 300-sat gas; the change stays at the pool address.
+    await tx.fee(new SatoshisPerKilobyte(110));
     await tx.sign();
     const transfer = tx.id('hex');
     await d.sending(txid, transfer);
