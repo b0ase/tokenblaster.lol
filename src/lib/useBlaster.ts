@@ -460,6 +460,8 @@ export function useBlaster() {
     async (coin: AmmoCoin, q: SwapLoadQuote, onStatus?: (s: string) => void) => {
       const g = gun.current;
       if (!wallet || !g) throw new Error('Connect a wallet first.');
+      // A session left mid-way (tab closed) still owes its bulk burn: burn it before buying more.
+      if (g.owedBurn()) await g.burnOwed(coin.burnPer);
       const r = await swapLoad(wallet.client, g.address, wallet.address, coin, q, onStatus);
       g.adoptTokenCoin(coin.tokenId, r.tx, 0, r.tokens);
       if (r.fuelVout !== null) await g.load(r.tx);
@@ -471,6 +473,15 @@ export function useBlaster() {
     },
     [wallet],
   );
+  /** Coin ammo, option A: count rounds fired under a coin's tag (saved with the gun), and burn them in one tx. */
+  const oweCoinRounds = useCallback((id: string, n: number) => gun.current?.oweBurn(id, n), []);
+  const settleCoinBurn = useCallback(async (per: bigint = BigInt(1)) => {
+    const g = gun.current;
+    if (!g) return null;
+    const txid = await g.burnOwed(per);
+    setAmmo(g.sats);
+    return txid;
+  }, []);
   /** Coin ammo storm: fan the gun's coin out into lanes (one gun-signed tx), then burn them in the storm workers. */
   const prepareCoinStorm = useCallback(async (coin: AmmoCoin, rounds: number, lanes: number) => {
     const g = gun.current;
@@ -492,5 +503,5 @@ export function useBlaster() {
     [],
   );
 
-  return { swapLoadCoin, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

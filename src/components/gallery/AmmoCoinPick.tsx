@@ -11,7 +11,7 @@ import { fmtUsd } from '@/lib/gallery';
 
 export const SLIPPAGE_CHOICES = [100, 300, 500];
 
-export function useAmmoCoinQuote(coin: AmmoCoin | null, paySats: number | null, gunSats: number, slippageBps: number) {
+export function useAmmoCoinQuote(coin: AmmoCoin | null, paySats: number | null, gunSats: number, slippageBps: number, roundSats?: number) {
   const [sold, setSold] = useState<bigint | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -36,8 +36,8 @@ export function useAmmoCoinQuote(coin: AmmoCoin | null, paySats: number | null, 
     };
   }, [coin]);
   const quote = useMemo<SwapLoadQuote | null>(
-    () => (coin && sold !== null && paySats ? planSwapLoad({ paySats, sold, coin, slippageBps, gunSats }) : null),
-    [coin, sold, paySats, slippageBps, gunSats],
+    () => (coin && sold !== null && paySats ? planSwapLoad({ paySats, sold, coin, slippageBps, gunSats, roundSats }) : null),
+    [coin, sold, paySats, slippageBps, gunSats, roundSats],
   );
   return { quote, sold, err };
 }
@@ -80,7 +80,7 @@ export function AmmoCoinPick(props: {
           <p className="font-semibold">{quoteLine(chosen, props.payUsd, quote)}</p>
           {quote && (
             <p className="mt-1 opacity-80">
-              {quote.tokens.toLocaleString('en-US')} ${chosen.sym} at least {quote.minTokens.toLocaleString('en-US')} after slippage, plus {quote.fuelSats.toLocaleString('en-US')} sats of gunpowder. Each shot burns {chosen.burnPer.toString()} ${chosen.sym}.
+              {quote.tokens.toLocaleString('en-US')} ${chosen.sym} at least {quote.minTokens.toLocaleString('en-US')} after slippage, plus {quote.fuelSats.toLocaleString('en-US')} sats of gunpowder. Every round is tagged ${chosen.sym}; the {chosen.burnPer.toString()} ${chosen.sym} per round you fire are burned in one transaction when the session ends, and the rest stays in your gun.
             </p>
           )}
           <div className="mt-2 flex items-center gap-2">

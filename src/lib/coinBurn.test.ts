@@ -1,9 +1,10 @@
-/** Coin ammo burns (25 Oct 2026): the fast BSV-21 burn builder and the multi-lane storm in burn mode. Mock ARC only. */
+/** Coin ammo (25 Oct 2026): option A (tagged sats rounds + one bulk burn) and the per-shot burn lanes (behind PER_SHOT_BURN). Mock ARC only. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LockingScript, P2PKH, PrivateKey, Spend, Transaction, UnlockingScript } from '@bsv/sdk';
 import { bsv21Lock, fromHex, makeBlaster, opReturn, toHex, txidHex } from './fastBlast';
-import { BURN_ADDRESS, bsv21 } from './gun';
+import { BURN_ADDRESS, Gun, bsv21, buildBulkBurn } from './gun';
+import { planSwapLoad as plan } from './launch/ammoCoins';
 import { runLanes, tagPushes, type Out } from './stormCore';
 
 const key = PrivateKey.fromRandom(); // throwaway: never funded, nothing leaves this process
@@ -134,4 +135,75 @@ test('burn storm: a rejected burn stops its lane for good (no double spend), oth
     assert.equal(spentOutpoints.has(op), false, 'an outpoint was spent twice');
     spentOutpoints.add(op);
   }
+});
+
+// ── Option A (owner, 25 Oct 2026): tagged sats rounds + one bulk burn ──
+
+test('option A rounds are plain sats blasts carrying the coin token id (one input, no token output)', async () => {
+  const arc = mockArc(() => 'SEEN_ON_NETWORK');
+  await runLanes(
+    { priv, token: ID, baseTxid: 'cd'.repeat(32), baseValues: [3_000], lanes: [{ vout: 0, count: 20, n: 1 }], step: 100, game: 'gallery', extra: ['b0asex@bwalletx.com'], arcs: ['http://mock-arc.invalid'] },
+    { stopped: () => false, paused: () => false, emit: () => undefined, fetch: arc.f },
+  );
+  assert.equal(arc.txs.length, 20);
+  for (const tx of arc.txs) {
+    assert.equal(tx.inputs.length, 1);
+    assert.ok(!tx.outputs.some((o) => o.lockingScript.toHex().includes(Buffer.from('bsv-20').toString('hex'))));
+    const ret = Buffer.from(tx.outputs[0].lockingScript.toHex(), 'hex').toString('latin1');
+    assert.ok(ret.includes('tokenblaster.lol') && ret.includes(ID) && ret.includes('gallery') && ret.includes('b0asex@bwalletx.com'));
+  }
+});
+
+test('the bulk burn sends exactly the rounds fired to the eater, keeps the rest, 2 token outputs at most', async () => {
+  const me = key.toAddress();
+  const src = (script: ReturnType<typeof bsv21>, sats: number) => {
+    const t = new Transaction();
+    t.addInput({ sourceTXID: 'ee'.repeat(32), sourceOutputIndex: 0, unlockingScript: new UnlockingScript() });
+    t.addOutput({ lockingScript: script, satoshis: sats });
+    return t;
+  };
+  const coins = [
+    { id: ID, tx: src(bsv21(ID, BigInt(700), me), 1), vout: 0, amt: BigInt(700) },
+    { id: ID, tx: src(bsv21(ID, BigInt(300), me), 1), vout: 0, amt: BigInt(300) },
+  ];
+  const b = await buildBulkBurn(key, ID, coins, { tx: src(new P2PKH().lock(me), 5_000), vout: 0 }, BigInt(642), 642);
+  const tok = b.tx.outputs.filter((o) => o.lockingScript.toHex().includes(Buffer.from('bsv-20').toString('hex')));
+  assert.equal(tok.length, 2);
+  assert.equal(b.tx.outputs[0].lockingScript.toHex(), bsv21(ID, BigInt(642), BURN_ADDRESS).toHex());
+  assert.equal(b.tx.outputs[1].lockingScript.toHex(), bsv21(ID, BigInt(358), me).toHex());
+  assert.equal(b.rest, BigInt(358));
+  // every input spent once
+  const ops = b.tx.inputs.map((i) => `${i.sourceTransaction!.id('hex')}_${i.sourceOutputIndex}`);
+  assert.equal(new Set(ops).size, ops.length);
+  // all of it: no rest output
+  const all = await buildBulkBurn(key, ID, coins, { tx: src(new P2PKH().lock(me), 5_000), vout: 0 }, BigInt(1_000), 1_000);
+  assert.equal(all.restVout, -1);
+  await assert.rejects(() => buildBulkBurn(key, ID, coins, { tx: src(new P2PKH().lock(me), 5_000), vout: 0 }, BigInt(1_001), 1_001), /Only 1000/);
+});
+
+test('a pending bulk burn survives a reload (saved with the gun) and adds up across sessions', () => {
+  const store = new Map<string, string>();
+  const ls = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+  const g0 = globalThis as unknown as Record<string, unknown>;
+  const had = { window: g0.window, localStorage: g0.localStorage, sessionStorage: g0.sessionStorage };
+  Object.assign(g0, { window: g0, localStorage: ls, sessionStorage: ls });
+  try {
+    const a = new Gun();
+    assert.equal(a.owedBurn(), null);
+    a.oweBurn(ID, 120);
+    a.oweBurn(ID, 30);
+    const b = new Gun(); // the tab was closed and reopened
+    assert.equal(b.address, a.address);
+    assert.deepEqual(b.owedBurn(), { id: ID, n: BigInt(150) });
+  } finally {
+    Object.assign(g0, had);
+  }
+});
+
+test('option A quote: rounds = min(tokens, gunpowder at the shot cost); no per-load round cap', () => {
+  const coin = { burnPer: BigInt(1) };
+  const q = plan({ paySats: 1_000_000, sold: BigInt(0), coin, slippageBps: 300, roundSats: 30 })!;
+  assert.ok(q.rounds > 25_000, String(q.rounds)); // ~3× the per-shot-burn rounds for the same money
+  assert.ok(BigInt(q.rounds) <= q.minTokens);
+  assert.ok(q.totalSats <= 1_000_000);
 });

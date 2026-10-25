@@ -47,8 +47,7 @@ test('lanes: enough for speed, never deeper than MAX_LANE_DEPTH, rounds capped p
   assert.equal(coinLanesFor(2_500), 25);
   assert.equal(coinLanesFor(100_000), 100);
   for (const r of [1, 99, 5_000, 27_000, 100_000]) assert.ok(Math.ceil(r / coinLanesFor(r)) <= MAX_LANE_DEPTH);
-  const big = planSwapLoad({ paySats: 2_000_000_000, sold: BigInt(0), coin, slippageBps: 300 })!;
-  assert.equal(big.rounds, MAX_COIN_ROUNDS);
+  assert.equal(MAX_COIN_ROUNDS, 100_000); // per-shot burns only (PER_SHOT_BURN off)
   assert.deepEqual(splitEven(BigInt(10), 3), [BigInt(4), BigInt(3), BigInt(3)]);
 });
 

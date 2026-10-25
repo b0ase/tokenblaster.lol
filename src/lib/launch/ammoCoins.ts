@@ -3,8 +3,13 @@
  *
  * At LOCK & LOAD the player picks one of these coins: ONE wallet approval buys it on its BlastPad curve
  * with the tokens delivered straight to the gun's address (so they are loaded), plus the BSV gunpowder
- * that pays each burn's network fee, in the same transaction (src/lib/launch/swapLoad.ts). Each shot then
- * burns `burnPer` tokens to the burn address, signed by the gun (Gun.fireTokens).
+ * that pays the rounds, in the same transaction (src/lib/launch/swapLoad.ts).
+ *
+ * OPTION A (owner, 25 Oct 2026): each shot is a plain sats storm round tagged with the coin's token id
+ * ("tokenblaster.lol <token id> <n> gallery <paymail>", so bsv.lol labels it TokenBlaster · <SYM>), and the tokens
+ * are burned in bulk: ONE tx per session sends rounds-fired × burnPer to the burn address (Gun.burnOwed). The owed
+ * count is saved with the gun, so a closed tab burns on the next load or unload. Index-fund cost: ≤ 2 token
+ * outputs per session instead of 2 per shot.
  *
  * Any BlastPad coin works: add an entry with its token id. A coin with an empty `tokenId` is hidden.
  * Branded ammo sells at the plain curve price: no discount (owner, 25 Oct), so nothing can be bought cheap and sold back.
@@ -36,6 +41,10 @@ export const ammoCoinById = (tokenId: string, list: AmmoCoin[] = AMMO_COINS) => 
 
 /** Network fee budget per burn (sats): two inputs, two BSV-21 outputs, the tag, change (~750 B at 100 sat/kB). */
 export const BURN_FEE = 90;
+/** Per-shot token burns in lanes (the earlier design: ~2,000 sats of index fund per shot). Off: option A. */
+export const PER_SHOT_BURN = false;
+/** Sats for the session's bulk burn tx (a few token inputs, 2 token outputs, tag, change). */
+export const BULK_BURN_FEE = 600;
 /** Worst-case fixed overhead of the load: the token index-fund fee (at most 5 × INDEX_FEE) and the buy tx's own fee. */
 export const LOAD_OVERHEAD = 5 * INDEX_FEE + 400;
 /** Most burns chained on one lane (unconfirmed chain depth, see #50). */
@@ -77,29 +86,38 @@ export type SwapLoadQuote = {
   quote: Quote;
 };
 
-const fuelFor = (rounds: number) => rounds * BURN_FEE + coinLanesFor(rounds) * LANE_SPLIT_FEE + 300;
+const fuelFor = (rounds: number, roundSats: number) => rounds * roundSats + (PER_SHOT_BURN ? coinLanesFor(rounds) * LANE_SPLIT_FEE : BULK_BURN_FEE) + 300;
 
 /**
  * Split a payment of `paySats` into a curve buy and gunpowder so it buys the most rounds. The burn fee
  * dominates (a token costs well under a sat, a burn ~90 sats), so the buy is usually the curve's minimum.
- * `gunSats` already in the gun count toward the gunpowder. Capped at MAX_COIN_ROUNDS per load.
+ * `gunSats` already in the gun count toward the gunpowder. Per-shot burns (off) cap at MAX_COIN_ROUNDS per load.
  */
-export function planSwapLoad(o: { paySats: number; sold: bigint; coin: Pick<AmmoCoin, 'burnPer'>; slippageBps: number; gunSats?: number }): SwapLoadQuote | null {
+export function planSwapLoad(o: {
+  paySats: number;
+  sold: bigint;
+  coin: Pick<AmmoCoin, 'burnPer'>;
+  slippageBps: number;
+  gunSats?: number;
+  /** Sats per round (option A: the gallery's shot cost; default BURN_FEE for per-shot burns). */
+  roundSats?: number;
+}): SwapLoadQuote | null {
+  const rs = Math.max(1, Math.ceil(o.roundSats ?? BURN_FEE));
   const per = o.coin.burnPer > BigInt(0) ? o.coin.burnPer : BigInt(1);
   const gunSats = Math.max(0, Math.floor(o.gunSats ?? 0));
   const build = (gross: bigint, rounds: number): SwapLoadQuote => {
     const quote = quoteBuy(o.sold, gross);
-    const fuelSats = rounds ? Math.max(0, fuelFor(rounds) - gunSats) : 0;
+    const fuelSats = rounds ? Math.max(0, fuelFor(rounds, rs) - gunSats) : 0;
     const minTokens = (quote.tokens * BigInt(10_000 - Math.max(0, Math.min(10_000, o.slippageBps)))) / BigInt(10_000);
     return { gross, tokenSats: gross, fuelSats, rounds, lanes: coinLanesFor(rounds), tokens: quote.tokens, minTokens, totalSats: Number(gross) + fuelSats + LOAD_OVERHEAD, quote };
   };
   const affordable = (gross: bigint) => {
     const q = build(gross, 0);
     const left = o.paySats - Number(gross) - LOAD_OVERHEAD + gunSats - 300;
-    let byFuel = Math.max(0, Math.floor(left / (BURN_FEE + LANE_SPLIT_FEE / 100)));
-    while (byFuel > 0 && fuelFor(byFuel) - gunSats > o.paySats - Number(gross) - LOAD_OVERHEAD) byFuel--;
+    let byFuel = Math.max(0, Math.floor(left / rs));
+    while (byFuel > 0 && fuelFor(byFuel, rs) - gunSats > o.paySats - Number(gross) - LOAD_OVERHEAD) byFuel--;
     const byTokens = Number(q.minTokens / per); // only count tokens we are sure to get
-    return Math.max(0, Math.min(byFuel, byTokens, MAX_COIN_ROUNDS));
+    return Math.max(0, Math.min(byFuel, byTokens, PER_SHOT_BURN ? MAX_COIN_ROUNDS : Number.MAX_SAFE_INTEGER));
   };
   // Start at the curve minimum; grow the buy only while it is the limit (more tokens than fuel can burn is waste).
   let gross = BigInt(MIN_BUY);

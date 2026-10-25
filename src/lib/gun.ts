@@ -85,6 +85,28 @@ export async function buildTokenBurns(
   return chain;
 }
 
+/**
+ * The bulk burn for coin ammo (option A, owner 25 Oct 2026): the rounds were plain tagged sats blasts; this ONE tx
+ * burns exactly `n × per` tokens to the burn address and keeps the rest in the gun. At most 2 token outputs.
+ *   in  [token coins…, fee coin]   out [burn → eater, rest → gun?, OP_RETURN TAG id burn <n> <game>, change]
+ */
+export async function buildBulkBurn(key: PrivateKey, id: string, coins: TokCoin[], fee: { tx: Transaction; vout: number }, amt: bigint, n: number, game = 'gallery') {
+  const me = key.toAddress();
+  const have = coins.reduce((x, c) => x + c.amt, BigInt(0));
+  if (amt <= BigInt(0) || have < amt) throw new Error(`Only ${have} tokens to burn ${amt}.`);
+  const tx = new Transaction();
+  for (const c of coins) tx.addInput({ sourceTransaction: Transaction.fromBinary(c.tx.toBinary()), sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(key) });
+  tx.addInput({ sourceTransaction: Transaction.fromBinary(fee.tx.toBinary()), sourceOutputIndex: fee.vout, unlockingScriptTemplate: new P2PKH().unlock(key) });
+  tx.addOutput({ lockingScript: bsv21(id, amt, BURN_ADDRESS), satoshis: 1 });
+  const rest = have - amt;
+  if (rest > BigInt(0)) tx.addOutput({ lockingScript: bsv21(id, rest, me), satoshis: 1 });
+  tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, id, 'burn', String(n), game].map(hex).join(' ')}`), satoshis: 0 });
+  tx.addOutput({ lockingScript: new P2PKH().lock(me), change: true });
+  await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+  await tx.sign();
+  return { tx, rest, restVout: rest > BigInt(0) ? 1 : -1, changeVout: tx.outputs.length - 1 };
+}
+
 type Saved = {
   wif: string;
   tx?: string;
@@ -94,6 +116,8 @@ type Saved = {
   extra?: { tx: string; vout: number }[];
   /** Outpoints our own transactions spent (the index can lag): never reused. Most recent last, capped. */
   spent?: string[];
+  /** Coin ammo (option A, 25 Oct 2026): rounds fired with this token's tag, not yet burned as tokens. */
+  owed?: { id: string; n: string };
 };
 /** True when something is stored under the gun key, even if it can't be parsed: then we never overwrite it. */
 const hasRaw = () => {
@@ -164,6 +188,8 @@ export class Gun {
   private readOnly = false;
   /** The running storm session (so a new LOCK & LOAD can end it) and its halt flag. */
   private session: Promise<unknown> | null = null;
+  /** Rounds fired under a coin's tag, owed as a bulk burn (persisted, so a closed tab burns them on the next load/unload). */
+  private owed: { id: string; n: bigint } | null = null;
   private halt = false;
 
   constructor() {
@@ -173,6 +199,7 @@ export class Gun {
     if (s?.tx) this.coin = { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 };
     if (s?.tok) this.tok = { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) };
     this.loadSets(s);
+    this.owed = s?.owed ? { id: s.owed.id, n: BigInt(s.owed.n) } : null;
     this.save();
   }
 
@@ -201,6 +228,7 @@ export class Gun {
     this.loadSets(s);
     // The token coin the gun is firing from: saved, so a reload doesn't depend on the index catching up.
     this.tok = s.tok ? { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) } : null;
+    this.owed = s.owed ? { id: s.owed.id, n: BigInt(s.owed.n) } : null;
   }
 
   /** One tab fires at a time (Web Locks); falls back to running directly where unsupported. */
@@ -241,6 +269,7 @@ export class Gun {
       wif: this.key.toWif(),
       tx: this.coin?.tx.toHex(),
       vout: this.coin?.vout,
+      owed: this.owed && this.owed.n > BigInt(0) ? { id: this.owed.id, n: this.owed.n.toString() } : undefined,
       tok: this.tok && this.tok.amt > BigInt(0) ? { id: this.tok.id, tx: this.tok.tx.toHex(), vout: this.tok.vout, amt: this.tok.amt.toString() } : undefined,
     });    const left = this.sats;
     const prev = this.lastReported;
@@ -599,6 +628,76 @@ export class Gun {
     }
   }
 
+  // ── Coin ammo, option A (owner 25 Oct 2026): tagged sats rounds, one bulk burn ──────────
+
+  /** Rounds of coin `id` fired and not yet burned. */
+  owedBurn(): { id: string; n: bigint } | null {
+    this.refresh();
+    return this.owed && this.owed.n > BigInt(0) ? { ...this.owed } : null;
+  }
+
+  /** Count `rounds` more fired under coin `id`'s tag (saved at once). A different coin's debt is burned first by the caller. */
+  oweBurn(id: string, rounds: number) {
+    if (rounds <= 0) return;
+    this.refresh();
+    if (this.owed && this.owed.id !== id && this.owed.n > BigInt(0)) console.warn('[tokenblaster] owed burn for another coin is pending', this.owed.id);
+    this.owed = this.owed && this.owed.id === id ? { id, n: this.owed.n + BigInt(rounds) } : { id, n: BigInt(rounds) };
+    this.save();
+  }
+
+  /** Burn what is owed in ONE tx (exactly rounds × per to the eater, the rest stays in the gun). Returns the txid. */
+  async burnOwed(per: bigint = BigInt(1)): Promise<string | null> {
+    return this.exclusive(() => this.burnOwedNow(per));
+  }
+
+  private async burnOwedNow(per: bigint = BigInt(1)): Promise<string | null> {
+    this.refresh();
+    const o = this.owed;
+    if (!o || o.n <= BigInt(0)) return null;
+    if (!this.coin) {
+      await this.startCoin(() => undefined).catch(() => undefined);
+      if (!this.coin) throw new Error('No sats in the gun to pay the burn fee.');
+    }
+    const coins = await this.tokenCoinsAll(o.id);
+    const have = coins.reduce((n, c) => n + c.amt, BigInt(0));
+    let amt = o.n * per;
+    if (have < amt) {
+      console.warn(`[tokenblaster] owed ${amt} tokens, gun holds ${have}: burning what is there`);
+      amt = have;
+    }
+    if (amt <= BigInt(0)) {
+      this.owed = null;
+      this.save();
+      return null;
+    }
+    const b = await buildBulkBurn(this.key, o.id, coins, this.coin, amt, Number(o.n));
+    if (this.loadTx && !(await this.known(this.loadTx.id('hex')))) await this.send(this.loadTx).catch(() => undefined);
+    await this.send(b.tx);
+    this.loadTx = null;
+    this.markSpent(b.tx);
+    for (const c of coins) this.spentTok.add(`${c.tx.id('hex')}_${c.vout}`);
+    const base = Transaction.fromHex(b.tx.toHex());
+    this.tok = b.rest > BigInt(0) ? { id: o.id, tx: base, vout: b.restVout, amt: b.rest } : null;
+    this.coin = { tx: base, vout: b.changeVout };
+    this.owed = null;
+    this.save();
+    loadMark(`bulk burn: ${amt} tokens for ${o.n} rounds`);
+    return base.id('hex');
+  }
+
+  /** Every token coin of `id` the gun knows: the one it fires from plus the index's. */
+  private async tokenCoinsAll(id: string): Promise<TokCoin[]> {
+    const coins: TokCoin[] = [];
+    if (this.tok?.id === id && this.tok.amt > BigInt(0)) coins.push(this.tok);
+    for (const u of await this.tokenUtxos(id)) {
+      if (coins.some((c) => c.tx.id('hex') === u.txid && c.vout === u.vout)) continue;
+      const hexTx = await fetch(`${WOC}/tx/${u.txid}/hex`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('Could not fetch a token transaction.'))));
+      coins.push({ id, tx: Transaction.fromHex(hexTx), vout: u.vout, amt: u.amt });
+    }
+    return coins;
+  }
+
+  // Per-shot token burns in lanes: kept behind PER_SHOT_BURN (src/lib/launch/ammoCoins.ts, default off).
   // ── Coin ammo storm (multi-lane token burns, 25 Oct 2026) ─────────
 
   /** Lanes made by prepareCoinStorm(): the fan-out tx, its lanes (token coin + fee coin each) and the token. */
@@ -846,6 +945,8 @@ export class Gun {
    */
   async unloadTokens(id: string, to: string): Promise<{ tx: Transaction; amt: bigint }> {
     return this.exclusive(async () => {
+      // Coin ammo: rounds already fired are burned first, so UNLOAD only returns what was not shot.
+      if (this.owedBurn()?.id === id) await this.burnOwedNow();
       this.refresh();
       if (!this.coin) throw new Error('No sats in the gun to pay the fee.');
       const coins: TokCoin[] = [];
