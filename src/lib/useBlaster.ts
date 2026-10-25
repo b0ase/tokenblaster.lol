@@ -477,6 +477,14 @@ export function useBlaster() {
     setAmmo(g.sats);
     return txid;
   }, []);
+  /** $TERRORNODE receipts: the gun pays the session's settlement tx (src/lib/gun.ts payReceipts). */
+  const payReceipts = useCallback(async (asm: string, outs: { address: string; sats: number }[]) => {
+    const g = gun.current;
+    if (!g) throw new Error('No gun.');
+    const txid = await g.payReceipts(asm, outs);
+    setAmmo(g.sats);
+    return txid;
+  }, []);
   /** Coin ammo storm: fan the gun's coin out into lanes (one gun-signed tx), then burn them in the storm workers. */
   const prepareCoinStorm = useCallback(async (coin: AmmoCoin, rounds: number, lanes: number) => {
     const g = gun.current;
@@ -498,5 +506,5 @@ export function useBlaster() {
     [],
   );
 
-  return { swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

@@ -59,6 +59,7 @@ import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal, Ticker } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
 import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
+import { useReceipts } from './useReceipts';
 import { PER_SHOT_BURN, type AmmoCoin } from '@/lib/launch/ammoCoins';
 import { GunUnload } from '../GunUnload';
 import { INFO_URL } from './AssaultInfo';
@@ -103,6 +104,9 @@ function simTick(s: Sim, dt: number) {
   return n;
 }
 const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
+
+/** Option A (coin-ammo swap-on-load + bulk burn) is off in Assault (owner, 25 Oct: receipts replace it). Code kept. */
+const COIN_AMMO_UI = false;
 
 export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
   const b = useBlaster();
@@ -172,6 +176,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
+  // $TERRORNODE receipts (owner, 25 Oct): every LIVE bullet also buys 1 receipt at the curve price (src/lib/launch/receipts.ts).
+  const rc = useReceipts(!freePlay && !dry);
+  const settleReceipts = () => {
+    if (!b.wallet) return;
+    void rc.settle({ pay: b.payReceipts, recipient: b.wallet.address, session: sid, handle: handle ?? "", shownAs: barWallet?.paymail ?? b.wallet.address });
+  };
   // Swap on load (owner, 25 Oct 2026): an ammo coin bought on BlastPad at LOCK & LOAD (one approval), burned per shot.
   const [ammoCoin, setAmmoCoin] = useState<AmmoCoin | null>(null);
   const [liveCoin, setLiveCoin] = useState<AmmoCoin | null>(null);
@@ -488,6 +498,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           const d = n - prev;
           prev = n;
           if (coin && d > 0) b.oweCoinRounds(coin.tokenId, d);
+          else if (d > 0) rc.fired(d);
           landed(d, last ?? null);
         },
         () => stop.current,
@@ -509,8 +520,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           sessionAlive.current = false;
           console.info(`[tb-fire] session ${gen} ended`);
           const left = boughtRef.current - sentRef.current;
-          if (stop.current || left <= 0 || modeRef.current !== 'live') return;
-          if (++tries.current > 3) return void (senderDead.current = true);
+          // Receipts settle when the session is really over (a reload keeps counting, then settles once).
+          if (stop.current || left <= 0 || modeRef.current !== 'live') return settleReceipts();
+          if (++tries.current > 3) {
+            settleReceipts();
+            return void (senderDead.current = true);
+          }
           void reloadRef.current();
         });
     };
@@ -797,6 +812,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     setLoadingRounds(0);
     setErr(null);
     if (!continued) {
+      rc.resetSession();
       // a fresh attempt: back to the street, the doors open, a new song
       engine.current?.startRun();
       rescuedRef.current = false;
@@ -864,12 +880,16 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       loadMark(`lock & load: gun has ${avail} sats`);
       const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
       let shots = roundsFrom(avail, perShotAll, overheadSats);
+      // Receipts: each shot also carries its $TERRORNODE receipt; the receipt money stays in the gun until settlement.
+      if (rc.live) shots = Math.min(shots, rc.shots(avail - overheadSats(shots), perShotAll) ?? shots);
       if (plan.short || shots <= 0) throw new Error('SHORT');
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
         await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
-        shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots)) / perShot));
+        shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots) - rc.rangeCost(shots)) / perShot));
       }
+      if (rc.live) while (shots > 0 && shots * perShot + rc.rangeCost(shots) + overheadSats(shots) > avail - feeSats) shots--;
+      if (shots <= 0) throw new Error('SHORT');
       setLoadingRounds(shots);
       if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
       loadMark(`loaded: ${shots} rounds`);
@@ -938,6 +958,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
 
   const buys = (usd: number) => {
     const sats = usdToSats(usd, bsvUsd);
+    if (sats != null && rc.live) return rc.shots(sats, perShotAll);
     return sats == null ? null : roundsFor(sats, perShotAll);
   };
 
@@ -985,7 +1006,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // CREDIT COUNTDOWN (owner, 25 Oct): while live the credit ticks down round by round, to the micro-dollar. Paid:
   // the rounds not yet sent are what is left (real spend is rounds sent x cost). Practice: rounds not yet fired,
   // at the same cost, so it looks the same and still claims nothing on chain. It agrees with "rounds left".
-  const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * perShotAll, bsvUsd), practice: simulated } : null;
+  const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * (perShotAll + (rc.live && rc.q ? rc.q.nextPriceSats : 0)), bsvUsd), practice: simulated } : null;
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
   const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.`));
@@ -1167,6 +1188,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             ammo={ammo ?? DEFAULT_AMMO}
             creditUsd={cab.creditUsd}
             live={creditLive}
+            receipts={rc.live && rc.q ? { earned: rc.earned, priceSats: rc.q.nextPriceSats } : null}
             tps={run.tps}
             spent={simulated ? '$0.00' : fmtUsd(usdOf(spent, bsvUsd))}
             stats={hud}
@@ -1210,6 +1232,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
 
         {/* GAME OVER */}
         {over && <Results r={over} onAgain={() => (setOver(null), setLoadout(true))} onBoard={toBoard} />}
+        {over && rc.note && (
+          <p className="tbx-glass absolute bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-[var(--tbx-teal)]" role="status" data-receipt-sent>
+            {rc.note}
+          </p>
+        )}
 
         {/* LOADOUT */}
         {loadout && !over && (
@@ -1237,7 +1264,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             }
             cabinet={
               <>
-              <AmmoCoinPick chosen={ammoCoin} setChosen={setAmmoCoin} payUsd={cab.pending} quote={coinQ.quote} quoteErr={coinQ.err} slippageBps={slipBps} setSlippageBps={setSlipBps} status={coinStatus} disabled={locking} />
+              {COIN_AMMO_UI && <AmmoCoinPick chosen={ammoCoin} setChosen={setAmmoCoin} payUsd={cab.pending} quote={coinQ.quote} quoteErr={coinQ.err} slippageBps={slipBps} setSlippageBps={setSlipBps} status={coinStatus} disabled={locking} />}
+              {rc.live && rc.q && (
+                <p className="tbx-glass mb-2 rounded px-3 py-2 text-xs text-white/85" data-receipt-line>
+                  Each shot: {Math.ceil(perShotAll).toLocaleString('en-US')} sats fee + {rc.q.nextPriceSats.toLocaleString('en-US')} sats for 1 $TERRORNODE receipt (price rises as receipts sell).
+                  {cab.pending > 0 && ` ${fmtCredit(cab.pending)} buys about ${(rc.shots(usdToSats(cab.pending, bsvUsd) ?? 0, perShotAll) ?? 0).toLocaleString('en-US')} shots now.`}
+                </p>
+              )}
+              {rc.note && <p className="mb-2 text-xs text-[var(--tbx-teal)]" data-receipt-note>{rc.note}</p>}
               <CoinCabinet
                 title="Shooting Gallery"
                 creditUsd={cab.creditUsd}

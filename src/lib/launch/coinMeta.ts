@@ -6,8 +6,11 @@
  *    logo ≤ 64 KB, cardArt ≤ 256 KB; text on bg/surface ≥ 4.5:1, accent on bg ≥ 3:1.
  *  - room: a bChatX room ticker, ^[A-Z0-9]{1,20}$.
  *  - merch_url: an https URL.
+ * Every coin also gets `trading` (false for play-to-earn coins such as $TERRORNODE: no curve buy/sell) and, when
+ * not trading, `earn_url` (where to earn it).
  */
 import { price } from './curve';
+import { EARN_URL, tradingOf } from './receipts';
 
 export type CoinTheme = {
   v: 2;
@@ -48,7 +51,8 @@ export function coinExtras(row: { token_id?: string; sold?: number | string | nu
   const sold = BigInt(row.sold ?? 0);
   const m = COIN_META[row.token_id ?? ''] ?? {};
   const theme = m.theme ? { ...m.theme, logo: SITE + m.theme.logo, cardArt: SITE + m.theme.cardArt } : undefined;
-  return { price_sats: price(sold), ...(theme && { theme }), ...(m.room && { room: m.room }), ...(m.merch_url && { merch_url: m.merch_url }) };
+  const trading = tradingOf(row.token_id);
+  return { price_sats: price(sold), trading, ...(!trading && { earn_url: EARN_URL }), ...(theme && { theme }), ...(m.room && { room: m.room }), ...(m.merch_url && { merch_url: m.merch_url }) };
 }
 
 export const withExtras = <T extends { token_id?: string; sold?: number | string | null }>(row: T) => ({ ...row, ...coinExtras(row) });

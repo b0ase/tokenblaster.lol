@@ -685,6 +685,31 @@ export class Gun {
     return base.id('hex');
   }
 
+  /**
+   * $TERRORNODE receipts (src/lib/launch/receipts.ts): ONE settlement tx from the gun's sats carrying the session's
+   * receipt tag, the receipt money to the creator and the transfer gas to the pool. Returns the txid.
+   */
+  async payReceipts(asm: string, outs: { address: string; sats: number }[]): Promise<string> {
+    return this.exclusive(async () => {
+      this.refresh();
+      if (!this.coin) await this.startCoin(() => undefined).catch(() => undefined);
+      if (!this.coin) throw new Error('No sats in the gun to pay the receipts.');
+      const tx = new Transaction();
+      tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      tx.addOutput({ lockingScript: Script.fromASM(asm), satoshis: 0 });
+      for (const o of outs) tx.addOutput({ lockingScript: new P2PKH().lock(o.address), satoshis: o.sats });
+      tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await tx.sign();
+      await this.send(tx);
+      const base = Transaction.fromHex(tx.toHex());
+      this.coin = { tx: base, vout: base.outputs.length - 1 };
+      this.save();
+      loadMark(`receipts settled: ${base.id('hex')}`);
+      return base.id('hex');
+    });
+  }
+
   /** Every token coin of `id` the gun knows: the one it fires from plus the index's. */
   private async tokenCoinsAll(id: string): Promise<TokCoin[]> {
     const coins: TokCoin[] = [];

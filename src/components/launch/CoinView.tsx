@@ -1,5 +1,6 @@
 'use client';
 
+import { tradingOf } from '@/lib/launch/receipts';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { presetBsv } from '@/lib/buyPreset';
@@ -194,6 +195,16 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
       </div>
 
       <aside className="flex flex-col gap-3">
+        {!tradingOf(c.token_id) ? (
+          <section className="panel text-sm">
+            <p className="panel-title">Play to earn</p>
+            <p className="mt-2">This coin is not bought or sold on BlastPad.</p>
+            <a className="btn btn-on mt-3 block text-center" href="/arcade/terrornode">
+              Earn ${c.sym} by playing Assault on Terrornode
+            </a>
+            <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt; the price rises as receipts sell. No sell-back.</p>
+          </section>
+        ) : (
         <TradePanel
           presetUsd={presetUsd}
           indexed={data.indexed ?? null}
@@ -207,6 +218,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
             refreshTrades();
           }}
         />
+        )}
         <section className="panel text-sm">
           <div className="mb-2 flex items-center justify-between">
             <p className="panel-title">Bonding curve</p>
