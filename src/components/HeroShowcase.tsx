@@ -19,11 +19,10 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
  * is the 1280x720 variant a <source media> hands to phones and small windows; <game>.jpg is the 1920x1080 poster.
  */
 type Slide = { href: string; img: string; vid?: string; title: string; tag: string; kana: string };
-// No loop yet for Assault / NPG Arena: their slide shows the poster with the Ken Burns push (no `vid`).
 const SLIDES: readonly Slide[] = [
-  { href: '/arcade/assault', img: '/gallery/loading/boss-fire.webp', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
+  { href: '/arcade/assault', img: '/gallery/loading/boss-fire.webp', vid: '/hero/assault', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
   { href: '/arena', img: '/arcade/arena.jpg', vid: '/hero/arena', title: 'Arena', tag: 'Hell-forge shooter', kana: 'アリーナ' },
-  { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
+  { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', vid: '/hero/npg-arena', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
 ];
 
 /** The active slide, shared with <HeroTitle> (rendered inside the headline column). */
