@@ -269,9 +269,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
   // Zero wallet prompts during play: from warm-up to the end of the round nothing may reach the wallet (src/lib/wallet.ts).
   useEffect(() => {
-    holdWalletForPlay(mode !== 'off');
+    // Only while a round is actually on: back on the loadout / results the wallet is free again (a payment there must
+    // reach it; owner, 25 Oct: "my wallet keeps saying no to lock and load").
+    holdWalletForPlay(mode !== 'off' && !loadout && !over);
     return () => holdWalletForPlay(false);
-  }, [mode]);
+  }, [mode, loadout, over]);
   // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
   useEffect(() => {
     const e = engine.current;
