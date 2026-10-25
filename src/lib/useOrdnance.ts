@@ -8,8 +8,10 @@
  * Unminted weapons (empty origin) can't be owned. Dev builds (or NEXT_PUBLIC_TB_ADMIN=1) can
  * simulate ownership with `?ordnance=all` or `?ordnance=pnee-shotgun,safu-blaster`.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WalletInterface } from '@bsv/sdk';
+import { readBasket } from './basketSession';
+import { walletHeld } from './wallet';
 import { ORDNANCE, ORDNANCE_COLLECTION, type Ordnance } from './ordnance';
 
 const API = 'https://ordinals.gorillapool.io/api';
@@ -79,7 +81,7 @@ export async function ordnanceInWallet(wallet: WalletInterface): Promise<Set<str
   const issued = await storeIssued();
   if (!minted.length && !ORDNANCE_COLLECTION && !issued.size) return owned;
   for (const basket of ['1sat', 'ordinals', 'ordnance']) {
-    const r = await wallet.listOutputs({ basket, includeTags: true, includeCustomInstructions: true, limit: 1000 }).catch(() => null);
+    const r = await readBasket(wallet, { basket, includeTags: true, includeCustomInstructions: true, limit: 1000 });
     if (!r) continue;
     for (const o of r.outputs) {
       if (o.spendable === false) continue;
@@ -118,17 +120,23 @@ export const saveOrdinalAddresses = (a: string[]) => {
 };
 
 /** Owned weapon ids for a connected wallet (plus any ordinals addresses the player added). */
-/** `walletBaskets: false` checks the chain index only and never asks the wallet (its ordinal baskets each open a permission sheet). */
-export function useOrdnance(wallet: { client: WalletInterface; address: string } | null, extraAddresses: string[] = [], nonce = 0, walletBaskets = true) {
+/**
+ * Owned weapon ids for a connected wallet (plus any ordinals addresses the player added).
+ * The chain index (by address) is checked by itself. The wallet's own ordinal baskets are read ONLY when the player
+ * taps "Check my wallet for ordnance" (`checkWallet`): each basket read can open a permission sheet in the wallet,
+ * so it never happens in the background (owner, 25 Oct 2026), never during play, and at most once per session.
+ */
+export function useOrdnance(wallet: { client: WalletInterface; address: string } | null, extraAddresses: string[] = [], nonce = 0) {
   const [owned, setOwned] = useState<Set<string>>(() => new Set());
+  const [inWallet, setInWallet] = useState<Set<string>>(() => new Set());
+  const [walletChecked, setWalletChecked] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const extraKey = extraAddresses.join(',');
   useEffect(() => {
     let cancelled = false;
     const sim = simulatedOrdnance();
-    const anyMinted = true; // store issues can exist with nothing owner-minted
-    if (sim || (!wallet && !extraKey) || !anyMinted) {
+    if (sim || (!wallet && !extraKey)) {
       void Promise.resolve().then(() => !cancelled && setOwned(sim ?? new Set()));
       return () => {
         cancelled = true;
@@ -139,19 +147,32 @@ export function useOrdnance(wallet: { client: WalletInterface; address: string }
       setChecking(true);
       setError(null);
       const all = new Set<string>();
-      const results = await Promise.allSettled([
-        wallet && walletBaskets ? ordnanceInWallet(wallet.client) : Promise.resolve(new Set<string>()),
-        ordnanceAtAddresses([wallet?.address ?? '', ...extraKey.split(',')]),
-      ]);
-      for (const r of results) if (r.status === 'fulfilled') r.value.forEach((id) => all.add(id));
+      try {
+        (await ordnanceAtAddresses([wallet?.address ?? '', ...extraKey.split(',')])).forEach((id) => all.add(id));
+      } catch {
+        if (!cancelled) setError('Could not check your ordinals right now.');
+      }
       if (cancelled) return;
-      if (results.every((r) => r.status === 'rejected')) setError('Could not check your ordinals right now.');
       setOwned(all);
       setChecking(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [wallet, extraKey, nonce, walletBaskets]);
-  return { owned, checking, error };
+  }, [wallet, extraKey, nonce]);
+  /** The explicit tap: look in the wallet's ordinal baskets once. Refused while a round is live. */
+  const checkWallet = useCallback(async () => {
+    if (!wallet || walletHeld()) return;
+    setChecking(true);
+    try {
+      setInWallet(await ordnanceInWallet(wallet.client));
+      setWalletChecked(true);
+    } catch {
+      setError('Your wallet did not answer. Try again outside play.');
+    } finally {
+      setChecking(false);
+    }
+  }, [wallet]);
+  const merged = useMemo(() => new Set([...owned, ...inWallet]), [owned, inWallet]);
+  return { owned: merged, checking, error, checkWallet, walletChecked };
 }

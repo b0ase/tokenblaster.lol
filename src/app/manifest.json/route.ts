@@ -25,7 +25,7 @@ const manifest = {
           description: 'See the tokens in your wallet, so you can pick one to load as ammunition',
         },
         // Read by the gun app / arena token picker (src/lib/tokens.ts) and the Ordnance check (src/lib/useOrdnance.ts).
-        // Granting them here means one connect sheet instead of a sheet per basket. Assault on Terrornode reads none.
+        // Granting them here means one sheet instead of one per basket. They are read only on the player's tap, never in the background.
         { basket: 'p 1sat bsv21', description: 'See older 1Sat token coins in your wallet, for the token picker' },
         { basket: 'ordinals', description: 'See the TokenBlaster weapons (ordinals) you own, to unlock them in game' },
         { basket: 'ordnance', description: 'See the TokenBlaster weapons you bought in the store' },

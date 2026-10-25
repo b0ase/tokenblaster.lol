@@ -14,6 +14,7 @@ import { formatCount, packSats } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl } from '@/lib/tokens';
 import { TOKEN_FEE } from '@/lib/gun';
+import { holdWalletForPlay } from '@/lib/wallet';
 import { useBlaster } from '@/lib/useBlaster';
 import { arenaSend, createPvpQueue, hitMsg } from '@/lib/pvpPay';
 import { HighScores } from './HighScores';
@@ -169,6 +170,8 @@ export function Arena() {
   const playingRef = useRef(false);
   useEffect(() => {
     playingRef.current = playing;
+    holdWalletForPlay(playing, 'arena'); // zero wallet prompts while playing: the gun signs every shot itself
+    return () => holdWalletForPlay(false, 'arena');
   }, [playing]);
   // First seconds of a run: a controls reminder that fades by itself. Dying: a respawn bar.
   const touchUi = useSyncExternalStore(

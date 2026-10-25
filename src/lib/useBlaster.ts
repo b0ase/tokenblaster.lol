@@ -9,16 +9,17 @@ import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } f
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { connect, fund, walletAlive, walletHeld, type Wallet } from './wallet';
+import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, type Wallet } from './wallet';
 import { setProofWallet } from './xproof';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
 
 /**
- * `tokens: false` (Assault on Terrornode): the page never reads the wallet's token baskets. Those reads are what
- * opened basket-permission sheets at connect, after the payment and on every tab refocus mid-play (playtest 25 Oct).
+ * No background wallet calls (owner, 25 Oct 2026): connecting asks only for the identity key. The wallet's token
+ * baskets are read only when the player opens the token / ammo picker (`readTokens`, or picking token ammo with
+ * setMode('tokens')), once per session per basket, refusals remembered (src/lib/basketSession.ts). Nothing is read
+ * on refocus, there is no liveness timer, and the wallet is held (no calls at all) while a storm session runs.
  */
-export function useBlaster(opts: { tokens?: boolean } = {}) {
-  const readTokens = opts.tokens !== false;
+export function useBlaster() {
   const gun = useRef<Gun | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   // The hall of fame asks this wallet to sign for the player's X handle (src/lib/xproof.ts).
@@ -44,7 +45,7 @@ export function useBlaster(opts: { tokens?: boolean } = {}) {
   const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 'sats': tagged blasts (tokens never move). 'tokens': every bullet burns a real token. */
-  const [mode, setMode] = useState<'sats' | 'tokens'>('sats');
+  const [mode, setModeState] = useState<'sats' | 'tokens'>('sats');
   const [tokenAmmo, setTokenAmmo] = useState<number>(0); // whole tokens loaded in the gun
   const [gunAddress, setGunAddress] = useState('');
   /** Last load / unload, shown as a receipt with its transaction. */
@@ -90,25 +91,13 @@ export function useBlaster(opts: { tokens?: boolean } = {}) {
       setWallet(w);
       setWalletLive(true);
       loadMark(`wallet connected: ${w.name}`);
-      // The tokens really in the wallet (bWallet's bsv21 basket, else the index).
-      const first = (held: Token[]) => {
-        setTokens(held);
-        setToken((cur) => (cur && held.some((t) => t.id === cur.id) ? held.find((t) => t.id === cur.id)! : (held[0] ?? null)));
-      };
-      if (!readTokens) return;
-      void checkStranded(w);
-      walletTokens(w, first)
-        .then((held) => {
-          first(held);
-          if (!held[0]) setMode('sats'); // nothing to burn
-        })
-        .catch(() => undefined);
+      // No token-basket reads here: those wait for the player's tap (readTokens).
     } catch (e) {
       fail(e);
     } finally {
       setBusy(null);
     }
-  }, [checkStranded, readTokens]);
+  }, []);
 
   /** Inside bWallet: its wallet, no chooser. Else the remembered wallet, else the chooser. */
   const connectWallet = useCallback(async () => {
@@ -136,14 +125,7 @@ export function useBlaster(opts: { tokens?: boolean } = {}) {
     if (!ok) loadMark(`wallet not answering: ${wallet.name}`);
     return ok;
   }, [wallet]);
-  // Watch the connection while on the page: a drop shows at once (a badge), and the next pay asks to reconnect.
-  useEffect(() => {
-    if (!wallet) return;
-    const t = setInterval(() => {
-      if (!busy && !walletHeld()) void checkWallet();
-    }, 20_000);
-    return () => clearInterval(t);
-  }, [wallet, busy, checkWallet]);
+  // No liveness timer: checkWallet runs only right before a payment (isAuthenticated, never a sheet).
 
   /**
    * Pay `sats` into the gun. Only after a confirmed live connection; the paid coin is saved straight from the
@@ -233,9 +215,11 @@ export function useBlaster(opts: { tokens?: boolean } = {}) {
     ) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
+      holdWalletForPlay(true, 'storm'); // the gun signs every round itself: nothing may ask the wallet meanwhile
       try {
         return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused, step);
       } finally {
+        holdWalletForPlay(false, 'storm');
         setAmmo(await g.balance().catch(() => g.sats)); // the session's saved change, from the real coin set
       }
     },
@@ -366,13 +350,27 @@ export function useBlaster(opts: { tokens?: boolean } = {}) {
       setRefreshing(false);
     }
   }, [wallet, checkStranded]);
-  // Coming back to the tab (e.g. after buying tokens elsewhere): look again.
+  /** The player opened the token / ammo picker: read the wallet's tokens (once per session per basket). */
+  const tokensAsked = useRef(false);
+  const [tokensRead, setTokensRead] = useState(false);
+  const readTokens = useCallback(async () => {
+    if (!wallet || walletHeld() || tokensAsked.current) return;
+    tokensAsked.current = true;
+    await refreshWallet();
+    setTokensRead(true);
+  }, [wallet, refreshWallet]);
   useEffect(() => {
-    if (!wallet || !readTokens) return;
-    const onFocus = () => document.visibilityState === 'visible' && !walletHeld() && void refreshWallet();
-    document.addEventListener('visibilitychange', onFocus);
-    return () => document.removeEventListener('visibilitychange', onFocus);
-  }, [wallet, refreshWallet, readTokens]);
+    tokensAsked.current = false;
+    void Promise.resolve().then(() => setTokensRead(false));
+  }, [wallet]);
+  /** Picking token ammo is the player's tap: it reads the wallet's tokens first time. */
+  const setMode = useCallback(
+    (m: 'sats' | 'tokens') => {
+      setModeState(m);
+      if (m === 'tokens') void readTokens();
+    },
+    [readTokens],
+  );
 
   /** What's in the gun right now: tokens by id (for the Wallet → Gun → Fired strip). */
   const [gunTokens, setGunTokens] = useState<{ id: string; amt: bigint }[]>([]);
@@ -421,5 +419,5 @@ export function useBlaster(opts: { tokens?: boolean } = {}) {
     }
   }, [wallet, refreshGun]);
 
-  return { wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

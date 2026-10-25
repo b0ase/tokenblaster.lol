@@ -97,7 +97,7 @@ function simTick(s: Sim, dt: number) {
 const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
 
 export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
-  const b = useBlaster({ tokens: false }); // sats ammo only: no token-basket reads, so no basket sheets
+  const b = useBlaster();
   const { storm, fireBatch } = b;
   const [name, setName] = usePlayerName();
   // The NAME typed at the cabinet is the on-chain handle tag and the board name.
@@ -107,7 +107,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     const all = buildWeapons();
     return ASSAULT_GUNS.map((id) => all.find((w) => w.id === id)).filter((w): w is RangeWeapon => !!w);
   }, []);
-  const { owned } = useOrdnance(b.wallet, [], 0, false); // chain index only: never asks the wallet
+  const ordnance = useOrdnance(b.wallet); // wallet baskets only on the loadout's explicit tap
+  const { owned } = ordnance;
   const [dry, setDry] = useState(false);
   const [autofire, setAutofire] = useState(false);
   const [weaponId, setWeaponId] = useState('minigun');
@@ -1070,6 +1071,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           <span>Paymail on your rounds (from your X handle):</span>
           <IdentityPicker compact />
         </div>
+        {b.wallet && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
+            {/* Wallet-basket ownership only on this tap, never in the background or during play (src/lib/useOrdnance.ts) */}
+            <button type="button" className="btn px-2 py-0.5 text-xs" disabled={mode !== 'off' || ordnance.checking || ordnance.walletChecked} onClick={() => void ordnance.checkWallet()}>
+              {ordnance.walletChecked ? 'Wallet checked for ordnance' : 'Check my wallet for ordnance'}
+            </button>
+            <span className="text-xs">Your wallet may ask once to show this site your TokenBlaster weapons, so owned guns unlock.</span>
+          </div>
+        )}
         {(err || b.error) && <p className="mt-2 text-sm font-semibold text-[#ff7a70]">{err ?? b.error}</p>}
       </section>
       )}
