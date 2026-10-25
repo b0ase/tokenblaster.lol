@@ -97,6 +97,9 @@ export function pairErrorText(code: string, message = ''): string {
 let phoneEnd: PairError | null = null;
 export const getPhoneEnd = () => phoneEnd;
 
+/** joined and ready this close together = one resend (pre-#122 bWallet sends no ready, only the relay's joined). */
+export const RESEND_DEDUPE_MS = 1000;
+
 /** How long a request may wait with no word from the phone before the site says it is asleep. */
 export const ASLEEP_AFTER_MS = 8000;
 
@@ -109,6 +112,8 @@ class Channel {
   private sleepTimer: ReturnType<typeof setTimeout> | undefined;
   private outbox: string[] = [];
   private closed = false;
+  private joinTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastResend = 0;
 
   constructor(
     private saved: Saved,
@@ -133,8 +138,13 @@ class Channel {
     if ((f as RelayFrame).t === 'relay') {
       const rf = f as RelayFrame;
       if (rf.role === 'wallet' && rf.peer === 'left') setPhoneStatus('asleep');
-      // Back again: bWallet sends {t:'ready'} on rejoin, and that is when unanswered requests go out again.
-      if (rf.role === 'wallet' && rf.peer === 'joined') setPhoneStatus('awake');
+      // Back again. bWallet #122+ follows with {t:'ready'}; older builds (5.2.41) never do, so resend on joined too,
+      // after a short wait so a ready that follows makes it one resend.
+      if (rf.role === 'wallet' && rf.peer === 'joined') {
+        setPhoneStatus('awake');
+        clearTimeout(this.joinTimer);
+        this.joinTimer = setTimeout(() => void this.resend(), RESEND_DEDUPE_MS);
+      }
       return;
     }
     if (!isSealed(f)) return;
@@ -154,6 +164,7 @@ class Channel {
         if (code === 'REPAIR_NEEDED') this.end('REPAIR_NEEDED');
       } else p.resolve(msg.result);
     } else if (msg.t === 'ready') {
+      clearTimeout(this.joinTimer);
       // Sent at first pairing and on every rejoin: ask again for anything unanswered, with the SAME ids (bWallet
       // replays a stored answer for a repeated id, never runs it twice).
       void this.resend();
@@ -200,6 +211,10 @@ class Channel {
   }
 
   private async resend() {
+    // One resend per rejoin: joined and ready within RESEND_DEDUPE_MS of each other count once.
+    clearTimeout(this.joinTimer);
+    if (Date.now() - this.lastResend < RESEND_DEDUPE_MS) return;
+    this.lastResend = Date.now();
     for (const [id, p] of this.pending) await this.send(id, p.action, p.params);
   }
 
@@ -213,6 +228,7 @@ class Channel {
   close(notify = true) {
     this.closed = true;
     clearTimeout(this.sleepTimer);
+    clearTimeout(this.joinTimer);
     const finish = () => this.ws?.close();
     if (notify && this.ws?.readyState === WebSocket.OPEN)
       void this.sealer.seal({ t: 'close', reason: 'site disconnected' }).then((f) => {

@@ -148,13 +148,15 @@ test("{t:'ready'} on rejoin resends outstanding requests with the SAME ids", asy
   await tick();
   const first = await p.reqs();
   assert.equal(first.length, 2);
-  // The phone slept and came back: the relay says joined (no resend yet), then bWallet says ready.
+  // The phone slept and came back: the relay says joined, then bWallet says ready within 1 s: ONE resend.
   p.sock.push({ t: 'relay', role: 'wallet', peer: 'joined' });
   await tick();
-  assert.equal((await p.reqs()).length, 0, 'joined alone does not resend');
+  assert.equal((await p.reqs()).length, 0, 'joined waits briefly for ready');
   await p.reply({ t: 'ready' });
   await tick();
   const again = await p.reqs();
+  await tick(1200);
+  assert.equal((await p.reqs()).length, 0, 'joined + ready = one resend');
   assert.deepEqual(
     again.map((r) => [r.id, r.action]),
     first.map((r) => [r.id, r.action]),
@@ -164,6 +166,24 @@ test("{t:'ready'} on rejoin resends outstanding requests with the SAME ids", asy
   await p.reply({ t: 'res', id: again[1].id, result: { outputs: [], totalOutputs: 0 } });
   assert.deepEqual(await a, { publicKey: '02'.padEnd(66, 'a') });
   assert.deepEqual(await b, { outputs: [], totalOutputs: 0 });
+  p.stop();
+});
+
+test('pre-#122 bWallet (joined, no ready): resends after ~1 s with the SAME ids, once', async () => {
+  const p = await pair();
+  const a = p.w.getPublicKey({ identityKey: true });
+  await tick();
+  const first = await p.reqs();
+  p.sock.push({ t: 'relay', role: 'wallet', peer: 'joined' });
+  await tick(1200);
+  const again = await p.reqs();
+  assert.deepEqual(again.map((r) => r.id), first.map((r) => r.id));
+  // A late ready right after the fallback resend is deduped too.
+  await p.reply({ t: 'ready' });
+  await tick();
+  assert.equal((await p.reqs()).length, 0);
+  await p.reply({ t: 'res', id: again[0].id, result: { publicKey: 'k' } });
+  assert.deepEqual(await a, { publicKey: 'k' });
   p.stop();
 });
 
