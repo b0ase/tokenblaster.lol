@@ -791,7 +791,7 @@ export function NpgArena() {
                   {co.paying ? 'WAITING FOR WALLET…' : co.sats ? `🪙 +1 BAR · $${co.priceUsd.toFixed(2)}` : 'PRICE LOADING…'}
                 </button>
               ) : (
-                <div className="mt-2 text-[11px] text-white/50">bINSERT COIN at the cabinet to buy energy.</div>
+                <div className="mt-2 text-[11px] text-white/50">INSERT $b at the cabinet to buy energy.</div>
               )}
               {co.msg && <div className={`mt-1 text-[11px] ${co.msg.ok ? 'text-[#7dff3a]' : 'text-[#ff6a1a]'}`}>{co.msg.text}</div>}
             </div>
