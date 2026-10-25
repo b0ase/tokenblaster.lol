@@ -67,6 +67,8 @@ export async function connect(entry: WalletEntry): Promise<Wallet> {
     const { publicKey } = await client.getPublicKey({ identityKey: true });
     return { client, publicKey, address: PublicKey.fromString(publicKey).toAddress(), id: entry.id, name: entry.name };
   } catch (e) {
+    // A paired phone says exactly why (bWallet's reply codes): keep that, never "did not answer".
+    if (e instanceof Error && 'code' in e && typeof (e as { code: unknown }).code === 'string') throw e;
     // A locked wallet refuses getPublicKey: that means "unlock me", not "not installed".
     throw new Error(`${entry.name} did not answer: ${e instanceof Error ? e.message : e}. Unlock it and try again.`);
   }

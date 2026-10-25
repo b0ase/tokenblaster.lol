@@ -13,7 +13,7 @@
  */
 import { PublicKey } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
-import { disconnectPhone } from './pair/site';
+import { PairError, disconnectPhone, getPhoneEnd, getPhoneStatus, subPhoneStatus } from './pair/site';
 import { connect, serialised, type Wallet } from './wallet';
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
@@ -65,6 +65,8 @@ function saveKey(k: SavedKey | null) {
 export function walletErrorText(e: unknown, entry?: Pick<WalletEntry, 'kind' | 'name'>): string {
   const m = (e instanceof Error ? e.message : String(e)).replace(/\.+$/, '');
   const phone = entry?.kind === 'phone';
+  // The paired phone's own reply codes (bWallet #122): its words, not a guess from the text.
+  if (e instanceof PairError) return e.message;
   if (/permission denied|denied by user|user (has )?denied|dismissed|ERR_PERMISSION_DENIED|USER_REJECTED/i.test(m))
     return phone
       ? 'Your phone did not approve the connection. Open bWallet on your phone and approve it, or scan a new code.'
@@ -145,6 +147,20 @@ export function disconnectSiteWallet() {
   setBarWallet(null);
   set({ ...EMPTY });
 }
+
+/**
+ * The phone ended the pairing (REPAIR_NEEDED, or the player unpaired in bWallet): drop the phone wallet and open the
+ * chooser, whose fresh QR is the way back. No retry of the old channel.
+ */
+subPhoneStatus(() => {
+  if (getPhoneStatus() !== 'gone' || state.wallet?.id !== 'phone') return;
+  const why = getPhoneEnd()?.message ?? null;
+  rememberWallet(null);
+  saveKey(null);
+  setProofWallet(null);
+  setBarWallet(null);
+  set({ ...EMPTY, chooser: { note: why } });
+});
 
 export function setSiteWalletLive(live: boolean) {
   if (!state.wallet || state.live === live) return;
