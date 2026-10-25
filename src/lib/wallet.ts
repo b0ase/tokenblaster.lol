@@ -75,10 +75,15 @@ const holds = new Set<string>();
 let playHeld = false;
 export const WALLET_HELD = 'WALLET_HELD_DURING_PLAY';
 /** `key` names who holds it (a page's round, a storm session): the wallet is free again only when every holder lets go. */
+const holdSubs = new Set<(held: boolean) => void>();
+/** Told whenever the play hold turns on or off (siteWallet clears its "round is still live" note on release). */
+export const onWalletHold = (fn: (held: boolean) => void) => (holdSubs.add(fn), () => void holdSubs.delete(fn));
 export const holdWalletForPlay = (on: boolean, key = 'play') => {
   if (on) holds.add(key);
   else holds.delete(key);
+  const was = playHeld;
   playHeld = holds.size > 0;
+  if (was !== playHeld) for (const f of [...holdSubs]) f(playHeld);
 };
 export const walletHeld = () => playHeld;
 export const walletBusy = (client: object) => (queues.get(client)?.inFlight ?? 0) > 0;

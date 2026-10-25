@@ -449,6 +449,10 @@ export class Gun {
       let chain: Transaction[] = [];
       let accepted = 0;
       let why: string | undefined;
+      // No coin of our own yet (owner, 25 Oct 2026: a payment whose tx the wallet never handed back reached the
+      // gun's address, so the CREDIT showed $1.00 from the chain while this.coin was empty and LOCK & LOAD failed):
+      // adopt the real coin set first. No wallet involved.
+      if (this.needsCoin()) await this.startCoin(() => undefined).catch(() => undefined);
       for (let attempt = 0; attempt < 3; attempt++) {
         if (!this.coin) throw new Error('The gun is empty. Load it first.');
         chain = [];
@@ -478,6 +482,25 @@ export class Gun {
       this.coin = { tx: Transaction.fromHex(last.toHex()), vout: last.outputs.length - 1 };
       this.save();
       return chain.slice(0, accepted).map((t) => t.id('hex'));
+    });
+  }
+
+  /** True when the gun has no coin of its own to fire from (none saved, or the saved one is already spent). */
+  private needsCoin() {
+    return !this.coin || this.spent.has(`${this.coin.tx.id('hex')}_${this.coin.vout}`) || this.sats < 1;
+  }
+
+  /**
+   * Gather every spendable coin at the gun's address (the chain, the wallet's payments, our own change) into the
+   * one coin the gun fires from, and return its sats. LOCK & LOAD runs this first, so credit that reached the gun
+   * by any route (a wallet that only returned a txid, another tab, an earlier page load) becomes rounds without a
+   * new payment. Never asks the wallet anything.
+   */
+  async gather(): Promise<number> {
+    return this.exclusive(async () => {
+      this.refresh();
+      await this.startCoin(() => undefined);
+      return this.sats;
     });
   }
 
