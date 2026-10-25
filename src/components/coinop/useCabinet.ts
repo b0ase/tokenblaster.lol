@@ -8,12 +8,13 @@ import type { useBlaster } from '@/lib/useBlaster';
 import { MAX_PAY_USD, addCoin, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import type { LoadStage } from './CoinCabinet';
 import { loadMark } from '@/lib/gun';
+import { isRefusal } from '@/lib/wallet';
 import { cancelSiteWalletWait, openSiteWallet, setSiteWalletLive } from '@/lib/siteWallet';
 import { useSiteWallet } from '@/lib/useSiteWallet';
 import { connectAttemptOver } from '@/lib/coinop/payFlow';
 
 /** The blocking prompts, each shown as a true modal by CabinetModals. */
-export type CabModal = null | 'disconnected' | 'refused' | 'timeout';
+export type CabModal = null | 'disconnected' | 'refused' | 'timeout' | 'failed';
 
 type Blaster = ReturnType<typeof useBlaster>;
 
@@ -21,7 +22,7 @@ type Blaster = ReturnType<typeof useBlaster>;
 export function plainError(e: string | null | undefined): string {
   const t = e ?? '';
   if (/WALLET_HELD_DURING_PLAY/.test(t)) return 'The game was still holding your wallet. Press LOCK & LOAD again.';
-  if (/cancel|denied|reject|declin|abort|user/i.test(t)) return 'Your wallet said no. Press LOCK & LOAD to try again.';
+  if (isRefusal(t)) return 'Your wallet said no. Press LOCK & LOAD to try again.';
   if (/insufficient|not enough|funds/i.test(t)) return 'Your wallet does not have enough money for that. Take a coin out and try again.';
   if (/unlock|did not answer|locked/i.test(t)) return 'Your wallet did not answer. Open and unlock it, then press LOCK & LOAD again.';
   return 'That did not go through. If your wallet shows a payment, it is safe in your gun: press LOCK & LOAD and it will be used, not charged again.';

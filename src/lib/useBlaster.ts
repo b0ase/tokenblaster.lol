@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WalletEntry } from './discovery';
 import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSiteWalletAnswered, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive, setSiteWalletWaiting, walletErrorText } from './siteWallet';
-import { WALLET_CANCELLED } from './wallet';
+import { WALLET_CANCELLED, WALLET_SENT_PENDING, isRefusal } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import type { StormNet } from './stormRun';
@@ -119,7 +119,7 @@ export function useBlaster() {
    */
 
   const load = useCallback(
-    async (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused'> => {
+    async (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> => {
       const g = gun.current;
       if (!wallet || !g) return 'disconnected';
       setError(null);
@@ -142,9 +142,11 @@ export function useBlaster() {
         }
         unknownPay.current = null;
       }
+      // The liveness check and the gun's balance read run together: one round trip of wait, not two (latency, 25 Oct).
+      const beforeP = g.balance().catch(() => g.sats);
       if (!(await checkWallet())) return 'disconnected';
       setBusy('loading');
-      const before = await g.balance().catch(() => g.sats);
+      const before = await beforeP;
       setSiteWalletWaiting({ text: `Waiting for ${wallet.name}… open it to approve the payment.`, since: Date.now(), kind: 'pay' });
       try {
         loadMark('approve start');
@@ -176,8 +178,25 @@ export function useBlaster() {
           setSiteWalletLive(false);
           return 'timeout';
         }
+        if (m.startsWith(WALLET_SENT_PENDING)) {
+          // Approved and sent, only the transaction is not back yet: wait for it to reach the gun, never say "no".
+          const txid = m.slice(WALLET_SENT_PENDING.length + 1);
+          loadMark(`wallet sent ${txid}, waiting for it to reach the gun`);
+          for (let i = 0; i < 15; i++) {
+            await new Promise((r) => setTimeout(r, 2000));
+            const bal = await g.balance().catch(() => null);
+            if (bal !== null && bal >= before + Math.floor(sats * 0.9)) {
+              setAmmo(bal);
+              loadMark('gun has the coin (from the balance)');
+              return 'ok';
+            }
+          }
+          unknownPay.current = { sats, before };
+          setError(`Your wallet sent the payment (${txid.slice(0, 8)}…) and it is on its way. Press LOCK & LOAD in a moment: it will be used, not charged again.`);
+          return 'failed';
+        }
         fail(e);
-        return 'refused';
+        return isRefusal(m) ? 'refused' : 'failed';
       } finally {
         setSiteWalletWaiting(null);
         setBusy(null);

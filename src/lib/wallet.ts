@@ -168,8 +168,22 @@ export async function fund(w: Wallet, address: string, sats: number, description
   } finally {
     if (paying === req) paying = null;
   }
-  if (!r.tx) throw new Error('bWallet returned no transaction.');
+  if (!r.tx) {
+    // bWalletX answers {txid, pending: true} with no transaction when it queues the send (approved, going out):
+    // that is a payment, never a refusal (owner, 25 Oct: approved $0.10, the cabinet said "Your wallet said no").
+    const txid = (r as { txid?: string }).txid;
+    if (txid) throw new Error(`${WALLET_SENT_PENDING}:${txid}`);
+    throw new Error('bWallet returned no transaction.');
+  }
   return Transaction.fromAtomicBEEF(r.tx);
+}
+
+/** fund() error prefix: the wallet approved and sent (or queued) the payment but returned only its txid. */
+export const WALLET_SENT_PENDING = 'WALLET_SENT_PENDING';
+
+/** True only when the wallet's error is the player (or wallet) declining. Anything else is a failure, not a "no". */
+export function isRefusal(m: string): boolean {
+  return /cancel|denied|reject|declin|abort|not approved|user (?:said no|refused)/i.test(m) && !m.startsWith(WALLET_SENT_PENDING);
 }
 
 /** Rejects with `msg` if `p` has not settled within `ms`. */
