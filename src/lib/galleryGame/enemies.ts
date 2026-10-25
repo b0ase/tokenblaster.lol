@@ -21,7 +21,7 @@ import { halo } from '../bsvgun/targets';
 import type { Fx } from '../bsvgun/fx';
 import type { Bolts } from './combat';
 import { TUNING, ramp, roleWeights } from './tuning';
-import { CAST, CLOSE, WEAPONS, holdOut, pickCast, standOff, type CastMember, type WeaponSpec } from './cast';
+import { CAST, CLOSE, WEAPONS, approachK, holdOut, pickCast, standOff, type CastMember, type WeaponSpec } from './cast';
 
 const HOLD: [number, number] = [0, 0];
 import { buildWeapon, recolour, weaponMaterial } from './castModels';
@@ -531,7 +531,8 @@ export class ErobotWave {
           break;
         }
         case 'run': {
-          p.z += s.speed * dt;
+          // PROXIMITY SLOWDOWN: they wade in slower and slower as they close, so steady fire holds them off
+          p.z += s.speed * approachK(cz - p.z, standOff(s.size)) * dt;
           const stop = s.role === 'shooter' ? Math.min(s.stopZ, cz + TUNING.erobots.melee.stopZ - 2) : cz + TUNING.erobots.melee.stopZ;
           const u = THREE.MathUtils.clamp((p.z - s.startZ) / (stop - s.startZ), 0, 1);
           if (s.role === 'flanker') {

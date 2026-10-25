@@ -3,8 +3,8 @@
  * `horde`, `stageFlow`): the ten-minute block, the auto-walk, the Erobot lanes, the monster swarm, the boss.
  *
  * Shape of the difficulty (owner, 24 Oct 2026, for the BSV stress test): a constant swarm the minigun can hold
- * the trigger on for ten minutes, light damage, fast regen and a knockdown instead of death, so nothing ends a
- * run before the block lands. The swarm thickens stage by stage. Per-level growth is `1 + perLevel * (level - 1)` (see
+ * back for ten minutes. Enemies close right in (slowing as they near), so a player who keeps firing rarely dies and
+ * one who stops or runs dry is overrun within seconds: death, then CONTINUE? (owner, 25 Oct). The swarm thickens stage by stage. Per-level growth is `1 + perLevel * (level - 1)` (see
  * `ramp`), so a value in waveRamp of 0.2 means +20% on level 2, +40% on level 3, and so on. A stage's `level`
  * is the number its Erobots (and the Liquid Unit's `bossLevel`) are scaled by.
  *
@@ -59,9 +59,9 @@ export const TUNING = {
 
   player: {
     hp: 100,
-    /** Seconds without a hit before health comes back (fast: a stress test run must not end early). */
-    regenDelay: 1.2,
-    regenPerSec: 14,
+    /** Seconds without a hit before health comes back, and how fast (owner, 25 Oct: real danger, but regen when not hit). */
+    regenDelay: 2,
+    regenPerSec: 10,
     /** After a hit nothing else lands for this long, so one burst is not three hits (s). */
     hitCooldown: 0.12,
     /** Health from a kill (erobot) and from melting the boss (fraction of max). */
@@ -70,10 +70,11 @@ export const TUNING = {
     /** Invulnerable for this long after a knockdown (s). */
     reviveGrace: 3,
     /**
-     * KNOCKDOWN instead of death (owner, 24 Oct: "death must not end a stress-test run early"): at zero health
-     * the player is shielded for `reviveGrace` seconds, back on `knockdownHp` of max, and keeps firing.
+     * DEATH (owner, 25 Oct: "it killed the excitement because I realised I couldn't die"): at zero health the
+     * player is down and the CONTINUE? countdown runs for `continueSecs` (INSERT $b, or GAME OVER). A Continue puts
+     * you back on full health with `reviveGrace` seconds untouchable.
      */
-    knockdownHp: 0.6,
+    continueSecs: 10,
     /** Under this fraction the screen edge pulses red. */
     lowFraction: 0.3,
     /** Wave 1 only: enemies hold their fire this long at the start (s). */
@@ -146,11 +147,11 @@ export const TUNING = {
     },
     melee: {
       range: 5.2,
-      damage: 2,
+      damage: 3,
       windup: 0.32,
       every: 0.95,
-      /** The z (in front of the player) a rusher plants itself at: never inside point-blank range. */
-      stopZ: -4.2,
+      /** The z (in front of the player) a rusher closes to: contact range (the proximity slowdown keeps it fair). */
+      stopZ: -2,
     },
   },
 
@@ -204,31 +205,32 @@ export const TUNING = {
   horde: {
     kinds: [
       // small and fast
-      { id: 'raptor', pool: 6, weight: 3, size: [0.7, 0.95] as [number, number], speed: [7, 10] as [number, number], hp: 8, damage: 1.5, score: 120 },
-      { id: 'minion', pool: 8, weight: 4, size: [0.75, 0.95] as [number, number], speed: [4.5, 6.5] as [number, number], hp: 5, damage: 1, score: 80 },
+      { id: 'raptor', pool: 6, weight: 3, size: [0.7, 0.95] as [number, number], speed: [7, 10] as [number, number], hp: 8, damage: 2.5, score: 120 },
+      { id: 'minion', pool: 8, weight: 4, size: [0.75, 0.95] as [number, number], speed: [4.5, 6.5] as [number, number], hp: 5, damage: 1.8, score: 80 },
       // medium
-      { id: 'zombie', pool: 6, weight: 3, size: [1.0, 1.3] as [number, number], speed: [2.6, 3.6] as [number, number], hp: 12, damage: 2, score: 150 },
-      { id: 'zombiewarrior', pool: 4, weight: 2, size: [1.0, 1.35] as [number, number], speed: [4, 5.5] as [number, number], hp: 14, damage: 2, score: 180 },
-      { id: 'hazmat', pool: 3, weight: 1.5, size: [1.2, 1.6] as [number, number], speed: [2.4, 3.2] as [number, number], hp: 20, damage: 2.5, score: 220 },
-      { id: 'eyebeast', pool: 3, weight: 1.5, size: [1.1, 1.8] as [number, number], speed: [3, 4.5] as [number, number], hp: 10, damage: 1.5, score: 200 },
+      { id: 'zombie', pool: 6, weight: 3, size: [1.0, 1.3] as [number, number], speed: [2.6, 3.6] as [number, number], hp: 12, damage: 3.2, score: 150 },
+      { id: 'zombiewarrior', pool: 4, weight: 2, size: [1.0, 1.35] as [number, number], speed: [4, 5.5] as [number, number], hp: 14, damage: 3.2, score: 180 },
+      { id: 'hazmat', pool: 3, weight: 1.5, size: [1.2, 1.6] as [number, number], speed: [2.4, 3.2] as [number, number], hp: 20, damage: 4, score: 220 },
+      { id: 'eyebeast', pool: 3, weight: 1.5, size: [1.1, 1.8] as [number, number], speed: [3, 4.5] as [number, number], hp: 10, damage: 2.5, score: 200 },
       // huge
-      { id: 'helldemon', pool: 2, weight: 0.7, size: [2.4, 3.2] as [number, number], speed: [1.8, 2.4] as [number, number], hp: 60, damage: 4, score: 2500 },
+      { id: 'helldemon', pool: 2, weight: 0.7, size: [2.4, 3.2] as [number, number], speed: [1.8, 2.4] as [number, number], hp: 60, damage: 7, score: 2500 },
     ],
     /** Low quality builds this share of each pool and keeps this share of the live count. */
     lowPool: 0.5,
     lowLive: 0.55,
     spawnEvery: 0.35,
     burst: 3,
-    biteEvery: 2.0,
+    biteEvery: 1.8,
     hitScale: 1.15,
     /**
-     * FAIRER CLOSE RANGE (owner, 25 Oct): a monster plants at least `minDist` + its size x `sizeDist` metres in
-     * front of you, at most `maxClose` bite at once (the rest hold back `holdBack` metres further, still in the
-     * line of fire), bodies push apart, and a bite only lands within `biteReach` (+ size) metres sideways.
+     * CLOSE RANGE (owner, 25 Oct: real danger again): a monster closes to contact, `minDist` + its size x
+     * `sizeDist` metres (just outside the camera), slowing as it nears (cast.ts PROXIMITY). Up to `maxClose` bite at
+     * once (the rest hold back `holdBack` metres further), bodies push apart, and a bite lands within `biteReach`
+     * (+ size) metres sideways.
      */
-    minDist: 3.6,
-    sizeDist: 1.2,
-    maxClose: 3,
+    minDist: 2.2,
+    sizeDist: 0.8,
+    maxClose: 10,
     holdBack: 6,
     biteReach: 3,
   },

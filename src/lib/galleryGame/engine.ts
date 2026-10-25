@@ -79,7 +79,8 @@ export type Hooks = {
   trigger: (down: boolean) => void;
   /** The player took damage (HUD: vignette, direction marker). */
   hurt: (h: Hurt) => void;
-  /** Health hit zero. */
+  /** Health hit zero: the player is down (FLATLINED, the CONTINUE? countdown). */
+  died: () => void;
   /** Stage flow: the lift, a new stage, the final boss down, the rescue. */
   stage: (e: StageEvent) => void;
 };
@@ -256,6 +257,8 @@ export class GalleryEngine {
   private sinceHurt = 99;
   private hitCd = 0;
   private invuln = 0;
+  /** Health hit zero: the world crawls and nothing fires until Continue (`revive`) or the run ends. */
+  dead = false;
   private hitKick = { p: 0, y: 0, r: 0 };
 
   // temps
@@ -934,7 +937,7 @@ export class GalleryEngine {
     this.t += dt;
     const w = this.weapon;
     // stream weapons show fire while held AND the chain is flowing
-    if (w && this.trigger && w.auto && this.hooks.current.flowing() && now >= this.nextShot) {
+    if (w && this.trigger && !this.dead && w.auto && this.hooks.current.flowing() && now >= this.nextShot) {
       this.nextShot = now + w.fireMs;
       this.muzzleFx(w);
     }
@@ -953,20 +956,21 @@ export class GalleryEngine {
     } else if (this.autoAim) this.autoTarget();
     if (this.rescue?.freed) this.lookAtHostage(dt);
     // the world slows to a crawl while the player is down
-    const sd = dt;
+    const sd = this.dead ? dt * 0.18 : dt;
     this.sinceHurt += dt;
     this.hitCd -= dt;
     this.invuln -= dt;
-    if (this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
+    if (!this.dead && this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
     if (this.bossOn) this.boss.update(sd);
     // LOADING YOUR AMMO (owner, 25 Oct): until real rounds are live nothing spawns and nothing attacks; the
     // opening grace starts again at GO
     const hold = !this.combat && !this.rescue;
     this.erobots.paused = this.horde.paused = hold;
     if (hold) this.erobots.grace = this.horde.grace = TUNING.player.openingGrace;
-    this.stageTick(dt);
+    if (!this.dead) this.stageTick(dt);
+    this.erobots.playerAlive = !this.dead;
     this.erobots.update(sd, this.camera, this.trigger);
-    this.horde.update(sd, this.camera, true);
+    this.horde.update(sd, this.camera, !this.dead);
     this.shake = Math.min(1, this.shake + this.horde.impulse);
     this.horde.impulse = 0;
     this.bolts.update(sd, this.camera.position, (from, dmg, kind) => this.hurt(from, dmg, kind));
@@ -1240,6 +1244,7 @@ export class GalleryEngine {
     this.lookYaw = 0;
     this.lookPitch = 0.08;
     this.hp = TUNING.player.hp;
+    this.dead = false;
     this.invuln = 0;
     this.erobots.grace = TUNING.player.openingGrace;
     this.horde.grace = TUNING.player.openingGrace;
@@ -1541,7 +1546,7 @@ export class GalleryEngine {
   combat = false;
 
   hurt(from: THREE.Vector3, dmg: number, kind: HurtKind) {
-    if (!this.combat || this.invuln > 0 || dmg <= 0) return;
+    if (!this.combat || this.dead || this.invuln > 0 || dmg <= 0) return;
     if (kind === 'bolt' && this.hitCd > 0) return;
     this.hitCd = TUNING.player.hitCooldown;
     this.hp = Math.max(0, this.hp - dmg);
@@ -1561,28 +1566,41 @@ export class GalleryEngine {
     this.flashK = Math.min(1, this.flashK + 0.4);
     sfx('hurt', 0.9);
     this.hooks.current.hurt({ angle, dmg, kind, hp: this.hp, hpMax: TUNING.player.hp });
-    if (this.hp <= 0) this.knockdown();
+    if (this.hp <= 0) this.die();
   }
 
   private heal(n: number) {
-    this.hp = Math.min(TUNING.player.hp, this.hp + n);
+    if (!this.dead) this.hp = Math.min(TUNING.player.hp, this.hp + n);
   }
 
   /**
-   * KNOCKDOWN (the stress-test rule: nothing ends a run before the block lands): a flash of shield, health back
-   * to `knockdownHp`, a few seconds untouchable, and the trigger is never released.
+   * DEATH is back (owner, 25 Oct: "I realised I couldn't die"): at zero health the player is down, the world
+   * crawls, the trigger lets go and the CONTINUE? countdown runs (INSERT $b, or GAME OVER).
    */
-  private knockdown() {
-    this.hp = TUNING.player.hp * TUNING.player.knockdownHp;
-    this.invuln = TUNING.player.reviveGrace;
-    this.sinceHurt = 99;
+  private die() {
+    this.dead = true;
     this.bolts.clear();
+    this.setTrigger(false);
     this.shake = 1;
     this.kick = 0.2;
     this.flashK = 1;
-    this.flash(this.camera.position.clone().add(new THREE.Vector3(0, 0.5, -3)), '#7cf9ff', 120, 700);
-    this.fx.ring(this.tA.set(this.px, 0.3, -2), '#7cf9ff', 6, 0.6);
     sfx('hurt', 1);
+    this.hooks.current.died();
+  }
+
+  /** Continue: back on your feet with full health and a few seconds of grace; the close attackers are cleared. */
+  revive() {
+    this.dead = false;
+    this.hp = TUNING.player.hp;
+    this.invuln = TUNING.player.reviveGrace;
+    this.hitCd = 0;
+    this.sinceHurt = 99;
+    this.bolts.clear();
+    this.erobots.clearAll();
+    this.horde.clearAll();
+    this.erobots.grace = this.horde.grace = TUNING.player.reviveGrace + 0.5;
+    this.flash(this.camera.position.clone().add(new THREE.Vector3(0, 0.5, -3)), '#7cf9ff', 100, 500);
+    this.fx.ring(this.tA.set(this.px, 0.3, -2), '#7cf9ff', 6, 0.6);
     this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: TUNING.player.hp });
   }
 
@@ -1621,6 +1639,8 @@ export class GalleryEngine {
     /** Dev only: drop a monster `z` metres straight in front of the view (a point-blank test). */
     mobAt: (d: number) => this.horde.debugPlace(this.camera.position.x, this.camera.position.z, d),
     hordeHp: () => this.horde.debugHp(),
+    /** Threat probe: dead?, health, and the nearest horde body's distance (m). */
+    threat: () => ({ dead: this.dead, hp: Math.round(this.hp), near: Math.min(99, ...this.horde.debugHp().map((m) => Math.hypot(m.x - this.camera.position.x, m.z - this.camera.position.z))).toFixed(1), live: this.horde.live + this.erobots.live }),
     /** Dev only: point the free view (radians). */
     face: (yaw: number, pitch: number) => {
       this.freeLook = true;
