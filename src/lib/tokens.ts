@@ -1,5 +1,6 @@
 /** BSV-20/21 token data from the GorillaPool ordinals API (CORS-enabled, no key). */
 import { Beef, type WalletInterface } from '@bsv/sdk';
+import { readBasket } from './basketSession';
 const API = 'https://ordinals.gorillapool.io/api';
 
 export type Token = { id: string; sym: string; icon: string | null; dec: number; balance?: number };
@@ -67,9 +68,8 @@ export async function tokenCoins(wallet: WalletInterface, withScripts = false): 
   const beef = new Beef();
   for (const basket of ['bsv21', 'p 1sat bsv21']) {
     for (let offset = 0; offset < 20000; offset += 500) {
-      const r = await wallet
-        .listOutputs({ basket, include: withScripts ? 'entire transactions' : 'locking scripts', includeTags: true, includeCustomInstructions: true, limit: 500, offset })
-        .catch(() => null);
+      // Read once per session per basket, refusals remembered (src/lib/basketSession.ts); a spend re-reads fresh.
+      const r = await readBasket(wallet, { basket, include: withScripts ? 'entire transactions' : 'locking scripts', includeTags: true, includeCustomInstructions: true, limit: 500, offset }, withScripts);
       if (!r) break;
       if (withScripts && r.BEEF) beef.mergeBeef(Array.from(r.BEEF)); // every page's source txs, for spending
       for (const o of r.outputs) {

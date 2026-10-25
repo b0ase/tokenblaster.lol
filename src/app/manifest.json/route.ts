@@ -24,6 +24,11 @@ const manifest = {
           basket: 'bsv21',
           description: 'See the tokens in your wallet, so you can pick one to load as ammunition',
         },
+        // Read by the gun app / arena token picker (src/lib/tokens.ts) and the Ordnance check (src/lib/useOrdnance.ts).
+        // Granting them here means one sheet instead of one per basket. They are read only on the player's tap, never in the background.
+        { basket: 'p 1sat bsv21', description: 'See older 1Sat token coins in your wallet, for the token picker' },
+        { basket: 'ordinals', description: 'See the TokenBlaster weapons (ordinals) you own, to unlock them in game' },
+        { basket: 'ordnance', description: 'See the TokenBlaster weapons you bought in the store' },
       ],
       // No standing spending allowance (owner, 24 Oct 2026): each LOCK & LOAD / START asks the wallet once, for the exact
       // amount the player put in. A monthly allowance read as "spend 15M sats" before anything was chosen.

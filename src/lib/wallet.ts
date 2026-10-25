@@ -19,6 +19,22 @@ export const inBwallet = () =>
  * call to a wallet goes through one queue per wallet object.
  */
 const queues = new WeakMap<object, { tail: Promise<unknown>; inFlight: number }>();
+
+/**
+ * PLAY GUARD (owner playtest, 25 Oct 2026: wallet sheets kept opening mid-fire). While a paid round is live the
+ * gun signs every bullet with its own in-browser key, so nothing may ask the wallet anything: any call through a
+ * connected wallet is refused here, before it reaches the extension, and a dev-console warning names the caller.
+ */
+const holds = new Set<string>();
+let playHeld = false;
+export const WALLET_HELD = 'WALLET_HELD_DURING_PLAY';
+/** `key` names who holds it (a page's round, a storm session): the wallet is free again only when every holder lets go. */
+export const holdWalletForPlay = (on: boolean, key = 'play') => {
+  if (on) holds.add(key);
+  else holds.delete(key);
+  playHeld = holds.size > 0;
+};
+export const walletHeld = () => playHeld;
 export const walletBusy = (client: object) => (queues.get(client)?.inFlight ?? 0) > 0;
 export function serialised(client: WalletInterface): WalletInterface {
   const q = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0 };
@@ -28,6 +44,11 @@ export function serialised(client: WalletInterface): WalletInterface {
       const v = Reflect.get(target, prop, recv);
       if (typeof v !== 'function') return v;
       return (...args: unknown[]) => {
+        if (playHeld) {
+          if (process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_TB_ADMIN === '1')
+            console.warn(`[tokenblaster] wallet.${String(prop)} refused: a round is live (no wallet prompts during play)`, new Error().stack);
+          return Promise.reject(new Error(WALLET_HELD));
+        }
         q.inFlight++;
         const run = q.tail.then(() => (v as (...a: unknown[]) => unknown).apply(target, args));
         q.tail = run.catch(() => undefined).finally(() => q.inFlight--);
@@ -60,7 +81,7 @@ export async function fund(w: Wallet, address: string, sats: number, description
   const req = w.client.createAction({
     description,
     outputs: [{ lockingScript: new P2PKH().lock(address).toHex(), satoshis: sats, outputDescription: description }],
-    labels: ['tokenblaster'],
+    // No labels: a BRC-100 wallet asks permission for every new label, an extra sheet before the payment (playtest 25 Oct).
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
   });
   paying = req;
@@ -86,16 +107,20 @@ export function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<
 }
 
 /**
- * Is the wallet connection live? A cheap getPublicKey with a ~15 s timeout (no prompt on a connected wallet).
- * Chrome extension wallets sleep their worker (MV3, ~30 s idle): the first call can fail just by waking it, so
- * on a timeout or error we retry ONCE after a short pause before calling the wallet gone (bWalletX advice, 24 Oct).
+ * Is the wallet connection live? Asks `isAuthenticated` (a status check: it never opens a sheet), with a timeout.
+ * Never `getPublicKey({ identityKey })`: in bWalletX that is the connect request, and after a Disconnect or a quiet
+ * day it opens "Reconnect to <site>?" (playtest 25 Oct: read as "sign in to localhost" mid-play). Called only right
+ * before a payment, never on a timer. Chrome extension wallets sleep their worker (MV3): one retry after a pause.
+ * A wallet without isAuthenticated counts as live (the payment itself will say if it is not).
  */
 export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean> {
+  if (playHeld) return true; // a round is live: never touch the wallet, assume it is still there
   if (walletBusy(w.client)) return true; // a request is open in the wallet: it is alive, just waiting on the player
+  if (typeof (w.client as { isAuthenticated?: unknown }).isAuthenticated !== 'function') return true;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { publicKey } = await withTimeout(w.client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT');
-      return publicKey === w.publicKey;
+      const { authenticated } = await withTimeout(w.client.isAuthenticated({}), ms, 'WALLET_TIMEOUT');
+      return authenticated === true;
     } catch {
       if (attempt === 0) await new Promise((r) => setTimeout(r, 800));
     }

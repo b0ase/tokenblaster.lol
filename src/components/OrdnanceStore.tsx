@@ -6,6 +6,7 @@
  * Nothing is signed here; the buyer approves in their own wallet. The issue counts once
  * /api/ordnance/issued has checked the payment on chain.
  */
+import { CheckOrdnance } from '@/components/CheckOrdnance';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { P2PKH, PublicKey, Transaction } from '@bsv/sdk';
@@ -26,7 +27,8 @@ const bsv = (sats: number) => `${(sats / 1e8).toLocaleString(undefined, { maximu
 export function OrdnanceStore({ only }: { only?: string } = {}) {
   const w = useWalletConnect();
   const [nonce, setNonce] = useState(0);
-  const { owned } = useOrdnance(w.wallet, [], nonce);
+  const ordnance = useOrdnance(w.wallet, [], nonce);
+  const { owned } = ordnance;
   const [issued, setIssued] = useState<Record<string, string[]> | null>(null);
   const [bsvUsd, setBsvUsd] = useState(0);
   const [filter, setFilter] = useState<Rarity | 'all'>('all');
@@ -98,6 +100,7 @@ export function OrdnanceStore({ only }: { only?: string } = {}) {
   return (
     <>
       <section className="panel flex flex-wrap items-center gap-2">
+        <CheckOrdnance ordnance={ordnance} connected={!!w.wallet} />
         <div className={only ? 'hidden' : 'flex flex-wrap gap-1'}>
           {(['all', ...RARITIES] as const).map((r) => (
             <button key={r} onClick={() => setFilter(r)} className={`btn px-2 py-1 text-xs uppercase ${filter === r ? 'btn-on' : ''}`} style={r !== 'all' ? { color: RARITY_COLOR[r] } : undefined}>

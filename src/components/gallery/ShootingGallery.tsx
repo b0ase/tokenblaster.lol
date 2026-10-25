@@ -25,6 +25,7 @@ import { TxMeter } from '@/lib/txMeter';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
+import { holdWalletForPlay } from '@/lib/wallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, skipTrack, unlockAudio } from '@/lib/sfx';
@@ -106,7 +107,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     const all = buildWeapons();
     return ASSAULT_GUNS.map((id) => all.find((w) => w.id === id)).filter((w): w is RangeWeapon => !!w);
   }, []);
-  const { owned } = useOrdnance(b.wallet);
+  const ordnance = useOrdnance(b.wallet); // wallet baskets only on the loadout's explicit tap
+  const { owned } = ordnance;
   const [dry, setDry] = useState(false);
   const [autofire, setAutofire] = useState(false);
   const [weaponId, setWeaponId] = useState('minigun');
@@ -276,6 +278,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     const t = setTimeout(() => setGoAt(0), 1300);
     return () => clearTimeout(t);
   }, [goAt]);
+  // Zero wallet prompts during play: from warm-up to the end of the round nothing may reach the wallet (src/lib/wallet.ts).
+  useEffect(() => {
+    holdWalletForPlay(mode !== 'off');
+    return () => holdWalletForPlay(false);
+  }, [mode]);
   // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
   useEffect(() => {
     const e = engine.current;
@@ -1090,6 +1097,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           <span>Paymail on your rounds (from your X handle):</span>
           <IdentityPicker compact />
         </div>
+        {b.wallet && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
+            {/* Wallet-basket ownership only on this tap, never in the background or during play (src/lib/useOrdnance.ts) */}
+            <button type="button" className="btn px-2 py-0.5 text-xs" disabled={mode !== 'off' || ordnance.checking || ordnance.walletChecked} onClick={() => void ordnance.checkWallet()}>
+              {ordnance.walletChecked ? 'Wallet checked for ordnance' : 'Check my wallet for ordnance'}
+            </button>
+            <span className="text-xs">Your wallet may ask once to show this site your TokenBlaster weapons, so owned guns unlock.</span>
+          </div>
+        )}
         {(err || b.error) && <p className="mt-2 text-sm font-semibold text-[#ff7a70]">{err ?? b.error}</p>}
       </section>
       )}
