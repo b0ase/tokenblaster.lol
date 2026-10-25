@@ -49,7 +49,7 @@ Every coin row (in `coins[]` and in `coin`) also carries (CORS `*`, as before):
 - `price_sats` (number): the current curve price of one token in sats (`price(sold)`, `src/lib/launch/curve.ts`).
 - `theme` (optional): bWalletX theme v2, same schema as `public/.well-known/bwalletx-theme.json`
   (`v, name, mode, accent, accentHi, bg, surface, text, logo, cardArt`). `logo`/`cardArt` are absolute URLs on
-  tokenblaster.lol; logo ≤ 64 KB, cardArt ≤ 256 KB.
+  https://www.tokenblaster.lol (the site origin; the apex 308s there); logo ≤ 64 KB, cardArt ≤ 256 KB.
 - `room` (optional): bChatX room ticker, `^[A-Z0-9]{1,20}$`.
 - `merch_url` (optional): an https URL.
 

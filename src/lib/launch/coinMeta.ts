@@ -23,7 +23,7 @@ export type CoinTheme = {
 };
 export type CoinMeta = { theme?: CoinTheme; room?: string; merch_url?: string };
 
-export const SITE = 'https://tokenblaster.lol';
+export const SITE = 'https://www.tokenblaster.lol'; // the apex 308s here; the wallet wants same-origin images
 
 const TOKENBLASTER: CoinTheme = {
   v: 2,

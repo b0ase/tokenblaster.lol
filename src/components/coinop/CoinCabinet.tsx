@@ -13,6 +13,7 @@ import { sfx, unlockAudio } from '@/lib/sfx';
 import { CoinFace, CoinSlot, ControlPanel, SevenSeg } from './hardware';
 import { Icon, Modal, Ticker, useWaitSecs } from './ui';
 import { loadMark } from '@/lib/gun';
+import { GUN_KEY_NOTE } from '@/lib/tokenLoad';
 import type { CabModal } from './useCabinet';
 import { COINS_USD, MIN_CREDIT_USD, addCoin, fmtCredit, hasCredit } from '@/lib/coinop/credit';
 
@@ -179,6 +180,7 @@ export function CoinCabinet(p: {
             <Icon name="shield" size={16} className="mt-px shrink-0 text-[var(--tbx-red)]" />
             No refunds. Only put in what you want to spend. Playing multiplayer? Put in as much as you&apos;ll need.
           </p>
+          <p className="w-full text-xs text-[var(--tbx-mute)]" data-gun-key-note>{GUN_KEY_NOTE}</p>
         </section>}
 
         {/* NAME (owner, 25 Oct): the wallet's paymail, shown read only. LOCK & LOAD connects the wallet. */}
