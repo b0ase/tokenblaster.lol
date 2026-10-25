@@ -80,6 +80,7 @@ import { loadMark } from '@/lib/gun';
 import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo';
 import { useCabinet } from '../coinop/useCabinet';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
+import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
 
 const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
 const FALLBACK_USD = 17.4;
@@ -311,9 +312,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   useEffect(() => {
     // Only while a round is actually on: back on the loadout / results the wallet is free again (a payment there must
     // reach it; owner, 25 Oct: "my wallet keeps saying no to lock and load").
-    holdWalletForPlay(mode !== 'off' && !loadout && !over);
+    // FLATLINED too: CONTINUE pays through the wallet, so the round's hold must be off (the storm keeps its own hold).
+    holdWalletForPlay(mode !== 'off' && !loadout && !over && !flat);
     return () => holdWalletForPlay(false);
-  }, [mode, loadout, over]);
+  }, [mode, loadout, over, flat]);
   // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
   useEffect(() => {
     const e = engine.current;
@@ -879,9 +881,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       const avail = await b.refreshGun();
       loadMark(`lock & load: gun has ${avail} sats`);
       const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
-      let shots = roundsFrom(avail, perShotAll, overheadSats);
-      // Receipts: each shot also carries its $TERRORNODE receipt; the receipt money stays in the gun until settlement.
-      if (rc.live) shots = Math.min(shots, rc.shots(avail - overheadSats(shots), perShotAll) ?? shots);
+      // The same count the cabinet showed (src/lib/coinop/shots.ts): each shot = round fee + its $TERRORNODE receipt,
+      // the receipt money stays in the gun until settlement.
+      let shots = rc.curve ? shotsForSats(avail, perShotAll, rc.curve) : roundsFrom(avail, perShotAll, overheadSats);
       if (plan.short || shots <= 0) throw new Error('SHORT');
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
@@ -956,11 +958,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   });
   const startCabinet = () => (freePlay || (ammoCoin && !dry) ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
 
-  const buys = (usd: number) => {
-    const sats = usdToSats(usd, bsvUsd);
-    if (sats != null && rc.live) return rc.shots(sats, perShotAll);
-    return sats == null ? null : roundsFor(sats, perShotAll);
-  };
+  // ONE shot count for every "buys N shots" (coin labels, TO PAY, the receipt line, CONTINUE) and LOCK & LOAD.
+  const buys = (usd: number) => shotsForUsd(usd, cab.bsvUsd ?? null, perShotAll, rc.curve);
 
   // ── FLATLINED: health at zero ──
   useEffect(() => {
@@ -1267,14 +1266,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
               {COIN_AMMO_UI && <AmmoCoinPick chosen={ammoCoin} setChosen={setAmmoCoin} payUsd={cab.pending} quote={coinQ.quote} quoteErr={coinQ.err} slippageBps={slipBps} setSlippageBps={setSlipBps} status={coinStatus} disabled={locking} />}
               {rc.live && rc.q && (
                 <p className="tbx-glass mb-2 rounded px-3 py-2 text-xs text-white/85" data-receipt-line>
-                  Each shot: {Math.ceil(perShotAll).toLocaleString('en-US')} sats fee + {rc.q.nextPriceSats.toLocaleString('en-US')} sats for 1 $TERRORNODE receipt (price rises as receipts sell).
-                  {cab.pending > 0 && ` ${fmtCredit(cab.pending)} buys about ${(rc.shots(usdToSats(cab.pending, bsvUsd) ?? 0, perShotAll) ?? 0).toLocaleString('en-US')} shots now.`}
+                  Each shot: {satsWord(Math.ceil(perShotAll))} fee + {satsWord(rc.q.nextPriceSats)} for 1 $TERRORNODE receipt (price rises as receipts sell).
+                  {cab.pending > 0 && buys(cab.pending) != null && ` ${fmtCredit(cab.pending)} buys about ${(buys(cab.pending) ?? 0).toLocaleString('en-US')} shots now.`}
                 </p>
               )}
               {rc.note && <p className="mb-2 text-xs text-[var(--tbx-teal)]" data-receipt-note>{rc.note}</p>}
               <CoinCabinet
                 title="Shooting Gallery"
                 creditUsd={cab.creditUsd}
+                creditReady={cab.creditReady}
                 pendingUsd={cab.pending}
                 bsvUsd={cab.bsvUsd}
                 onCoin={cab.onCoin}

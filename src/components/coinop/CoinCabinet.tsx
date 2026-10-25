@@ -42,6 +42,8 @@ const coinFace = (c: number) => (c < 1 ? `${Math.round(c * 100)}¢` : `$${c}`);
 export function CoinCabinet(p: {
   title: string;
   creditUsd: number;
+  /** False while the gun balance or the price is still loading: CREDIT shows "----", not a false $0.00. */
+  creditReady?: boolean;
   pendingUsd: number;
   bsvUsd: number | null;
   onCoin: (usd: number) => void;
@@ -118,7 +120,8 @@ export function CoinCabinet(p: {
     return v == null ? '…' : v.toLocaleString('en-US');
   };
   const paySub = p.pendingUsd > 0 ? `PAY ${fmtCredit(p.pendingUsd)}` : null;
-  const pendingBuys = p.buys ? p.buys(total) : null;
+  // "$X buys N" is for the coins inserted (TO PAY) only: the gun's credit is shown on its own (owner, 25 Oct).
+  const pendingBuys = p.buys ? p.buys(p.pendingUsd) : null;
   return (
     <ControlPanel>
       <div className="flex w-full flex-col gap-5" onKeyDown={(e) => e.stopPropagation()}>
@@ -134,7 +137,7 @@ export function CoinCabinet(p: {
           ) : (
             <div className="flex flex-wrap items-end gap-3">
               {p.pendingUsd > 0 && <SevenSeg text={fmtCredit(p.pendingUsd)} label="TO PAY" colour="#ff5a4a" />}
-              <CreditCounter usd={p.creditUsd} />
+              {p.creditReady === false ? <SevenSeg text="$-.--" label="CREDIT" /> : <CreditCounter usd={p.creditUsd} />}
             </div>
           )}
         </div>

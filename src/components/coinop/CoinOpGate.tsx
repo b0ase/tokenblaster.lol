@@ -76,6 +76,7 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
             <CoinCabinet
               title={title}
               creditUsd={cab.creditUsd}
+              creditReady={cab.creditReady}
               pendingUsd={cab.pending}
               bsvUsd={cab.bsvUsd}
               onCoin={cab.onCoin}

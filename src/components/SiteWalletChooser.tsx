@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { cancelSiteWalletWait, closeChooser, openSiteWallet, pickWallet } from '@/lib/siteWallet';
 import { useSiteWallet } from '@/lib/useSiteWallet';
 import { WalletChooser } from './WalletChooser';
@@ -29,13 +30,16 @@ export function SiteWalletChooser() {
     };
   }, [id]);
   const first = useSyncExternalStore(subHosts, firstHost, () => null);
-  if (first !== id) return null;
-  return (
+  if (first !== id || typeof document === 'undefined') return null;
+  // Portalled to <body> (owner, 25 Oct: "won't connect to my wallet"): the first host is often the site nav, which a
+  // game page hides (display:none), so the chooser and the waiting card rendered inside it were invisible.
+  return createPortal(
     <>
       {/* Every click on a row looks for the wallet again and asks it afresh (owner, 25 Oct: the row did nothing). */}
       {chooser && <WalletChooser note={chooser.note} onPick={(e) => void pickWallet(e)} onClose={closeChooser} />}
       {waiting && <SiteWalletWaiting text={waiting.text} since={waiting.since} kind={waiting.kind} />}
-    </>
+    </>,
+    document.body,
   );
 }
 

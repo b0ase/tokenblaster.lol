@@ -73,6 +73,7 @@ export function walletErrorText(e: unknown, entry?: Pick<WalletEntry, 'kind' | '
     return phone
       ? 'Your phone did not approve the connection. Open bWallet on your phone and approve it, or scan a new code.'
       : `${entry?.name ?? 'Your wallet'} did not approve the connection. Open it and approve, or pick another wallet.`;
+  if (/WALLET_HELD_DURING_PLAY/.test(m)) return 'A round is still live on this page, so the wallet is paused. Finish or end the round, then connect.';
   if (/disconnected on your phone|disconnected$/i.test(m)) return 'Your phone disconnected. Scan a new code to pair again.';
   if (/locked/i.test(m)) return `${entry?.name ?? 'Your wallet'} is locked. Unlock it and try again.`;
   if (/reload/i.test(m)) return 'Your wallet lost touch with this page. Reload the page (your ammo is safe).';
@@ -143,6 +144,7 @@ export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {})
       if (connecting === mine) {
         const cancelled = e instanceof Error && e.message === WALLET_CANCELLED;
         set({ busy: false, waiting: null, error: cancelled ? null : walletErrorText(e, entry) });
+        if (!cancelled) console.warn('[tokenblaster] wallet connect failed', entry.id, e);
       }
       return null;
     } finally {
@@ -206,7 +208,13 @@ export async function openSiteWallet(): Promise<Wallet | null> {
   const id = state.wallet?.id ?? rememberedWallet();
   const found = id ? all.find((w) => w.id === id) : null;
   if (found) return connectEntry(found);
-  openChooser(found0 === null ? 'Your wallet did not answer. Pick it below to try again.' : id ? 'The wallet you used last time is not available any more.' : null);
+  openChooser(
+    found0 === null
+      ? 'Looking for wallets took too long. Pick yours below to try again.'
+      : id
+        ? 'The wallet you used last time did not answer this page. Pick it below (reload the page if it is not listed).'
+        : null,
+  );
   return null;
 }
 
