@@ -52,7 +52,12 @@ export function coinExtras(row: { token_id?: string; sold?: number | string | nu
   const m = COIN_META[row.token_id ?? ''] ?? {};
   const theme = m.theme ? { ...m.theme, logo: SITE + m.theme.logo, cardArt: SITE + m.theme.cardArt } : undefined;
   const trading = tradingOf(row.token_id);
-  return { price_sats: price(sold), trading, ...(!trading && { earn_url: EARN_URL, category: 'reward' as const }), ...(theme && { theme }), ...(m.room && { room: m.room }), ...(m.merch_url && { merch_url: m.merch_url }) };
+  // A play-to-earn coin has no curve price (receipts are priced per token at /api/terrornode/receipts): no stale number.
+  return {
+    price_sats: trading ? price(sold) : null,
+    trading,
+    ...(!trading && { earn_url: EARN_URL, earn_label: 'Play Assault on Terrornode', receipts_url: `${SITE}/api/terrornode/receipts`, category: 'reward' as const }), ...(theme && { theme }), ...(m.room && { room: m.room }), ...(m.merch_url && { merch_url: m.merch_url }),
+  };
 }
 
 export const withExtras = <T extends { token_id?: string; sold?: number | string | null }>(row: T) => ({ ...row, ...coinExtras(row) });
