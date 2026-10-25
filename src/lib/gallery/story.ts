@@ -81,7 +81,7 @@ export const KWEG = {
   rescued: 'Rescue complete. Verdict: accepted, with required revisions. Thank you. I established this roof in 2009.',
   rescuedSub: 'He is looking for a pen. He would like to sign the paperwork.',
   /** The player is flatlined. */
-  flatlined: 'Cause of death: insufficient peer review. bINSERT COIN to appeal. I will be here.',
+  flatlined: 'Cause of death: insufficient peer review. INSERT $b to appeal. I will be here.',
   /** Game over. */
   over: 'Peer review verdict: your gun is empty. REJECTED, pending further coins. I will wait.',
   /** Share-card sign-off and loading line. */
@@ -317,7 +317,7 @@ export const FLATLINED = {
   line: 'The Erobots take another gunner.',
   kweg: KWEG.flatlined,
   prompt: 'CONTINUE?',
-  coin: 'bINSERT COIN to continue',
+  coin: 'INSERT $b to continue',
   keep: 'Your loaded rounds stay in the gun. New coins add to them.',
   over: 'GAME OVER',
 } as const;
