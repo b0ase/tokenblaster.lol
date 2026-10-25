@@ -45,13 +45,13 @@ const rand = (r: readonly [number, number]) => r[0] + Math.random() * (r[1] - r[
 const KIMIKO_HIPS = new THREE.Vector3(-0.0172, 0.2806, 0.0248);
 const keyOf = (n: string) => n.replace(/^mixamorig\d*[:_]?/, '');
 let library: Promise<THREE.AnimationClip[]> | null = null;
-const loadLibrary = () =>
+export const loadLibrary = () =>
   (library ??= new GLTFLoader()
     .loadAsync(`${ROOT}/mixamo-anims.glb`)
     .then((g) => g.animations)
     .catch(() => []));
 
-function retarget(src: THREE.AnimationClip[], model: THREE.Object3D): Map<string, THREE.AnimationClip> {
+export function retarget(src: THREE.AnimationClip[], model: THREE.Object3D): Map<string, THREE.AnimationClip> {
   const names = new Map<string, string>();
   const hips = new THREE.Vector3(0, 0.25, 0.04);
   model.traverse((o) => {

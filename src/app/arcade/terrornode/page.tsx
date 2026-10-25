@@ -1,4 +1,5 @@
 import { GameShell } from '@/components/GameShell';
+import { ModeSwitch } from '@/components/terrornode/ModeSwitch';
 import { ShootingGallery } from '@/components/gallery/ShootingGallery';
 import { TERRORNODE_CARD, shareImages } from '@/lib/og';
 
@@ -27,6 +28,7 @@ export default function GalleryPage() {
       lock
       liveTicker="TERRORNODE"
     >
+      <ModeSwitch active="solo" />
       <ShootingGallery freePlay={!PAID} />
     </GameShell>
   );

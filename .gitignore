@@ -60,3 +60,4 @@ public/storm-worker.js
 .claude/worktrees/
 __pycache__/
 out/npg-models/
+server/terrornode-team/dist

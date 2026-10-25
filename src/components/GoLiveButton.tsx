@@ -9,6 +9,12 @@ import { findGameCanvas, goLive, roomUrl, type LiveSession } from '@/lib/goLive'
  * (src/lib/goLive.ts). Only shown once the wallet is connected — the stream is labelled with the player's
  * bChatX handle, proven by the wallet. bChatX caps a room at 16 live streams and says so.
  */
+/** Tells the page (e.g. TERRORNODE team mode) the player's bChatX stream slot, so the room can show their POV. */
+export const GO_LIVE_EVENT = 'tb:golive';
+function announceLive(handle: string | null, ticker: string) {
+  window.dispatchEvent(new CustomEvent(GO_LIVE_EVENT, { detail: { handle, ticker } }));
+}
+
 export function GoLiveButton({ ticker, root }: { ticker: string; root: RefObject<HTMLElement | null> }) {
   const { wallet } = useSiteWallet();
   const [session, setSession] = useState<LiveSession | null>(null);
@@ -29,9 +35,10 @@ export function GoLiveButton({ ticker, root }: { ticker: string; root: RefObject
     setBusy(true);
     setNote(null);
     try {
-      const s = await goLive(wallet, ticker, canvas, () => { live.current = null; setSession(null); setNote('Stream ended.'); });
+      const s = await goLive(wallet, ticker, canvas, () => { live.current = null; setSession(null); setNote('Stream ended.'); announceLive(null, ticker); });
       live.current = s;
       setSession(s);
+      announceLive(s.handle, ticker);
     } catch (e) {
       const code = (e as { code?: string }).code;
       const msg = e instanceof Error ? e.message : 'Could not go live.';
@@ -46,7 +53,8 @@ export function GoLiveButton({ ticker, root }: { ticker: string; root: RefObject
     live.current = null;
     setSession(null);
     await s?.stop();
-  }, []);
+    announceLive(null, ticker);
+  }, [ticker]);
 
   if (!wallet) return null;
 
