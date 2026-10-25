@@ -6,7 +6,8 @@ export const metadata = {
 };
 
 // Same switch as the game page: free play on production until NEXT_PUBLIC_GALLERY_PAID=1.
-const PAID = process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_GALLERY_PAID === '1';
+// Paid play is the default (owner, 25 Oct: LOCK & LOAD = connect and pay). NEXT_PUBLIC_GALLERY_PAID=0 brings free play back.
+const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
 
 export default function AssaultLeaderboardPage() {
   return <AssaultInfo paid={PAID} />;

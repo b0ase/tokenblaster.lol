@@ -15,6 +15,9 @@ import { chainHandle, needsPaymail } from './gallery';
 import { setProofWallet } from './xproof';
 import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
+import type { AmmoCoin, SwapLoadQuote } from './launch/ammoCoins';
+import { swapLoad } from './launch/swapLoad';
+import { BURN_FEE } from './launch/ammoCoins';
 
 /**
  * No background wallet calls (owner, 25 Oct 2026): connecting asks only for the identity key. The wallet's token
@@ -307,6 +310,7 @@ export function useBlaster() {
       setError(null);
       setBusy('loading-tokens');
       try {
+        // Per-load cap for TOKEN ammo (gun safety): a bad gun state can't swallow a big balance. Sats are not capped.
         const n = Math.floor(count);
         const amt = BigInt(n) * BigInt(10) ** BigInt(token.dec);
         // Top up fuel so every loaded token can be fired, in the same approval.
@@ -405,8 +409,13 @@ export function useBlaster() {
   }, [refreshGun]);
 
 
-  /** Return the TOKENS in the gun to the wallet. Sats are credit and are never returned (no refunds). */
-  const unload = useCallback(async () => {
+  /**
+   * UNLOAD (bWalletX gun safety, 25 Oct 2026): send everything still in the gun back to the player's wallet:
+   * every token it holds (returnTokens, so the wallet counts them at once) and then the unused sats
+   * (gun.unload sweeps the gun's address to the wallet's own address). Tokens go first: their fees come from the sats.
+   * `sats: false` returns only the tokens.
+   */
+  const unload = useCallback(async (opts: { sats?: boolean } = {}) => {
     const g = gun.current;
     if (!wallet || !g) return;
     setBusy('unloading');
@@ -420,9 +429,18 @@ export function useBlaster() {
         parts.push(`${(Number(r.amt) / 10 ** meta.dec).toLocaleString()} $${meta.sym}`);
         last = r.txid;
       }
-      // Coin-op (owner, 24 Oct 2026): no refunds. The sats are the player's credit and stay in the gun.
       setTokenAmmo(0);
+      if (opts.sats !== false) {
+        const before = await g.balance().catch(() => g.sats);
+        const txid = await g.unload(wallet.address);
+        if (txid) {
+          parts.push(`about ${before.toLocaleString()} sats (less the network fee)`);
+          last = txid;
+        }
+        setAmmo(0);
+      }
       if (parts.length) setReceipt({ text: `Back in your wallet: ${parts.join(' and ')}`, txid: last });
+      else setReceipt(null);
       await refreshGun();
       walletTokens(wallet)
         .then(setTokens)
@@ -434,5 +452,56 @@ export function useBlaster() {
     }
   }, [wallet, refreshGun]);
 
-  return { wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  /**
+   * Swap on load (owner, 25 Oct 2026): ONE approval buys an ammo coin on its BlastPad curve straight into the
+   * gun, with the gunpowder for the burns in the same tx (src/lib/launch/swapLoad.ts). The gun adopts both.
+   */
+  const swapLoadCoin = useCallback(
+    async (coin: AmmoCoin, q: SwapLoadQuote, onStatus?: (s: string) => void) => {
+      const g = gun.current;
+      if (!wallet || !g) throw new Error('Connect a wallet first.');
+      // A session left mid-way (tab closed) still owes its bulk burn: burn it before buying more.
+      if (g.owedBurn()) await g.burnOwed(coin.burnPer);
+      const r = await swapLoad(wallet.client, g.address, wallet.address, coin, q, onStatus);
+      g.adoptTokenCoin(coin.tokenId, r.tx, 0, r.tokens);
+      if (r.fuelVout !== null) await g.load(r.tx);
+      setToken({ id: coin.tokenId, sym: coin.sym, icon: null, dec: 0 });
+      setTokenAmmo(Number(r.tokens / (coin.burnPer > BigInt(0) ? coin.burnPer : BigInt(1))));
+      setAmmo(g.sats);
+      setReceipt({ text: `Bought ${r.tokens.toLocaleString()} $${coin.sym} on BlastPad straight into your gun`, txid: r.txid });
+      return r;
+    },
+    [wallet],
+  );
+  /** Coin ammo, option A: count rounds fired under a coin's tag (saved with the gun), and burn them in one tx. */
+  const oweCoinRounds = useCallback((id: string, n: number) => gun.current?.oweBurn(id, n), []);
+  const settleCoinBurn = useCallback(async (per: bigint = BigInt(1)) => {
+    const g = gun.current;
+    if (!g) return null;
+    const txid = await g.burnOwed(per);
+    setAmmo(g.sats);
+    return txid;
+  }, []);
+  /** Coin ammo storm: fan the gun's coin out into lanes (one gun-signed tx), then burn them in the storm workers. */
+  const prepareCoinStorm = useCallback(async (coin: AmmoCoin, rounds: number, lanes: number) => {
+    const g = gun.current;
+    if (!g) throw new Error('No gun.');
+    return g.prepareCoinStorm(coin.tokenId, coin.burnPer, rounds, lanes, BURN_FEE);
+  }, []);
+  const coinStorm = useCallback(
+    async (onProgress: (sent: number, last?: string, net?: StormNet) => void, stop: () => boolean, paused: () => boolean, tag: { game?: string; extra?: string[] }, step?: number) => {
+      const g = gun.current;
+      if (!g) throw new Error('No gun.');
+      holdWalletForPlay(true, 'storm'); // the gun signs every burn itself: nothing may ask the wallet meanwhile
+      try {
+        return await g.coinStorm(onProgress, stop, paused, tag, step);
+      } finally {
+        holdWalletForPlay(false, 'storm');
+        setAmmo(await g.balance().catch(() => g.sats));
+      }
+    },
+    [],
+  );
+
+  return { swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

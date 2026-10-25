@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { PreviewButton } from '@/components/PreviewButton';
 import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
 
@@ -19,11 +19,13 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
  * is the 1280x720 variant a <source media> hands to phones and small windows; <game>.jpg is the 1920x1080 poster.
  */
 type Slide = { href: string; img: string; vid?: string; title: string; tag: string; kana: string };
-// No loop yet for Assault / NPG Arena: their slide shows the poster with the Ken Burns push (no `vid`).
 const SLIDES: readonly Slide[] = [
-  { href: '/arcade/terrornode', img: '/gallery/loading/boss-fire.webp', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
+  { href: '/arcade/terrornode', img: '/gallery/loading/boss-fire.webp', vid: '/hero/assault', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
   { href: '/arena', img: '/arcade/arena.jpg', vid: '/hero/arena', title: 'Arena', tag: 'Hell-forge shooter', kana: 'アリーナ' },
-  { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
+  { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', vid: '/hero/npg-arena', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
+  { href: '/arcade/doubleosatoshi', img: '/arcade/doubleo.jpg', vid: '/hero/doubleo', title: 'Double-O Satoshi', tag: 'Spy shooter', kana: 'スパイ作戦' },
+  { href: '/arcade/rally', img: '/arcade/rally.jpg', vid: '/hero/rally', title: 'Token Rally', tag: '3D rally', kana: 'ラリー' },
+  { href: '/arcade/city', img: '/arcade/city.jpg', vid: '/hero/city-v2', title: 'Satoshi City', tag: 'Open-world city', kana: 'サトシ市' },
 ];
 
 /** The active slide, shared with <HeroTitle> (rendered inside the headline column). */
@@ -42,19 +44,88 @@ const subscribeCurrent = (cb: () => void) => {
 const currentSnapshot = () => current;
 const currentServer = () => 0;
 
-/** The rotating game title, shown big in the hero's display face; re-keyed per slide so it animates in. */
+/** The rotating game title, shown big in the hero's display face; re-keyed per slide so it slams in letter by letter
+ * (with a red/cyan split that collapses onto it), a neon glow layer that flickers, and an underline that fills with
+ * the slide's progress. Transform/opacity only; reduced motion shows it still (globals.css). */
 export function HeroTitle() {
   const n = useSyncExternalStore(subscribeCurrent, currentSnapshot, currentServer);
   const s = SLIDES[n];
+  const code = `${String(n + 1).padStart(2, '0')}/${String(SLIDES.length).padStart(2, '0')}`;
   return (
-    <Link href={s.href} className="group mb-3 block w-fit max-w-full" aria-live="polite">
-      <span className="dr-code !text-[var(--accent)]">
-        Now playing {String(n + 1).padStart(2, '0')}/{String(SLIDES.length).padStart(2, '0')} · {s.tag}
+    <Link href={s.href} className="group mb-3 block w-fit max-w-full" aria-live="polite" aria-label={`Now playing ${code}: ${s.title}, ${s.tag}`}>
+      <span key={`np-${n}`} className="hp-np dr-code !text-[var(--accent)]" aria-hidden>
+        <span className="hp-np-dot" /> Now playing {code} · {s.tag}
       </span>
-      <span key={n} className="dr-title-in dr-display block text-[clamp(30px,5.2vw,68px)] leading-[0.95] text-[var(--accent)] [text-shadow:0_2px_0_var(--panel),0_0_22px_var(--panel)] group-hover:underline">
-        {s.title}
+      <span key={n} className="hp-title dr-display relative block text-[clamp(30px,5.2vw,68px)] leading-[0.95] text-[var(--accent)] [text-shadow:0_2px_0_var(--panel),0_0_22px_var(--panel)]" aria-hidden>
+        <span className="hp-title-glow" aria-hidden>
+          {s.title}
+        </span>
+        <span className="hp-title-split hp-title-r" aria-hidden>
+          {s.title}
+        </span>
+        <span className="hp-title-split hp-title-c" aria-hidden>
+          {s.title}
+        </span>
+        <span className="relative">
+          {s.title.split(' ').map((w, wi, all) => {
+            const at = all.slice(0, wi).join(' ').length + (wi ? 1 : 0); // letter index of this word, for the stagger
+            return (
+              <Fragment key={wi}>
+                <span className="inline-block whitespace-nowrap">
+                  {[...w].map((ch, k) => (
+                    <span key={k} className="hp-ch" style={{ ['--k' as string]: at + k }}>
+                      {ch}
+                    </span>
+                  ))}
+                </span>
+                {wi < all.length - 1 && ' '}
+              </Fragment>
+            );
+          })}
+        </span>
+        <span className="hp-title-bar" aria-hidden />
       </span>
     </Link>
+  );
+}
+
+/**
+ * Re-plays a short punch on its children every time the hero slide changes, through the Web Animations API on the
+ * wrapper (transform/opacity only, nothing re-mounted, no layout). `kind`: 'kick' jolts the headline, 'stamp' stamps
+ * the stickers down (they also wobble at rest, in CSS). Skipped under reduced motion.
+ */
+export function HeroKick({ kind, className, children }: { kind: 'kick' | 'stamp'; className?: string; children: ReactNode }) {
+  const n = useSyncExternalStore(subscribeCurrent, currentSnapshot, currentServer);
+  const el = useRef<HTMLDivElement>(null);
+  const seen = useRef(-1);
+  useEffect(() => {
+    const e = el.current;
+    if (!e) return;
+    const firstRun = seen.current === -1;
+    seen.current = n;
+    if (firstRun || window.matchMedia(RM).matches || typeof e.animate !== 'function') return;
+    const frames: Keyframe[] =
+      kind === 'kick'
+        ? [
+            { transform: 'translate3d(0,0,0) skewX(0deg)' },
+            { transform: 'translate3d(-10px,0,0) skewX(-7deg)', offset: 0.18 },
+            { transform: 'translate3d(6px,0,0) skewX(3deg)', offset: 0.42 },
+            { transform: 'translate3d(-2px,0,0) skewX(-1deg)', offset: 0.7 },
+            { transform: 'translate3d(0,0,0) skewX(0deg)' },
+          ]
+        : [
+            { transform: 'scale(1) rotate(0deg)', opacity: 1 },
+            { transform: 'scale(1.35) rotate(-6deg)', opacity: 0, offset: 0.08 },
+            { transform: 'scale(0.94) rotate(1.5deg)', opacity: 1, offset: 0.55 },
+            { transform: 'scale(1) rotate(0deg)', opacity: 1 },
+          ];
+    const a = e.animate(frames, { duration: kind === 'kick' ? 520 : 460, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', delay: kind === 'stamp' ? 260 : 60 });
+    return () => a.cancel();
+  }, [n, kind]);
+  return (
+    <div ref={el} className={className}>
+      {children}
+    </div>
   );
 }
 
@@ -62,6 +133,9 @@ const KB = [
   ['-1.5%', '-1%'],
   ['1.5%', '-1%'],
   ['-1%', '1.2%'],
+  ['1.2%', '1%'],
+  ['-1.2%', '-1.2%'],
+  ['1%', '1.2%'],
 ];
 
 type Conn = { saveData?: boolean; addEventListener?: (t: string, cb: () => void) => void; removeEventListener?: (t: string, cb: () => void) => void };
@@ -234,10 +308,10 @@ export function HeroShowcase() {
         <div className="dr-hazard !h-1.5" aria-hidden />
         <div className="flex items-center justify-between gap-3 px-2.5 py-2" aria-live={hold ? 'polite' : 'off'}>
           <div className="min-w-0 flex-1">
-            <p className="dr-code !text-[var(--accent)]">
+            <p key={`c-${i}`} className="hp-card-code dr-code !text-[var(--accent)]">
               {String(i + 1).padStart(2, '0')}/{String(SLIDES.length).padStart(2, '0')} · TB-F{String(i + 1).padStart(2, '0')}
             </p>
-            <p className="dr-display overflow-hidden text-ellipsis !whitespace-nowrap text-[22px] text-hot sm:text-[26px]">{s.title}</p>
+            <p key={`t-${i}`} className="hp-card-title dr-display overflow-hidden text-ellipsis !whitespace-nowrap text-[22px] text-hot sm:text-[26px]">{s.title}</p>
             <p className="dr-kana text-[10px] text-[var(--muted)]" aria-hidden>
               {s.kana}
             </p>

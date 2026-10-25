@@ -25,6 +25,18 @@ The database (Hetzner Supabase, `db/007`, `db/008`) is the ledger; writes go thr
    broadcasts to ARC (idempotent) and moves the pool. A signed-but-uncommitted trade is booked later by `reconcile()`.
 Sell proceeds land as the wallet's change (BRC-100 wallets count external input value).
 
+## Ammo coins: swap on load, tagged rounds, one bulk burn (`src/lib/launch/ammoCoins.ts`, `swapLoad.ts`)
+At LOCK & LOAD a cabinet can sell a BlastPad coin as ammo at the plain curve price (no discount). One buy (`to` = the
+gun's address) delivers the tokens to the gun; the wallet adds the gunpowder as an extra output of the same
+createAction: ONE approval. Rounds = min(tokens / burnPer, gunpowder / shot cost).
+Option A (owner, 25 Oct): each shot is a plain sats storm round tagged `tokenblaster.lol <token id> <n> gallery
+<paymail>` (no token output, one signature), which bsv.lol files as TokenBlaster with the coin's label. The gun counts
+the accepted rounds (`Gun.oweBurn`, saved in localStorage) and at session end sends ONE tx burning exactly
+rounds × burnPer to 1BitcoinEater, the rest back to the gun (`Gun.burnOwed`, ≤ 2 token outputs → ~2,000 sats of
+index fund per session). A burn left owed (tab closed) runs first on the next load or UNLOAD.
+Per-shot token burns in lanes (fastBlast `burn`, stormCore burn mode) remain behind `PER_SHOT_BURN` (off): they
+cost ~2,000 sats of index fund per shot.
+
 ## Launch (`/api/launch/new`)
 Creator signs the launch message (BRC-3, protocol `[1,"tokenblaster launch"]`, keyID = slot). Launch tx:
 `[0]` image inscription → creator, `[1]` deploy+mint 1B (icon `_0`) → token pool, `[2]` 25,000 sats → house, `[3]` 0.1 BSV → the coin's index key (forwarded to its GorillaPool fund).
@@ -43,3 +55,16 @@ Only confirmed vault coins are spent. `worker/vault.ts` (pm2 on Hetzner) calls P
 2. Vercel env: `LAUNCH_POOL_WIF` (fresh key, backed up), `LAUNCH_SECRET`, `LAUNCH_CRON_SECRET`.
 3. `pnpm vault:build`, run `worker/dist/vault.mjs` under pm2 with `LAUNCH_CRON_SECRET`.
 4. Test launch + buy + sell with small amounts from bWallet and Yours before announcing.
+
+## Coin API extras for the bWalletX Exchange (`/api/launch/coins`, `/api/launch/coin`)
+Every coin row (in `coins[]` and in `coin`) also carries (CORS `*`, as before):
+- `price_sats` (number): the current curve price of one token in sats (`price(sold)`, `src/lib/launch/curve.ts`).
+- `theme` (optional): bWalletX theme v2, same schema as `public/.well-known/bwalletx-theme.json`
+  (`v, name, mode, accent, accentHi, bg, surface, text, logo, cardArt`). `logo`/`cardArt` are absolute URLs on
+  https://www.tokenblaster.lol (the site origin; the apex 308s there); logo ≤ 64 KB, cardArt ≤ 256 KB.
+- `room` (optional): bChatX room ticker, `^[A-Z0-9]{1,20}$`.
+- `merch_url` (optional): an https URL.
+
+`theme`, `room` and `merch_url` live in `src/lib/launch/coinMeta.ts` keyed by `token_id` (no DB migration);
+`src/lib/coinMeta.test.ts` checks the schema, contrast (text 4.5:1, accent 3:1) and image sizes. Fields are left out
+when a coin has none.

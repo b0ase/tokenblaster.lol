@@ -8,6 +8,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { TOKEN_FEE } from '@/lib/gun';
+import { GunKeyNote, GunUnload } from './GunUnload';
 import { iconUrl } from '@/lib/tokens';
 import type { useBlaster } from '@/lib/useBlaster';
 import { houseFirst, houseHeld, type GameCoin } from '@/lib/gameCoins';
@@ -200,6 +201,7 @@ export function AmmoStrip({
             {satsMode ? (
               <>
                 {sats!.picker}
+                <GunKeyNote />
                 <button onClick={load} disabled={!!b.busy || spinning} className="btn px-3 py-2 font-bold">
                   {spinning ? (
                     <span className="inline-flex items-center gap-2">
@@ -227,8 +229,9 @@ export function AmmoStrip({
                     </button>
                   </div>
                   <p className="text-xs text-dim">
-                    One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(count * TOKEN_FEE).toLocaleString()} sats of network fees. No refunds: unfired fees stay as credit.
+                    One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(count * TOKEN_FEE).toLocaleString()} sats of network fees.
                   </p>
+                  <GunKeyNote />
                   <button onClick={load} disabled={!!b.busy || spinning} className="btn px-3 py-2 font-bold">
                     {spinning ? (
                       <span className="inline-flex items-center gap-2">
@@ -263,6 +266,8 @@ export function AmmoStrip({
                 </>
               )}
             </p>
+            <GunKeyNote />
+            <GunUnload b={b} />
             <button onClick={onPlay} disabled={!playReady} className="btn-fire animate-pulse !px-3">
               {playLabel}
             </button>

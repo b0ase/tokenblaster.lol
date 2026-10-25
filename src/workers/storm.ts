@@ -6,6 +6,7 @@
  *               hex: the split tx; lane coins are its outputs `vout`. game: the <game> push (default 'bsvgun');
  *               extra: short pushes after it (the player's paymail). arcs: ARC base URLs (default GorillaPool).
  *               waitFor: ARC X-WaitFor header (off by default).
+ *               burn: { id, per, toLockHex } for coin ammo; then each lane also has tok: { vout, amt } (src/lib/stormCore.ts).
  *               { type: 'stop' } | { type: 'pause' } | { type: 'resume' }  (paused: hold fire, keep lanes)
  * Messages out: { type: 'sent', n, last, seen, statuses }  n = newly ARC-ACCEPTED blasts; seen = of those, on the
  *                                                          network now (SEEN_ON_NETWORK etc.); statuses = histogram
@@ -39,6 +40,7 @@ self.onmessage = async (e: MessageEvent) => {
       baseTxid: base.id('hex'),
       baseValues: base.outputs.map((o) => o.satoshis ?? 0),
       lanes: m.lanes,
+      burn: m.burn && typeof m.burn.id === 'string' ? { id: m.burn.id, per: String(m.burn.per), toLockHex: String(m.burn.toLockHex) } : undefined,
       step: m.step,
       game: typeof m.game === 'string' && m.game ? m.game : undefined,
       extra: m.extra,
