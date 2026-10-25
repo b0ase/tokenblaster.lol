@@ -97,7 +97,7 @@ export function NpgCards() {
     }
     const txid = co.consume();
     if (!txid) {
-      setMsg('No credits left: insert a coin, or switch to PRACTICE.');
+      setMsg('No credits left: INSERT $b, or switch to PRACTICE.');
       return false;
     }
     setAllPaid((p) => streakAllPaid(p, streak, true));

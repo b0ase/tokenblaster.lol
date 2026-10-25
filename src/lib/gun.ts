@@ -6,7 +6,7 @@
  */
 import { spendableCoins } from './coinop/ammo';
 import { STREAM_STEP, lanesFor } from './gallery';
-import { runStorm } from './stormRun';
+import { runStorm, type StormNet } from './stormRun';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
@@ -484,7 +484,7 @@ export class Gun {
   async storm(
     token: string,
     total: number,
-    onProgress: (sent: number, last?: string) => void,
+    onProgress: (sent: number, last?: string, net?: StormNet) => void,
     stop: () => boolean = () => false,
     onStatus: (s: string) => void = () => undefined,
     /** The <game> push (default 'bsvgun') and short pushes after it, e.g. the player's handle. */
@@ -507,7 +507,7 @@ export class Gun {
       const cores = Math.max(1, Math.min(lanesN, (navigator.hardwareConcurrency || 4) - 1, 12));
       let failed: string | null = null;
       // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
-      const { sent, lastWhy } = await runStorm({
+      const { sent, lastWhy, net } = await runStorm({
         workerUrl: '/storm-worker.js',
         baseHex: base.toHex(),
         lanes,
@@ -522,6 +522,9 @@ export class Gun {
         onSent: onProgress,
         onWhy: () => onStatus('STALL'),
       });
+      // What ARC said about each accepted blast: only SEEN_ON_NETWORK-type statuses are on the network now; STORED /
+      // QUEUED / SEEN_IN_ORPHAN_MEMPOOL are held by ARC and relayed later (the owner's "batch long after", 25 Oct).
+      loadMark(`ARC statuses: ${JSON.stringify(net.statuses)} (seen on network: ${net.seen}/${sent})`);
       if (!sent) failed = `ARC took no blasts: ${lastWhy ?? 'no reason given'}`;
       // Session end: merge every lane end (and the split's change) back into one coin once the last blasts
       // settle, and save it. The split's lanes are spent by the workers: never reuse them.

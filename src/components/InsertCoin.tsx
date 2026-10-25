@@ -80,13 +80,13 @@ export type CoinOp = ReturnType<typeof useCoinOp>;
 export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void }) {
   const short = co.credits === 0 && co.creditUsd + 1e-9 < co.priceUsd;
   const label = !co.enabled
-    ? 'INSERT COIN AT THE CABINET'
+    ? 'INSERT $b AT THE CABINET'
     : co.paying
       ? 'PAYING…'
       : co.credits > 0 && start
         ? `▶ ${playLabel} · 1 CREDIT`
         : short
-          ? `INSERT COIN · CREDIT ${fmtCredit(co.creditUsd)}`
+          ? `INSERT $b · CREDIT ${fmtCredit(co.creditUsd)}`
           : `▶ ${playLabel} · ${fmtCredit(co.priceUsd)}`;
   return (
     <div className="flex flex-col items-center gap-1" onKeyDown={(e) => e.stopPropagation()}>
@@ -99,7 +99,7 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }
         disabled={!co.enabled || co.paying || (co.credits === 0 && short)}
         className="lock-load btn btn-on border-2 border-[#ffd36a] px-8 py-4 text-lg font-black tracking-widest text-[#ffd36a] disabled:animate-none disabled:opacity-50 sm:text-2xl"
       >
-        {label}
+        {label.includes('INSERT $b') ? <>{label.split('INSERT $b')[0]}INSERT <span className="normal-case">$b</span>{label.split('INSERT $b')[1]}</> : label}
       </button>
       <p className="text-[10px] text-dim">
         {perCredit ?? `1 play = 1 game, ${LIVES_PER_CREDIT} lives.`} {fmtCredit(co.priceUsd)} a play from your credit ({fmtCredit(co.creditUsd)} left), paid to the house on chain. No payouts.
@@ -133,4 +133,4 @@ export function CoinOpButtons({
 }
 
 /** The run's mode, for the canvas. */
-export const coinOpModeLabel = (paid: boolean, credits: number) => `${paid ? 'CREDIT GAME' : 'INSERT COIN'} · PLAYS PAID: ${credits}`;
+export const coinOpModeLabel = (paid: boolean, credits: number) => `${paid ? 'CREDIT GAME' : 'INSERT $b'} · PLAYS PAID: ${credits}`;
