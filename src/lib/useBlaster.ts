@@ -17,6 +17,7 @@ import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
 import type { AmmoCoin, SwapLoadQuote } from './launch/ammoCoins';
 import { swapLoad } from './launch/swapLoad';
+import { BURN_FEE } from './launch/ammoCoins';
 
 /**
  * No background wallet calls (owner, 25 Oct 2026): connecting asks only for the identity key. The wallet's token
@@ -470,15 +471,26 @@ export function useBlaster() {
     },
     [wallet],
   );
-  /** Burn ammo-coin rounds: `per` tokens per extra, each tx tagged like a sats round (Gun.fireTokens). */
-  const fireCoinRounds = useCallback(async (tokenId: string, per: bigint, startN: number, extras: string[][]) => {
+  /** Coin ammo storm: fan the gun's coin out into lanes (one gun-signed tx), then burn them in the storm workers. */
+  const prepareCoinStorm = useCallback(async (coin: AmmoCoin, rounds: number, lanes: number) => {
     const g = gun.current;
     if (!g) throw new Error('No gun.');
-    const txids = await g.fireTokens(tokenId, per, startN, extras);
-    setAmmo(g.sats);
-    setTokenAmmo((n) => Math.max(0, n - txids.length));
-    return txids;
+    return g.prepareCoinStorm(coin.tokenId, coin.burnPer, rounds, lanes, BURN_FEE);
   }, []);
+  const coinStorm = useCallback(
+    async (onProgress: (sent: number, last?: string, net?: StormNet) => void, stop: () => boolean, paused: () => boolean, tag: { game?: string; extra?: string[] }, step?: number) => {
+      const g = gun.current;
+      if (!g) throw new Error('No gun.');
+      holdWalletForPlay(true, 'storm'); // the gun signs every burn itself: nothing may ask the wallet meanwhile
+      try {
+        return await g.coinStorm(onProgress, stop, paused, tag, step);
+      } finally {
+        holdWalletForPlay(false, 'storm');
+        setAmmo(await g.balance().catch(() => g.sats));
+      }
+    },
+    [],
+  );
 
-  return { swapLoadCoin, fireCoinRounds, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { swapLoadCoin, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

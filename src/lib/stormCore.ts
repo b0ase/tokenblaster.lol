@@ -16,7 +16,7 @@
  * later. Both count as "sent" (the coin is spent either way), but `seen` counts only the first group, so the HUD
  * can show what is on the network live, and `statuses` keeps the histogram for the console.
  */
-import { fromHex, makeBlaster, opReturn, toHex, txidHex, type Blast } from './fastBlast';
+import { bsv21Lock, fromHex, makeBlaster, opReturn, toHex, txidHex, type Blast } from './fastBlast';
 
 export const ARC_DEFAULT = 'https://arc.gorillapool.io';
 export const TAG = 'tokenblaster.lol';
@@ -35,7 +35,13 @@ export type StartMsg = {
   /** The split tx: its txid (hex) and output values; lane coins are its outputs `vout`. */
   baseTxid: string;
   baseValues: number[];
-  lanes: { vout: number; count: number; n: number }[];
+  lanes: { vout: number; count: number; n: number; tok?: { vout: number; amt: string } }[];
+  /**
+   * Coin ammo (25 Oct 2026): every shot burns `per` tokens of `id` to `toLockHex` (the burn address). Each lane then
+   * has a token coin (`tok`, 1 sat, an output of the same base tx) next to its fee coin (`vout`). The <token> push
+   * is the token id, so bsv.lol counts it as TokenBlaster and labels it with the coin's symbol.
+   */
+  burn?: { id: string; per: string; toLockHex: string };
   step: number;
   game?: string;
   extra?: unknown;
@@ -51,7 +57,7 @@ export type Out =
 export type Stats = { signed: number; posted: number; accepted: number; signMs: number; postMs: number; posts: number };
 export type Ctl = { stopped: () => boolean; paused: () => boolean; emit: (m: Out) => void; fetch?: typeof fetch; now?: () => number };
 
-type Lane = { txidLE: Uint8Array; vout: number; value: number; left: number; n: number; alive: boolean; arc: string };
+type Lane = { txidLE: Uint8Array; vout: number; value: number; left: number; n: number; alive: boolean; arc: string; tok?: { txidLE: Uint8Array; vout: number; amt: bigint; lock: Uint8Array } };
 type Part = { lane: Lane; txs: Blast[]; last: string };
 type ArcResult = { txid?: string; txStatus?: string; extraInfo?: string; status?: number; detail?: string };
 
@@ -73,7 +79,9 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
     for (const k of Object.keys(stats) as (keyof Stats)[]) stats[k] = 0;
   };
   const b = makeBlaster(m.priv);
-  const token = m.token || 'sats';
+  const token = m.burn ? m.burn.id : m.token || 'sats';
+  const per = m.burn ? BigInt(m.burn.per) : BigInt(0);
+  const toLock = m.burn ? fromHex(m.burn.toLockHex) : null;
   const arcs = m.arcs && m.arcs.length ? m.arcs : [ARC_DEFAULT];
   const step = Math.max(1, m.step | 0);
   const baseLE = fromHex(m.baseTxid).reverse();
@@ -85,6 +93,7 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
     n: l.n,
     alive: true,
     arc: arcs[i % arcs.length], // a lane stays on one ARC so its chain reaches the same node in order
+    tok: m.burn && l.tok ? { txidLE: baseLE, vout: l.tok.vout, amt: BigInt(l.tok.amt), lock: bsv21Lock(m.burn.id, BigInt(l.tok.amt), b.lock) } : undefined,
   }));
   const pushes = (n: number) => opReturn(tagPushes(token, n, m.game, m.extra));
   // One fee for every blast, worked out on the longest number this session can carry.
@@ -101,6 +110,27 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
       if (!lane.alive || lane.left <= 0) continue;
       const txs: Blast[] = [];
       while (txs.length < cap && lane.left > 0 && !halted()) {
+        if (m.burn) {
+          // A burn lane: spend the token coin and the fee coin; carry on from the rest + the change.
+          const tk = lane.tok;
+          if (!tk || tk.amt < per) {
+            lane.left = 0;
+            break;
+          }
+          const t = b.burn(tk, { txidLE: lane.txidLE, vout: lane.vout, value: lane.value }, m.burn.id, per, toLock!, pushes(lane.n), FEE_RATE);
+          if (!t) {
+            lane.left = 0;
+            break;
+          }
+          txs.push(t);
+          lane.txidLE = t.txidLE;
+          lane.vout = t.changeVout;
+          lane.value = t.change;
+          lane.tok = t.restLock ? { txidLE: t.txidLE, vout: 1, amt: t.rest, lock: t.restLock } : undefined;
+          lane.left--;
+          lane.n++;
+          continue;
+        }
         if (lane.value - fee < 1) {
           lane.left = 0;
           break;

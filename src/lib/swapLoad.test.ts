@@ -2,31 +2,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Beef, LockingScript, P2PKH, PrivateKey, Transaction, UnlockingScript, type WalletInterface } from '@bsv/sdk';
-import { AMMO_COINS, BURN_FEE, activeAmmoCoins, ammoCoinById, planSwapLoad, subsidyFor, type AmmoCoin } from './launch/ammoCoins';
+import { AMMO_COINS, MAX_COIN_ROUNDS, MAX_LANE_DEPTH, activeAmmoCoins, ammoCoinById, coinLanesFor, planSwapLoad, splitEven, type AmmoCoin } from './launch/ammoCoins';
 import { MIN_BUY, quoteBuy } from './launch/curve';
-import { matchesPlan, p2pkh, tokenOut, type TradePlan } from './launch/shape';
-import { walletShare, withSubsidy } from './launch/subsidyPlan';
+import { p2pkh, tokenOut, type TradePlan } from './launch/shape';
 import { checkSwapPlan, swapLoad } from './launch/swapLoad';
 
 const ID = `${'ab'.repeat(32)}_0`;
 const gun = PrivateKey.fromRandom().toAddress();
 const house = PrivateKey.fromRandom().toAddress();
-const coin: AmmoCoin = { key: 't', sym: 'TERRORNODE', tokenId: ID, discountBps: 0, maxSubsidySats: 100_000, burnPer: BigInt(1) };
+const coin: AmmoCoin = { key: 't', sym: 'TERRORNODE', tokenId: ID, burnPer: BigInt(1) };
 
-test('TERRORNODE is configured but hidden while its token id is empty, discount off', () => {
+test('TERRORNODE is configured but hidden while its token id is empty, no discount field', () => {
   const t = AMMO_COINS.find((c) => c.key === 'terrornode')!;
   assert.equal(t.tokenId, '');
-  assert.equal(t.discountBps, 0);
+  assert.equal('discountBps' in t, false);
   assert.equal(activeAmmoCoins().length, 0);
   assert.equal(ammoCoinById(ID), null);
   assert.equal(ammoCoinById(ID, [coin])?.sym, 'TERRORNODE');
-});
-
-test('subsidy: bps of the buy, capped, never over half', () => {
-  assert.equal(subsidyFor(BigInt(100_000), 0, 1e9), BigInt(0));
-  assert.equal(subsidyFor(BigInt(100_000), 1_000, 1e9), BigInt(10_000));
-  assert.equal(subsidyFor(BigInt(100_000), 1_000, 4_000), BigInt(4_000));
-  assert.equal(subsidyFor(BigInt(100_000), 9_000, 1e9), BigInt(50_000));
 });
 
 test('planSwapLoad: minimum buy, the rest is gunpowder at BURN_FEE per round, within budget', () => {
@@ -34,7 +26,9 @@ test('planSwapLoad: minimum buy, the rest is gunpowder at BURN_FEE per round, wi
   assert.equal(q.gross, BigInt(MIN_BUY));
   assert.equal(q.tokens, quoteBuy(BigInt(0), BigInt(MIN_BUY)).tokens);
   assert.ok(q.rounds > 10_000 && BigInt(q.rounds) <= q.minTokens);
-  assert.equal(q.fuelSats, q.rounds * BURN_FEE + 200);
+  assert.ok(q.fuelSats >= q.rounds * 90);
+  assert.equal(q.lanes, coinLanesFor(q.rounds));
+  assert.equal(q.tokenSats, q.gross);
   assert.ok(q.totalSats <= 1_000_000);
   assert.equal(q.minTokens, (q.tokens * BigInt(9_700)) / BigInt(10_000));
   assert.equal(planSwapLoad({ paySats: 1_000, sold: BigInt(0), coin, slippageBps: 300 }), null);
@@ -48,10 +42,14 @@ test('planSwapLoad grows the buy when tokens, not gunpowder, are the limit', () 
   assert.ok(q.totalSats <= 5_000_000);
 });
 
-test('planSwapLoad with a discount: the player pays gross minus the house share', () => {
-  const q = planSwapLoad({ paySats: 1_000_000, sold: BigInt(0), coin: { ...coin, discountBps: 2_000 }, slippageBps: 300 })!;
-  assert.equal(q.subsidy, BigInt(2_000));
-  assert.equal(q.tokenSats, q.gross - BigInt(2_000));
+test('lanes: enough for speed, never deeper than MAX_LANE_DEPTH, rounds capped per load', () => {
+  assert.equal(coinLanesFor(1), 1);
+  assert.equal(coinLanesFor(2_500), 25);
+  assert.equal(coinLanesFor(100_000), 100);
+  for (const r of [1, 99, 5_000, 27_000, 100_000]) assert.ok(Math.ceil(r / coinLanesFor(r)) <= MAX_LANE_DEPTH);
+  const big = planSwapLoad({ paySats: 2_000_000_000, sold: BigInt(0), coin, slippageBps: 300 })!;
+  assert.equal(big.rounds, MAX_COIN_ROUNDS);
+  assert.deepEqual(splitEven(BigInt(10), 3), [BigInt(4), BigInt(3), BigInt(3)]);
 });
 
 // A buy plan as the route builds it: tokens to the gun, pool remainder, reserve, fees.
@@ -93,22 +91,6 @@ test('checkSwapPlan: tokens must go to the gun, above the slippage floor, wallet
   assert.match(checkSwapPlan(buyPlan(house), ok)!, /not going to your gun/);
   assert.match(checkSwapPlan(plan, { ...ok, minTokens: tokens + BigInt(1) })!, /slippage/);
   assert.match(checkSwapPlan(plan, { ...ok, maxWalletSats: 100 })!, /more than/);
-});
-
-test('withSubsidy: house input + change in the plan; wallet share drops by exactly the subsidy; matchesPlan sees it', () => {
-  const plan = buyPlan(gun);
-  const before = walletShare(plan);
-  const w = withSubsidy(plan.inputs, plan.outputs, { outpoint: `${'ef'.repeat(32)}_3`, sats: 50_000, beef: '' }, BigInt(2_000), house);
-  assert.equal(w.inputIndex, 1);
-  assert.equal(w.inputs[1].sats, 50_000);
-  assert.equal(w.outputs.at(-1)!.sats, 48_000);
-  assert.equal(walletShare({ inputs: w.inputs, outputs: w.outputs }), before - 2_000);
-  assert.throws(() => withSubsidy(plan.inputs, plan.outputs, { outpoint: 'x_0', sats: 10, beef: '' }, BigInt(2_000), house), /too small/);
-  // A tx that drops the house change fails the plan check.
-  const tx = new Transaction();
-  for (const i of w.inputs) tx.addInput({ sourceTXID: i.outpoint.split('_')[0], sourceOutputIndex: Number(i.outpoint.split('_')[1]), unlockingScript: new UnlockingScript() });
-  w.outputs.slice(0, -1).forEach((o) => tx.addOutput({ lockingScript: new P2PKH().lock(gun), satoshis: o.sats }));
-  assert.equal(matchesPlan(tx, { inputs: w.inputs, outputs: w.outputs }).ok, false);
 });
 
 test('swapLoad: one createAction with the plan + gunpowder to the gun; busy coin is retried politely', async () => {

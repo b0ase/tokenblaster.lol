@@ -21,7 +21,7 @@ export type TradePlan = {
   inputs: { outpoint: string; sats: number; what: string }[]; // pool inputs, in order, first
   outputs: OutSpec[]; // fixed outputs, in order, first
   beef: string; // hex BEEF with the pool inputs' history
-  quote: { tokens: string; curveSats: string; houseFee: string; routeFee: string; userSats: string; soldAfter: string; indexFee: number; subsidy?: string };
+  quote: { tokens: string; curveSats: string; houseFee: string; routeFee: string; userSats: string; soldAfter: string; indexFee: number };
   expires: number; // ms epoch
 };
 

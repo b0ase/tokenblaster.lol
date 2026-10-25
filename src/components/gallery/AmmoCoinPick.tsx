@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Cabinet ammo-coin picker (swap on load, owner 25 Oct 2026). Shows "$X buys N $COIN rounds (curve price, M% off)"
+ * Cabinet ammo-coin picker (swap on load, owner 25 Oct 2026). Shows "$X buys N $COIN rounds (curve price)"
  * from a live curve quote, with the slippage limit and the one-approval wording. Hidden while no ammo coin has a
  * token id (src/lib/launch/ammoCoins.ts).
  */
@@ -45,8 +45,7 @@ export function useAmmoCoinQuote(coin: AmmoCoin | null, paySats: number | null, 
 /** The line the cabinet shows for a quote. */
 export function quoteLine(coin: AmmoCoin, usd: number, q: SwapLoadQuote | null) {
   if (!q) return `Put at least a coin in to buy $${coin.sym} rounds.`;
-  const off = coin.discountBps > 0 ? `${(coin.discountBps / 100).toFixed(coin.discountBps % 100 ? 1 : 0)}% off` : 'no discount';
-  return `${fmtUsd(usd)} buys ${q.rounds.toLocaleString('en-US')} $${coin.sym} rounds (curve price, ${off})`;
+  return `${fmtUsd(usd)} buys ${q.rounds.toLocaleString('en-US')} $${coin.sym} rounds (curve price)`;
 }
 
 export function AmmoCoinPick(props: {
@@ -82,7 +81,6 @@ export function AmmoCoinPick(props: {
           {quote && (
             <p className="mt-1 opacity-80">
               {quote.tokens.toLocaleString('en-US')} ${chosen.sym} at least {quote.minTokens.toLocaleString('en-US')} after slippage, plus {quote.fuelSats.toLocaleString('en-US')} sats of gunpowder. Each shot burns {chosen.burnPer.toString()} ${chosen.sym}.
-              {quote.subsidy > BigInt(0) ? ` The house pays ${quote.subsidy.toLocaleString('en-US')} sats of the price.` : ''}
             </p>
           )}
           <div className="mt-2 flex items-center gap-2">

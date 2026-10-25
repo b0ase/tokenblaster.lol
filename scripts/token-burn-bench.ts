@@ -1,64 +1,84 @@
 /**
- * Token-burn throughput bench (swap on load, 25 Oct 2026): the real burn builder (buildTokenBurns in
- * src/lib/gun.ts, what Gun.fireTokens uses) against a MOCK ARC. Nothing touches the network or a real key:
- * the key is fresh and never funded, the token and fee coins spend made-up parents, nothing is broadcast.
+ * Token-burn throughput bench (coin ammo, 25 Oct 2026): the storm's burn mode (src/lib/stormCore.ts runLanes with
+ * `burn`, signing with src/lib/fastBlast.ts) against a MOCK ARC, split over worker threads the way the browser
+ * splits lanes over storm workers. Nothing touches the network or a real key: the key is fresh and never funded,
+ * the lane coins spend a made-up parent, nothing is broadcast.
  *
- *   pnpm tsx scripts/token-burn-bench.ts                      batch 25/100/250, 2,000 burns per run
- *   pnpm tsx scripts/token-burn-bench.ts --burns 5000 --rtt 300 --per-tx 0.3
+ *   pnpm tsx scripts/token-burn-bench.ts                          1, 25 and 100 lanes, all cores but one
+ *   pnpm tsx scripts/token-burn-bench.ts --cores 3 --rtt 400 --per-tx 0.3 --per-lane 400
  *
- * One lane: each burn spends the previous burn's token change, so building is serial (sign + fee per tx).
- * Mock ARC answers a batch after `rtt + perTx × batch` ms; batches are sent while the next one is built
- * (as the gallery's token loop does with one batch in flight). Reports build rate and end-to-end rate.
+ * Mock ARC answers each POST after `rtt + perTx × batch` ms with SEEN_ON_NETWORK for every tx (GorillaPool's real
+ * latency is an input here, not a measurement). Reports burns/s accepted from the first burn to the last.
  */
-import { P2PKH, PrivateKey, Transaction, UnlockingScript } from '@bsv/sdk';
-import { bsv21, buildTokenBurns, BURN_ADDRESS } from '../src/lib/gun';
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
+import { availableParallelism } from 'node:os';
+import { P2PKH, PrivateKey } from '@bsv/sdk';
+import { BURN_ADDRESS } from '../src/lib/gun';
+import { runLanes } from '../src/lib/stormCore';
 
 const arg = (k: string, d: number) => {
   const i = process.argv.indexOf(`--${k}`);
   return i > 0 ? Number(process.argv[i + 1]) : d;
 };
-const BURNS = arg('burns', 2000);
-const RTT = arg('rtt', 300); // ms, GorillaPool batch round trip (an input, not a measurement)
-const PER_TX = arg('per-tx', 0.3); // ms per tx in a batch on ARC's side
+const ID = `${'ab'.repeat(32)}_0`;
 
-const id = `${'ab'.repeat(32)}_0`;
-const key = PrivateKey.fromRandom();
-const me = key.toAddress();
-const parent = (script: ReturnType<typeof bsv21>, sats: number) => {
-  const t = new Transaction();
-  t.addInput({ sourceTXID: 'cd'.repeat(32), sourceOutputIndex: 0, unlockingScript: new UnlockingScript() });
-  t.addOutput({ lockingScript: script, satoshis: sats });
-  return t;
-};
+type Job = { priv: number[]; lanes: number; mine: number[]; perLane: number; rtt: number; perTx: number };
 
-async function run(batch: number) {
-  let tok = { id, tx: parent(bsv21(id, BigInt(BURNS), me), 1), vout: 0, amt: BigInt(BURNS) };
-  let fee = { tx: parent(new P2PKH().lock(me), BURNS * 90 + 1_000), vout: 0 };
-  let n = 0;
-  let buildMs = 0;
-  let inFlight: Promise<void> = Promise.resolve();
+async function work(j: Job) {
+  const mock = (async (_u: string, init: { body: string }) => {
+    const n = (init.body.match(/rawTx/g) ?? []).length;
+    await new Promise((r) => setTimeout(r, j.rtt + j.perTx * n));
+    const out = Array.from({ length: n }, () => ({ txStatus: 'SEEN_ON_NETWORK' }));
+    return { status: 200, json: async () => out } as unknown as Response;
+  }) as unknown as typeof fetch;
+  let sent = 0;
   const t0 = performance.now();
-  while (n < BURNS) {
-    const extras = Array.from({ length: Math.min(batch, BURNS - n) }, () => ['gallery', 'player@bwalletx.com']);
-    const b0 = performance.now();
-    const chain = await buildTokenBurns(key, id, BigInt(1), n, extras, tok, fee, BURN_ADDRESS);
-    const efs = chain.map((c) => c.tx.toHexEF()); // what ARC.broadcastMany serialises
-    buildMs += performance.now() - b0;
-    await inFlight; // one batch in flight at a time
-    inFlight = new Promise((r) => setTimeout(r, RTT + PER_TX * efs.length));
-    const last = chain[chain.length - 1];
-    n += chain.length;
-    if (!last.tok) break;
-    // Drop ancestry like Gun.fireTokens does after a batch (keeps each tx small).
-    tok = { ...last.tok, tx: Transaction.fromHex(last.tok.tx.toHex()) };
-    fee = { tx: Transaction.fromHex(last.sats.tx.toHex()), vout: last.sats.vout };
-  }
-  await inFlight;
-  const total = performance.now() - t0;
-  return { batch, burns: n, buildPerSec: Math.round((n / buildMs) * 1000), endToEndPerSec: Math.round((n / total) * 1000) };
+  const baseValues = [...Array.from({ length: j.lanes }, () => 1), ...Array.from({ length: j.lanes }, () => j.perLane * 90 + 50)];
+  await runLanes(
+    {
+      priv: Uint8Array.from(j.priv),
+      baseTxid: 'cd'.repeat(32),
+      baseValues,
+      lanes: j.mine.map((i) => ({ vout: j.lanes + i, count: j.perLane, n: i * j.perLane + 1, tok: { vout: i, amt: String(j.perLane) } })),
+      step: 100,
+      game: 'gallery',
+      extra: ['b0asex@bwalletx.com'],
+      arcs: ['http://mock-arc.invalid'],
+      burn: { id: ID, per: '1', toLockHex: new P2PKH().lock(BURN_ADDRESS).toHex() },
+    },
+    { stopped: () => false, paused: () => false, emit: (o) => void (o.type === 'sent' && (sent += o.n)), fetch: mock },
+  );
+  return { sent, ms: performance.now() - t0 };
 }
 
-void (async () => {
-  console.log(`token-burn bench: ${BURNS} burns, mock ARC rtt ${RTT} ms + ${PER_TX} ms/tx, one lane`);
-  for (const b of [25, 100, 250]) console.log(JSON.stringify(await run(b)));
-})();
+if (!isMainThread) {
+  void work(workerData as Job).then((r) => parentPort!.postMessage(r));
+} else {
+  const cores = arg('cores', Math.max(1, availableParallelism() - 1));
+  const perLane = arg('per-lane', 400);
+  const rtt = arg('rtt', 300);
+  const perTx = arg('per-tx', 0.3);
+  const priv = Array.from(PrivateKey.fromRandom().toArray('be', 32));
+  void (async () => {
+    console.log(`token-burn bench: ${perLane} burns/lane, mock ARC ${rtt} ms + ${perTx} ms/tx, up to ${cores} worker threads`);
+    for (const lanes of [1, 25, 100]) {
+      const w = Math.max(1, Math.min(lanes, cores));
+      const t0 = performance.now();
+      const counts = await Promise.all(
+        Array.from({ length: w }, (_, k) => {
+          const mine = Array.from({ length: lanes }, (_, i) => i).filter((i) => i % w === k);
+          return new Promise<{ sent: number; ms: number }>((ok, no) => {
+            const wk = new Worker(__filename, { workerData: { priv, lanes, mine, perLane, rtt, perTx } satisfies Job, execArgv: ['--import', 'tsx'] });
+            wk.once('message', (r: { sent: number; ms: number }) => (ok(r), void wk.terminate()));
+            wk.once('error', no);
+          });
+        }),
+      );
+      const sent = counts.reduce((a, b) => a + b.sent, 0);
+      const secs = (performance.now() - t0) / 1000;
+      // Sending time: from each worker's first burn to its last (worker start-up under tsx is not part of the game).
+      const send = Math.max(...counts.map((c) => c.ms)) / 1000;
+      console.log(JSON.stringify({ lanes, workers: w, burns: sent, sendSecs: +send.toFixed(2), burnsPerSec: Math.round(sent / send), wallSecs: +secs.toFixed(2) }));
+    }
+  })();
+}

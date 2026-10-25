@@ -452,40 +452,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     };
   }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed, liveCoin]);
 
-  // Live, ammo coin: each round burns the coin (Gun.fireTokens), tagged like a sats round plus the paymail.
-  // Batches of up to 150 keep one ARC call in flight (scripts/token-burn-bench.ts: ~220 burns/s per lane).
-  const { fireCoinRounds } = b;
-  useEffect(() => {
-    if (dry || mode !== 'live' || !liveCoin) return;
-    let alive = true;
-    let backoff = 0;
-    void (async () => {
-      while (alive) {
-        const q = firedRef.current - sentRef.current;
-        if (q <= 0) {
-          await new Promise((r) => setTimeout(r, 60));
-          continue;
-        }
-        try {
-          const extras = Array.from({ length: Math.min(150, q) }, () => [...galleryPushes(handle), ammo]);
-          const txids = await fireCoinRounds(liveCoin.tokenId, liveCoin.burnPer, chainN.current, extras);
-          chainN.current += txids.length;
-          landed(txids.length, txids[txids.length - 1] ?? null);
-          backoff = 0;
-          sendErrors.current = 0;
-        } catch (e) {
-          sendErrors.current++;
-          backoff = Math.min(8000, backoff ? backoff * 2 : 500);
-          console.warn('[tb-fire] coin burn failed, retrying', e);
-          await new Promise((r) => setTimeout(r, backoff));
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [dry, mode, liveCoin, fireCoinRounds, handle, ammo, landed]);
-
   // Live, streams: one storm session over the prepared lanes, paused whenever the queue is empty. If it ends
   // with rounds still queued (a network failure), it reloads by itself and carries on; after 3 tries: jammed.
   const sessionAlive = useRef(false);
@@ -549,6 +515,43 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         console.warn('[tb-fire] reload failed', e);
         senderDead.current = true;
       }
+    };
+  });
+
+  // Live, ammo coin: the coin storm (multi-lane token burns in the storm workers, src/lib/stormCore.ts burn mode).
+  // Each burn is tagged "tokenblaster.lol" <token id> <n> gallery <paymail>: bsv.lol shows it as TokenBlaster with
+  // the coin's symbol. Held while nothing is queued, like the sats storm.
+  const { coinStorm } = b;
+  const coinSession = useRef<(rounds: number) => void>(() => undefined);
+  useEffect(() => {
+    coinSession.current = (rounds: number) => {
+      if (sessionAlive.current || rounds <= 0) return;
+      const gen = ++sessionGen.current;
+      sessionAlive.current = true;
+      stop.current = false;
+      let prev = 0;
+      const seenBase = netSeenRef.current;
+      void coinStorm(
+        (n, last, net) => {
+          if (net) setNetSeen((netSeenRef.current = seenBase + net.seen));
+          const d = n - prev;
+          prev = n;
+          landed(d, last ?? null);
+        },
+        () => stop.current,
+        () => sentRef.current >= firedRef.current,
+        { game: 'gallery', extra: galleryPushes(handle).slice(1) },
+        STREAM_STEP,
+      )
+        .catch((e) => {
+          sendErrors.current++;
+          console.warn('[tb-fire] coin storm stopped', e);
+        })
+        .finally(() => {
+          if (gen !== sessionGen.current) return;
+          sessionAlive.current = false;
+          if (!stop.current && boughtRef.current - sentRef.current > 0 && modeRef.current === 'live') senderDead.current = true;
+        });
     };
   });
 
@@ -816,10 +819,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         if (!coinQ.quote) throw new Error(`No live $${ammoCoin.sym} quote yet. Try again in a moment.`);
         const r = await b.swapLoadCoin(ammoCoin, coinQ.quote, setCoinStatus);
         cab.onClear(); // the coins in the slot paid for the swap
-        const shots = Math.min(coinQ.quote.rounds, Number(r.tokens / ammoCoin.burnPer));
+        setLoad({ kind: 'loading', pct: 60, slowSecs: 0 });
+        const want = Math.min(coinQ.quote.rounds, Number(r.tokens / ammoCoin.burnPer));
+        // Fan out into lanes (one tx the gun signs: no second approval), then the workers burn them.
+        const { rounds: shots } = await b.prepareCoinStorm(ammoCoin, want, coinQ.quote.lanes);
         setLiveCoin(ammoCoin);
         setLoadingRounds(shots);
         goLive(shots, continued);
+        coinSession.current(shots);
         return;
       }
       setLiveCoin(null);

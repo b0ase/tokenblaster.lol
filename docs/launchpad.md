@@ -30,10 +30,8 @@ At LOCK & LOAD a cabinet can sell a BlastPad coin as ammo. One buy (`prepare` wi
 address) delivers the tokens straight to the gun; the wallet adds the gunpowder (P2PKH to the gun) as an extra output
 of the same createAction, so buy + load is ONE approval. Each shot burns `burnPer` tokens to the burn address
 (`Gun.fireTokens`, tagged like a sats round plus the paymail). A coin with an empty `tokenId` is hidden.
-Discount (`discountBps`, default 0, capped by `maxSubsidySats`, max 50%): the server adds one house input
-(`AMMO_SUBSIDY_WIF`, env only, confirmed coin with a WoC BEEF) and its change to the plan; the curve still gets the
-full price, the wallet funds the rest, `matchesPlan` checks the house input/change like the pool's, and `sign`
-signs it. No key set = no discount. Keep it under the ~2% round-trip fee or it can be arbitraged (buy cheap, sell).
+No discount: branded ammo sells at the plain curve price (owner, 25 Oct). The gun then fans the load out into lanes
+and the storm workers burn them (src/lib/fastBlast.ts `burn`, src/lib/stormCore.ts).
 
 ## Launch (`/api/launch/new`)
 Creator signs the launch message (BRC-3, protocol `[1,"tokenblaster launch"]`, keyID = slot). Launch tx:

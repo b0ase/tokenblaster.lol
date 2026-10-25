@@ -2,8 +2,7 @@
  * Swap on load (owner, 25 Oct 2026): at LOCK & LOAD, ONE wallet approval buys an ammo coin on its BlastPad
  * curve with the tokens delivered straight to the GUN's address, plus the BSV gunpowder for the burns in
  * the same transaction. Same three steps as any BlastPad trade (docs/launchpad.md): prepare (lease + plan),
- * the wallet createActions around the plan, the server signs the pool's inputs (and the house's discount
- * input, if any), the wallet signs its own and broadcasts, commit books it.
+ * the wallet createActions around the plan, the server signs the pool's inputs, the wallet signs its own and broadcasts, commit books it.
  *
  * Before the wallet sees anything the plan is checked against our own quote: the tokens go to the gun,
  * no fewer than the slippage floor, and the wallet's share is no more than the player agreed to pay.
@@ -12,7 +11,6 @@ import { Beef, P2PKH, Transaction, UnlockingScript, Utils, type WalletInterface 
 import type { AmmoCoin, SwapLoadQuote } from './ammoCoins';
 import { INDEX_FEE } from './curve';
 import { matchesPlan, tokenOut, type TradePlan } from './shape';
-import { walletShare } from './subsidyPlan';
 
 export type Post = <T>(url: string, body: unknown) => Promise<T>;
 
@@ -23,7 +21,10 @@ const defaultPost: Post = async <T,>(url: string, body: unknown) => {
   return j as T;
 };
 
-export type SwapLoadResult = { txid: string; tx: Transaction; tokens: bigint; fuelVout: number | null; subsidy: bigint };
+export type SwapLoadResult = { txid: string; tx: Transaction; tokens: bigint; fuelVout: number | null };
+
+/** What the wallet itself funds for a plan: the fixed outputs minus the pool inputs it does not own. */
+export const walletShare = (plan: Pick<TradePlan, 'inputs' | 'outputs'>) => plan.outputs.reduce((n, o) => n + o.sats, 0) - plan.inputs.reduce((n, i) => n + i.sats, 0);
 
 /** How long to keep asking while another trade holds the coin (its lease is 90 s). */
 export const BUSY_WAIT_MS = 95_000;
@@ -82,10 +83,9 @@ export async function swapLoad(
   }
 
   try {
-    // The wallet pays the tokens (less the house discount) and the index fee (at most 5 × INDEX_FEE).
+    // The wallet pays the tokens at the plain curve price and the index fee (at most 5 × INDEX_FEE).
     const why = checkSwapPlan(plan, { tokenId: coin.tokenId, gun, minTokens: q.minTokens, maxWalletSats: Number(q.tokenSats) + 1 + 5 * INDEX_FEE });
     if (why) throw new Error(why);
-    const subsidy = BigInt(plan.quote.subsidy ?? '0');
     const tokens = BigInt(plan.quote.tokens);
     const beef = Beef.fromString(plan.beef, 'hex');
     const outputs: Parameters<WalletInterface['createAction']>[0]['outputs'] = plan.outputs.map((o) => ({ lockingScript: o.script, satoshis: o.sats, outputDescription: o.what }));
@@ -93,7 +93,7 @@ export async function swapLoad(
     if (q.fuelSats > 0) outputs.push({ lockingScript: new P2PKH().lock(gun).toHex(), satoshis: q.fuelSats, outputDescription: `Gunpowder: ${q.fuelSats.toLocaleString()} sats to fire ${q.rounds.toLocaleString()} rounds` });
     onStatus?.('Approve in your wallet (one approval: buy + load)…');
     const created = await wallet.createAction({
-      description: `Buy ${tokens.toLocaleString()} $${coin.sym} on BlastPad straight into your TokenBlaster gun (${q.rounds.toLocaleString()} rounds)${subsidy > BigInt(0) ? `, ${subsidy.toLocaleString()} sats off paid by the house` : ''}${q.fuelSats ? ` + ${q.fuelSats.toLocaleString()} sats gunpowder` : ''}`,
+      description: `Buy ${tokens.toLocaleString()} $${coin.sym} on BlastPad straight into your TokenBlaster gun (${q.rounds.toLocaleString()} rounds)${q.fuelSats ? ` + ${q.fuelSats.toLocaleString()} sats gunpowder` : ''}`,
       inputBEEF: beef.toBinary(),
       inputs: plan.inputs.map((i) => ({ outpoint: i.outpoint.replace('_', '.'), unlockingScriptLength: 108, inputDescription: i.what })),
       outputs,
@@ -122,7 +122,7 @@ export async function swapLoad(
         finalTx = tx;
       }
       const r = await post<{ txid: string }>('/api/launch/trade', { step: 'commit', lease: plan.lease, tx: Utils.toHex(finalTx.toAtomicBEEF()) });
-      return { txid: r.txid, tx: finalTx, tokens, fuelVout, subsidy };
+      return { txid: r.txid, tx: finalTx, tokens, fuelVout };
     } catch (e) {
       if (!sent) await wallet.abortAction({ reference: signable.reference }).catch(() => undefined);
       throw e;

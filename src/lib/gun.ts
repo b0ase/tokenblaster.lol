@@ -599,6 +599,129 @@ export class Gun {
     }
   }
 
+  // ── Coin ammo storm (multi-lane token burns, 25 Oct 2026) ─────────
+
+  /** Lanes made by prepareCoinStorm(): the fan-out tx, its lanes (token coin + fee coin each) and the token. */
+  private coinReady: { base: Transaction; id: string; per: bigint; lanes: { tok: number; fee: number; amt: bigint; count: number }[] } | null = null;
+
+  /**
+   * Fan the gun's token coin and sats out into `lanesN` lanes in ONE tx signed by the gun (no wallet approval):
+   * outputs [token lane 0..K-1 (1 sat each), fee lane 0..K-1, token rest?, change]. Each lane gets `rounds/K`
+   * burns of `per` tokens and the sats to pay them. Waits only for ARC to take it.
+   */
+  async prepareCoinStorm(id: string, per: bigint, rounds: number, lanesN: number, perBurn: number): Promise<{ lanes: number; rounds: number }> {
+    await this.endSession();
+    return this.exclusive(async () => {
+      this.refresh();
+      this.coinReady = null;
+      this.halt = false;
+      const tok = await this.tokenCoin(id);
+      if (!tok) throw new Error('No tokens in the gun. Load some first.');
+      await this.startCoin(() => undefined);
+      if (!this.coin) throw new Error('EMPTY');
+      const maxRounds = Number(tok.amt / per);
+      rounds = Math.min(rounds, maxRounds);
+      const k = Math.max(1, Math.min(lanesN, rounds));
+      if (rounds <= 0) throw new Error('No tokens in the gun. Load some first.');
+      const counts = Array.from({ length: k }, (_, i) => Math.floor(rounds / k) + (i < rounds % k ? 1 : 0));
+      const budget = this.sats - 300 - k * 60;
+      const each = counts.map((c) => c * perBurn + 50);
+      if (budget < each.reduce((a, b) => a + b, 0)) throw new Error('SHORT');
+      const split = new Transaction();
+      split.addInput({ sourceTransaction: Transaction.fromBinary(tok.tx.toBinary()), sourceOutputIndex: tok.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      split.addInput({ sourceTransaction: Transaction.fromBinary(this.coin.tx.toBinary()), sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      const amts = counts.map((c) => BigInt(c) * per);
+      for (const a of amts) split.addOutput({ lockingScript: bsv21(id, a, this.address), satoshis: 1 });
+      for (const e of each) split.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: e });
+      const restTok = tok.amt - amts.reduce((a, b) => a + b, BigInt(0));
+      if (restTok > BigInt(0)) split.addOutput({ lockingScript: bsv21(id, restTok, this.address), satoshis: 1 });
+      split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await split.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await split.sign();
+      if (this.loadTx && !(await this.known(this.loadTx.id('hex')))) await this.send(this.loadTx).catch(() => undefined);
+      await this.send(split);
+      this.loadTx = null;
+      const base = Transaction.fromHex(split.toHex());
+      this.spentTok.add(`${tok.tx.id('hex')}_${tok.vout}`);
+      this.markSpent(split);
+      this.tok = restTok > BigInt(0) ? { id, tx: base, vout: 2 * k, amt: restTok } : null;
+      this.coin = { tx: base, vout: split.outputs.length - 1 };
+      this.save();
+      this.coinReady = { base, id, per, lanes: counts.map((count, i) => ({ tok: i, fee: k + i, amt: amts[i], count })) };
+      loadMark(`coin lanes ready: ${k} lanes, ${rounds} burns`);
+      return { lanes: k, rounds };
+    });
+  }
+
+  /**
+   * Burn the prepared lanes in the storm workers (src/lib/stormCore.ts burn mode): same pipelined rounds, ARC
+   * status / seen counting, and double-spend rules as the sats storm. Returns the accepted burns.
+   */
+  async coinStorm(
+    onProgress: (sent: number, last?: string, net?: StormNet) => void,
+    stop: () => boolean,
+    paused: () => boolean,
+    tag: { game?: string; extra?: string[] } = {},
+    step = STREAM_STEP,
+    onStatus: (s: string) => void = () => undefined,
+  ): Promise<number> {
+    const r = this.coinReady;
+    if (!r) throw new Error('The gun is not loaded.');
+    this.coinReady = null;
+    const userStop = stop;
+    stop = () => this.halt || userStop();
+    const run = this.exclusive(async () => {
+      let n = 1;
+      const lanes = r.lanes.map((l) => {
+        const lane = { vout: l.fee, count: l.count, n, tok: { vout: l.tok, amt: l.amt.toString() } };
+        n += l.count;
+        return lane;
+      });
+      const cores = Math.max(1, Math.min(lanes.length, (navigator.hardwareConcurrency || 4) - 1, 12));
+      const { sent, lastWhy, net } = await runStorm({
+        workerUrl: '/storm-worker.js',
+        baseHex: r.base.toHex(),
+        lanes,
+        wif: this.key.toWif(),
+        token: r.id,
+        step,
+        game: tag.game,
+        extra: tag.extra,
+        cores,
+        stop,
+        paused,
+        burn: { id: r.id, per: r.per.toString(), toLockHex: new P2PKH().lock(BURN_ADDRESS).toHex() },
+        onSent: onProgress,
+        onWhy: () => onStatus('STALL'),
+      });
+      loadMark(`coin ARC statuses: ${JSON.stringify(net.statuses)} (seen on network: ${net.seen}/${sent})`);
+      // Lane coins are spent by the workers: never reuse them. What is left on each lane is found again by the index.
+      if (sent)
+        for (const l of r.lanes) {
+          this.spent.add(`${r.base.id('hex')}_${l.fee}`);
+          this.spentTok.add(`${r.base.id('hex')}_${l.tok}`);
+        }
+      await new Promise((ok) => setTimeout(ok, 6000));
+      try {
+        const coins = await this.candidates();
+        if (coins.length > 1) await this.consolidate(coins);
+        else this.coin = coins[0] ?? null;
+      } catch {
+        /* the next load rebuilds the coin set anyway */
+      }
+      this.save();
+      if (!sent) throw new Error(`ARC took no burns: ${lastWhy ?? 'no reason given'}`);
+      return sent;
+    });
+    this.session = run;
+    try {
+      return await run;
+    } finally {
+      if (this.session === run) this.session = null;
+      this.halt = false;
+    }
+  }
+
   // ── Token ammo ────────────────────────────────────────────────────
 
   /** Unspent token outputs of `id` at the gun's address (GorillaPool), largest first. */
