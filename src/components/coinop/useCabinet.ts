@@ -10,6 +10,7 @@ import type { LoadStage } from './CoinCabinet';
 import { loadMark } from '@/lib/gun';
 import { cancelSiteWalletWait, openSiteWallet, setSiteWalletLive } from '@/lib/siteWallet';
 import { useSiteWallet } from '@/lib/useSiteWallet';
+import { connectAttemptOver } from '@/lib/coinop/payFlow';
 
 /** The blocking prompts, each shown as a true modal by CabinetModals. */
 export type CabModal = null | 'disconnected' | 'refused' | 'timeout';
@@ -193,6 +194,15 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
       });
     }
   }, [payAfterConnect, b.wallet, b.busy, doPay, connectedAt]);
+  // The connect LOCK & LOAD started ended with no wallet (chooser closed, Cancel, an error): forget the pay intent,
+  // so a later Connect from the top bar never pops a payment sheet by surprise. The next LOCK & LOAD starts afresh.
+  useEffect(() => {
+    if (!payAfterConnect) return;
+    if (!connectAttemptOver({ hasWallet: Boolean(b.wallet), chooserOpen: Boolean(site.chooser), busy: site.busy || Boolean(b.busy), waiting: Boolean(site.waiting) })) return;
+    loadMark('lock & load: connect ended without a wallet, payment not started');
+    after.current = null;
+    void Promise.resolve().then(() => setPayAfterConnect(false));
+  }, [payAfterConnect, b.wallet, b.busy, site.chooser, site.busy, site.waiting]);
   // Wallet's own "loading" busy flag, while approving, shows as the approve stage.
   useEffect(() => {
     if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
