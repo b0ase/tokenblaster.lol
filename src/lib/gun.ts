@@ -11,6 +11,22 @@ import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils
 
 const ARC_URL = 'https://arc.gorillapool.io';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
+const GP_RAW = 'https://ordinals.gorillapool.io/api/tx';
+
+/**
+ * A transaction's hex: WhatsOnChain, else GorillaPool's raw bytes (25 Oct 2026: WhatsOnChain rate-limits
+ * a busy browser and its 429 carries no CORS header, so the page saw "blocked by CORS" and the gun could
+ * not read its own coins; GorillaPool allows www.tokenblaster.lol).
+ */
+async function txHex(txid: string): Promise<string> {
+  try {
+    const r = await fetch(`${WOC}/tx/${txid}/hex`);
+    if (r.ok) return (await r.text()).trim();
+  } catch { /* fall through to GorillaPool */ }
+  const r = await fetch(`${GP_RAW}/${txid}/raw`);
+  if (!r.ok) throw new Error(`Could not fetch transaction ${txid.slice(0, 8)}… (${r.status}).`);
+  return Array.from(new Uint8Array(await r.arrayBuffer()), (b) => b.toString(16).padStart(2, '0')).join('');
+}
 const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
 const STORE = 'tokenblaster.gun';
 /** ARC took it AND it's headed for a block (an orphan = its parent is missing/spent: it will never mine). */
@@ -739,7 +755,7 @@ export class Gun {
     if (this.tok?.id === id && this.tok.amt > BigInt(0)) coins.push(this.tok);
     for (const u of await this.tokenUtxos(id)) {
       if (coins.some((c) => c.tx.id('hex') === u.txid && c.vout === u.vout)) continue;
-      const hexTx = await fetch(`${WOC}/tx/${u.txid}/hex`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('Could not fetch a token transaction.'))));
+      const hexTx = await txHex(u.txid);
       coins.push({ id, tx: Transaction.fromHex(hexTx), vout: u.vout, amt: u.amt });
     }
     return coins;
@@ -907,7 +923,7 @@ export class Gun {
     if (this.tok?.id === id && this.tok.amt > BigInt(0)) return this.tok;
     const [u] = await this.tokenUtxos(id);
     if (!u) return null;
-    const hexTx = await fetch(`${WOC}/tx/${u.txid}/hex`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('Could not fetch the token transaction.'))));
+    const hexTx = await txHex(u.txid);
     this.tok = { id, tx: Transaction.fromHex(hexTx), vout: u.vout, amt: u.amt };
     return this.tok;
   }
@@ -1001,7 +1017,7 @@ export class Gun {
       if (this.tok?.id === id && this.tok.amt > BigInt(0)) coins.push(this.tok);
       for (const u of await this.tokenUtxos(id)) {
         if (coins.some((c) => c.tx.id('hex') === u.txid && c.vout === u.vout)) continue;
-        const hexTx = await fetch(`${WOC}/tx/${u.txid}/hex`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('Could not fetch a token transaction.'))));
+        const hexTx = await txHex(u.txid);
         coins.push({ id, tx: Transaction.fromHex(hexTx), vout: u.vout, amt: u.amt });
       }
       const amt = coins.reduce((n, c) => n + c.amt, BigInt(0));
@@ -1096,10 +1112,7 @@ export class Gun {
     const out: { tx: Transaction; vout: number }[] = [];
     // 1-sat outputs hold tokens (BSV-21 inscriptions): spending them as plain sats would destroy the tokens.
     for (const u of utxos.filter((u) => !u.isSpentInMempoolTx && u.value > 1)) {
-      const hex = await fetch(`${WOC}/tx/${u.tx_hash}/hex`).then((r) => {
-        if (!r.ok) throw new Error(`WOC ${r.status}`);
-        return r.text();
-      });
+      const hex = await txHex(u.tx_hash);
       out.push({ tx: Transaction.fromHex(hex), vout: u.tx_pos });
     }
     return out;
