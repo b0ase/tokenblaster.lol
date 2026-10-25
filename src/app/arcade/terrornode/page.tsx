@@ -1,6 +1,6 @@
 import { GameShell } from '@/components/GameShell';
 import { ShootingGallery } from '@/components/gallery/ShootingGallery';
-import { GALLERY_CARD, shareImages } from '@/lib/og';
+import { TERRORNODE_CARD, shareImages } from '@/lib/og';
 
 const description =
   'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo against the Erobots holding TERRORNODE HQ: every bullet is a real BSV transaction from your own wallet in paid play.';
@@ -10,8 +10,8 @@ const shareDescription =
 export const metadata = {
   title: '31 Oct BSV Stress Test · Assault on Terrornode',
   description,
-  openGraph: { title: 'Assault on Terrornode: fire a million transactions', description: shareDescription, url: '/arcade/assault', images: shareImages(GALLERY_CARD).openGraph },
-  twitter: { card: 'summary_large_image', title: 'TokenBlaster: Assault on Terrornode', description: shareDescription, images: shareImages(GALLERY_CARD).twitter },
+  openGraph: { title: 'Assault on Terrornode: fire a million transactions', description: shareDescription, url: '/arcade/terrornode', images: shareImages(TERRORNODE_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'TokenBlaster: Assault on Terrornode', description: shareDescription, images: shareImages(TERRORNODE_CARD).twitter },
 };
 
 // FREE PLAY on production while the payment flow is fixed (owner, 24 Oct 2026: "keep it online but let everyone

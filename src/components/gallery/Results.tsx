@@ -10,7 +10,7 @@ import { Icon, Ticker } from '../coinop/ui';
 
 export type RunSummary = { fired: number; sent: number; score: number; wave: number; rescued?: boolean; kills: number; secs: number; spent: string; last: string | null; handle: string | null; simulated: boolean };
 
-const SITE = 'https://www.tokenblaster.lol/arcade/assault';
+const SITE = 'https://www.tokenblaster.lol/arcade/terrornode';
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () => void; onBoard: () => void }) {

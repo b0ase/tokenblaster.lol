@@ -29,9 +29,12 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
-      // ASSAULT ON TERRORNODE lives at /arcade/assault (the on-chain game tag stays "gallery"); old links and shares keep working.
-      { source: '/arcade/gallery/:path*', destination: '/arcade/assault/:path*', permanent: true },
-      { source: '/arcade/gallery', destination: '/arcade/assault', permanent: true },
+      // ASSAULT ON TERRORNODE lives at /arcade/terrornode (the on-chain game tag stays "gallery"); old links and shares keep working.
+      // Uppercase /arcade/TERRORNODE is redirected in src/proxy.ts: redirect sources here match case-insensitively and would loop.
+      ...['/arcade/assault', '/arcade/gallery'].flatMap((from) => [
+        { source: `${from}/:path*`, destination: '/arcade/terrornode/:path*', permanent: true },
+        { source: from, destination: '/arcade/terrornode', permanent: true },
+      ]),
       { source: '/arcade/doubleo', destination: '/arcade/doubleosatoshi', permanent: true },
       { source: '/arcade/doubleokweg', destination: '/arcade/doubleosatoshi', permanent: true },
     ];

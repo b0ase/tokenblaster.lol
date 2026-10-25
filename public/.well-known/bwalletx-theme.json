@@ -11,6 +11,6 @@
   "cardArt": "/brand/wallet-card.jpg",
   "room": "TOKENBLASTER",
   "paths": {
-    "/arcade/assault": "/.well-known/bwalletx-theme.assault.json"
+    "/arcade/terrornode": "/.well-known/bwalletx-theme.assault.json"
   }
 }

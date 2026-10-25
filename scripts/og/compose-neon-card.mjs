@@ -2,7 +2,8 @@
 // (white-hot core, coloured halo, tube flicker gaps, wet-floor reflection), neon katakana sign, TOKENBLASTER.LOL
 // wordmark, yellow sticker and hazard stripe.
 // Usage: node scripts/og/compose-neon-card.mjs <card.json> [out.jpg]
-//   card.json: { frame, out, kicker, section, line1, line2, c1, c2, font, size1, size2, tagline[], sticker, kana, padLeft, zoom, fx, fy, dim, blur }
+//   card.json: { frame, out, kicker, section, line1, line2, c1, c2, font, size1, size2, tagline[], sticker, kana, sign, padLeft, zoom, fx, fy, dim, blur, drip }
+//   drip: true runs glossy blood drips down from the title letters (seeded, so re-renders match).
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
@@ -63,6 +64,10 @@ body{width:${W}px;height:${H}px;overflow:hidden;background:#000;position:relativ
 .stk{position:absolute;left:44px;bottom:54px;background:#ffb800;color:#0a0a0c;font:900 italic 30px 'Barlow Condensed',sans-serif;text-transform:uppercase;padding:7px 18px 6px;border:3px solid #fff;transform:rotate(-1.6deg);box-shadow:0 0 22px #ffb80088,4px 5px 0 rgba(0,0,0,.5)}
 .sign{position:absolute;right:46px;top:96px;writing-mode:vertical-rl;font:900 40px 'Noto Sans JP',sans-serif;letter-spacing:.12em;color:#fff;padding:16px 10px;border:3px solid ${c2};border-radius:10px;${neon(c2).replace('color:#fff;','')};box-shadow:0 0 12px ${c2},inset 0 0 12px ${c2}}
 .kana{position:absolute;right:44px;bottom:56px;font:900 28px 'Noto Sans JP',sans-serif;${neon(c1)}}
+.drip{position:absolute;background:linear-gradient(90deg,#3a0006,#9a0414 35%,#d0122a 50%,#7a0210 70%,#2a0004);box-shadow:0 0 8px #ff1a2e66;filter:drop-shadow(0 2px 2px rgba(0,0,0,.6))}
+.drip::after{content:'';position:absolute;left:28%;top:6%;width:18%;height:70%;border-radius:3px;background:linear-gradient(180deg,rgba(255,170,170,.0),rgba(255,190,190,.55),rgba(255,190,190,0))}
+.bulb{position:absolute;border-radius:50% 50% 50% 50% / 58% 58% 42% 42%;background:radial-gradient(circle at 35% 30%,#ff8a8a 0 8%,#c80e24 22%,#6a000c 75%,#2a0004);box-shadow:0 0 6px #ff1a2e55}
+.pool{position:absolute;border-radius:50%;background:radial-gradient(ellipse at 45% 40%,#d0122acc,#6a000caa 55%,transparent 72%);filter:blur(.6px)}
 .haz{position:absolute;left:0;right:0;bottom:0;height:40px;background:repeating-linear-gradient(-45deg,#ffb800 0 22px,#0a0a0c 22px 44px);border-top:2px solid #0a0a0c}
 </style></head><body>
 <div class="bg"></div><div class="mood"></div><div class="floor"></div><div class="rain"></div><div class="bloom"></div><div class="frame"></div>
@@ -83,6 +88,27 @@ try {
   await page.setViewport({ width: W, height: H, deviceScaleFactor: 1 });
   await page.setContent(html, { waitUntil: 'networkidle0' });
   await page.evaluate(() => document.fonts.ready);
+  if (cfg.drip) await page.evaluate(() => {
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const add = (cls, css) => { const d = document.createElement('div'); d.className = cls; Object.assign(d.style, css); document.body.insertBefore(d, document.querySelector('.tag')); return d; };
+    for (const el of document.querySelectorAll('.t')) {
+      const text = el.firstChild; const isLast = el.classList.contains('t2');
+      for (let i = 0; i < text.length; i++) {
+        if (text.data[i] === ' ') continue;
+        const r = document.createRange(); r.setStart(text, i); r.setEnd(text, i + 1);
+        const b = r.getBoundingClientRect(); const n = 1 + (rnd() < 0.45 ? 1 : 0);
+        for (let k = 0; k < n; k++) {
+          const w = 5 + rnd() * 7; const long = rnd() < (isLast ? 0.35 : 0.2);
+          const len = long ? 70 + rnd() * 120 : 14 + rnd() * 40;
+          const x = b.left + b.width * (0.12 + rnd() * 0.76); const top = b.top + b.height * 0.86;
+          add('drip', { left: x - w / 2 + 'px', top: top + 'px', height: len + 'px', width: w + 'px', borderRadius: '0 0 ' + w / 2 + 'px ' + w / 2 + 'px' });
+          add('bulb', { left: x - w * 0.8 + 'px', top: top + len - w * 0.9 + 'px', width: w * 1.6 + 'px', height: w * 1.9 + 'px' });
+          if (long && rnd() < 0.6) { const s = w * (0.8 + rnd() * 0.6); add('bulb', { left: x - s / 2 + 'px', top: top + len + 18 + rnd() * 50 + 'px', width: s + 'px', height: s * 1.25 + 'px' }); }
+          if (isLast && long && rnd() < 0.5) add('pool', { left: x - 40 + 'px', top: Math.min(top + len + 60 + rnd() * 40, 520) + 'px', width: 80 + rnd() * 50 + 'px', height: 12 + rnd() * 6 + 'px' });
+        }
+      }
+    }
+  });
   const png = await page.screenshot({ type: 'png' });
   let q = 84, buf;
   do { buf = await sharp(png).jpeg({ quality: q, mozjpeg: true, chromaSubsampling: '4:2:0' }).toBuffer(); q -= 4; } while (buf.length > 290_000 && q > 50);

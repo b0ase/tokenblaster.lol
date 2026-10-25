@@ -48,7 +48,7 @@ export const CABINETS: Cabinet[] = [
   { id: 'highway21', title: 'Highway 21M', href: '/arcade/highway21', img: '/arcade/highway21.jpg', tags: ['highway21'], unit: 'pts' },
   { id: 'bubbo', title: 'Coin Pop', href: '/arcade/bubbo-bubbo', img: '/arcade/bubbo-bubbo.jpg', tags: ['bubbo'], unit: 'pts' },
   { id: 'potions', title: 'Token Potions', href: '/arcade/puzzling-potions', img: '/arcade/puzzling-potions.jpg', tags: ['potions'], unit: 'pts' },
-  { id: 'gallery', title: 'Shooting Gallery', href: '/arcade/assault', img: '/arcade/gallery.jpg', tags: ['gallery'], unit: 'shots' },
+  { id: 'gallery', title: 'Shooting Gallery', href: '/arcade/terrornode', img: '/arcade/gallery.jpg', tags: ['gallery'], unit: 'shots' },
   { id: 'bracer', title: 'bRacer', href: '/arcade/bracer', img: '/arcade/bracer.jpg', tags: ['bracer', 'bracer-hc'], unit: 'pts' },
 ];
 

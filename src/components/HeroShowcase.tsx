@@ -21,7 +21,7 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
 type Slide = { href: string; img: string; vid?: string; title: string; tag: string; kana: string };
 // No loop yet for Assault / NPG Arena: their slide shows the poster with the Ken Burns push (no `vid`).
 const SLIDES: readonly Slide[] = [
-  { href: '/arcade/assault', img: '/gallery/loading/boss-fire.webp', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
+  { href: '/arcade/terrornode', img: '/gallery/loading/boss-fire.webp', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
   { href: '/arena', img: '/arcade/arena.jpg', vid: '/hero/arena', title: 'Arena', tag: 'Hell-forge shooter', kana: 'アリーナ' },
   { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
 ];
