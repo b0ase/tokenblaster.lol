@@ -103,7 +103,7 @@ export default function Update20261007() {
         </p>
       </Section>
 
-      <Section kicker="05 · COIN-OP" title="Insert coin: 10p a credit" href="/arcade" cta="OPEN THE ARCADE">
+      <Section kicker="05 · COIN-OP" title="bINSERT COIN: 10p a credit" href="/arcade" cta="OPEN THE ARCADE">
         <p>
           Seven arcade games are now coin-op. One credit costs 10p, paid in sats at the live rate, and buys a whole game instead of paying per shot or per jump. Practice is still there if you just
           want a go.

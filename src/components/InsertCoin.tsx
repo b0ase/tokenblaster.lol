@@ -80,13 +80,13 @@ export type CoinOp = ReturnType<typeof useCoinOp>;
 export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void }) {
   const short = co.credits === 0 && co.creditUsd + 1e-9 < co.priceUsd;
   const label = !co.enabled
-    ? 'INSERT COIN AT THE CABINET'
+    ? 'bINSERT COIN AT THE CABINET'
     : co.paying
       ? 'PAYING…'
       : co.credits > 0 && start
         ? `▶ ${playLabel} · 1 CREDIT`
         : short
-          ? `INSERT COIN · CREDIT ${fmtCredit(co.creditUsd)}`
+          ? `bINSERT COIN · CREDIT ${fmtCredit(co.creditUsd)}`
           : `▶ ${playLabel} · ${fmtCredit(co.priceUsd)}`;
   return (
     <div className="flex flex-col items-center gap-1" onKeyDown={(e) => e.stopPropagation()}>
@@ -133,4 +133,4 @@ export function CoinOpButtons({
 }
 
 /** The run's mode, for the canvas. */
-export const coinOpModeLabel = (paid: boolean, credits: number) => `${paid ? 'CREDIT GAME' : 'INSERT COIN'} · PLAYS PAID: ${credits}`;
+export const coinOpModeLabel = (paid: boolean, credits: number) => `${paid ? 'CREDIT GAME' : 'bINSERT COIN'} · PLAYS PAID: ${credits}`;

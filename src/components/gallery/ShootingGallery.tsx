@@ -907,7 +907,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
               className="pointer-events-auto cursor-pointer rounded-md bg-black/70 px-5 py-2 font-black tracking-[0.12em] text-[var(--tbx-red)] ring-2 ring-[var(--tbx-red)]/70 backdrop-blur-sm"
               style={{ fontSize: 'clamp(40px, 9vw, 112px)', lineHeight: 1, textShadow: '0 0 18px rgba(255,59,48,.6), 0 3px 0 #000', animation: 'tbx-coin-blink 1.1s steps(1) infinite' }}
             >
-              INSERT COIN
+              bINSERT COIN
             </button>
             <span className="mt-2 rounded bg-black/70 px-3 py-1 text-xs font-bold tracking-[0.25em] text-white sm:text-sm">
               {barWallet ? 'PRACTICE ROUNDS · NOTHING ON CHAIN' : 'CONNECT WALLET · PRACTICE ROUNDS · NOTHING ON CHAIN'}
