@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { KWEG, BANNERS, BRIEFING, CHARACTERS, FLATLINED, GAME_OVER, GAME_TITLE, LORE, LOADING_SHOTS, PREMISE, RANKS, RESCUED, STAGE_COUNT, TAGLINES, TERRORNODE_SLOGANS, TIPS, characterById, rankFor, shareText, stageBrief, PRACTICE, forPractice, practiceCopy } from './gallery/story';
 
 const all = () => JSON.stringify({ GAME_TITLE, KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, FLATLINED, GAME_OVER, RESCUED, TERRORNODE_SLOGANS, stages: Array.from({ length: STAGE_COUNT }, (_, i) => stageBrief(i + 1)) });
@@ -11,7 +13,12 @@ test('story: 5 to 12 lore beats, all with text', () => {
 
 test('story: required characters and erobot types exist', () => {
   for (const id of ['gunner', 'npg', 'kweg', 'liquid', 'bot', 'frog', 'graf', 'stripey', 'tech']) assert.ok(characterById(id), id);
-  for (const c of CHARACTERS) assert.ok(c.bio && c.threat && c.portrait.startsWith('/gallery/'));
+  for (const c of CHARACTERS) assert.ok(c.bio && c.threat && (!c.portrait || c.portrait.startsWith('/gallery/')));
+});
+
+test('story: every listed image is committed under public/ (a missing one 404s on every load)', () => {
+  const paths = [...LOADING_SHOTS.map((s) => s.src), ...CHARACTERS.flatMap((c) => [c.portrait, c.shot].filter((x): x is string => !!x))];
+  for (const p of paths) assert.ok(existsSync(join(process.cwd(), 'public', p)), p);
 });
 
 test('story: every shot points at a real lore beat and character', () => {

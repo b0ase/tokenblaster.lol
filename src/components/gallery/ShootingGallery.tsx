@@ -1171,7 +1171,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 gunAddress={b.gunAddress}
                 packLeft={packLeft}
                 ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}
-                error={err ?? b.error}
+                error={cab.modal ? null : (err ?? b.error)}
                 unload={<GunUnload b={b} disabled={mode !== 'off'} className="mt-1" />}
               />
             }
@@ -1190,14 +1190,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 name={name}
                 hasPaymail={hasPaymail}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
-                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
+                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'No platform fee until 1 Nov: you only pay for your rounds.' : ''}`}
                 buys={buys}
                 unit="shots"
                 startLabel={ready ? 'Lock & load' : 'Loading…'}
                 onStart={startCabinet}
                 starting={locking}
                 blocked={!ready || !ammo || !canUse(weapon)}
-                error={err ?? cab.err}
+                // The friendly modal says it already: don't print the raw wallet error behind it.
+                error={cab.modal ? null : (err ?? cab.err)}
                 note={cab.pending <= 0 && b.ammo > 0 && !dry ? leftoverNote(fmtCredit(cab.creditUsd)) : null}
                 walletLive={cab.walletLive}
                 freePlay={freePlay}

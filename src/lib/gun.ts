@@ -1000,7 +1000,7 @@ export class Gun {
     // does browsers). Never fall back to GorillaPool's lagging index: stale coins mean double spends.
     try {
       const r = await fetch(`/api/coins?address=${this.address}`, { cache: 'no-store' });
-      if (r.ok) {
+      if (r.ok && r.headers.get('x-coins-upstream') !== 'failed') {
         const list = (await r.json()) as { vout: number; hex: string }[];
         const cache = new Map<string, Transaction>();
         return list.map((c) => {
@@ -1036,6 +1036,7 @@ export class Gun {
   private async coinsWoc(): Promise<{ tx: Transaction; vout: number }[]> {
     const get = (path: string) =>
       fetch(`${WOC}${path}`).then((r) => {
+        if (r.status === 404) return { result: [] }; // an unused gun address: no coins yet
         if (!r.ok) throw new Error(`WOC ${r.status}`);
         return r.json();
       });

@@ -56,15 +56,19 @@ function NowPlayingBanner({ song }: { song: Song | null }) {
   useEffect(() => {
     if (!song) return;
     void Promise.resolve().then(() => setShown(song));
-    const id = setTimeout(() => setShown(null), 4500);
+    const id = setTimeout(() => setShown(null), 3000);
     return () => clearTimeout(id);
   }, [song]);
   if (!shown) return null;
+  // Flow test (25 Oct): the old top-centre card covered header buttons, "Get a name" and LOCK & LOAD. Now a small,
+  // click-through pill in the bottom-left corner for 3s, so it never sits over a control.
   return (
-    <div className="pointer-events-none fixed left-1/2 top-3 z-[70] -translate-x-1/2 border border-[var(--border)] bg-black/85 px-4 py-2 text-center shadow-[0_0_24px_rgba(255,90,72,0.25)]">
-      <p className="text-[10px] tracking-widest text-dim">NOW PLAYING</p>
-      <p className="text-base font-bold text-hot">♪ {shown.title}</p>
-      <p className="text-xs text-accent">{shown.site}</p>
+    <div
+      role="status"
+      data-now-playing
+      className="pointer-events-none fixed bottom-[max(8px,env(safe-area-inset-bottom))] left-2 z-[70] max-w-[min(60vw,280px)] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-[var(--border)] bg-black/80 px-3 py-1 text-[11px] leading-tight text-white/85"
+    >
+      <span className="text-hot">♪</span> {shown.title} <span className="text-white/45">· {shown.site}</span>
     </div>
   );
 }

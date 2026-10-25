@@ -31,6 +31,12 @@ export function CreditCounter({ usd, label = 'CREDIT' }: { usd: number; label?: 
   return <SevenSeg text={fmtCredit(usd)} label={label} />;
 }
 
+/** A wallet with no paymail: a short, readable id ("wallet 035c…7e") instead of the raw key_ tag. */
+const shortId = (name: string) => {
+  const k = name.replace(/^key_/, '');
+  return k.length > 6 ? `wallet ${k.slice(0, 4)}…${k.slice(-2)}` : name;
+};
+
 const coinFace = (c: number) => (c < 1 ? `${Math.round(c * 100)}¢` : `$${c}`);
 
 export function CoinCabinet(p: {
@@ -122,7 +128,15 @@ export function CoinCabinet(p: {
             <p className="tbx-eyebrow">Coin-op</p>
             <p className="tbx-display text-[clamp(22px,3.4vw,30px)]">{p.title}</p>
           </div>
-          {p.freePlay ? <SevenSeg text="FREE" label="FREE PLAY" /> : <CreditCounter usd={total} />}
+          {/* CREDIT is only what is already in the gun (it matches the "Your gun" panel); coins not yet paid show as TO PAY. */}
+          {p.freePlay ? (
+            <SevenSeg text="FREE" label="FREE PLAY" />
+          ) : (
+            <div className="flex flex-wrap items-end gap-3">
+              {p.pendingUsd > 0 && <SevenSeg text={fmtCredit(p.pendingUsd)} label="TO PAY" colour="#ff5a4a" />}
+              <CreditCounter usd={p.creditUsd} />
+            </div>
+          )}
         </div>
 
         {/* INSERT COIN: each press adds to the total. The big red button below is the one wallet approval. */}
@@ -184,7 +198,7 @@ export function CoinCabinet(p: {
           </p>
           <p className="flex w-full items-start gap-2 rounded-lg border border-[var(--tbx-red)]/40 bg-[var(--tbx-red)]/10 px-3 py-2 text-xs font-semibold text-[var(--tbx-text)]" data-norefund>
             <Icon name="shield" size={16} className="mt-px shrink-0 text-[var(--tbx-red)]" />
-            Unused credit stays in your gun for later, or press UNLOAD to send it back to your wallet. Playing multiplayer? Put in as much as you&apos;ll need.
+            Unused credit stays in your gun for later. UNLOAD in the Your gun panel sends it back to your wallet once there is something in it. Playing multiplayer? Put in as much as you&apos;ll need.
           </p>
           <p className="w-full text-xs text-[var(--tbx-mute)]" data-gun-key-note>{GUN_KEY_NOTE}</p>
         </section>}
@@ -195,10 +209,10 @@ export function CoinCabinet(p: {
             <Icon name="user" size={14} />
             {p.name ? (
               <>
-                Playing as <span className="font-semibold text-[var(--tbx-text)]">{p.name}</span>
+                Playing as <span className="font-semibold text-[var(--tbx-text)]" title={p.hasPaymail ? undefined : p.name}>{p.hasPaymail ? p.name : shortId(p.name)}</span>
                 {!p.hasPaymail && (
-                  <a href={GET_NAME_URL} target="_blank" rel="noreferrer" className="text-xs text-[var(--tbx-teal)] underline">
-                    Get a name
+                  <a href={GET_NAME_URL} target="_blank" rel="noreferrer" className="rounded-full border border-[var(--tbx-teal)] px-2 py-0.5 text-xs font-semibold text-[var(--tbx-teal)]" data-get-name>
+                    Get a name, so your rounds carry it
                   </a>
                 )}
               </>
