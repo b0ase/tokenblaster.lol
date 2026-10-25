@@ -152,6 +152,35 @@ const read = (): Saved | null => {
     return null;
   }
 };
+/** A gun record we could not read is copied here (never deleted) before a restored key is written over it. */
+const keepRaw = () => {
+  try {
+    for (const st of [localStorage, sessionStorage]) {
+      const raw = st.getItem(STORE);
+      if (raw) localStorage.setItem(`${STORE}.locked-${Date.now()}`, raw);
+    }
+  } catch {
+    /* storage blocked: nothing was written over it either */
+  }
+};
+/** Shown (and thrown) when the stored gun can not be read: never a new key over it (its coins would be orphaned). */
+export const GUN_LOCKED = 'Gun locked: restore from wallet';
+/** Thrown by unloadTokens when the gun has tokens but not enough sats to pay the transfer fee. */
+export class GunNeedsSats extends Error {
+  constructor(readonly sats: number, readonly id: string) {
+    super(`The gun needs ${sats.toLocaleString()} more sats to pay the fee to return your tokens. Load at least ${sats.toLocaleString()} sats, then UNLOAD again.`);
+  }
+}
+/**
+ * Sats needed to return `nTok` token coins in one transfer when the gun holds `have` sats: the fee for
+ * [nTok token inputs + 1 fee input] -> [token out, change] at FEE_RATE, plus the 1-sat token output and 1 sat of change.
+ */
+export function satsToRescue(nTok: number, have: number): number {
+  const bytes = 10 + (nTok + 1) * 148 + (9 + 260) + 34;
+  // In: `have` sats plus the 1 sat each token coin carries. Out: the 1-sat token output and at least 1 sat of change.
+  const fee = Math.ceil((bytes * FEE_RATE) / 1000);
+  return Math.max(0, fee + 2 - nTok - Math.max(0, have));
+}
 const write = (s: Saved) => {
   try {
     localStorage.setItem(STORE, JSON.stringify(s));
@@ -207,16 +236,79 @@ export class Gun {
   /** Rounds fired under a coin's tag, owed as a bulk burn (persisted, so a closed tab burns them on the next load/unload). */
   private owed: { id: string; n: bigint } | null = null;
   private halt = false;
+  /**
+   * The stored record exists but its key can't be read (25 Oct 2026 audit: this used to make a fresh key and orphan
+   * the old coins). Nothing runs until the key is restored from the wallet backup; the record is never overwritten.
+   */
+  private lockedGun = false;
+  /** No gun was stored: this key was just made, so a wallet backup (an older gun) may take its place while it's empty. */
+  private freshGun = false;
 
   constructor() {
-    const s = typeof window !== 'undefined' ? read() : null;
-    if (!s && typeof window !== 'undefined' && hasRaw()) this.readOnly = true;
-    this.key = s ? PrivateKey.fromWif(s.wif) : PrivateKey.fromRandom();
-    if (s?.tx) this.coin = { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 };
-    if (s?.tok) this.tok = { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) };
-    this.loadSets(s);
-    this.owed = s?.owed ? { id: s.owed.id, n: BigInt(s.owed.n) } : null;
+    const win = typeof window !== 'undefined';
+    const s = win ? read() : null;
+    let key: PrivateKey | null = null;
+    if (s) {
+      try {
+        key = typeof s.wif === 'string' ? PrivateKey.fromWif(s.wif) : null;
+      } catch {
+        key = null;
+      }
+    }
+    if (win && !key && hasRaw()) this.readOnly = this.lockedGun = true;
+    this.freshGun = !key && !this.lockedGun;
+    this.key = key ?? PrivateKey.fromRandom();
+    if (key && s) {
+      try {
+        if (s.tx) this.coin = { tx: Transaction.fromHex(s.tx), vout: s.vout ?? 0 };
+        if (s.tok) this.tok = { id: s.tok.id, tx: Transaction.fromHex(s.tok.tx), vout: s.tok.vout, amt: BigInt(s.tok.amt) };
+        this.owed = s.owed ? { id: s.owed.id, n: BigInt(s.owed.n) } : null;
+      } catch {
+        // The key is fine but its coin notes are not: keep a copy, keep the key, re-read the coins from the chain.
+        keepRaw();
+        this.coin = this.tok = this.owed = null;
+      }
+    }
+    this.loadSets(key ? s : null);
     this.save();
+  }
+
+  /** The stored gun could not be read: restore it from the wallet backup (nothing else runs). */
+  get locked() {
+    return this.lockedGun;
+  }
+
+  /** This browser had no gun: the key was just made (a wallet backup may replace it while it is empty). */
+  get fresh() {
+    return this.freshGun;
+  }
+
+  /** Nothing tracked in the gun right now (the caller also checks the chain before replacing a fresh key). */
+  private emptyLocally() {
+    return !this.coin && !this.tok && !this.extra.length && !(this.owed && this.owed.n > BigInt(0));
+  }
+
+  /**
+   * Use a key restored from the player's wallet backup. Only over a locked gun (its unreadable record is kept as
+   * tokenblaster.gun.locked-<time>) or a fresh, empty one; never over a gun that holds a key of its own.
+   */
+  adoptKey(key: PrivateKey): boolean {
+    if (!this.lockedGun && !(this.freshGun && this.emptyLocally())) return false;
+    if (this.lockedGun) keepRaw();
+    this.key = key;
+    this.coin = this.tok = this.owed = null;
+    this.extra = [];
+    this.spent = new Set();
+    this.spentTok = new Set();
+    this.lockedGun = this.readOnly = this.freshGun = false;
+    this.save();
+    return true;
+  }
+
+  /** The gun key as WIF, for the player's own "Back up gun key" (after an explicit confirm) and the wallet backup. */
+  exportWif(): string {
+    if (this.lockedGun) throw new Error(GUN_LOCKED);
+    return this.key.toWif();
   }
 
   private loadSets(s: Saved | null) {
@@ -249,6 +341,7 @@ export class Gun {
 
   /** One tab fires at a time (Web Locks); falls back to running directly where unsupported. */
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.lockedGun) return Promise.reject(new Error(GUN_LOCKED));
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
     if (!locks) return fn();
     // Don't wait forever on a tab that is stuck holding the gun.
@@ -1012,7 +1105,6 @@ export class Gun {
       // Coin ammo: rounds already fired are burned first, so UNLOAD only returns what was not shot.
       if (this.owedBurn()?.id === id) await this.burnOwedNow();
       this.refresh();
-      if (!this.coin) throw new Error('No sats in the gun to pay the fee.');
       const coins: TokCoin[] = [];
       if (this.tok?.id === id && this.tok.amt > BigInt(0)) coins.push(this.tok);
       for (const u of await this.tokenUtxos(id)) {
@@ -1022,12 +1114,16 @@ export class Gun {
       }
       const amt = coins.reduce((n, c) => n + c.amt, BigInt(0));
       if (!amt) throw new Error('No tokens of that kind in the gun.');
+      // Too few sats for the fee: say exactly how many to load, never strand the tokens silently.
+      if (!this.coin) throw new GunNeedsSats(satsToRescue(coins.length, 0), id);
       const tx = new Transaction();
       for (const c of coins) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
       tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
       tx.addOutput({ lockingScript: bsv21(id, amt, to), satoshis: 1 });
       tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
       await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+      const change = tx.outputs[1].satoshis ?? 0;
+      if (change < 1) throw new GunNeedsSats(Math.max(satsToRescue(coins.length, this.sats), 1 - change), id);
       await tx.sign();
       await this.send(tx);
       for (const c of coins) this.spentTok.add(`${c.tx.id('hex')}_${c.vout}`);
