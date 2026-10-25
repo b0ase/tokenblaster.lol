@@ -369,8 +369,8 @@ export function BlockHopper() {
               SATS
             </button>
             <button
-              onClick={() => (b.setMode('tokens'), setPayWith('token'))}
-              disabled={!!b.busy || !b.tokens.length}
+              onClick={() => (b.setMode('tokens'), setPayWith('token'))} /* setMode('tokens') reads the wallet's tokens on this first tap */
+              disabled={!!b.busy || (b.tokensRead && !b.tokens.length)}
               title={b.tokens.length ? '1 token per action' : 'Your wallet has no tokens'}
               className={`btn ${payTok ? 'btn-on' : ''} disabled:opacity-40`}
             >

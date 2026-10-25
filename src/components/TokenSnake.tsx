@@ -171,6 +171,7 @@ export function TokenSnake() {
     setPayWith('sats');
   };
   const chooseToken = (id: string) => {
+    if (!b.tokensRead) return void b.readTokens(); // the first tap reads the wallet's tokens (once per session)
     const t = b.tokens.find((x) => x.id === id);
     if (!t) return;
     b.setToken(t);
@@ -802,7 +803,7 @@ export function TokenSnake() {
               <button onClick={chooseSats} disabled={!!b.busy} className={`btn ${!payTok ? 'btn-on' : ''}`}>
                 SATS
               </button>
-              <button onClick={() => chooseToken(HOUSE_COIN.id)} disabled={!!b.busy || !houseTok} title={houseTok ? `1 $${HOUSE_COIN.sym} per bite` : `Your wallet has no $${HOUSE_COIN.sym}`} className={`btn flex items-center gap-1 disabled:opacity-40 ${payTok?.id === HOUSE_COIN.id ? 'btn-on' : ''}`}>
+              <button onClick={() => chooseToken(HOUSE_COIN.id)} disabled={!!b.busy || (b.tokensRead && !houseTok)} title={houseTok ? `1 $${HOUSE_COIN.sym} per bite` : `Your wallet has no $${HOUSE_COIN.sym}`} className={`btn flex items-center gap-1 disabled:opacity-40 ${payTok?.id === HOUSE_COIN.id ? 'btn-on' : ''}`}>
                 ${HOUSE_COIN.sym} <HouseBadge label="HOUSE" />
               </button>
               {b.tokens.length > (houseTok ? 1 : 0) && (

@@ -231,6 +231,7 @@ export function MempoolInvaders() {
     setPayWith('sats');
   };
   const chooseToken = (id?: string) => {
+    if (!b.tokensRead) return void b.readTokens(); // the first tap reads the wallet's tokens (once per session)
     const t = b.tokens.find((x) => x.id === (id ?? b.token?.id)) ?? b.tokens[0];
     if (!t) return;
     b.setToken(t);
@@ -438,7 +439,7 @@ export function MempoolInvaders() {
             <button onClick={chooseSats} disabled={!!b.busy} className={`btn ${!payTok ? 'btn-on' : ''}`}>
               SATS
             </button>
-            <button onClick={() => chooseToken()} disabled={!!b.busy || !b.tokens.length} title={b.tokens.length ? '1 token per action' : 'Your wallet holds no tokens'} className={`btn flex items-center gap-1 disabled:opacity-40 ${payTok ? 'btn-on' : ''}`}>
+            <button onClick={() => chooseToken()} disabled={!!b.busy || (b.tokensRead && !b.tokens.length)} title={b.tokens.length ? '1 token per action' : 'Your wallet holds no tokens'} className={`btn flex items-center gap-1 disabled:opacity-40 ${payTok ? 'btn-on' : ''}`}>
               ${b.token?.sym ?? 'TOKEN'} {HOUSE_COIN && b.token?.id === HOUSE_COIN.id && <HouseBadge label="HOUSE" />}
             </button>
             {payTok && b.tokens.length > 1 && (

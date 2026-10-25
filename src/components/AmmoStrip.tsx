@@ -189,7 +189,12 @@ export function AmmoStrip({
                   </button>
                 );
               })}
-              {!b.tokens.length && <p className="text-xs text-dim">No tokens found in your wallet. {sats ? 'Fire sats blasts, or play practice.' : 'Get some PNEE, or play practice.'}</p>}
+              {!b.tokensRead && b.wallet && (
+                <button onClick={() => void b.readTokens()} disabled={!!b.busy || b.refreshing} className="btn px-2 py-0.5 text-xs" title="Your wallet may ask once to show this site your tokens">
+                  Show my wallet tokens
+                </button>
+              )}
+              {b.tokensRead && !b.tokens.length && <p className="text-xs text-dim">No tokens found in your wallet. {sats ? 'Fire sats blasts, or play practice.' : 'Get some PNEE, or play practice.'}</p>}
             </div>
 
             {satsMode ? (

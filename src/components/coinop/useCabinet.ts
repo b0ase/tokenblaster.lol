@@ -17,6 +17,7 @@ type Blaster = ReturnType<typeof useBlaster>;
 /** Wallet / gun errors in plain words, with the one thing to do (owner: no technical words for players). */
 export function plainError(e: string | null | undefined): string {
   const t = e ?? '';
+  if (/WALLET_HELD_DURING_PLAY/.test(t)) return 'The game was still holding your wallet. Press LOCK & LOAD again.';
   if (/cancel|denied|reject|declin|abort|user/i.test(t)) return 'Your wallet said no. Press LOCK & LOAD to try again.';
   if (/insufficient|not enough|funds/i.test(t)) return 'Your wallet does not have enough money for that. Take a coin out and try again.';
   if (/unlock|did not answer|locked/i.test(t)) return 'Your wallet did not answer. Open and unlock it, then press LOCK & LOAD again.';
@@ -93,6 +94,8 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     setStageText(`Checking ${b.wallet.name} is connected…`);
     setApproveSince(Date.now());
     loadMark(`pay: ${fmtCredit(pending)} via ${b.wallet.name}`);
+    // Say what the one wallet sheet is before it opens (owner, 25 Oct: players had no idea why the wallet asked).
+    setStageText(`Approve this once in ${b.wallet.name}: ${fmtCredit(pending)} loads your gun. It is the only wallet approval: nothing asks again while you play.`);
     const res = await b.load(sats, `${label}: ${pending.toFixed(2)} USD credit`);
     setApproveSince(null);
     if (res !== 'ok') {
