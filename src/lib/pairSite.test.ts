@@ -76,8 +76,13 @@ async function pair() {
 async function refusedWith(code: string, message: string) {
   const p = await pair();
   const call = p.w.getPublicKey({ identityKey: true });
-  await tick();
-  const [req] = await p.reqs();
+  // wait for the request to reach the phone (one tick is not enough when the whole suite runs in parallel)
+  let req: Awaited<ReturnType<typeof p.reqs>>[number] | undefined;
+  for (let i = 0; i < 200 && !req; i++) {
+    await tick();
+    [req] = await p.reqs();
+  }
+  if (!req) throw new Error('the request never reached the phone');
   await p.reply({ t: 'res', id: req.id, error: { code, message } });
   const e = await call.then(
     () => null,
