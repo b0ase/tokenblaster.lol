@@ -53,6 +53,11 @@ export function LaunchForm() {
   const [signed, setSigned] = useState(false);
 
   const [payout, setPayout] = useState('');
+  // The site's wallet connected (here, in the top bar, or on another page): prefill the payout with its address.
+  useEffect(() => {
+    const a = wallet?.address;
+    if (a) void Promise.resolve().then(() => setPayout((p) => p || a));
+  }, [wallet?.address]);
   useEffect(() => {
     const p = PRESETS[new URLSearchParams(window.location.search).get('preset')?.toLowerCase() ?? ''];
     if (!p) return;
@@ -161,9 +166,14 @@ export function LaunchForm() {
           I understand that launching is a real BSV transaction from my wallet, that I sign the coin’s ticker, image, addresses and fee route with my wallet key, and that
           memecoins are toys that can go to zero.
         </label>
-        <button className="btn btn-fire" disabled={busy || (Boolean(wallet) && !ready)} onClick={go}>
+        <button className="btn btn-fire" data-launch-button={wallet ? 'launch' : 'connect'} disabled={busy || (Boolean(wallet) && !ready)} onClick={go}>
           {busy ? 'Approve in your wallet…' : wallet ? `Launch $${sym || 'COIN'} (${((LAUNCH_FEE + INDEX_LAUNCH) / 1e8).toFixed(5)} BSV + network fee)` : 'Connect wallet'}
         </button>
+        {wallet && !ready && !busy && (
+          <p className="text-xs text-muted" data-launch-missing>
+            {!/^[A-Z0-9]{2,12}$/.test(sym) ? 'Add a ticker (2–12 letters or digits).' : !name.trim() ? 'Add a name.' : !image ? 'Add an image.' : !signed ? 'Tick the box above to launch.' : 'The split must add up to 100%.'}
+          </p>
+        )}
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
     </main>

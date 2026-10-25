@@ -19,7 +19,7 @@ import { useLoot, type Haul } from '@/lib/loot';
 import { useBlaster } from '@/lib/useBlaster';
 import { TOKEN_FEE } from '@/lib/gun';
 import { GAME_COINS, houseFirst, houseHeld, type GameCoin } from '@/lib/gameCoins';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { useChainFeed } from '@/lib/useChainFeed';
 import { setFonts } from '@/lib/invaders/art';
@@ -990,7 +990,7 @@ export function MempoolInvaders() {
       </p>
       <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
       {co.chooserEl}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </section>
   );
 }

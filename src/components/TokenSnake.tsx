@@ -17,7 +17,7 @@ import { useBlaster } from '@/lib/useBlaster';
 import { TOKEN_FEE } from '@/lib/gun';
 import { arenaSend, createKillPay, createPvpQueue, hitMsg, type HitMsg, type PvpQueue, type PvpShot } from '@/lib/pvpPay';
 import { GAME_COINS, houseFirst } from '@/lib/gameCoins';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
 import { DR } from '@/lib/dr/tokens';
 import { foodFromTx, KIND_CSS, POWER_NAME, SnakeEngine, type CamMode, type Hud, type Phase, type Quality, type RunResult, type Toast } from '@/lib/snake/engine';
@@ -856,7 +856,7 @@ export function TokenSnake() {
         </div>
       )}
       {(payErr || b.error) && <p className="mt-1 text-sm text-hot">⚠ {payErr ?? b.error}</p>}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
       <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
       {co.chooserEl}
     </section>

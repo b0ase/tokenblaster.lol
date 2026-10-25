@@ -34,7 +34,7 @@ import { DOORS, LEVELS, SIZE, SOLID, type Level } from '@/lib/doubleo/levels';
 import { AGENT } from '@/lib/doubleo/names';
 import { radioLine, STORY, type Line, type RadioEvent } from '@/lib/doubleo/story';
 import { Dialogue, Portrait, Radio } from './DoubleOStory';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { HighScores } from './HighScores';
 import type { ScoreGame } from '@/lib/scores';
 import { GameAudio } from '@/components/SoundToggle';
@@ -52,6 +52,7 @@ import { detectQuality, LOOKS, loadLook, makeGradePass, saveQuality, type Look, 
 import { dressLevel, type Dressing } from '@/lib/visuals/dressing';
 import { makeImpacts } from '@/lib/visuals/impacts';
 import { createPvpQueue } from '@/lib/pvpPay';
+import { getSiteWallet } from '@/lib/siteWallet';
 
 const WALL_H = 3.6;
 const EYE = 1.6;
@@ -1818,7 +1819,7 @@ export function DoubleO() {
       const w = me.current.wallet;
       if (h && w && provedFor !== h) {
         provedFor = h;
-        void proveHandle(w, h, myId).then((p) => {
+        void proveHandle(w, h, myId, getSiteWallet().wallet?.publicKey).then((p) => {
           if (p && myHandle() === h) {
             myWire = p;
             track();
@@ -3370,7 +3371,7 @@ export function DoubleO() {
           </a>
         </p>
       )}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </section>
   );
 }

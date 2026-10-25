@@ -21,7 +21,7 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { useBlaster } from '@/lib/useBlaster';
 import { TOKEN_FEE } from '@/lib/gun';
 import { houseFirst } from '@/lib/gameCoins';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { lootFrom, useLoot, type Haul } from '@/lib/loot';
 import { KIND_STYLE, GAME_KANA, GAME_NAME, GAME_SLUG, GAME_TAGLINE, type BlockInfo } from '@/lib/hopper/brand';
 import { HopperEngine, setFonts, type Banner, type Hud, type Phase, type Quality, type Result, type Toast } from '@/lib/hopper/engine';
@@ -756,7 +756,7 @@ export function BlockHopper() {
       </p>
       <LootPanel run={phase === 'over' ? lastRun : loot.run} allTime={loot.allTime} />
       {co.chooserEl}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </section>
   );
 }

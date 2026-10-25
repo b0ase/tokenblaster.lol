@@ -108,12 +108,16 @@ export function xIdentityKey(handle: string): Promise<string | null> {
   return p;
 }
 
-/** Ask the connected wallet to prove `handle` for this session. Null when the wallet isn't the one bWalletX linked. */
-export async function proveHandle(wallet: WalletInterface, handle: string, session: string): Promise<IdWire | null> {
+/**
+ * Ask the connected wallet to prove `handle` for this session. Null when the wallet isn't the one bWalletX linked.
+ * `knownKey`: the identity key the site already has from connecting (src/lib/siteWallet.ts), so this never sends a
+ * second getPublicKey({ identityKey: true }) (in bWalletX that is a connect request and can open a sheet).
+ */
+export async function proveHandle(wallet: WalletInterface, handle: string, session: string, knownKey?: string): Promise<IdWire | null> {
   try {
     const want = await xIdentityKey(handle);
     if (!want) return null;
-    const { publicKey } = await wallet.getPublicKey({ identityKey: true });
+    const publicKey = knownKey ?? (await wallet.getPublicKey({ identityKey: true })).publicKey;
     if (publicKey.toLowerCase() !== want) return null;
     const { signature } = await wallet.createSignature({ data: sigData(handle, session), protocolID: SIG_PROTO, keyID: '1', counterparty: 'anyone' });
     return { x: handle, xk: want, xs: signature };

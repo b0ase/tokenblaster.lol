@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { WalletChooser } from '@/components/WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { useHandleVerified, useMyHandle, VerifyButton } from '@/components/PlayerBadge';
-import { rememberWallet, type WalletEntry } from '@/lib/discovery';
-import { connect } from '@/lib/wallet';
-import { setProofWallet } from '@/lib/xproof';
+import { disconnectSiteWallet, openChooser, openSiteWallet, setSiteWalletError } from '@/lib/siteWallet';
+import { useSiteWallet } from '@/lib/useSiteWallet';
+import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
-import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, askWallet, chipState, getBarWallet, idLabel, tellWalletDisconnected, lookupPaymail, patchBarWallet, setBarWallet, subBarWallet } from '@/lib/walletBar';
+import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, chipState, getBarWallet, idLabel, subBarWallet } from '@/lib/walletBar';
 import { GiftIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MuteIcon, PhoneIcon, TrophyIcon, VolumeIcon } from './icons';
 
 /**
@@ -102,27 +102,15 @@ export function WalletBarChip() {
   const verified = useHandleVerified(handle);
   const state = chipState(wallet?.name ?? null, handle, verified);
   const [open, setOpen] = useState(false);
-  const [choose, setChoose] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const site = useSiteWallet();
+  const err = site.error;
+  const phone = usePhoneLink(site.wallet?.id === 'phone');
   const ref = useOutside(open, () => setOpen(false));
-
-  const pick = async (entry: WalletEntry) => {
-    setChoose(false);
-    setErr(null);
-    try {
-      const w = await connect(entry);
-      rememberWallet(entry.id);
-      setProofWallet(w.client);
-      setBarWallet({ id: w.id, name: w.name, publicKey: w.publicKey, live: true });
-      // the paymail too, as useBlaster does, so the chip and the cabinet's YOUR NAME show it
-      void lookupPaymail(w.publicKey, true).then((id) => {
-        if (id && getBarWallet()?.publicKey === w.publicKey) patchBarWallet({ paymail: id.paymail, alias: id.alias, avatar: id.avatar });
-      });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-      setOpen(true);
-    }
-  };
+  // A failed connect (from any Connect button) opens the menu with the plain-words reason and a way on.
+  useEffect(() => {
+    if (err) void Promise.resolve().then(() => setOpen(true));
+  }, [err]);
+  const choose = () => (setOpen(false), setSiteWalletError(null), openChooser());
 
   return (
     <div ref={ref} className="relative min-w-0" data-wallet-chip={state.kind}>
@@ -130,8 +118,8 @@ export function WalletBarChip() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => (state.kind === 'disconnected' && !err ? setChoose(true) : setOpen((o) => !o))}
-        className="flex h-9 max-w-[7.5rem] items-center gap-1.5 rounded-full border border-[#2A2A2C] bg-transparent px-3 text-[12px] font-semibold text-[#F2F2F0] transition-colors hover:bg-white/[0.06] sm:max-w-none"
+        onClick={() => (state.kind === 'disconnected' && !err ? void openSiteWallet() : setOpen((o) => !o))}
+        className="flex h-9 min-w-0 max-w-[min(9.5rem,40vw)] items-center gap-1.5 rounded-full border border-[#2A2A2C] bg-transparent px-3 text-[12px] font-semibold text-[#F2F2F0] transition-colors hover:bg-white/[0.06] sm:max-w-none"
         style={{ fontFamily: font }}
       >
         {state.kind === 'disconnected' ? (
@@ -145,7 +133,11 @@ export function WalletBarChip() {
             <span className="truncate" title={`${wallet?.name ?? ''} · ${wallet?.paymail ?? wallet?.publicKey ?? ''}`}>
               {wallet?.publicKey || wallet?.paymail ? idLabel(wallet) : state.label}
             </span>
-            {wallet?.live === false ? (
+            {phone === 'asleep' ? (
+              <span className="shrink-0 rounded-full bg-amber-500/20 px-1.5 text-[10px] font-bold text-amber-300" data-phone-asleep>
+                Asleep
+              </span>
+            ) : wallet?.live === false ? (
               <span className="shrink-0 rounded-full bg-red-500/20 px-1.5 text-[10px] font-bold text-red-400" data-wallet-dropped>
                 Disconnected
               </span>
@@ -162,7 +154,23 @@ export function WalletBarChip() {
       </button>
       {open && (
         <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-[#1d1f24] bg-[#101114] p-1 shadow-xl shadow-black/60" style={{ fontFamily: font }}>
-          {err && <p className="px-3 py-2 text-[11px] text-red-400">{err}</p>}
+          {err && (
+            <div className="px-3 py-2 text-[11px] text-red-400">
+              <p>{err}</p>
+              <button type="button" className="mt-1 font-semibold text-[#F5B800] underline" onClick={choose}>
+                Pick a wallet or scan a new code
+              </button>
+            </div>
+          )}
+          {phone === 'asleep' && (
+            <div className="px-3 py-2 text-[11px] text-amber-300" data-phone-asleep-note>
+              Phone asleep or disconnected: open bWallet on your phone to resume, or{' '}
+              <button type="button" className="font-semibold underline" onClick={choose}>
+                re-scan
+              </button>
+              .
+            </div>
+          )}
           {state.kind === 'connected' ? (
             <>
               <div className="px-3 py-2 text-[11px] text-[#A1A1AA]">
@@ -174,10 +182,7 @@ export function WalletBarChip() {
                   Get your name
                 </a>
               )}
-              <button type="button" role="menuitem" className={row} onClick={() => (setOpen(false), askWallet('reconnect') || setChoose(true))}>
-                Reconnect
-              </button>
-              <button type="button" role="menuitem" className={row} onClick={() => (setOpen(false), askWallet('switch') || setChoose(true))}>
+              <button type="button" role="menuitem" className={row} onClick={choose}>
                 Switch wallet
               </button>
               {handle && !verified && (
@@ -194,10 +199,7 @@ export function WalletBarChip() {
                 role="menuitem"
                 className={row}
                 onClick={() => {
-                  rememberWallet(null);
-                  tellWalletDisconnected();
-                  setProofWallet(null);
-                  setBarWallet(null);
+                  disconnectSiteWallet();
                   setOpen(false);
                 }}
               >
@@ -206,7 +208,7 @@ export function WalletBarChip() {
             </>
           ) : (
             <>
-              <button type="button" role="menuitem" className={row} onClick={() => (setOpen(false), setErr(null), setChoose(true))}>
+              <button type="button" role="menuitem" className={row} onClick={choose}>
                 Connect a wallet
               </button>
               <WalletToolLinks />
@@ -214,7 +216,7 @@ export function WalletBarChip() {
           )}
         </div>
       )}
-      {choose && <WalletChooser onPick={(e) => void pick(e)} onClose={() => setChoose(false)} />}
+      <SiteWalletChooser />
     </div>
   );
 }

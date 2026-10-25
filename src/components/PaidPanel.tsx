@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from 'react';
 import { COST, EST_FEE, HOUSE, LOADS, PER_ACTION, type usePaidPlay } from '@/lib/usePaidPlay';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 
 type Paid = ReturnType<typeof usePaidPlay>;
 
@@ -199,7 +199,7 @@ export function PaidPanel({ pp, game, action, actions }: { pp: Paid; game: strin
           )}
         </p>
       )}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </>
   );
 }

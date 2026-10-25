@@ -11,7 +11,7 @@ import { houseFirst, houseHeld, HOUSE_GOLD } from '@/lib/gameCoins';
 import { EST_FEE, PER_ACTION, SAT_LOADS, TOKEN_FEE, TOKEN_LOADS } from '@/lib/actionPay';
 import type { ActionPay } from '@/lib/useActionPay';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 
 export function ActionAmmo({ ap, actions }: { ap: ActionPay; actions: string }) {
   const { b } = ap;
@@ -99,7 +99,7 @@ export function ActionAmmo({ ap, actions }: { ap: ActionPay; actions: string }) 
         )}
         <AmmoAlerts ap={ap} />
       </div>
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </div>
   );
 }

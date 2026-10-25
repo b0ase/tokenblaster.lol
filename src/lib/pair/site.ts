@@ -30,12 +30,30 @@ export type PairState =
   | { k: 'ready'; wallet: WalletInterface; phone: string }
   | { k: 'error'; message: string };
 
+/**
+ * Is the paired phone there? 'asleep' when the relay says its socket left (screen locked, app backgrounded) or a
+ * request went unanswered; 'awake' again as soon as it rejoins or answers; 'gone' when it unpaired. 'none' = no phone.
+ */
+export type PhoneStatus = 'none' | 'awake' | 'asleep' | 'gone';
+let phoneStatus: PhoneStatus = 'none';
+const statusSubs = new Set<() => void>();
+export const getPhoneStatus = () => phoneStatus;
+export const subPhoneStatus = (fn: () => void) => (statusSubs.add(fn), () => void statusSubs.delete(fn));
+export function setPhoneStatus(s: PhoneStatus) {
+  if (s === phoneStatus) return;
+  phoneStatus = s;
+  for (const f of statusSubs) f();
+}
+/** How long a request may wait with no word from the phone before the site says it is asleep. */
+export const ASLEEP_AFTER_MS = 8000;
+
 type Saved = { c: string; r: string; s: string; k: string; phone: string; sent: number; lastSeen: number };
 
 /** A live, paired channel: requests out, responses in. */
 class Channel {
   private ws: WebSocket | null = null;
-  private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; action: string; params: unknown }>();
+  private sleepTimer: ReturnType<typeof setTimeout> | undefined;
   private outbox: string[] = [];
   private closed = false;
 
@@ -59,9 +77,22 @@ class Channel {
 
   private async receive(raw: string) {
     const f = JSON.parse(raw) as RelayFrame | unknown;
-    if ((f as RelayFrame).t === 'relay' || !isSealed(f)) return;
+    if ((f as RelayFrame).t === 'relay') {
+      const rf = f as RelayFrame;
+      if (rf.role === 'wallet' && rf.peer === 'left') setPhoneStatus('asleep');
+      if (rf.role === 'wallet' && rf.peer === 'joined') {
+        setPhoneStatus('awake');
+        // The relay holds frames for 60 s only: ask again for anything still unanswered (bWallet answers a repeated
+        // request id from its reply cache, never runs it twice).
+        void this.resend();
+      }
+      return;
+    }
+    if (!isSealed(f)) return;
     const msg = await this.sealer.open(f);
     if (!msg) return;
+    clearTimeout(this.sleepTimer);
+    setPhoneStatus('awake');
     this.persist();
     if (msg.t === 'res') {
       const p = this.pending.get(msg.id);
@@ -71,6 +102,7 @@ class Channel {
       else p.resolve(msg.result);
     } else if (msg.t === 'close') {
       this.close(false);
+      setPhoneStatus('gone');
       this.onGone('Disconnected on your phone');
     }
   }
@@ -87,19 +119,29 @@ class Channel {
     }
   }
 
-  async request(action: string, params: unknown): Promise<unknown> {
-    const id = crypto.randomUUID();
+  private async send(id: string, action: string, params: unknown) {
     const frame = await this.sealer.seal({ t: 'req', id, action, params } satisfies PairMessage);
     this.persist();
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.outbox.push(JSON.stringify(frame));
-      this.flush();
-    });
+    this.outbox.push(JSON.stringify(frame));
+    this.flush();
+    clearTimeout(this.sleepTimer);
+    this.sleepTimer = setTimeout(() => this.pending.size && setPhoneStatus('asleep'), ASLEEP_AFTER_MS);
+  }
+
+  private async resend() {
+    for (const [id, p] of this.pending) await this.send(id, p.action, p.params);
+  }
+
+  async request(action: string, params: unknown): Promise<unknown> {
+    const id = crypto.randomUUID();
+    const done = new Promise((resolve, reject) => this.pending.set(id, { resolve, reject, action, params }));
+    await this.send(id, action, params);
+    return done;
   }
 
   close(notify = true) {
     this.closed = true;
+    clearTimeout(this.sleepTimer);
     const finish = () => this.ws?.close();
     if (notify && this.ws?.readyState === WebSocket.OPEN)
       void this.sealer.seal({ t: 'close', reason: 'site disconnected' }).then((f) => {
@@ -150,6 +192,7 @@ export function resumePhone(onGone: (why: string) => void = () => {}): { wallet:
       const c = new Channel(s, sealer, onGone);
       c.open();
       current = c;
+      setPhoneStatus('awake');
       resolve(c);
     });
   });
@@ -164,6 +207,7 @@ export function resumePhone(onGone: (why: string) => void = () => {}): { wallet:
 }
 
 export function disconnectPhone() {
+  setPhoneStatus('none');
   current?.close();
   current = null;
   resumed = null;
@@ -219,7 +263,10 @@ export function startPairing(onState: (s: PairState) => void): () => void {
         }
         const ch = new Channel(saved, sealer, () => {});
         ch.open(sock);
+        current?.close();
         current = ch;
+        resumed = null;
+        setPhoneStatus('awake');
         handedOver = true;
         onState({ k: 'ready', wallet: ch.wallet(), phone });
       } else if (msg?.t === 'close') onState({ k: 'error', message: 'Cancelled on the phone.' });

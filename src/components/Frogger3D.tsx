@@ -20,7 +20,7 @@ import { useChainFeed } from '@/lib/useChainFeed';
 import { useBlaster } from '@/lib/useBlaster';
 import { TOKEN_FEE } from '@/lib/gun';
 import { GAME_COINS, houseHeld } from '@/lib/gameCoins';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { InsertCoin, useCoinOp } from './InsertCoin';
 import { coinStore } from './coinop/store';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
@@ -1673,7 +1673,7 @@ export function Frogger3D() {
       )}
       {paid && needSats && <p className="mt-1 text-sm text-hot">{payFrog ? `Out of $${FROG.sym} or fuel: load more to keep moving.` : 'Out of sats: load more to keep moving.'}</p>}
       {(payErr || b.error) && <p className="mt-1 text-sm text-hot">⚠ {payErr ?? b.error}</p>}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
       {killer && (
         <p className="mt-2 text-sm text-dim">
           Run over by a {KINDS.find((k) => k.id === killer.kind)?.label.toLowerCase()}

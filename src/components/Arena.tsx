@@ -22,7 +22,7 @@ import { HighScores } from './HighScores';
 import { AmmoStrip } from './AmmoStrip';
 import { InsertCoin, useCoinOp } from './InsertCoin';
 import { coinStore } from './coinop/store';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { Room, realtimeConfigured } from '@/lib/realtime';
 import { proveHandle, readWire, verifyWire, type IdWire } from '@/lib/identity';
 import { disposeAvatarTag, fitAvatarTag, makeAvatarTag, tagKey } from '@/lib/avatarTag';
@@ -41,6 +41,7 @@ import type { GunDef } from '@/lib/arenaHD';
 import { useOrdnance } from '@/lib/useOrdnance';
 import { brandGun, tintAmount, tintGun } from '@/lib/ordnanceGun';
 import { gunDefFor, loadGunModel } from '@/lib/ordnanceModels';
+import { getSiteWallet } from '@/lib/siteWallet';
 
 /** Stock guns, then the 1Sat Ordnance guns (built on a stock model; locked unless the wallet holds the ordinal). */
 const ALL_GUNS: (GunDef & { ordnance?: Ordnance })[] = [
@@ -502,7 +503,7 @@ export function Arena() {
       const w = net.current.wallet;
       if (x && w && provedFor !== x + (w ? '|w' : '')) {
         provedFor = x + '|w';
-        void proveHandle(w, x, myId).then((p) => {
+        void proveHandle(w, x, myId, getSiteWallet().wallet?.publicKey).then((p) => {
           if (p && net.current.x === x) {
             myWire = p;
             room?.track({ id: myId, ...myWire, name: net.current.name });
@@ -2325,7 +2326,7 @@ export function Arena() {
         </p>
       )}
       {(chainError || (playing && b.error)) && <p className={`text-sm text-hot ${playing ? 'px-2 pb-2' : 'mt-2'}`}>⚠ {chainError ?? b.error}</p>}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </section>
   );
 }

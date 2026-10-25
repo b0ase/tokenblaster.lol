@@ -14,7 +14,7 @@ import { useBlaster } from '@/lib/useBlaster';
 import { GAME_COINS, houseFirst, houseHeld } from '@/lib/gameCoins';
 import { BSVGunRange } from './BSVGunRange';
 import { BuyHouse, HouseBadge } from './HouseAmmo';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { GameAudio } from './SoundToggle';
 import { sfx } from '@/lib/sfx';
 
@@ -201,7 +201,7 @@ export function BSVGun() {
       </section>
       </>
       )}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </div>
   );
 }

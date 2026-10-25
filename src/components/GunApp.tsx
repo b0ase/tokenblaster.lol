@@ -6,11 +6,11 @@ import { Gun } from '@/lib/gun';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl, tokenById, walletTokens, type Token } from '@/lib/tokens';
-import { discoverWallets, inFrame, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
-import { connect, fund, hasCwi, type Wallet } from '@/lib/wallet';
-import { WalletChooser } from './WalletChooser';
-import { disconnectPhone } from '@/lib/pair/site';
-import { tellWalletDisconnected } from '@/lib/walletBar';
+import { inFrame } from '@/lib/discovery';
+import { fund, hasCwi } from '@/lib/wallet';
+import { SiteWalletChooser } from './SiteWalletChooser';
+import { disconnectSiteWallet, openChooser, openSiteWallet } from '@/lib/siteWallet';
+import { useSiteWallet } from '@/lib/useSiteWallet';
 
 type Phase = 'idle' | 'connecting' | 'loading' | 'firing' | 'unloading';
 type Point = { t: number; fired: number; landed: number };
@@ -26,7 +26,9 @@ export function GunApp() {
   const stop = useRef(false);
   const sent = useRef(new Set<string>());
   const shots = useRef(0); // bumps on every blast; the canvas animates the difference
-  const [wallet, setWallet] = useState<Wallet | null>(null);
+  // The site's ONE wallet (src/lib/siteWallet.ts): connected here or in the top bar, the same wallet.
+  const site = useSiteWallet();
+  const wallet = site.wallet;
   const [cwi, setCwi] = useState(false);
   const [ammo, setAmmo] = useState(0);
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -41,7 +43,6 @@ export function GunApp() {
   const [last, setLast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
 
   const pack = amount;
   const packIdx = PACKS.reduce((best, p, i) => (Math.abs(Math.log(p / amount)) < Math.abs(Math.log(PACKS[best] / amount)) ? i : best), 0);
@@ -96,60 +97,37 @@ export function GunApp() {
 
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
-  const pickWallet = async (entry: WalletEntry) => {
-    setChooser(null);
-    setNotice(null);
-    setError(null);
-    setPhase('connecting');
-    try {
-      const w = await connect(entry);
-      rememberWallet(entry.id);
-      setWallet(w);
-      walletTokens(w)
-        .then((held) => {
-          setTokens(held);
-          if (held[0]) setToken(held[0]);
-        })
-        .catch(() => undefined);
-    } catch (e) {
-      fail(e);
-    } finally {
-      setPhase('idle');
-    }
-  };
+  // A newly connected wallet: read its tokens once (the player connected on this page, or in the top bar).
+  useEffect(() => {
+    if (!wallet) return void Promise.resolve().then(() => setTokens([]));
+    walletTokens(wallet)
+      .then((held) => {
+        setTokens(held);
+        if (held[0]) setToken(held[0]);
+      })
+      .catch(() => undefined);
+  }, [wallet]);
 
-  /** Reconnect the wallet picked last time; otherwise (or if it is gone) open the chooser. */
+  /** The in-app wallet, else the one picked last time, else the chooser (shared with the top bar). */
   const doConnect = async () => {
     setError(null);
-    const id = rememberedWallet();
+    setNotice(null);
     setPhase('connecting');
-    const all = await discoverWallets().catch(() => [] as WalletEntry[]);
+    await openSiteWallet();
     setPhase('idle');
-    // Inside bWallet there is exactly one wallet: use it, no chooser.
-    const inApp = all.find((w) => w.kind === 'in-app');
-    if (inApp) return pickWallet(inApp);
-    if (!id) return setChooser({ note: null });
-    const found = all.find((w) => w.id === id);
-    if (found) return pickWallet(found);
-    setChooser({ note: 'The wallet you used last time is not available any more.' });
   };
 
   /** Forget the wallet. Coin-op (owner, 24 Oct 2026): no refunds, the ammo stays in the gun as credit. */
   const disconnect = async () => {
-    rememberWallet(null);
-    tellWalletDisconnected();
-    disconnectPhone();
-    setWallet(null);
+    disconnectSiteWallet();
     setTokens([]);
     setNotice('Disconnected. To revoke access completely, remove tokenblaster.lol from your wallet’s connected sites.');
   };
 
   const switchWallet = () => {
-    rememberWallet(null);
-    disconnectPhone();
-    setWallet(null);
+    disconnectSiteWallet();
     setTokens([]);
-    setChooser({ note: null });
+    openChooser();
   };
 
   const pickCustom = async () => {
@@ -308,7 +286,7 @@ export function GunApp() {
       )}
       {notice && !wallet && <p className="mt-2 text-sm text-dim">{notice}</p>}
       {error && <p className="mt-2 text-sm text-hot">⚠ {error}</p>}
-      {chooser && <WalletChooser note={chooser.note} onPick={pickWallet} onClose={() => setChooser(null)} />}
+      <SiteWalletChooser />
     </section>
   );
 }
