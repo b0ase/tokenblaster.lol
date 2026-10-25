@@ -13,7 +13,7 @@ const ratio = (a: string, b: string) => {
 };
 const KEYS = ['v', 'name', 'mode', 'accent', 'accentHi', 'bg', 'surface', 'text', 'logo', 'cardArt', 'room', 'paths'];
 
-for (const file of ['bwalletx-theme.json', 'bwalletx-theme.assault.json']) {
+for (const file of ['bwalletx-theme.json', 'bwalletx-theme.terrornode.json']) {
   test(`wallet theme ${file}: schema, sizes, contrast`, () => {
     const path = `public/.well-known/${file}`;
     assert.ok(statSync(path).size <= 8 * 1024, 'file <= 8 KB');
