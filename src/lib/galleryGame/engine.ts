@@ -569,6 +569,9 @@ export class GalleryEngine {
         this.lookYaw = this.yaw;
         this.lookPitch = this.pitch;
         this.ndc.set(0, 0);
+      } else if (this.freeLook) {
+        // ESC freed the mouse: let go of the trigger so nothing keeps firing (or reads as jammed) behind the menus
+        this.setTrigger(false);
       }
       this.freeLook = locked;
     };
@@ -1725,11 +1728,21 @@ export class GalleryEngine {
     }
     const RT = TUNING.run.route;
     const nearSeam = RT.enter.some((e, i) => i > 0 && this.routeD > e - 18 && this.routeD < e + 6) || Math.abs(this.routeD + RT.doorZ) < 18;
-    const lim = nearSeam ? Math.min(TUNING.run.seamLane, TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange) : TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange;
-    this.px = THREE.MathUtils.clamp(this.px + (frozen ? 0 : mx * P.strafeSpeed * dt), -lim, lim);
-    this.pz = THREE.MathUtils.clamp(this.pz + (frozen ? 0 : mz * P.strafeSpeed * dt), P.freeZ[0], P.freeZ[1]);
-    // near a seam the band narrows too, so the walk always threads the doorway
-    if (nearSeam) this.pz = THREE.MathUtils.clamp(this.pz, -1.5, 1.5);
+    const wide = TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange;
+    // near a seam only the SIDEWAYS room narrows (so the walk threads the doorway); forward/back stays free
+    // (owner, 25 Oct: "couldn't move back and forth" was this band shrinking to 1.5 m round every seam)
+    const lim = nearSeam ? Math.min(TUNING.run.seamLane, wide) : wide;
+    // soft edges: speed fades over the last metre of the box, and a box that narrows eases you in, never snaps
+    const soft = (v: number, d: number, lo: number, hi: number) => {
+      const room = d > 0 ? hi - v : v - lo;
+      return d * THREE.MathUtils.clamp(room / P.edgeSoft, 0, 1);
+    };
+    if (!frozen) {
+      this.px += soft(this.px, mx * P.strafeSpeed * dt, -lim, lim);
+      this.pz += soft(this.pz, mz * P.strafeSpeed * dt, P.freeZ[0], P.freeZ[1]);
+    }
+    if (Math.abs(this.px) > lim) this.px += (Math.sign(this.px) * lim - this.px) * Math.min(1, dt * 6);
+    this.pz = THREE.MathUtils.clamp(this.pz, P.freeZ[0], P.freeZ[1]);
     const bob = this.combat && !this.rescue ? TUNING.run.bobY : 0;
     cam.position.set(this.px + (Math.random() - 0.5) * s * 0.05 + Math.sin(this.walkStep * 0.5) * bob * 0.6, EYE + Math.sin(this.t * 1.1) * 0.006 + Math.abs(Math.sin(this.walkStep * 0.5)) * bob, this.pz);
     cam.updateMatrixWorld();

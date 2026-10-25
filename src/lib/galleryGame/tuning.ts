@@ -80,13 +80,15 @@ export const TUNING = {
     openingGrace: 3.5,
     /** STRAFE (A/D, arrows, the touch pad): metres a second, and how far across the set (fraction of its wall half-width). */
     strafeSpeed: 5.5,
-    strafeRange: 0.55,
+    strafeRange: 0.75,
     /**
      * FREE MOVE (owner, 25 Oct: "full movement like the Arena, plus slow automatic forward travel"): how far you
      * can walk ahead of (-) or drop behind (+) the auto-walk's spot (m), the arrow-key turn rate (rad/s) and how
      * far the view can turn from straight down the route (rad).
      */
-    freeZ: [-5, 3] as [number, number],
+    freeZ: [-6, 6] as [number, number],
+    /** The box's soft edge: movement fades to nothing over this many metres at each wall of the box. */
+    edgeSoft: 1,
     turnSpeed: 2.2,
     lookYaw: 2.4,
     /** Camera kick on a hit: radians at damage 10, scaled by damage. */
