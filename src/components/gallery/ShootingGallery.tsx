@@ -933,19 +933,20 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           />
         )}
         {(mode === 'warm' || cab.stage === 'loading') && !loadout && !over && (
-          <div className="tbx-in-d pointer-events-none absolute inset-x-0 top-[150px] z-20 flex justify-center px-3 sm:top-[118px]" role="status" data-warmup>
-            <div className="tbx-glass w-full max-w-[460px] px-4 py-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="flex items-center gap-2 text-sm font-bold tracking-wide text-white">
-                  <Icon name="chip" size={15} className="text-[var(--tbx-teal)]" /> LOADING YOUR AMMO
+          <div className="tbx-in-d pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4" role="status" data-warmup>
+            {/* Big and centred (owner, 25 Oct: "the LOADING YOUR AMMO bar needs to be a lot bigger"). */}
+            <div className="tbx-glass w-full max-w-[880px] px-6 py-6 sm:px-10 sm:py-8">
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="tbx-display flex items-center gap-3 text-[clamp(22px,4.2vw,48px)] leading-none text-white">
+                  <Icon name="chip" size={34} className="shrink-0 text-[var(--tbx-teal)]" /> LOADING YOUR AMMO
                 </span>
-                <Ticker value={warmPct} format={(n) => `${Math.round(n)}%`} className="tbx-display text-xl" />
+                <Ticker value={warmPct} format={(n) => `${Math.round(n)}%`} className="tbx-display tbx-num text-[clamp(28px,5vw,60px)] leading-none text-[var(--tbx-teal)]" />
               </div>
-              <div className="tbx-bar mt-2">
+              <div className="tbx-bar mt-5 !h-5 sm:!h-7">
                 <i style={{ transform: `scaleX(${warmPct / 100})`, transition: 'transform 0.25s linear' }} />
               </div>
-              <p className="mt-1.5 text-sm font-semibold text-white tbx-num" data-load-line>{loadLine}</p>
-              <p className="mt-1 text-[11px] text-white/65">{mode === 'warm' ? 'Warm-up shots while you wait (not live). No enemies until GO.' : 'No enemies until GO.'}</p>
+              <p className="tbx-num mt-4 text-[clamp(15px,2vw,22px)] font-semibold text-white" data-load-line>{loadLine}</p>
+              <p className="mt-1.5 text-sm text-white/70 sm:text-base">{mode === 'warm' ? 'Warm-up shots while you wait (not live). No enemies until GO.' : 'No enemies until GO.'}</p>
             </div>
           </div>
         )}
