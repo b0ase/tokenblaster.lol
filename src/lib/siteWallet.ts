@@ -45,18 +45,25 @@ function set(p: Partial<SiteWalletState>) {
 /** The connected key for this tab, so a reload resumes without asking the wallet again. */
 const KEY_STORE = 'tokenblaster.siteWallet';
 type SavedKey = { id: string; publicKey: string };
-function savedKey(id: string): string | null {
+function savedKey(id: string, anyTab = false): string | null {
   try {
-    const s = JSON.parse(sessionStorage.getItem(KEY_STORE) ?? 'null') as SavedKey | null;
-    return s && s.id === id && /^0[23][0-9a-f]{64}$/i.test(s.publicKey) ? s.publicKey : null;
+    // This tab's key; a silent page-load resume may also use the last key any tab connected with (localStorage).
+    // A player's press never does: it asks the wallet, which may have switched account since.
+    for (const store of anyTab ? [sessionStorage, localStorage] : [sessionStorage]) {
+      const s = JSON.parse(store.getItem(KEY_STORE) ?? 'null') as SavedKey | null;
+      if (s && s.id === id && /^0[23][0-9a-f]{64}$/i.test(s.publicKey)) return s.publicKey;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 function saveKey(k: SavedKey | null) {
   try {
-    if (k) sessionStorage.setItem(KEY_STORE, JSON.stringify(k));
-    else sessionStorage.removeItem(KEY_STORE);
+    for (const store of [sessionStorage, localStorage]) {
+      if (k) store.setItem(KEY_STORE, JSON.stringify(k));
+      else store.removeItem(KEY_STORE);
+    }
   } catch {
     /* the next reload just asks again */
   }
@@ -113,7 +120,7 @@ export const setSiteWalletWaiting = (w: SiteWalletState['waiting']) => set({ wai
  * A connect that never settles can not wedge the site any more (owner, 25 Oct 2026): it times out (CONNECT_TIMEOUT_MS,
  * in wallet.connect), Cancel gives up on it, and a fresh pick (the chooser) replaces it instead of joining it.
  */
-export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {}): Promise<Wallet | null> {
+export function connectEntry(entry: WalletEntry, opts: { retry?: boolean; silent?: boolean } = {}): Promise<Wallet | null> {
   // A round is live: the wallet must not be asked anything, and that is not a disconnect (owner, 25 Oct 2026: a
   // Reconnect during warm-up left "Wallet disconnected" and "A round is still live" up after the round had gone).
   if (walletHeld()) return (discoveryDone(), Promise.resolve(state.wallet));
@@ -122,7 +129,8 @@ export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {})
     if (!opts.retry && !entry.fresh && connecting.entry.id === entry.id) return (discoveryDone(), connecting.promise);
     connecting.abort(WALLET_CANCELLED);
   }
-  set({ busy: true, error: null, chooser: null, waiting: { text: waitText(entry), since: Date.now(), kind: 'connect' } });
+  // A silent resume (page load) never shows the waiting card: only a player's press may (owner, 25 Oct 2026).
+  set({ busy: true, error: null, chooser: null, waiting: opts.silent ? null : { text: waitText(entry), since: Date.now(), kind: 'connect' } });
   let abort!: (why: string) => void;
   const aborted = new Promise<never>((_, no) => (abort = (why) => no(new Error(why))));
   const mine = {
@@ -133,13 +141,16 @@ export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {})
     },
     promise: null as unknown as Promise<Wallet | null>,
   };
+  // Set before the body runs: with a kept key it reaches `connecting !== mine` without awaiting anything, and
+  // used to see the previous value and drop the connect (a reload never resumed).
+  connecting = mine;
   mine.promise = (async () => {
     try {
       // Same wallet as earlier in this tab: reuse its key, ask nothing.
       // A wallet that stopped answering (not a phone: that is the relay's job) gets a real connect, to re-ask it.
       // A retry from the chooser always asks again: the old key may be what the wedged extension no longer honours.
       const stale = state.wallet?.id === entry.id && !state.live && entry.kind !== 'phone';
-      const known = entry.fresh || stale || opts.retry ? null : savedKey(entry.id);
+      const known = entry.fresh || stale || opts.retry ? null : savedKey(entry.id, opts.silent);
       const w: Wallet = known
         ? { client: serialised(entry.wallet), publicKey: known, address: PublicKey.fromString(known).toAddress(), id: entry.id, name: entry.name }
         : await Promise.race([connect(entry), aborted]);
@@ -161,7 +172,6 @@ export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {})
     }
   })();
   aborted.catch(() => undefined);
-  connecting = mine;
   return mine.promise;
 }
 
@@ -308,7 +318,9 @@ export function resumeSiteWallet() {
     .then((all) => {
       const found = all.find((w) => w.id === id) ?? all.find((w) => w.kind === 'in-app');
       // A paired phone resumes only with the key kept for this tab: never a fresh connect request to a sleeping phone.
-      if (found && (found.kind !== 'phone' || savedKey(found.id))) return connectEntry(found);
+      // Page load asks the wallet nothing (owner, 25 Oct 2026: "Waiting for bWalletX…" on load): resume only with a
+      // key already kept, silently; with none, the player presses Connect.
+      if (found && savedKey(found.id, true)) return connectEntry(found, { silent: true });
     })
     .catch(() => undefined);
 }

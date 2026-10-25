@@ -33,6 +33,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({ id: 'com.bwalletx.extensi
 beforeEach(() => {
   _resetSiteWallet();
   (g.sessionStorage as { clear: () => void }).clear();
+  (g.localStorage as { clear: () => void }).clear();
   asks = 0;
 });
 
@@ -110,4 +111,19 @@ test('play hold: Connect during a live round asks nothing and leaves no "disconn
   }
   assert.equal(getSiteWallet().error, null);
   assert.ok(getSiteWallet().wallet);
+});
+
+test('page-load resume is silent: no waiting card, no wallet call, and a new tab reuses the kept key', async () => {
+  await connectEntry(entry());
+  assert.equal(asks, 1);
+  // A new tab: this tab's key is gone, the last connected key (localStorage) is still there.
+  _resetSiteWallet();
+  (g.sessionStorage as { clear: () => void }).clear();
+  let waited = false;
+  const off = subSiteWallet(() => void (getSiteWallet().waiting && (waited = true)));
+  const w = await connectEntry(entry(), { silent: true });
+  off();
+  assert.equal(w?.publicKey, KEY);
+  assert.equal(asks, 1, 'the wallet was not asked again');
+  assert.equal(waited, false, 'no "Waiting for bWalletX…" card');
 });
