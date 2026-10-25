@@ -1,6 +1,7 @@
 /** The launchpad board: every live coin with its 24h numbers. Public. */
 import { NextResponse } from 'next/server';
 import { rpc } from '@/lib/launch/server';
+import { withExtras } from '@/lib/launch/coinMeta';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,7 @@ export async function GET() {
       rpc<unknown[]>('tokenblaster_launch_board', {}, false),
       rpc<unknown[]>('tokenblaster_launch_trades_for', { p_limit: 40 }, false),
     ]);
-    return NextResponse.json({ coins: shown(coins), feed: shown(feed) }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
+    return NextResponse.json({ coins: shown(coins).map((c) => withExtras(c as { token_id?: string; sold?: number })), feed: shown(feed) }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
   } catch (e) {
     return NextResponse.json({ coins: [], feed: [], error: e instanceof Error ? e.message : String(e) }, { status: 200 });
   }

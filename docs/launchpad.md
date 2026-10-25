@@ -53,3 +53,16 @@ Only confirmed vault coins are spent. `worker/vault.ts` (pm2 on Hetzner) calls P
 2. Vercel env: `LAUNCH_POOL_WIF` (fresh key, backed up), `LAUNCH_SECRET`, `LAUNCH_CRON_SECRET`.
 3. `pnpm vault:build`, run `worker/dist/vault.mjs` under pm2 with `LAUNCH_CRON_SECRET`.
 4. Test launch + buy + sell with small amounts from bWallet and Yours before announcing.
+
+## Coin API extras for the bWalletX Exchange (`/api/launch/coins`, `/api/launch/coin`)
+Every coin row (in `coins[]` and in `coin`) also carries (CORS `*`, as before):
+- `price_sats` (number): the current curve price of one token in sats (`price(sold)`, `src/lib/launch/curve.ts`).
+- `theme` (optional): bWalletX theme v2, same schema as `public/.well-known/bwalletx-theme.json`
+  (`v, name, mode, accent, accentHi, bg, surface, text, logo, cardArt`). `logo`/`cardArt` are absolute URLs on
+  https://www.tokenblaster.lol (the site origin; the apex 308s there); logo ≤ 64 KB, cardArt ≤ 256 KB.
+- `room` (optional): bChatX room ticker, `^[A-Z0-9]{1,20}$`.
+- `merch_url` (optional): an https URL.
+
+`theme`, `room` and `merch_url` live in `src/lib/launch/coinMeta.ts` keyed by `token_id` (no DB migration);
+`src/lib/coinMeta.test.ts` checks the schema, contrast (text 4.5:1, accent 3:1) and image sizes. Fields are left out
+when a coin has none.

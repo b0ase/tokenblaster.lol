@@ -9,7 +9,7 @@ import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } f
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
-import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
+import { MAX_TOKEN_LOAD_ROUNDS, loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
 import { chainHandle, needsPaymail } from './gallery';
 import { setProofWallet } from './xproof';
@@ -309,7 +309,8 @@ export function useBlaster() {
       setError(null);
       setBusy('loading-tokens');
       try {
-        const n = Math.floor(count);
+        // Per-load cap for TOKEN ammo (gun safety): a bad gun state can't swallow a big balance. Sats are not capped.
+        const n = Math.min(Math.floor(count), MAX_TOKEN_LOAD_ROUNDS);
         const amt = BigInt(n) * BigInt(10) ** BigInt(token.dec);
         // Top up fuel so every loaded token can be fired, in the same approval.
         const fuel = Math.max(0, n * TOKEN_FEE + 200 - g.sats); // one transaction per token: fees for every one
@@ -407,8 +408,13 @@ export function useBlaster() {
   }, [refreshGun]);
 
 
-  /** Return the TOKENS in the gun to the wallet. Sats are credit and are never returned (no refunds). */
-  const unload = useCallback(async () => {
+  /**
+   * UNLOAD (bWalletX gun safety, 25 Oct 2026): send everything still in the gun back to the player's wallet:
+   * every token it holds (returnTokens, so the wallet counts them at once) and then the unused sats
+   * (gun.unload sweeps the gun's address to the wallet's own address). Tokens go first: their fees come from the sats.
+   * `sats: false` returns only the tokens.
+   */
+  const unload = useCallback(async (opts: { sats?: boolean } = {}) => {
     const g = gun.current;
     if (!wallet || !g) return;
     setBusy('unloading');
@@ -422,9 +428,18 @@ export function useBlaster() {
         parts.push(`${(Number(r.amt) / 10 ** meta.dec).toLocaleString()} $${meta.sym}`);
         last = r.txid;
       }
-      // Coin-op (owner, 24 Oct 2026): no refunds. The sats are the player's credit and stay in the gun.
       setTokenAmmo(0);
+      if (opts.sats !== false) {
+        const before = await g.balance().catch(() => g.sats);
+        const txid = await g.unload(wallet.address);
+        if (txid) {
+          parts.push(`about ${before.toLocaleString()} sats (less the network fee)`);
+          last = txid;
+        }
+        setAmmo(0);
+      }
       if (parts.length) setReceipt({ text: `Back in your wallet: ${parts.join(' and ')}`, txid: last });
+      else setReceipt(null);
       await refreshGun();
       walletTokens(wallet)
         .then(setTokens)

@@ -60,6 +60,7 @@ import { Icon, Modal, Ticker } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
 import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
 import type { AmmoCoin } from '@/lib/launch/ammoCoins';
+import { GunUnload } from '../GunUnload';
 import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
@@ -991,8 +992,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
                 {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
         {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={false} />}
-        {/* Free play with no coin in (owner, 24 Oct): a big flashing INSERT COIN over the game, like a real cabinet. */}
-        {!loadout && !over && simulated && (
+        {/* INSERT $b is the attract screen (owner, 25 Oct): only while nobody is playing and there is no credit, never over a
+            game in progress. In paid play the cabinet's INSERT $b heading does this job, so this overlay is free play only. */}
+        {!loadout && !over && simulated && mode === 'off' && (
           <div className="pointer-events-none absolute inset-x-0 top-[18%] z-10 flex flex-col items-center px-4 text-center" data-insert-coin>
             {/* the button: no wallet → connect one; with a wallet → back to the cabinet to put a coin in */}
             <style>{`@keyframes tbx-coin-blink{0%,49%{opacity:1}50%,100%{opacity:.12}}@media (prefers-reduced-motion:reduce){[data-insert-coin] button{animation:none!important}}`}</style>
@@ -1146,6 +1148,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 packLeft={packLeft}
                 ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}
                 error={err ?? b.error}
+                unload={<GunUnload b={b} disabled={mode !== 'off'} className="mt-1" />}
               />
             }
             cabinet={

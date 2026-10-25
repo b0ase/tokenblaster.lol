@@ -5,6 +5,7 @@
 import { NextResponse } from 'next/server';
 import { SUPPLY, poolSats } from '@/lib/launch/curve';
 import { rpc } from '@/lib/launch/server';
+import { withExtras } from '@/lib/launch/coinMeta';
 
 export const dynamic = 'force-dynamic';
 type Row = { token_id: string; sold: number; reserve_sats: number; token_amt: number; reserve_address: string; token_address: string; burned: number };
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
     const expected = { bsv: Number(poolSats(sold)), tokens: Number(SUPPLY - sold) };
     const ledger = { bsv: Number(row.reserve_sats), tokens: Number(row.token_amt) };
     const [chain, isIndexed] = await Promise.all([onChain(row), indexed(token)]);
-    return NextResponse.json({ coin: row, indexed: isIndexed, reserves: { expected, ledger, chain } }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
+    return NextResponse.json({ coin: withExtras(row), indexed: isIndexed, reserves: { expected, ledger, chain } }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }

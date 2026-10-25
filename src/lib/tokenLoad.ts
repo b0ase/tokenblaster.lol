@@ -9,6 +9,16 @@ import { Beef, Hash, P2PKH, PublicKey, Transaction, TransactionSignature, Unlock
 import { bsv21 } from './gun';
 import { tokenCoins } from './tokens';
 
+/**
+ * Gun safety (agreed with bWalletX, 25 Oct 2026): the most TOKEN ammo one load can put in the browser gun, in rounds
+ * (one round = one whole token). Load again for more. Sats / gunpowder loads are never capped (the stress test needs
+ * ~2M rounds a block).
+ */
+export const MAX_TOKEN_LOAD_ROUNDS = 500;
+
+/** Where the gun lives, said plainly next to the gun balance and in the load step. */
+export const GUN_KEY_NOTE = 'Your gun lives in this browser. Clearing site data loses anything still in it. Unload before you clear.';
+
 export const ONESAT: WalletProtocol = [0, 'onesat'];
 
 /** The note the 1Sat wallets write on a token coin (bsv21 basket): the wallet counts it from this. */
