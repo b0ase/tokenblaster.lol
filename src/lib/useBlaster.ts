@@ -11,6 +11,7 @@ import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, type Wallet } from './wallet';
 import { setProofWallet } from './xproof';
+import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
 
 /**
@@ -337,7 +338,8 @@ export function useBlaster() {
   /** Re-read the wallet's tokens (after buying or receiving more). */
   const [refreshing, setRefreshing] = useState(false);
   const refreshWallet = useCallback(async () => {
-    if (!wallet) return;
+    if (!wallet || walletHeld()) return;
+    forgetBasketReads(); // the player tapped refresh: really re-read (refused baskets stay refused)
     setRefreshing(true);
     try {
       void checkStranded(wallet);

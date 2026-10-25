@@ -1,5 +1,6 @@
 'use client';
 
+import { CheckOrdnance } from '@/components/CheckOrdnance';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -140,7 +141,8 @@ export function Arena() {
   const co = useCoinOp('Arena', 'arena');
   useEffect(() => void coinStore.takePrepaid(), []);
   const b = useBlaster();
-  const { owned } = useOrdnance(b.wallet);
+  const ordnance = useOrdnance(b.wallet);
+  const { owned } = ordnance;
   const ownedRef = useRef(owned);
   useEffect(() => {
     ownedRef.current = owned;
@@ -2090,6 +2092,7 @@ export function Arena() {
             onClick={(e) => isReady && e.target === e.currentTarget && window.dispatchEvent(new Event('arena:enter'))}
           >
             <p className="text-3xl font-bold text-hot">ARENA</p>
+            <CheckOrdnance ordnance={ordnance} connected={!!b.wallet} />
             {players > 1 && <p className="text-sm text-hot">{players} players in the arena now · hitting a player sends them your token</p>}
             <div className="flex flex-wrap items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
               <IdentityPicker verified={roster.some((r) => r.me && r.v)} />

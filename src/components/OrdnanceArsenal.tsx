@@ -1,6 +1,7 @@
 'use client';
 
 /** "Connect wallet to see your arsenal": the 1Sat Ordnance weapons the connected wallet holds. */
+import { CheckOrdnance } from '@/components/CheckOrdnance';
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
@@ -49,7 +50,8 @@ export function OrdnanceArsenal() {
   const w = useWalletConnect();
   const [extra, setExtra] = useState<string[]>(() => (typeof window === 'undefined' ? [] : savedOrdinalAddresses()));
   const [draft, setDraft] = useState('');
-  const { owned, checking, error } = useOrdnance(w.wallet, extra);
+  const ordnance = useOrdnance(w.wallet, extra);
+  const { owned, checking, error } = ordnance;
   const anyMinted = ORDNANCE.some(isMinted);
   const mine = ORDNANCE.filter((o) => owned.has(o.id));
 
@@ -58,6 +60,7 @@ export function OrdnanceArsenal() {
       <div className="panel-header">
         <span className="panel-title">Your arsenal</span>
         {w.wallet && <span className="text-xs text-dim">{w.wallet.name} · {w.wallet.address.slice(0, 8)}…</span>}
+        <CheckOrdnance ordnance={ordnance} connected={!!w.wallet} />
       </div>
       {!w.wallet ? (
         <div className="flex flex-col items-start gap-2 py-2">

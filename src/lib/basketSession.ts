@@ -53,6 +53,9 @@ export function readBasket(wallet: WalletInterface, args: ListOutputsArgs, fresh
   return p;
 }
 
+/** An explicit refresh tap: forget what was read (so the next read asks again), but keep the refusals. */
+export const forgetBasketReads = () => cache.clear();
+
 /** Tests only. */
 export function resetBasketSession() {
   cache.clear();

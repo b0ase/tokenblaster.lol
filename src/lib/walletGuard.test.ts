@@ -45,3 +45,21 @@ test('storm and page holds stack: the wallet is free only when both let go', () 
   holdWalletForPlay(false, 'play');
   assert.equal(walletHeld(), false);
 });
+
+test('an explicit refresh re-reads, but a refused basket stays refused', async () => {
+  const { readBasket, resetBasketSession, forgetBasketReads } = await import('./basketSession');
+  resetBasketSession();
+  let reads = 0;
+  const ok = { listOutputs: async () => (reads++, { totalOutputs: 0, outputs: [] }) } as unknown as WalletInterface;
+  await readBasket(ok, { basket: 'ordinals' });
+  forgetBasketReads();
+  await readBasket(ok, { basket: 'ordinals' });
+  assert.equal(reads, 2);
+  const no = { listOutputs: async () => Promise.reject(new Error('denied')) } as unknown as WalletInterface;
+  await readBasket(no, { basket: 'ordnance' });
+  forgetBasketReads();
+  let asked = 0;
+  const later = { listOutputs: async () => (asked++, { totalOutputs: 0, outputs: [] }) } as unknown as WalletInterface;
+  assert.equal(await readBasket(later, { basket: 'ordnance' }), null);
+  assert.equal(asked, 0);
+});

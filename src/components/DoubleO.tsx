@@ -6,6 +6,7 @@
  * PRACTICE is free play, nothing on chain. LIVE: every bullet is one whole token in a real
  * transaction (tagged doubleo/<level>/shot), queued and sent in batches like the Arena.
  */
+import { CheckOrdnance } from '@/components/CheckOrdnance';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -128,7 +129,8 @@ export function DoubleO() {
   const marker = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
   /** Q Branch: the 1Sat Ordnance gun Kweg carries (null = the standard gadget gun). Owned ordinals only. */
-  const { owned: ownedOrdnance } = useOrdnance(b.wallet);
+  const ordnance = useOrdnance(b.wallet);
+  const { owned: ownedOrdnance } = ordnance;
   const [gear, setGear] = useState<string | null>(null);
   const gearRef = useRef<string | null>(null);
   const gearOk = gear && ownedOrdnance.has(gear) ? gear : null;
@@ -3255,6 +3257,7 @@ export function DoubleO() {
                     <button onClick={() => setGear(null)} className={`btn px-2 py-1 text-xs ${!gearOk ? 'btn-on' : 'opacity-70'}`}>
                       Gadget gun
                     </button>
+                    <CheckOrdnance ordnance={ordnance} connected={!!b.wallet} />
                     {ORDNANCE.filter((o) => ownedOrdnance.has(o.id)).map((o) => (
                       <button key={o.id} onClick={() => setGear(o.id)} className={`btn px-2 py-1 text-xs ${gearOk === o.id ? 'btn-on' : 'opacity-80'}`} style={{ color: RARITY_COLOR[o.rarity] }}>
                         {o.name}
