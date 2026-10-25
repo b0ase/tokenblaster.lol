@@ -191,8 +191,25 @@ export class GalleryEngine {
   /** Strafe input: held keys and the touch pad (-1 left .. 1 right). */
   private keyL = false;
   private keyR = false;
+  /** FREE MOVE (owner, 25 Oct: move like the Arena): W/S or Up/Down, Left/Right arrows turn, mouse-look (pointer lock). */
+  private keyF = false;
+  private keyB = false;
+  private keyTL = false;
+  private keyTR = false;
   padMove = 0;
+  /** Touch virtual stick (-1..1 each axis; y +1 is back, like a screen drag). */
+  padX = 0;
+  padY = 0;
   private px = 0;
+  /** Metres ahead (-) / behind (+) of the auto-walk's spot, inside TUNING.player.freeZ. */
+  private pz = 0;
+  /** Free-look: on once the mouse is pointer-locked or a touch has dragged the view; the crosshair sits mid-screen. */
+  private freeLook = false;
+  private lookYaw = 0;
+  private lookPitch = 0.08;
+  /** The on-screen stick (positioned by the touch handler). */
+  stickEl: HTMLElement | null = null;
+  knobEl: HTMLElement | null = null;
 
   // gun
   weapon: RangeWeapon | null = null;
@@ -485,45 +502,125 @@ export class GalleryEngine {
       const r = c.getBoundingClientRect();
       this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     };
+    // touch: the left half is a virtual stick (move), the right half drags the view and holds the trigger
+    const touch = { move: null as null | { id: number; x: number; y: number }, look: null as null | { id: number; x: number; y: number } };
     const down = (e: PointerEvent) => {
       unlockAudio();
-      setNdc(e);
-      if (e.pointerType === 'touch') c.setPointerCapture(e.pointerId);
+      if (e.pointerType === 'touch') {
+        c.setPointerCapture(e.pointerId);
+        const r = c.getBoundingClientRect();
+        if (e.clientX - r.left < r.width * 0.42 && !touch.move) {
+          touch.move = { id: e.pointerId, x: e.clientX, y: e.clientY };
+          if (this.stickEl) {
+            this.stickEl.style.display = 'block';
+            this.stickEl.style.left = `${e.clientX - r.left - 52}px`;
+            this.stickEl.style.top = `${e.clientY - r.top - 52}px`;
+          }
+          if (this.knobEl) this.knobEl.style.transform = 'translate(0,0)';
+          return;
+        }
+        touch.look = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        this.freeLook = true;
+        this.ndc.set(0, 0);
+        this.setTrigger(true);
+        return;
+      }
+      if (e.pointerType === 'mouse' && document.pointerLockElement !== c && c.requestPointerLock) {
+        try {
+          const pr = c.requestPointerLock() as unknown as Promise<void> | undefined;
+          pr?.catch?.(() => undefined);
+        } catch {
+          /* not allowed here (an iframe, a test): the cursor aims instead */
+        }
+      }
+      if (!this.freeLook) setNdc(e);
       this.setTrigger(true);
     };
-    const up = () => this.setTrigger(false);
+    const up = (e: PointerEvent) => {
+      if (touch.move && e.pointerId === touch.move.id) {
+        touch.move = null;
+        this.padX = this.padY = 0;
+        if (this.stickEl) this.stickEl.style.display = 'none';
+        return;
+      }
+      if (touch.look && e.pointerId === touch.look.id) touch.look = null;
+      this.setTrigger(false);
+    };
+    const move = (e: PointerEvent) => {
+      if (touch.move && e.pointerId === touch.move.id) {
+        this.padX = THREE.MathUtils.clamp((e.clientX - touch.move.x) / 50, -1, 1);
+        this.padY = THREE.MathUtils.clamp((e.clientY - touch.move.y) / 50, -1, 1);
+        if (this.knobEl) this.knobEl.style.transform = `translate(${this.padX * 40}px,${this.padY * 40}px)`;
+        return;
+      }
+      if (touch.look && e.pointerId === touch.look.id) {
+        this.turnView((e.clientX - touch.look.x) * 0.006, (e.clientY - touch.look.y) * 0.006);
+        touch.look.x = e.clientX;
+        touch.look.y = e.clientY;
+        return;
+      }
+      if (document.pointerLockElement === c) this.turnView(e.movementX * 0.0022, e.movementY * 0.0022);
+      else if (!this.freeLook || e.pointerType === 'mouse') setNdc(e);
+    };
+    const lockChange = () => {
+      const locked = document.pointerLockElement === c;
+      if (locked) {
+        // pick up the view where the cursor had it, so locking never snaps the aim
+        this.lookYaw = this.yaw;
+        this.lookPitch = this.pitch;
+        this.ndc.set(0, 0);
+      }
+      this.freeLook = locked;
+    };
     const key = (e: KeyboardEvent, d: boolean) => {
       if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
       if (e.code === 'Space') {
         e.preventDefault();
         if (!e.repeat) this.setTrigger(d);
       }
-      // strafe: A / D or the arrow keys (dodging bolts is a skill)
-      if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
-        e.preventDefault();
-        this.keyL = d;
-      } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
-        e.preventDefault();
-        this.keyR = d;
-      }
+      // MOVE like the Arena: W/S or Up/Down forward and back, A/D strafe, Left/Right arrows turn
+      if (e.code === 'KeyA') this.keyL = d;
+      else if (e.code === 'KeyD') this.keyR = d;
+      else if (e.code === 'KeyW' || e.code === 'ArrowUp') this.keyF = d;
+      else if (e.code === 'KeyS' || e.code === 'ArrowDown') this.keyB = d;
+      else if (e.code === 'ArrowLeft') this.keyTL = d;
+      else if (e.code === 'ArrowRight') this.keyTR = d;
+      else return;
+      e.preventDefault();
     };
     const kd = (e: KeyboardEvent) => key(e, true);
     const ku = (e: KeyboardEvent) => key(e, false);
-    c.addEventListener('pointermove', setNdc);
+    c.addEventListener('pointermove', move);
+    document.addEventListener('pointerlockchange', lockChange);
     c.addEventListener('pointerdown', down);
     window.addEventListener('pointerup', up);
     window.addEventListener('keydown', kd);
     window.addEventListener('keyup', ku);
-    const blur = () => (this.keyL = this.keyR = false);
+    const blur = () => (this.keyL = this.keyR = this.keyF = this.keyB = this.keyTL = this.keyTR = false);
     window.addEventListener('blur', blur);
     this.cleanup.push(
       () => window.removeEventListener('blur', blur),
-      () => c.removeEventListener('pointermove', setNdc),
+      () => c.removeEventListener('pointermove', move),
+      () => document.removeEventListener('pointerlockchange', lockChange),
+      () => document.pointerLockElement === c && document.exitPointerLock?.(),
       () => c.removeEventListener('pointerdown', down),
       () => window.removeEventListener('pointerup', up),
       () => window.removeEventListener('keydown', kd),
       () => window.removeEventListener('keyup', ku),
     );
+  }
+
+  /** Turn the free view by `dx` / `dy` radians (mouse-look, touch drag). */
+  private turnView(dx: number, dy: number) {
+    if (!this.freeLook) {
+      this.lookYaw = this.yaw;
+      this.lookPitch = this.pitch;
+      this.freeLook = true;
+    }
+    this.ndc.set(0, 0);
+    const P = TUNING.player;
+    this.lookYaw = THREE.MathUtils.clamp(this.lookYaw - dx, -P.lookYaw, P.lookYaw);
+    this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - dy, -0.7, 0.9);
   }
 
   setTrigger(down: boolean) {
@@ -859,6 +956,11 @@ export class GalleryEngine {
     this.invuln -= dt;
     if (this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
     if (this.bossOn) this.boss.update(sd);
+    // LOADING YOUR AMMO (owner, 25 Oct): until real rounds are live nothing spawns and nothing attacks; the
+    // opening grace starts again at GO
+    const hold = !this.combat && !this.rescue;
+    this.erobots.paused = this.horde.paused = hold;
+    if (hold) this.erobots.grace = this.horde.grace = TUNING.player.openingGrace;
     this.stageTick(dt);
     this.erobots.update(sd, this.camera, this.trigger);
     this.horde.update(sd, this.camera, true);
@@ -1131,6 +1233,9 @@ export class GalleryEngine {
     this.applyStage(0);
     this.walk(0);
     this.px = 0;
+    this.pz = 0;
+    this.lookYaw = 0;
+    this.lookPitch = 0.08;
     this.hp = TUNING.player.hp;
     this.invuln = 0;
     this.erobots.grace = TUNING.player.openingGrace;
@@ -1508,6 +1613,18 @@ export class GalleryEngine {
     look: (x: number, y: number) => this.ndc.set(x, y),
     clearEnemies: () => (this.erobots.clearAll(), this.bolts.clear()),
     spawning: (on: boolean) => (this.erobots.spawning = on),
+    /** Where the free-moving player is: x, metres off the auto-walk spot, view yaw, route metres, free-look on. */
+    player: () => ({ x: this.px, z: this.pz, yaw: this.yaw, route: this.routeD, free: this.freeLook, combat: this.combat }),
+    /** Dev only: drop a monster `z` metres straight in front of the view (a point-blank test). */
+    mobAt: (d: number) => this.horde.debugPlace(this.camera.position.x, this.camera.position.z, d),
+    hordeHp: () => this.horde.debugHp(),
+    /** Dev only: point the free view (radians). */
+    face: (yaw: number, pitch: number) => {
+      this.freeLook = true;
+      this.ndc.set(0, 0);
+      this.lookYaw = yaw;
+      this.lookPitch = pitch;
+    },
   };
 
   private updateDrones(dt: number) {
@@ -1571,10 +1688,19 @@ export class GalleryEngine {
 
   private updateCamera(dt: number) {
     const cam = this.camera;
-    const ty = -this.ndc.x * 0.32;
-    const tp = this.ndc.y * 0.24 + 0.2;
-    this.yaw += (ty - this.yaw) * Math.min(1, dt * 8);
-    this.pitch += (tp - this.pitch) * Math.min(1, dt * 8);
+    const P = TUNING.player;
+    const frozen = !!this.rescue;
+    if (!frozen) this.lookYaw = THREE.MathUtils.clamp(this.lookYaw + ((this.keyTL ? 1 : 0) - (this.keyTR ? 1 : 0)) * P.turnSpeed * dt, -P.lookYaw, P.lookYaw);
+    if (this.keyTL || this.keyTR) this.freeLook ||= (this.ndc.set(0, 0), true);
+    if (this.freeLook && !this.autoAim) {
+      this.yaw = this.lookYaw;
+      this.pitch = this.lookPitch;
+    } else {
+      const ty = -this.ndc.x * 0.32;
+      const tp = this.ndc.y * 0.24 + 0.2;
+      this.yaw += (ty - this.yaw) * Math.min(1, dt * 8);
+      this.pitch += (tp - this.pitch) * Math.min(1, dt * 8);
+    }
     const s = this.shake * this.shake;
     const hk = this.hitKick;
     cam.rotation.set(this.pitch + (Math.random() - 0.5) * s * 0.03 + this.recoil * 0.004 + hk.p, this.yaw + (Math.random() - 0.5) * s * 0.03 + hk.y, hk.r, 'YXZ');
@@ -1582,15 +1708,30 @@ export class GalleryEngine {
     hk.p *= kd;
     hk.y *= kd;
     hk.r *= kd;
-    // STRAFE: slide left and right inside the set's walls; the Erobots' bolts aim at where you are
-    const dir = THREE.MathUtils.clamp((this.keyR ? 1 : 0) - (this.keyL ? 1 : 0) + this.padMove, -1, 1);
+    // FREE MOVE: walk and strafe relative to the view, inside the route corridor (the set's walls) and a band
+    // around the auto-walk's spot, which keeps carrying you forward; the Erobots' bolts aim at where you are
+    const sx = Math.abs(this.padX) < 0.15 ? 0 : this.padX;
+    const sy = Math.abs(this.padY) < 0.15 ? 0 : this.padY;
+    const st = THREE.MathUtils.clamp((this.keyR ? 1 : 0) - (this.keyL ? 1 : 0) + this.padMove + sx, -1, 1);
+    const fw = THREE.MathUtils.clamp((this.keyF ? 1 : 0) - (this.keyB ? 1 : 0) - sy, -1, 1);
+    const cy = Math.cos(this.yaw);
+    const sn = Math.sin(this.yaw);
+    let mx = st * cy - fw * sn;
+    let mz = -st * sn - fw * cy;
+    const ml = Math.hypot(mx, mz);
+    if (ml > 1) {
+      mx /= ml;
+      mz /= ml;
+    }
     const RT = TUNING.run.route;
     const nearSeam = RT.enter.some((e, i) => i > 0 && this.routeD > e - 18 && this.routeD < e + 6) || Math.abs(this.routeD + RT.doorZ) < 18;
     const lim = nearSeam ? Math.min(TUNING.run.seamLane, TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange) : TUNING.stages[this.stageIdx].lane.wallX * TUNING.player.strafeRange;
-    const frozen = !!this.rescue;
-    this.px = THREE.MathUtils.clamp(this.px + (frozen ? 0 : dir * TUNING.player.strafeSpeed * dt), -lim, lim);
+    this.px = THREE.MathUtils.clamp(this.px + (frozen ? 0 : mx * P.strafeSpeed * dt), -lim, lim);
+    this.pz = THREE.MathUtils.clamp(this.pz + (frozen ? 0 : mz * P.strafeSpeed * dt), P.freeZ[0], P.freeZ[1]);
+    // near a seam the band narrows too, so the walk always threads the doorway
+    if (nearSeam) this.pz = THREE.MathUtils.clamp(this.pz, -1.5, 1.5);
     const bob = this.combat && !this.rescue ? TUNING.run.bobY : 0;
-    cam.position.set(this.px + (Math.random() - 0.5) * s * 0.05 + Math.sin(this.walkStep * 0.5) * bob * 0.6, EYE + Math.sin(this.t * 1.1) * 0.006 + Math.abs(Math.sin(this.walkStep * 0.5)) * bob, 0);
+    cam.position.set(this.px + (Math.random() - 0.5) * s * 0.05 + Math.sin(this.walkStep * 0.5) * bob * 0.6, EYE + Math.sin(this.t * 1.1) * 0.006 + Math.abs(Math.sin(this.walkStep * 0.5)) * bob, this.pz);
     cam.updateMatrixWorld();
     if (this.held && this.weapon) {
       this.aimRay(this.tA, this.tC);

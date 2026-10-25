@@ -50,6 +50,8 @@ export class Horde {
   /** Live cap right now (the engine sets it from the stage and the run clock). */
   want = 0;
   spawning = true;
+  /** True while the gun is still loading real rounds: no spawns (the engine sets it). */
+  paused = false;
   /** Seconds of grace left: nobody bites. */
   grace = 0;
   /** Lane the horde comes down (shared with the Erobots). */
@@ -146,7 +148,7 @@ export class Horde {
     const x = (Math.random() - 0.5) * 2 * L.halfW;
     const z = L.spawnZ - Math.random() * 14 - (mob.size > 2 ? 10 : 0);
     mob.aimX = THREE.MathUtils.clamp((Math.random() - 0.5) * 5, -L.wallX, L.wallX);
-    mob.stopZ = -2.4 - mob.size * 0.9;
+    mob.stopZ = -TUNING.horde.minDist - mob.size * TUNING.horde.sizeDist;
     const r = mob.m.root;
     r.position.set(x, 0, z);
     r.rotation.set(0, 0, 0);
@@ -190,7 +192,7 @@ export class Horde {
     const H = TUNING.horde;
     this.spawnT -= dt;
     // spawn in bursts so the swarm refills fast after a sweep
-    if (this.spawning && this.spawnT <= 0) {
+    if (this.spawning && !this.paused && this.spawnT <= 0) {
       const missing = this.want - this.live;
       for (let i = 0; i < Math.min(missing, H.burst); i++) {
         const mob = this.pick();
@@ -200,6 +202,11 @@ export class Horde {
       this.spawnT = H.spawnEvery;
     }
     const cx = camera.position.x;
+    const cz = camera.position.z;
+    // how many are biting right now (at most H.maxClose; the rest hold back, still in the line of fire)
+    let close = 0;
+    for (const mob of this.mobs) if (mob.state === 'attack') close++;
+    this.separate(dt);
     for (const mob of this.mobs) {
       if (mob.state === 'off') continue;
       mob.t += dt;
@@ -217,20 +224,29 @@ export class Horde {
         const u = THREE.MathUtils.clamp(1 - (mob.stopZ - p.z) / 30, 0, 1);
         p.x += (mob.aimX - p.x) * Math.min(1, dt * (0.3 + u * 1.4));
         p.x += Math.sin(mob.t * 2.2 + mob.aimX) * dt * 0.6;
-        r.rotation.y = Math.atan2(cx - p.x, 0 - p.z);
-        if (p.z >= mob.stopZ) {
-          p.z = mob.stopZ;
+        r.rotation.y = Math.atan2(cx - p.x, cz - p.z);
+        const full = close >= H.maxClose;
+        const stop = cz + mob.stopZ - (full ? H.holdBack + mob.size : 0);
+        if (p.z >= stop) {
+          p.z = stop;
+          if (full) {
+            mob.m.body.position.z = 0;
+            continue; // waits its turn, still a target
+          }
+          close++;
           mob.state = 'attack';
           mob.t = 0;
           mob.m.play(mob.m.has('attack') ? 'attack' : 'idle', { fade: 0.15 });
         }
       } else if (mob.state === 'attack') {
-        r.rotation.y = Math.atan2(cx - p.x, 0 - p.z);
+        r.rotation.y = Math.atan2(cx - p.x, cz - p.z);
+        // never inside point-blank: when the player walks in it gives ground; when the player backs off it follows
+        p.z = cz + mob.stopZ;
         mob.swing -= dt;
         if (!mob.m.has('attack')) mob.m.body.position.z = Math.max(0, Math.sin(mob.t * 5)) * 0.35; // lunges if it has no clip
         if (mob.swing <= 0) {
           mob.swing = H.biteEvery * (0.8 + Math.random() * 0.5);
-          if (alive && this.grace <= 0) this.opts.melee(tmp.copy(p).setY(1.2 * mob.size), mob.kind.damage);
+          if (alive && this.grace <= 0 && Math.abs(p.x - cx) < H.biteReach + mob.size) this.opts.melee(tmp.copy(p).setY(1.2 * mob.size), mob.kind.damage);
         }
       } else if (mob.state === 'dying') {
         if (mob.t < 0) continue; // dismissed: waiting its turn to drop
@@ -250,6 +266,53 @@ export class Horde {
     }
   }
 
+  /** Bodies push apart sideways (and the rear one back) so the swarm never stacks into one blob in your face. */
+  private separate(dt: number) {
+    const M = this.mobs;
+    for (let i = 0; i < M.length; i++) {
+      const a = M[i];
+      if (a.state !== 'walk' && a.state !== 'attack') continue;
+      const pa = a.m.root.position;
+      if (pa.z < -40) continue;
+      for (let j = i + 1; j < M.length; j++) {
+        const b = M[j];
+        if (b.state !== 'walk' && b.state !== 'attack') continue;
+        const pb = b.m.root.position;
+        const dx = pb.x - pa.x;
+        const dz = pb.z - pa.z;
+        const want = 0.75 * (a.size + b.size);
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= want * want) continue;
+        const d = Math.sqrt(d2) || 0.01;
+        const push = Math.min(want - d, 3 * dt) * 0.5;
+        const ux = d2 > 1e-4 ? dx / d : i % 2 ? 1 : -1;
+        const w = this.lane.wallX;
+        pa.x = THREE.MathUtils.clamp(pa.x - ux * push, -w, w);
+        pb.x = THREE.MathUtils.clamp(pb.x + ux * push, -w, w);
+        if (a.state !== 'attack' && pa.z > pb.z) pa.z -= push * 0.5;
+        else if (b.state !== 'attack' && pb.z > pa.z) pb.z -= push * 0.5;
+      }
+    }
+  }
+
+  /** Dev only: put one monster `d` metres in front of (x, cz), standing there (false if the pool is empty). */
+  debugPlace(x: number, cz: number, d: number) {
+    const z = cz - d;
+    const mob = this.pick();
+    if (!mob) return false;
+    this.spawn(mob);
+    mob.m.root.position.set(x, 0, z);
+    mob.state = 'attack';
+    mob.stopZ = -d; // held at the given spot by the test, not pushed back
+    mob.m.root.position.z = z;
+    return true;
+  }
+
+  /** Dev only: the live monsters' health and distance from (0,0). */
+  debugHp() {
+    return this.mobs.filter((m) => m.state === 'walk' || m.state === 'attack').map((m) => ({ hp: +m.hp.toFixed(1), z: +m.m.root.position.z.toFixed(2), x: +m.m.root.position.x.toFixed(2) }));
+  }
+
   /** Nearest live mob the ray strikes before `maxDist` (one sphere per body, sized to it). */
   raycast(org: THREE.Vector3, dir: THREE.Vector3, maxDist: number): HordeHit | null {
     let best: HordeHit | null = null;
@@ -263,10 +326,13 @@ export class Horde {
       const rr = Math.max(0.55, h * 0.42) * TUNING.horde.hitScale;
       tmp2.subVectors(c, org);
       const tc = tmp2.dot(dir);
-      if (tc < 0) continue;
-      const d2 = tmp2.lengthSq() - tc * tc;
-      if (d2 > rr * rr) continue;
-      const th = tc - Math.sqrt(rr * rr - d2);
+      const l2 = tmp2.lengthSq();
+      // POINT-BLANK: the ray starts inside the body's sphere: that is a hit (it used to be skipped as a miss)
+      const inside = l2 < rr * rr;
+      if (tc < 0 && !inside) continue;
+      const d2 = l2 - tc * tc;
+      if (d2 > rr * rr && !inside) continue;
+      const th = inside ? 0.01 : tc - Math.sqrt(rr * rr - d2);
       if (th > 0 && th < bd) {
         bd = th;
         best ??= { mob, point: new THREE.Vector3(), dist: th };

@@ -207,6 +207,8 @@ export class ErobotWave {
   playerAlive = true;
   /** Dev only: false stops new spawns. */
   spawning = true;
+  /** True while the gun is still loading real rounds: no spawns (the engine sets it). */
+  paused = false;
 
   constructor(
     private scene: THREE.Scene,
@@ -422,12 +424,13 @@ export class ErobotWave {
     const capW = Math.min(this.cap, L.liveCap);
     const want = Math.min(capW, L.liveBase + Math.floor(this.hold * T.holdBonusPerSec));
     this.spawnT -= dt;
-    if (this.spawnT <= 0 && this.live < want && this.spawning) {
+    if (this.spawnT <= 0 && this.live < want && this.spawning && !this.paused) {
       const free = this.slots.find((s) => s.state === 'off');
       if (free) this.spawn(free);
       this.spawnT = Math.max(T.spawnMin, (T.spawnEvery - this.hold * 0.05) / ramp(TUNING.waveRamp.erobotRate, w));
     }
     const cx = camera.position.x;
+    const cz = camera.position.z;
     const rate = ramp(TUNING.waveRamp.erobotRate, w);
     for (const s of this.slots) {
       if (s.state === 'off') continue;
@@ -459,7 +462,7 @@ export class ErobotWave {
         }
         case 'run': {
           p.z += s.speed * dt;
-          const stop = s.role === 'shooter' ? s.stopZ : TUNING.erobots.melee.stopZ;
+          const stop = s.role === 'shooter' ? Math.min(s.stopZ, cz + TUNING.erobots.melee.stopZ - 2) : cz + TUNING.erobots.melee.stopZ;
           const u = THREE.MathUtils.clamp((p.z - s.startZ) / (stop - s.startZ), 0, 1);
           if (s.role === 'flanker') {
             // swing wide along an arc, then cut in on the player
@@ -493,7 +496,7 @@ export class ErobotWave {
           p.x += s.strafe * dt;
           if (Math.abs(p.x) > this.lane.strafeX) s.strafe = -s.strafe;
           p.x = THREE.MathUtils.clamp(p.x, -this.lane.wallX, this.lane.wallX);
-          p.z = Math.min(-6, p.z + T.creepSpeed * dt);
+          p.z = Math.min(cz - 6, p.z + T.creepSpeed * dt);
           this.face(s, cx, p.z, dt, 8);
           if (s.charge > 0) {
             s.charge -= dt;
@@ -520,12 +523,14 @@ export class ErobotWave {
         case 'melee': {
           // right in the player's face: swing, wind-up first, then the damage
           p.x += (s.meleeX - p.x) * Math.min(1, dt * 3);
+          // keep its distance when the player walks in on it (never inside point-blank)
+          p.z = Math.min(p.z, cz + T.melee.stopZ);
           this.face(s, cx, p.z, dt, 10);
           if (s.swingHit >= 0) {
             s.swingHit -= dt;
             if (s.swingHit <= 0) {
               s.swingHit = -1;
-              if (this.playerAlive && this.grace <= 0) this.opts.melee(V.a.copy(p).setY(1.4), T.melee.damage * ramp(TUNING.waveRamp.erobotDamage, w));
+              if (this.playerAlive && this.grace <= 0 && Math.hypot(p.x - cx, p.z - cz) < T.melee.range * Math.max(1, s.size)) this.opts.melee(V.a.copy(p).setY(1.4), T.melee.damage * ramp(TUNING.waveRamp.erobotDamage, w));
             }
           } else {
             s.swingIn -= dt;
@@ -617,10 +622,13 @@ export class ErobotWave {
         const r = pr.r * HEIGHT * TUNING.erobots.hitScale * s.size;
         V.d.subVectors(V.a, org);
         const tc = V.d.dot(dir);
-        if (tc < 0) continue;
-        const d2 = V.d.lengthSq() - tc * tc;
-        if (d2 > r * r) continue;
-        const th = tc - Math.sqrt(r * r - d2);
+        const l2 = V.d.lengthSq();
+        // POINT-BLANK: the ray starts inside the sphere (it is pressed up against you): that is a hit, not a miss
+        const inside = l2 < r * r;
+        if (tc < 0 && !inside) continue;
+        const d2 = l2 - tc * tc;
+        if (d2 > r * r && !inside) continue;
+        const th = inside ? 0.01 : tc - Math.sqrt(r * r - d2);
         if (th < bd && th > 0) {
           bd = th;
           if (!best) best = { slot: s, point: new THREE.Vector3(), dist: th, head: false };
