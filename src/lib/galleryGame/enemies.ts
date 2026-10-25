@@ -21,7 +21,9 @@ import { halo } from '../bsvgun/targets';
 import type { Fx } from '../bsvgun/fx';
 import type { Bolts } from './combat';
 import { TUNING, ramp, roleWeights } from './tuning';
-import { CAST, CLOSE, WEAPONS, pickCast, type CastMember, type WeaponSpec } from './cast';
+import { CAST, CLOSE, WEAPONS, holdOut, pickCast, standOff, type CastMember, type WeaponSpec } from './cast';
+
+const HOLD: [number, number] = [0, 0];
 import { buildWeapon, recolour, weaponMaterial } from './castModels';
 
 const ROOT = '/gallery/erobots';
@@ -30,6 +32,8 @@ type Id = string;
 const FORCE = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('erobot') : null;
 /** Standing height in metres: menacing, a head taller than a person. */
 const HEIGHT = 2.2;
+/** Bodies keep this many metres (x their average scale) apart, so they never stack up in front of the camera. */
+const SEPARATION = 1.5;
 /** Weapon grip offset in the right hand (metres, hand-bone frame at the identity rest). */
 const WEAPON_GRIP = new THREE.Vector3(-0.06, 0, 0);
 const HP = TUNING.erobots.hp;
@@ -609,13 +613,13 @@ export class ErobotWave {
           // right in the player's face: swing, wind-up first, then the damage
           p.x += (s.meleeX - p.x) * Math.min(1, dt * 3);
           // keep its distance when the player walks in on it (never inside point-blank)
-          p.z = Math.min(p.z, cz + T.melee.stopZ);
+          p.z = Math.min(p.z, cz + T.melee.stopZ, cz - standOff(s.size));
           this.face(s, cx, p.z, dt, 10);
           if (s.swingHit >= 0) {
             s.swingHit -= dt;
             if (s.swingHit <= 0) {
               s.swingHit = -1;
-              if (this.playerAlive && this.grace <= 0 && Math.hypot(p.x - cx, p.z - cz) < T.melee.range * Math.max(1, s.size)) this.opts.melee(V.a.copy(p).setY(1.4), T.melee.damage * s.spec.melee * ramp(TUNING.waveRamp.erobotDamage, w));
+              if (this.playerAlive && this.grace <= 0 && Math.hypot(p.x - cx, p.z - cz) < Math.max(T.melee.range, standOff(s.size) + 1.2) * Math.max(1, s.size)) this.opts.melee(V.a.copy(p).setY(1.4), T.melee.damage * s.spec.melee * ramp(TUNING.waveRamp.erobotDamage, w));
             }
           } else {
             s.swingIn -= dt;
@@ -663,6 +667,39 @@ export class ErobotWave {
       const charging = s.charge > 0 ? 1 - s.charge / Math.max(0.05, this.fireSpec(s).charge) : 0;
       s.glow.material.opacity = s.state === 'aim' ? Math.max(charging * 1.4, s.cur === s.act.shoot ? Math.max(0, s.hurtT - 0.2) * 1.6 : 0) : 0;
       if (s.glow.material.opacity > 0 && s.muzzle) s.glow.position.setFromMatrixPosition(s.muzzle.matrixWorld);
+    }
+    // STAND-OFF (PR #46): every live Erobot, named or generic, melee included, holds >= standOff(size) metres from
+    // the player and never stacks in front of the camera: bodies push apart, and anything the player walks into is
+    // pushed back out
+    for (let i = 0; i < this.slots.length; i++) {
+      const a = this.slots[i];
+      if (a.state !== 'boot' && a.state !== 'run' && a.state !== 'aim' && a.state !== 'melee') continue;
+      const pa = a.root.position;
+      for (let j = i + 1; j < this.slots.length; j++) {
+        const b = this.slots[j];
+        if (b.state !== 'boot' && b.state !== 'run' && b.state !== 'aim' && b.state !== 'melee') continue;
+        const pb = b.root.position;
+        const dx = pb.x - pa.x;
+        const dz = pb.z - pa.z;
+        const want = SEPARATION * (a.size + b.size) * 0.5;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= want * want) continue;
+        const d = Math.sqrt(d2) || 1e-3;
+        const push = ((want - d) / d) * 0.5;
+        const ux = d2 > 1e-6 ? dx : i % 2 ? 1e-3 : -1e-3;
+        pa.x -= ux * push;
+        pa.z -= dz * push;
+        pb.x += ux * push;
+        pb.z += dz * push;
+      }
+    }
+    for (const s of this.slots) {
+      if (s.state !== 'boot' && s.state !== 'run' && s.state !== 'aim' && s.state !== 'melee') continue;
+      const p = s.root.position;
+      if (holdOut(p.x, p.z, cx, cz, standOff(s.size), HOLD)) {
+        p.x = THREE.MathUtils.clamp(HOLD[0], -this.lane.wallX, this.lane.wallX);
+        p.z = HOLD[1];
+      }
     }
     // hit-marker fade
     if (this.markerT > 0 && this.marker) {

@@ -83,7 +83,7 @@ export const WEAPONS: Record<WeaponKind, WeaponSpec> = {
 };
 
 /** Close-range fairness: never nearer than `minDist` metres, at most `maxClose` Erobots swinging at once. */
-export const CLOSE = { minDist: 4.2, maxClose: 3 } as const;
+export const CLOSE = { minDist: 6, maxClose: 3 } as const;
 
 /** Weighted pick of a cast index from those `free` (indices into CAST); `r` in [0,1). Returns -1 if none. */
 export function pickCast(free: readonly number[], r: number): number {
@@ -96,4 +96,33 @@ export function pickCast(free: readonly number[], r: number): number {
     if (x < 0) return i;
   }
   return free[free.length - 1];
+}
+
+/** Stand-off for a body of scale `size`: CLOSE.minDist plus room for its bulk (heavies hold further out). */
+export const standOff = (size: number) => CLOSE.minDist + Math.max(0, size - 1) * 0.8;
+
+/**
+ * Hold a body at least `min` metres (on the ground plane) from the player at (cx, cz), and never beside or
+ * behind them: anything inside is pushed straight out, away from the player, into the space in front (-z).
+ * Writes into `out` ([x, z]) and returns true if it moved. No allocation.
+ */
+export function holdOut(x: number, z: number, cx: number, cz: number, min: number, out: [number, number]): boolean {
+  let dx = x - cx;
+  let dz = z - cz;
+  // keep them in front: nothing level with or behind the camera
+  if (dz > -min * 0.5) dz = -min * 0.5;
+  const d = Math.hypot(dx, dz);
+  if (d >= min && dz === z - cz) {
+    out[0] = x;
+    out[1] = z;
+    return false;
+  }
+  if (d < 1e-4) {
+    dx = 0;
+    dz = -1;
+  }
+  const k = Math.max(min, d) / Math.max(1e-4, Math.hypot(dx, dz));
+  out[0] = cx + dx * k;
+  out[1] = cz + dz * k;
+  return true;
 }
