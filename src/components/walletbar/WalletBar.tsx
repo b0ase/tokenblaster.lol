@@ -98,12 +98,15 @@ export function FullscreenButton({ on, onToggle }: { on?: boolean; onToggle?: ()
 
 /** `@handle ●` when a BRC-100 wallet is connected (✓ once the handle is verified), else "Connect wallet". */
 export function WalletBarChip() {
-  const wallet = useSyncExternalStore(subBarWallet, getBarWallet, () => null);
+  const bar = useSyncExternalStore(subBarWallet, getBarWallet, () => null);
+  const site = useSiteWallet();
+  // The site's wallet is the truth (owner, 25 Oct 2026: paid and played, yet the chip said "Connect wallet"): if the
+  // bar store missed it, show the connected wallet anyway.
+  const wallet = bar ?? (site.wallet ? { id: site.wallet.id, name: site.wallet.name, publicKey: site.wallet.publicKey, live: site.live } : null);
   const handle = useMyHandle();
   const verified = useHandleVerified(handle);
   const state = chipState(wallet?.name ?? null, handle, verified);
   const [open, setOpen] = useState(false);
-  const site = useSiteWallet();
   const err = site.error;
   const phone = usePhoneLink(site.wallet?.id === 'phone');
   const ref = useOutside(open, () => setOpen(false));

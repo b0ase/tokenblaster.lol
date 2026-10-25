@@ -292,6 +292,8 @@ export function CabinetModals(p: {
   approveSince: number | null;
   walletName: string | null;
   error?: string | null;
+  /** Give up on the open wallet request and close this (Cancel, X, Escape, a click outside). */
+  cancel?: () => void;
 }) {
   const secs = useWaitSecs(p.approving ? p.approveSince : null);
   const name = p.walletName ?? 'your wallet';
@@ -309,13 +311,20 @@ export function CabinetModals(p: {
     );
   if (p.modal === 'refused')
     return (
-      <Modal title="Your wallet said no" tone="bad" action="OK, try again" onAction={() => p.setModal(null)}>
+      <Modal title="Your wallet said no" tone="bad" action="OK, try again" onAction={() => p.setModal(null)} onClose={() => p.setModal(null)}>
         {p.error ?? `${name} did not approve the payment. Nothing was charged.`} Press LOCK &amp; LOAD to try again.
       </Modal>
     );
   if (p.approving)
     return (
-      <Modal title="Approve in your wallet" tone="wait" secondary={secs >= 20 ? 'Wallet not answering? Reconnect' : undefined} onSecondary={secs >= 20 ? p.reconnect : undefined}>
+      <Modal
+        title="Approve in your wallet"
+        tone="wait"
+        action={secs >= 20 ? 'Wallet not answering? Reconnect' : undefined}
+        onAction={secs >= 20 ? p.reconnect : undefined}
+        secondary={p.cancel ? 'Cancel' : undefined}
+        onSecondary={p.cancel}
+      >
         Approve the payment in {name}. It&apos;s waiting for you.
         <span className="mt-2 block text-sm text-[var(--tbx-mute)]" aria-live="polite">
           still waiting… {secs}s

@@ -20,7 +20,33 @@ export const inBwallet = () =>
  */
 type Queue = { tail: Promise<unknown>; inFlight: number; gen: number; cancels: Set<(e: Error) => void> };
 const queues = new WeakMap<object, Queue>();
+/** The wallet object behind a serialised() proxy (status checks go to it directly, never through the queue). */
+const raws = new WeakMap<object, WalletInterface>();
 export const WALLET_CANCELLED = 'WALLET_CANCELLED';
+
+/** Calls that never open a sheet in the wallet. Everything else may: the page leaves fullscreen first. */
+const QUIET = new Set(['isAuthenticated', 'waitForAuthentication', 'getNetwork', 'getVersion', 'getHeight', 'getHeaderForHeight']);
+
+/**
+ * Paid-play fix (owner, 25 Oct 2026: "approve in your wallet" but no prompt until he pressed Esc / clicked the URL
+ * bar). The game page runs in element fullscreen (GameShell auto-fullscreen on a coin / START press) and often with
+ * the pointer locked. A Chrome extension wallet opens its approval sheet in its own popup window, which Chrome keeps
+ * behind a fullscreen tab: the request had gone out, the sheet just could not be seen until fullscreen ended. So
+ * before any wallet request that may open a sheet, leave fullscreen and release the pointer.
+ */
+export function leaveFullscreenForWallet() {
+  if (typeof document === 'undefined') return;
+  try {
+    if (document.pointerLockElement) document.exitPointerLock?.();
+  } catch {
+    /* nothing locked */
+  }
+  try {
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => undefined);
+  } catch {
+    /* not fullscreen */
+  }
+}
 
 /**
  * Hang fix (owner, 25 Oct 2026: a payment sheet left unanswered blocked every later wallet call in the tab, so
@@ -69,6 +95,7 @@ export function serialised(client: WalletInterface): WalletInterface {
             console.warn(`[tokenblaster] wallet.${String(prop)} refused: a round is live (no wallet prompts during play)`, new Error().stack);
           return Promise.reject(new Error(WALLET_HELD));
         }
+        if (!QUIET.has(String(prop))) leaveFullscreenForWallet();
         q.inFlight++;
         const gen = q.gen;
         let cancel!: (e: Error) => void;
@@ -91,6 +118,7 @@ export function serialised(client: WalletInterface): WalletInterface {
     },
   });
   queues.set(proxy, q);
+  raws.set(proxy, raws.get(client) ?? client);
   return proxy;
 }
 
@@ -166,9 +194,12 @@ export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean> {
   if (playHeld) return true; // a round is live: never touch the wallet, assume it is still there
   if (walletBusy(w.client)) return true; // a request is open in the wallet: it is alive, just waiting on the player
   if (typeof (w.client as { isAuthenticated?: unknown }).isAuthenticated !== 'function') return true;
+  // Straight to the wallet, NOT through the queue (owner, 25 Oct 2026): a status check that timed out used to stay
+  // at the head of the queue, so the payment queued behind it was only sent once the asleep extension woke up.
+  const raw = raws.get(w.client) ?? w.client;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { authenticated } = await withTimeout(w.client.isAuthenticated({}), ms, 'WALLET_TIMEOUT');
+      const { authenticated } = await withTimeout(raw.isAuthenticated({}), ms, 'WALLET_TIMEOUT');
       return authenticated === true;
     } catch {
       if (attempt === 0) await new Promise((r) => setTimeout(r, 800));

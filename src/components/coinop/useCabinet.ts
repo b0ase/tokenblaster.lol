@@ -8,6 +8,8 @@ import type { useBlaster } from '@/lib/useBlaster';
 import { MAX_PAY_USD, addCoin, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import type { LoadStage } from './CoinCabinet';
 import { loadMark } from '@/lib/gun';
+import { cancelSiteWalletWait, openSiteWallet, setSiteWalletLive } from '@/lib/siteWallet';
+import { useSiteWallet } from '@/lib/useSiteWallet';
 
 /** The blocking prompts, each shown as a true modal by CabinetModals. */
 export type CabModal = null | 'disconnected' | 'refused' | 'timeout';
@@ -65,6 +67,10 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
    * credit has landed. Nothing pending: `after` at once.
    */
   const after = useRef<(() => void) | null>(null);
+  const site = useSiteWallet();
+  const cancelsRef = useRef(site.cancels);
+  const keepPayAfter = useRef(false);
+
   const [landed, setLanded] = useState(0);
   const [payAfterConnect, setPayAfterConnect] = useState(false);
   const doPay = useCallback(async () => {
@@ -98,8 +104,16 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     loadMark(`pay: ${fmtCredit(pending)} via ${b.wallet.name}`);
     // Say what the one wallet sheet is before it opens (owner, 25 Oct: players had no idea why the wallet asked).
     setStageText(`Approve this once in ${b.wallet.name}: ${fmtCredit(pending)} loads your gun. It is the only wallet approval: nothing asks again while you play.`);
+    const cancelsBefore = cancelsRef.current;
     const res = await b.load(sats, `${label}: ${pending.toFixed(2)} USD credit`);
     setApproveSince(null);
+    if (res !== 'ok' && cancelsRef.current !== cancelsBefore) {
+      // The player pressed Cancel: everything is already reset, no "your wallet said no" on top.
+      after.current = null;
+      setStage(null);
+      setStageText(null);
+      return;
+    }
     if (res !== 'ok') {
       after.current = null;
       setStage(null);
@@ -135,13 +149,38 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     void Promise.resolve().then(go);
   }, [landed]);
 
-  /** The modal's Reconnect: run the wallet chooser/connect, then pay what is pending. */
+  /**
+   * Cancel (owner, 25 Oct 2026: Cancel and "wallet not answering" did nothing, and the overlay could not be closed):
+   * gives up on the open wallet request (frees the wallet queue) and resets every "approve" state here. Any Cancel
+   * on the site's waiting card lands here too (siteWallet `cancels`).
+   */
+  useEffect(() => {
+    if (site.cancels === cancelsRef.current) return;
+    cancelsRef.current = site.cancels;
+    loadMark('wallet wait cancelled');
+    after.current = null;
+    void Promise.resolve().then(() => {
+      if (!keepPayAfter.current) setPayAfterConnect(false);
+      keepPayAfter.current = false;
+      setStage((s) => (s === 'approve' ? null : s));
+      setStageText(null);
+      setApproveSince(null);
+      setModal(null);
+    });
+  }, [site.cancels]);
+  const cancel = useCallback(() => cancelSiteWalletWait(), []);
+
+  /** The modal's Reconnect: give up on the open request, ask the wallet afresh, then pay what is pending. */
   const reconnect = useCallback(() => {
-    setModal(null);
     loadMark('reconnect wallet');
+    keepPayAfter.current = pending > 0;
+    cancelSiteWalletWait();
+    setModal(null);
     if (pending > 0) setPayAfterConnect(true);
-    void b.connectWallet();
-  }, [b, pending]);
+    // A real connect, not the remembered key: the wallet that "is not answering" is asked again.
+    setSiteWalletLive(false);
+    void openSiteWallet();
+  }, [pending]);
   const [connectedAt, setConnectedAt] = useState(0);
   useEffect(() => {
     if (b.wallet) void Promise.resolve().then(() => setConnectedAt(Date.now()));
@@ -159,5 +198,5 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
   }, [b.error]);
 
-  return { modal, setModal, reconnect, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
+  return { modal, setModal, reconnect, cancel, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
 }
