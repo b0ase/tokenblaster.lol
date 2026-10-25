@@ -7,9 +7,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { Gun, TOKEN_FEE, loadMark } from './gun';
+import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, type Wallet } from './wallet';
+import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
+import { chainHandle, needsPaymail } from './gallery';
 import { setProofWallet } from './xproof';
 import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
@@ -203,7 +205,7 @@ export function useBlaster() {
   const storm = useCallback(
     async (
       total: number,
-      onProgress: (sent: number, last?: string) => void,
+      onProgress: (sent: number, last?: string, net?: StormNet) => void,
       stop?: () => boolean,
       onStatus?: (s: string) => void,
       tag?: { game?: string; extra?: string[] },
@@ -216,6 +218,17 @@ export function useBlaster() {
     ) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
+      // Every round carries the player's paymail (owner, 25 Oct). The page passes the bar's; if it only had the
+      // key_ name (the lookup had not answered, or failed), ask pay.bwallet.space once more (HTTP, not the wallet).
+      if (tag && wallet && needsPaymail(tag.extra?.[0])) {
+        const id = await withTimeout(lookupPaymail(wallet.publicKey), 3000, 'LOOKUP_TIMEOUT').catch(() => null);
+        const pm = chainHandle(id?.paymail);
+        if (pm) {
+          patchBarWallet({ publicKey: wallet.publicKey, paymail: id?.paymail, alias: id?.alias });
+          tag = { ...tag, extra: [pm, ...(tag.extra ?? []).slice(1)] };
+        }
+      }
+      console.info(`[tb-fire] round tag: tokenblaster.lol ${tokenLabel ?? token?.id ?? ''} <n> ${tag?.game ?? 'bsvgun'} ${(tag?.extra ?? []).join(' ')}`);
       holdWalletForPlay(true, 'storm'); // the gun signs every round itself: nothing may ask the wallet meanwhile
       try {
         return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused, step);
@@ -224,7 +237,7 @@ export function useBlaster() {
         setAmmo(await g.balance().catch(() => g.sats)); // the session's saved change, from the real coin set
       }
     },
-    [token],
+    [token, wallet],
   );
 
   /** LOCK & LOAD: find the coin, split it into lanes, wait for the network. Then storm() fires at once. */

@@ -27,6 +27,7 @@ import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
 import { holdWalletForPlay } from '@/lib/wallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
+import { LiveTxBadge } from './LiveTxBadge';
 import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, skipTrack, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
@@ -41,6 +42,8 @@ import {
   fmtUsd,
   freeForStressTest,
   galleryPushes,
+  HANDLE_BUDGET,
+  roundHandle,
   patternLabel,
   platformFeeAt,
   shotSats,
@@ -99,8 +102,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const b = useBlaster();
   const { storm, fireBatch } = b;
   const { name, hasPaymail } = usePlayerName();
-  // The NAME is the wallet's paymail (owner, 25 Oct): the on-chain handle tag and the board name.
-  const handle = cleanName(name);
   const weapons = useMemo(() => {
     // Volume guns only: sustained ~2,000 tx/s streams, no single shots or bursts (owner, 24 Oct: stress test).
     const all = buildWeapons();
@@ -116,6 +117,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const barWallet = useSyncExternalStore(subBarWallet, getBarWallet, () => null);
   const paymail = b.wallet && barWallet?.publicKey === b.wallet.publicKey ? ammoFromPaymail(barWallet) : null;
   const ammo = paymail ?? DEFAULT_AMMO;
+  // The NAME is the wallet's paymail (owner, 25 Oct): the on-chain handle tag and the board name (src/lib/gallery.ts roundHandle).
+  const handle = roundHandle(barWallet?.paymail, cleanName(name));
+  const [netSeen, setNetSeen] = useState(0);
+  const netSeenRef = useRef(0); // across reload sessions (each session's count starts at 0)
   const [loadout, setLoadout] = useState(true);
   const [bsvUsd, setBsvUsd] = useState(FALLBACK_USD);
   const [locked, setLocked] = useState(false);
@@ -155,7 +160,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const fee = platformFeeAt(clock);
   const free = freeForStressTest(clock);
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
-  const perShot = shotSats(handle?.length ?? 0, ammoLen);
+  const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
   // FREE PLAY (production while payments are fixed): credit is on the house, so LOCK & LOAD just works.
   const { setDryCredit } = cab;
@@ -456,9 +461,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       console.info(`[tb-fire] session ${gen} start: ${rounds} rounds`);
       stop.current = false;
       let prev = 0;
+      const seenBase = netSeenRef.current;
       void storm(
         rounds,
-        (n, last) => {
+        (n, last, net) => {
+          if (net) setNetSeen((netSeenRef.current = seenBase + net.seen));
           const d = n - prev;
           prev = n;
           landed(d, last ?? null);
@@ -1025,6 +1032,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
         <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
 
+        {!loadout && !over && mode === 'live' && !dry && <LiveTxBadge last={run.last} sent={run.sent} seen={netSeen} />}
         {!loadout && !over && <DamageFx ref={dmgFx} hp={hud?.hp ?? TUNING.player.hp} hpMax={TUNING.player.hp} />}
         {!loadout && !over && (
           <Hud

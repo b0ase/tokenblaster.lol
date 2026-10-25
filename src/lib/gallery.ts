@@ -81,6 +81,19 @@ export function chainHandle(h: string | null | undefined): string | null {
   return /^[a-z0-9._-]{1,30}@[a-z0-9.-]{3,30}\.[a-z]{2,}$/.test(s) && s.length <= 40 ? s : null;
 }
 
+/**
+ * The handle every round carries (owner test, 25 Oct 2026: paid rounds went out without the paymail). The wallet's
+ * paymail always wins and is kept even while the wallet is marked not answering (the gun signs every round itself,
+ * so liveness has nothing to do with the tag; the old path read the name through `live !== false` and dropped it
+ * to nothing). Else the player's name (key_ form). Null only with no wallet at all.
+ */
+export const roundHandle = (paymail: string | null | undefined, name: string | null | undefined) => chainHandle(paymail) ?? chainHandle(name);
+/** A live key_ name, not a paymail: the storm looks the paymail up once more before it fires. */
+export const needsPaymail = (h: string | null | undefined) => !h || !h.includes('@');
+/** Per-shot budget for the handle: always the longest paymail (40), so a paymail that arrives after LOCK & LOAD
+ * (or replaces a key_ name at the trigger) still fits the lanes' fee. Spare sats stay in the lane and merge back. */
+export const HANDLE_BUDGET = 40;
+
 /** The pushes after <chain:n>: the game, then the handle when there is one. */
 export const galleryPushes = (handle: string | null) => [GALLERY_GAME, ...(handle ? [handle] : [])];
 
