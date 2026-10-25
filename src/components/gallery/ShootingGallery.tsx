@@ -58,6 +58,7 @@ import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal, Ticker } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
+import { GunUnload } from '../GunUnload';
 import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
@@ -1091,6 +1092,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 packLeft={packLeft}
                 ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}
                 error={err ?? b.error}
+                unload={<GunUnload b={b} disabled={mode !== 'off'} className="mt-1" />}
               />
             }
             cabinet={

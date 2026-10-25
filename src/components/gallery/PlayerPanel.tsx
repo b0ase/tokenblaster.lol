@@ -7,6 +7,8 @@
 import { IdentityPicker } from '../PlayerBadge';
 import { Icon } from '../coinop/ui';
 import { PRACTICE } from '@/lib/gallery/story';
+import { GUN_KEY_NOTE } from '@/lib/tokenLoad';
+import type { ReactNode } from 'react';
 
 /** Wallet and validator errors in plain words (owner, 25 Oct: "A truthy value is required." is not English). */
 export function plainError(msg: string | null | undefined): string | null {
@@ -25,6 +27,8 @@ export function PlayerPanel(p: {
   packLeft: number;
   ordnance: { checking: boolean; checked: boolean; check: () => void; idle: boolean } | null;
   error: string | null | undefined;
+  /** The UNLOAD control (src/components/GunUnload.tsx): tokens and unused sats back to the wallet. */
+  unload?: ReactNode;
 }) {
   const error = plainError(p.error);
   if (p.freePlay)
@@ -57,8 +61,10 @@ export function PlayerPanel(p: {
           )}
         </span>
         <span>
-          Rounds ready: <span className="tbx-num font-bold text-white">{p.packLeft.toLocaleString()}</span>. Unused credit stays in your gun for later rounds.
+          Rounds ready: <span className="tbx-num font-bold text-white">{p.packLeft.toLocaleString()}</span>. Unused credit stays in your gun for later rounds, or unload it back to your wallet.
         </span>
+        <span className="text-xs" data-gun-key-note>{GUN_KEY_NOTE}</span>
+        {p.unload}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
         <span>X handle on your rounds:</span>
