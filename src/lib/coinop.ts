@@ -36,7 +36,7 @@ export function penceToSats(pence: number, bsvGbp: number | null | undefined): n
 export const coinSats = (bsvGbp: number | null | undefined) => penceToSats(COIN_PENCE, bsvGbp);
 
 /** The coin's description, in plain English with the exact amount (shown in the wallet prompt). */
-export const coinDescription = (game: string, sats: number, pence = COIN_PENCE) => `Insert coin: 1 credit for ${game} (${pence}p = ${sats.toLocaleString('en-GB')} sats to TokenBlaster)`;
+export const coinDescription = (game: string, sats: number, pence = COIN_PENCE) => `bINSERT COIN: 1 credit for ${game} (${pence}p = ${sats.toLocaleString('en-GB')} sats to TokenBlaster)`;
 
 const hex = (s: string) => Utils.toHex(Utils.toArray(s, 'utf8'));
 

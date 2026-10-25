@@ -130,11 +130,11 @@ export function CoinCabinet(p: {
             Free play: nothing is paid. These are practice rounds and nothing goes on chain.
           </p>
         )}
-        {!p.freePlay && <section aria-label="Insert coin" className="flex flex-col items-center gap-3">
+        {!p.freePlay && <section aria-label="bINSERT COIN" className="flex flex-col items-center gap-3">
           <div className="flex w-full items-center gap-3">
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[var(--tbx-line-hi)]" />
             <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
-              <Icon name="coin" size={14} /> Insert coin
+              <Icon name="coin" size={14} /> bINSERT COIN
             </p>
             <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[var(--tbx-line-hi)]" />
           </div>
