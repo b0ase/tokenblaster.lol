@@ -58,6 +58,8 @@ import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal, Ticker } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
+import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
+import type { AmmoCoin } from '@/lib/launch/ammoCoins';
 import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
@@ -162,6 +164,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
+  // Swap on load (owner, 25 Oct 2026): an ammo coin bought on BlastPad at LOCK & LOAD (one approval), burned per shot.
+  const [ammoCoin, setAmmoCoin] = useState<AmmoCoin | null>(null);
+  const [liveCoin, setLiveCoin] = useState<AmmoCoin | null>(null);
+  const [slipBps, setSlipBps] = useState(300);
+  const [coinStatus, setCoinStatus] = useState<string | null>(null);
+  const coinQ = useAmmoCoinQuote(ammoCoin, usdToSats(cab.pending, bsvUsd), b.ammo, slipBps);
   // FREE PLAY (production while payments are fixed): credit is on the house, so LOCK & LOAD just works.
   const { setDryCredit } = cab;
   useEffect(() => {
@@ -413,7 +421,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
 
   // Live, bursts: drain the queue with batches; failures retry with a backoff and never touch the gun.
   useEffect(() => {
-    if (dry || mode !== 'live' || pattern.kind !== 'burst') return;
+    if (dry || mode !== 'live' || pattern.kind !== 'burst' || liveCoin) return;
     let alive = true;
     let backoff = 0;
     void (async () => {
@@ -441,7 +449,41 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     return () => {
       alive = false;
     };
-  }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed]);
+  }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed, liveCoin]);
+
+  // Live, ammo coin: each round burns the coin (Gun.fireTokens), tagged like a sats round plus the paymail.
+  // Batches of up to 150 keep one ARC call in flight (scripts/token-burn-bench.ts: ~220 burns/s per lane).
+  const { fireCoinRounds } = b;
+  useEffect(() => {
+    if (dry || mode !== 'live' || !liveCoin) return;
+    let alive = true;
+    let backoff = 0;
+    void (async () => {
+      while (alive) {
+        const q = firedRef.current - sentRef.current;
+        if (q <= 0) {
+          await new Promise((r) => setTimeout(r, 60));
+          continue;
+        }
+        try {
+          const extras = Array.from({ length: Math.min(150, q) }, () => [...galleryPushes(handle), ammo]);
+          const txids = await fireCoinRounds(liveCoin.tokenId, liveCoin.burnPer, chainN.current, extras);
+          chainN.current += txids.length;
+          landed(txids.length, txids[txids.length - 1] ?? null);
+          backoff = 0;
+          sendErrors.current = 0;
+        } catch (e) {
+          sendErrors.current++;
+          backoff = Math.min(8000, backoff ? backoff * 2 : 500);
+          console.warn('[tb-fire] coin burn failed, retrying', e);
+          await new Promise((r) => setTimeout(r, backoff));
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [dry, mode, liveCoin, fireCoinRounds, handle, ammo, landed]);
 
   // Live, streams: one storm session over the prepared lanes, paused whenever the queue is empty. If it ends
   // with rounds still queued (a network failure), it reloads by itself and carries on; after 3 tries: jammed.
@@ -768,6 +810,18 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       sessionGen.current++;
       sessionAlive.current = false;
       await b.endSession();
+      if (ammoCoin) {
+        // Swap on load: ONE approval buys the coin into the gun with the gunpowder (src/lib/launch/swapLoad.ts).
+        if (!coinQ.quote) throw new Error(`No live $${ammoCoin.sym} quote yet. Try again in a moment.`);
+        const r = await b.swapLoadCoin(ammoCoin, coinQ.quote, setCoinStatus);
+        cab.onClear(); // the coins in the slot paid for the swap
+        const shots = Math.min(coinQ.quote.rounds, Number(r.tokens / ammoCoin.burnPer));
+        setLiveCoin(ammoCoin);
+        setLoadingRounds(shots);
+        goLive(shots, continued);
+        return;
+      }
+      setLiveCoin(null);
       // The REAL spendable balance (chain + the wallet's payment + our own change), never a stale number.
       const avail = await b.refreshGun();
       loadMark(`lock & load: gun has ${avail} sats`);
@@ -793,6 +847,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       setLocking(false);
+      setCoinStatus(null);
     }
   };
   // Opening LOADOUT ends live fire; rounds already fired still finish sending, the rest stays as credit.
@@ -842,7 +897,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   useEffect(() => {
     lockRef.current = lockAndLoad;
   });
-  const startCabinet = () => (freePlay ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
+  const startCabinet = () => (freePlay || (ammoCoin && !dry) ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
 
   const buys = (usd: number) => {
     const sats = usdToSats(usd, bsvUsd);
@@ -1094,6 +1149,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
               />
             }
             cabinet={
+              <>
+              <AmmoCoinPick chosen={ammoCoin} setChosen={setAmmoCoin} payUsd={cab.pending} quote={coinQ.quote} quoteErr={coinQ.err} slippageBps={slipBps} setSlippageBps={setSlipBps} status={coinStatus} disabled={locking} />
               <CoinCabinet
                 title="Shooting Gallery"
                 creditUsd={cab.creditUsd}
@@ -1119,6 +1176,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 freePlay={freePlay}
                 walletName={cab.walletName}
               />
+              </>
             }
           />
         )}

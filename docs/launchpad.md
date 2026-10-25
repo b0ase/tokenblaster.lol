@@ -25,6 +25,16 @@ The database (Hetzner Supabase, `db/007`, `db/008`) is the ledger; writes go thr
    broadcasts to ARC (idempotent) and moves the pool. A signed-but-uncommitted trade is booked later by `reconcile()`.
 Sell proceeds land as the wallet's change (BRC-100 wallets count external input value).
 
+## Ammo coins: swap on load, burn on fire (`src/lib/launch/ammoCoins.ts`, `swapLoad.ts`)
+At LOCK & LOAD a cabinet can sell a BlastPad coin as ammo. One buy (`prepare` with `purpose: "ammo"`, `to` = the gun's
+address) delivers the tokens straight to the gun; the wallet adds the gunpowder (P2PKH to the gun) as an extra output
+of the same createAction, so buy + load is ONE approval. Each shot burns `burnPer` tokens to the burn address
+(`Gun.fireTokens`, tagged like a sats round plus the paymail). A coin with an empty `tokenId` is hidden.
+Discount (`discountBps`, default 0, capped by `maxSubsidySats`, max 50%): the server adds one house input
+(`AMMO_SUBSIDY_WIF`, env only, confirmed coin with a WoC BEEF) and its change to the plan; the curve still gets the
+full price, the wallet funds the rest, `matchesPlan` checks the house input/change like the pool's, and `sign`
+signs it. No key set = no discount. Keep it under the ~2% round-trip fee or it can be arbitraged (buy cheap, sell).
+
 ## Launch (`/api/launch/new`)
 Creator signs the launch message (BRC-3, protocol `[1,"tokenblaster launch"]`, keyID = slot). Launch tx:
 `[0]` image inscription → creator, `[1]` deploy+mint 1B (icon `_0`) → token pool, `[2]` 25,000 sats → house, `[3]` 0.1 BSV → the coin's index key (forwarded to its GorillaPool fund).

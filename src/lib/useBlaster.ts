@@ -15,6 +15,8 @@ import { chainHandle, needsPaymail } from './gallery';
 import { setProofWallet } from './xproof';
 import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
+import type { AmmoCoin, SwapLoadQuote } from './launch/ammoCoins';
+import { swapLoad } from './launch/swapLoad';
 
 /**
  * No background wallet calls (owner, 25 Oct 2026): connecting asks only for the identity key. The wallet's token
@@ -434,5 +436,34 @@ export function useBlaster() {
     }
   }, [wallet, refreshGun]);
 
-  return { wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  /**
+   * Swap on load (owner, 25 Oct 2026): ONE approval buys an ammo coin on its BlastPad curve straight into the
+   * gun, with the gunpowder for the burns in the same tx (src/lib/launch/swapLoad.ts). The gun adopts both.
+   */
+  const swapLoadCoin = useCallback(
+    async (coin: AmmoCoin, q: SwapLoadQuote, onStatus?: (s: string) => void) => {
+      const g = gun.current;
+      if (!wallet || !g) throw new Error('Connect a wallet first.');
+      const r = await swapLoad(wallet.client, g.address, wallet.address, coin, q, onStatus);
+      g.adoptTokenCoin(coin.tokenId, r.tx, 0, r.tokens);
+      if (r.fuelVout !== null) await g.load(r.tx);
+      setToken({ id: coin.tokenId, sym: coin.sym, icon: null, dec: 0 });
+      setTokenAmmo(Number(r.tokens / (coin.burnPer > BigInt(0) ? coin.burnPer : BigInt(1))));
+      setAmmo(g.sats);
+      setReceipt({ text: `Bought ${r.tokens.toLocaleString()} $${coin.sym} on BlastPad straight into your gun`, txid: r.txid });
+      return r;
+    },
+    [wallet],
+  );
+  /** Burn ammo-coin rounds: `per` tokens per extra, each tx tagged like a sats round (Gun.fireTokens). */
+  const fireCoinRounds = useCallback(async (tokenId: string, per: bigint, startN: number, extras: string[][]) => {
+    const g = gun.current;
+    if (!g) throw new Error('No gun.');
+    const txids = await g.fireTokens(tokenId, per, startN, extras);
+    setAmmo(g.sats);
+    setTokenAmmo((n) => Math.max(0, n - txids.length));
+    return txids;
+  }, []);
+
+  return { swapLoadCoin, fireCoinRounds, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

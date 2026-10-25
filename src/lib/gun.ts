@@ -35,7 +35,55 @@ export const bsv21 = (id: string, amt: bigint, address: string) =>
     `OP_0 OP_IF ${hex('ord')} OP_1 ${hex('application/bsv-20')} OP_0 ${hex(JSON.stringify({ p: 'bsv-20', op: 'transfer', id, amt: amt.toString() }))} OP_ENDIF ${new P2PKH().lock(address).toASM()}`,
   );
 
-type TokCoin = { id: string; tx: Transaction; vout: number; amt: bigint };
+export type TokCoin = { id: string; tx: Transaction; vout: number; amt: bigint };
+
+/**
+ * An input's source without its ancestry (the tx re-parsed, so its own inputs carry only txids). Signing a
+ * long chain with linked source transactions walks the whole graph for every tx (quadratic: 5.6 ms/tx at
+ * 25, 27 ms/tx at 200 in scripts/token-burn-bench.ts); cut like this it stays flat.
+ */
+const shallowSource = (tx: Transaction, vout: number) => ({ sourceTransaction: Transaction.fromBinary(tx.toBinary()), sourceOutputIndex: vout });
+
+/**
+ * The chain of token bullets (swap on load, 25 Oct 2026; used by Gun.fireTokens and the burn bench): each
+ * tx spends the last token coin and the last fee coin, sends `per` to `to`, keeps the rest in the gun and
+ * carries the tag [TAG, id, n, ...extras[i]]. Stops early when tokens or fee sats run out.
+ */
+export async function buildTokenBurns(
+  key: PrivateKey,
+  id: string,
+  per: bigint,
+  startN: number,
+  extras: string[][],
+  start: TokCoin,
+  fee: { tx: Transaction; vout: number },
+  to = BURN_ADDRESS,
+): Promise<{ tx: Transaction; tok: TokCoin | null; sats: { tx: Transaction; vout: number } }[]> {
+  const me = key.toAddress();
+  const chain: { tx: Transaction; tok: TokCoin | null; sats: { tx: Transaction; vout: number } }[] = [];
+  let tok = start;
+  let sats = fee;
+  for (let i = 0; i < extras.length && tok.amt >= per; i++) {
+    const rest = tok.amt - per;
+    const tx = new Transaction();
+    tx.addInput({ ...shallowSource(tok.tx, tok.vout), unlockingScriptTemplate: new P2PKH().unlock(key) });
+    tx.addInput({ ...shallowSource(sats.tx, sats.vout), unlockingScriptTemplate: new P2PKH().unlock(key) });
+    tx.addOutput({ lockingScript: bsv21(id, per, to), satoshis: 1 });
+    if (rest > BigInt(0)) tx.addOutput({ lockingScript: bsv21(id, rest, me), satoshis: 1 });
+    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, id, String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
+    tx.addOutput({ lockingScript: new P2PKH().lock(me), change: true });
+    await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
+    await tx.sign();
+    const changeVout = tx.outputs.length - 1;
+    if ((tx.outputs[changeVout].satoshis ?? 0) < 1) break; // out of sats for fees
+    const nextTok: TokCoin | null = rest > BigInt(0) ? { id, tx, vout: 1, amt: rest } : null;
+    chain.push({ tx, tok: nextTok, sats: { tx, vout: changeVout } });
+    sats = { tx, vout: changeVout };
+    if (!nextTok) break;
+    tok = nextTok;
+  }
+  return chain;
+}
 
 type Saved = {
   wif: string;
@@ -612,28 +660,7 @@ export class Gun {
         if (!this.coin) throw new Error('No sats in the gun for fees. Load some first.');
         start = await this.tokenCoin(id);
         if (!start || start.amt < per) throw new Error('No tokens in the gun. Load some first.');
-        chain = [];
-        let tok: TokCoin = start;
-        let sats = this.coin;
-        for (let i = 0; i < extras.length && tok.amt >= per; i++) {
-          const rest = tok.amt - per;
-          const tx = new Transaction();
-          tx.addInput({ sourceTransaction: tok.tx, sourceOutputIndex: tok.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-          tx.addInput({ sourceTransaction: sats.tx, sourceOutputIndex: sats.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-          tx.addOutput({ lockingScript: bsv21(id, per, to), satoshis: 1 });
-          if (rest > BigInt(0)) tx.addOutput({ lockingScript: bsv21(id, rest, this.address), satoshis: 1 });
-          tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, id, String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
-          tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-          await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-          await tx.sign();
-          const changeVout = tx.outputs.length - 1;
-          if ((tx.outputs[changeVout].satoshis ?? 0) < 1) break; // out of sats for fees
-          const nextTok: TokCoin | null = rest > BigInt(0) ? { id, tx, vout: 1, amt: rest } : null;
-          chain.push({ tx, tok: nextTok, sats: { tx, vout: changeVout } });
-          sats = { tx, vout: changeVout };
-          if (!nextTok) break;
-          tok = nextTok;
-        }
+        chain = await buildTokenBurns(this.key, id, per, startN, extras, start, this.coin, to);
         if (!chain.length) throw new Error('Out of sats for fees.');
         // The first bullet after a load spends the wallet's load tx: make sure ARC has it.
         if (this.loadTx && !(await this.known(this.loadTx.id('hex')))) await this.send(this.loadTx).catch(() => undefined);

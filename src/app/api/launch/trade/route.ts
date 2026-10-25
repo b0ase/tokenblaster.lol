@@ -9,6 +9,9 @@ import { NextResponse } from 'next/server';
 import { Beef, Transaction } from '@bsv/sdk';
 import { GRAD_SOLD, INDEX_FEE, MAX_BUY, MIN_BUY, quoteBuy, quoteSell } from '@/lib/launch/curve';
 import { bsv20Json, matchesPlan, p2pkh, tokenOut, type OutSpec, type TradePlan } from '@/lib/launch/shape';
+import { ammoCoinById, subsidyFor } from '@/lib/launch/ammoCoins';
+import { pickSubsidyCoin, subsidyAddress, subsidyConfigured, subsidyKey } from '@/lib/launch/subsidy';
+import { withSubsidy } from '@/lib/launch/subsidyPlan';
 import { HOUSE, broadcast, compactBeef, configured, fundAddressOf, indexedTokenAmt, poolKey, rpc, signInput, spentBy, type CoinRow } from '@/lib/launch/server';
 
 export const dynamic = 'force-dynamic';
@@ -24,6 +27,8 @@ type Stored = TradePlan & {
   fundAddress: string | null;
   sellerCoins: string[];
   allowedTokenOut: string; // tokens of this id the extra outputs may carry (seller's change)
+  /** Ammo-coin discount: the house input (server signed with AMMO_SUBSIDY_WIF) and its proof. */
+  subsidy?: { index: number; outpoint: string; beef: string; sats: string };
   signed?: boolean;
 };
 
@@ -149,12 +154,33 @@ async function prepare(b: Record<string, unknown>) {
       outputs.push({ script: p2pkh(fundAddress), sats: indexFee, what: 'token index fund' });
     }
 
+    // Ammo-coin discount (src/lib/launch/subsidyPlan.ts): the house pays discountBps of the buy with its own
+    // input, inside the same transaction. Config from ammoCoins.ts only, never from the request.
+    let subsidy: Stored['subsidy'];
+    const ammoCoin = side === 'buy' && b.purpose === 'ammo' ? ammoCoinById(token) : null;
+    const off = ammoCoin ? subsidyFor(BigInt(Math.floor(Number(b.amount))), ammoCoin.discountBps, ammoCoin.maxSubsidySats) : BigInt(0);
+    if (off > BigInt(0) && subsidyConfigured()) {
+      const coin = await pickSubsidyCoin(Number(off));
+      if (coin) {
+        const w = withSubsidy(inputs, outputs, coin, off, subsidyAddress()!);
+        inputs.splice(0, inputs.length, ...w.inputs);
+        outputs.splice(0, outputs.length, ...w.outputs);
+        subsidy = { index: w.inputIndex, outpoint: coin.outpoint, beef: coin.beef, sats: off.toString() };
+      }
+    }
+
     // Slippage: the client says what it expects; refuse if the curve has moved too far.
     const minTokens = b.minTokens ? BigInt(String(b.minTokens)) : BigInt(0);
     const minSats = b.minSats ? BigInt(String(b.minSats)) : BigInt(0);
     if (side === 'buy' && q.tokens < minTokens) throw new Error('The price moved past your slippage limit. Quote again.');
     if (side === 'sell' && q.userSats < minSats) throw new Error('The price moved past your slippage limit. Quote again.');
 
+    let beefHex = row.beef;
+    if (subsidy) {
+      const merged = Beef.fromString(row.beef, 'hex');
+      merged.mergeBeef(Beef.fromString(subsidy.beef, 'hex'));
+      beefHex = merged.toHex();
+    }
     const plan: Stored = {
       lease,
       side,
@@ -162,7 +188,7 @@ async function prepare(b: Record<string, unknown>) {
       sym: row.sym,
       inputs,
       outputs,
-      beef: row.beef,
+      beef: beefHex,
       quote: {
         tokens: q.tokens.toString(),
         curveSats: q.curveSats.toString(),
@@ -171,6 +197,7 @@ async function prepare(b: Record<string, unknown>) {
         userSats: q.userSats.toString(),
         soldAfter: q.soldAfter.toString(),
         indexFee,
+        ...(subsidy ? { subsidy: subsidy.sats } : {}),
       },
       expires: Date.now() + LEASE_SECS * 1000,
       trader,
@@ -182,11 +209,12 @@ async function prepare(b: Record<string, unknown>) {
       fundAddress,
       sellerCoins,
       allowedTokenOut: allowed.toString(),
+      ...(subsidy ? { subsidy } : {}),
     };
     const { beef: _omit, ...toStore } = plan;
     void _omit;
     await rpc('tokenblaster_launch_set_quote', { p_lease: lease, p_quote: toStore });
-    return NextResponse.json({ plan: { ...plan, trader: undefined, roles: undefined } });
+    return NextResponse.json({ plan: { ...plan, trader: undefined, roles: undefined, subsidy: undefined } });
   } catch (e) {
     await rpc('tokenblaster_launch_release', { p_lease: lease }).catch(() => undefined);
     throw e;
@@ -234,9 +262,15 @@ async function sign(b: Record<string, unknown>) {
   if (why) throw new Error(`Refusing to sign: ${why}`);
   const beef = Beef.fromString(row.beef!, 'hex');
   const spends: Record<number, string> = {};
+  if (plan.subsidy) beef.mergeBeef(Beef.fromString(plan.subsidy.beef, 'hex'));
   for (let i = 0; i < plan.inputs.length; i++) {
     const [txid] = plan.inputs[i].outpoint.split('_');
     const src = beef.findTxid(txid)?.tx;
+    if (plan.subsidy && i === plan.subsidy.index) {
+      if (!src) throw new Error('Discount coin history is missing; try again.');
+      spends[i] = await signInput(tx, i, subsidyKey(), src);
+      continue;
+    }
     if (!src) throw new Error('Pool history is missing; try again.');
     const key = poolKey(row.slot, i === 0 ? 'token' : 'reserve');
     spends[i] = await signInput(tx, i, key, src);
