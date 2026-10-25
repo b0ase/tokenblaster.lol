@@ -7,6 +7,7 @@ import { useHandleVerified, useMyHandle, VerifyButton } from '@/components/Playe
 import { disconnectSiteWallet, openChooser, openSiteWallet, setSiteWalletError } from '@/lib/siteWallet';
 import { useSiteWallet } from '@/lib/useSiteWallet';
 import { usePhoneLink } from '@/lib/pair/usePhoneLink';
+import { DECLINED_TEXT } from '@/lib/pair/site';
 import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
 import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, chipState, getBarWallet, idLabel, subBarWallet } from '@/lib/walletBar';
 import { GiftIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MuteIcon, PhoneIcon, TrophyIcon, VolumeIcon } from './icons';
@@ -157,9 +158,16 @@ export function WalletBarChip() {
           {err && (
             <div className="px-3 py-2 text-[11px] text-red-400">
               <p>{err}</p>
-              <button type="button" className="mt-1 font-semibold text-[#F5B800] underline" onClick={choose}>
-                Pick a wallet or scan a new code
-              </button>
+              {/* Declined in bWallet: the pairing is fine, so no re-pair; the player just asks again. */}
+              {err === DECLINED_TEXT ? (
+                <button type="button" className="mt-1 font-semibold text-[#F5B800] underline" data-wallet-declined onClick={() => (setOpen(false), setSiteWalletError(null))}>
+                  OK
+                </button>
+              ) : (
+                <button type="button" className="mt-1 font-semibold text-[#F5B800] underline" onClick={choose}>
+                  Pick a wallet or scan a new code
+                </button>
+              )}
             </div>
           )}
           {phone === 'asleep' && (
