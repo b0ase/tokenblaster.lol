@@ -12,11 +12,12 @@ const gun = PrivateKey.fromRandom().toAddress();
 const house = PrivateKey.fromRandom().toAddress();
 const coin: AmmoCoin = { key: 't', sym: 'TERRORNODE', tokenId: ID, burnPer: BigInt(1) };
 
-test('TERRORNODE is configured but hidden while its token id is empty, no discount field', () => {
+test('TERRORNODE is live with its launched token id, no discount field', () => {
   const t = AMMO_COINS.find((c) => c.key === 'terrornode')!;
-  assert.equal(t.tokenId, '');
+  assert.match(t.tokenId, /^[0-9a-f]{64}_1$/);
   assert.equal('discountBps' in t, false);
-  assert.equal(activeAmmoCoins().length, 0);
+  assert.equal(activeAmmoCoins().length, 1);
+  assert.equal(ammoCoinById(t.tokenId)?.sym, 'TERRORNODE');
   assert.equal(ammoCoinById(ID), null);
   assert.equal(ammoCoinById(ID, [coin])?.sym, 'TERRORNODE');
 });
