@@ -5,9 +5,9 @@
  */
 import { Beef, P2PKH, PublicKey, Transaction, UnlockingScript, Utils, type WalletInterface } from '@bsv/sdk';
 import { BSV21 } from '@1sat/templates';
-import { inscriptionScript } from '../inscribe';
-import { ONESAT, noteFor, stampIds, tokenSpends } from '../tokenLoad';
-import { tokenCoins } from '../tokens';
+import { noteFor, ourSpends, pickCoins, stampIds, tokenChange, type Coin } from '../tokenLoad';
+import { receiveKey, receiveNote, type ReceiveKey } from '../siteTokens';
+import { launchImageOutput } from './launchImage';
 import type { Wallet } from '../wallet';
 import { INDEX_LAUNCH, LAUNCH_FEE, quoteBuy, quoteSell } from './curve';
 import { matchesPlan, type Route, type TradePlan } from './shape';
@@ -21,12 +21,6 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 
 const sha256hex = async (data: Uint8Array) => Utils.toHex(Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data as BufferSource))));
 
-async function freshTokenKey(wallet: WalletInterface, id: string) {
-  const keyID = `${id}-${Date.now()}`; // the 1Sat wallets' own key pattern for token coins
-  const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
-  return { keyID, address: PublicKey.fromString(publicKey).toAddress() };
-}
-
 export type LaunchForm = { sym: string; name: string; description: string; route: Route; image: { bytes: Uint8Array; type: string } };
 
 /** Launch a coin. Returns its token id. */
@@ -38,10 +32,13 @@ export async function launchCoin(w: Wallet, f: LaunchForm): Promise<string> {
 
   const { signature } = await w.client.createSignature({ data: Utils.toArray(p.message, 'utf8'), protocolID: [1, 'tokenblaster launch'], keyID: p.slot, counterparty: 'anyone' });
   const deploy = BSV21.deployMint(f.sym, BigInt(1_000_000_000), 0, '_0').lock(new P2PKH().lock(p.tokenAddress));
+  // The image is the creator's: in bWalletX it goes to an ordinal key the wallet picked, as a plain
+  // inscription (nothing after the P2PKH) into '1sat'. The supply goes to the POOL key, never the wallet.
+  const image = await launchImageOutput(w, f);
   const r = await w.client.createAction({
     description: `Launch $${f.sym} on TokenBlaster: 1,000,000,000 tokens into its bonding curve`,
     outputs: [
-      { lockingScript: inscriptionScript(w.address, { contentType: f.image.type, data: Array.from(f.image.bytes) }, { app: 'tokenblaster.lol', type: 'launch', sym: f.sym }).toHex(), satoshis: 1, outputDescription: `$${f.sym} image (yours)` },
+      image,
       { lockingScript: deploy.toHex(), satoshis: 1, outputDescription: `$${f.sym}: 1B supply into the curve` },
       { lockingScript: new P2PKH().lock(p.house).toHex(), satoshis: LAUNCH_FEE, outputDescription: 'TokenBlaster launch fee' },
       { lockingScript: new P2PKH().lock(p.indexAddress).toHex(), satoshis: INDEX_LAUNCH, outputDescription: `$${f.sym} token index fund (0.1 BSV)` },
@@ -73,21 +70,17 @@ export async function trade(
   const minTokens = side === 'buy' ? (expect.tokens * BigInt(10_000 - slippageBps)) / BigInt(10_000) : BigInt(0);
   const minSats = side === 'sell' ? (expect.userSats * BigInt(10_000 - slippageBps)) / BigInt(10_000) : BigInt(0);
 
-  let buyKey: { keyID: string; address: string } | null = null;
-  const sellCoins: { outpoint: string; amt: bigint; protocolID: [0 | 1 | 2, string]; keyID: string }[] = [];
+  // Buy: a fresh receive key (bWalletX picks its keyID). Sell: the coins, from the wallet's basket
+  // or (bWalletX) the receive keys it gave us; bWalletX signs those itself.
+  let buyKey: ReceiveKey | null = null;
+  let sellCoins: Coin[] = [];
   let walletBeef: number[] | undefined;
-  if (side === 'buy') buyKey = await freshTokenKey(w.client, coin.id);
+  if (side === 'buy') buyKey = await receiveKey(w.client, coin.id);
   else {
-    const { coins, beef } = await tokenCoins(w.client, true);
-    const mine = coins.filter((c) => c.id === coin.id && c.keyID && c.noted).sort((a, b) => (b.amt > a.amt ? 1 : -1));
-    let sum = BigInt(0);
-    for (const c of mine) {
-      if (sum >= amount) break;
-      sellCoins.push({ outpoint: c.outpoint.replace('.', '_'), amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! });
-      sum += c.amt;
-    }
-    if (sum < amount) throw new Error(`Your wallet holds ${sum.toLocaleString()} $${coin.sym}.`);
-    walletBeef = beef;
+    const picked = await pickCoins(w.client, coin.id, amount);
+    if (picked.sum < amount) throw new Error(`Your wallet holds ${picked.sum.toLocaleString()} $${coin.sym}.`);
+    sellCoins = picked.use.map((c) => ({ ...c, outpoint: c.outpoint.replace('.', '_') }));
+    walletBeef = picked.beef;
   }
 
   onStatus?.('Quoting…');
@@ -131,23 +124,16 @@ export async function trade(
       satoshis: o.sats,
       outputDescription: o.what,
       ...(side === 'buy' && i === 0
-        ? { basket: 'bsv21', tags: [`bsv21:${coin.id}`], customInstructions: noteFor(coin.id, BigInt(q.tokens), coin.sym, 0, buyKey!.keyID, coin.icon) }
+        ? {
+            basket: 'bsv21',
+            ...(buyKey!.walletSigns ? {} : { tags: [`bsv21:${coin.id}`] }),
+            customInstructions: receiveNote(buyKey!, () => noteFor(coin.id, BigInt(q.tokens), coin.sym, 0, buyKey!.keyID, coin.icon, buyKey!.protocolID)),
+          }
         : {}),
     }));
     const sellTotal = sellCoins.reduce((n, c) => n + c.amt, BigInt(0));
-    if (side === 'sell' && sellTotal > amount) {
-      const ch = await freshTokenKey(w.client, coin.id);
-      const left = sellTotal - amount;
-      const { bsv21 } = await import('../gun');
-      outputs.push({
-        lockingScript: bsv21(coin.id, left, ch.address).toHex(),
-        satoshis: 1,
-        outputDescription: `The rest of your $${coin.sym}`,
-        basket: 'bsv21',
-        tags: [`bsv21:${coin.id}`],
-        customInstructions: noteFor(coin.id, left, coin.sym, 0, ch.keyID, coin.icon),
-      });
-    }
+    // Token change to a fresh receive key, delivered like a buy.
+    if (side === 'sell' && sellTotal > amount) outputs.push(await tokenChange(w.client, coin.id, sellTotal - amount, coin.sym, 0, coin.icon, `The rest of your $${coin.sym}`));
     const n = Number(q.tokens).toLocaleString();
     onStatus?.('Approve in your wallet…');
     const created = await w.client.createAction({
@@ -175,13 +161,14 @@ export async function trade(
       const { spends: pool } = await post<{ spends: Record<number, string> }>('/api/launch/trade', { step: 'sign', lease: plan.lease, tx: Utils.toHex(signable.tx) });
       const spends: Record<number, { unlockingScript: string }> = {};
       for (const [i, s] of Object.entries(pool)) spends[Number(i)] = { unlockingScript: s };
-      const base = plan.inputs.length;
-      Object.assign(spends, await tokenSpends(w.client, tx, sellCoins.map((c, k) => ({ index: base + k, protocolID: c.protocolID, keyID: c.keyID }))));
+      // Our own pool spends, plus signatures only for coins we sign; bWalletX signs its own token inputs.
+      Object.assign(spends, await ourSpends(w.client, tx, sellCoins, plan.inputs.length));
       onStatus?.('Sending…');
       const done = await w.client.signAction({ reference: signable.reference, spends });
       sent = true;
       let finalTx: number[];
       if (done.tx) finalTx = Array.from(done.tx);
+      else if (sellCoins.some((c) => c.walletSigns)) throw new Error('The wallet signed but returned no transaction.');
       else {
         tx.inputs.forEach((inp, i) => spends[i] && (inp.unlockingScript = UnlockingScript.fromHex(spends[i].unlockingScript)));
         finalTx = tx.toAtomicBEEF();

@@ -8,7 +8,7 @@
 import { NextResponse } from 'next/server';
 import { Beef, Transaction } from '@bsv/sdk';
 import { GRAD_SOLD, INDEX_FEE, MAX_BUY, MIN_BUY, quoteBuy, quoteSell } from '@/lib/launch/curve';
-import { bsv20Json, matchesPlan, p2pkh, tokenOut, type OutSpec, type TradePlan } from '@/lib/launch/shape';
+import { checkTokens, matchesPlan, p2pkh, tokenOut, type OutSpec, type TradePlan } from '@/lib/launch/shape';
 import { HOUSE, broadcast, compactBeef, configured, fundAddressOf, indexedTokenAmt, poolKey, rpc, signInput, spentBy, type CoinRow } from '@/lib/launch/server';
 
 export const dynamic = 'force-dynamic';
@@ -198,30 +198,6 @@ async function leased(lease: unknown): Promise<{ row: CoinRow; plan: Stored }> {
   const [row] = await rpc<CoinRow[]>('tokenblaster_launch_by_lease', { p_lease: lease });
   if (!row?.lease_quote) throw new Error('This quote expired. Quote again.');
   return { row, plan: row.lease_quote as unknown as Stored };
-}
-
-/** Every extra input/output must leave this coin's tokens alone (except the seller's own). */
-function checkTokens(tx: Transaction, plan: Stored): string | null {
-  for (let i = plan.inputs.length; i < tx.inputs.length; i++) {
-    const inp = tx.inputs[i];
-    const src = inp.sourceTransaction?.outputs[inp.sourceOutputIndex];
-    const op = `${inp.sourceTXID ?? inp.sourceTransaction?.id('hex')}_${inp.sourceOutputIndex}`;
-    const j = src ? bsv20Json(src.lockingScript.toHex()) : null;
-    const carries = j && (j.id === plan.tokenId || (j.op === 'deploy+mint' && op === plan.tokenId));
-    if (carries && !plan.sellerCoins.includes(op)) return 'The transaction spends tokens it was not quoted for.';
-    if (!src && plan.sellerCoins.includes(op)) return 'Missing history for your token coin.';
-  }
-  let extra = BigInt(0);
-  for (let i = plan.outputs.length; i < tx.outputs.length; i++) {
-    const j = bsv20Json(tx.outputs[i].lockingScript.toHex());
-    if (j?.id === plan.tokenId) extra += BigInt(j.amt ?? 0);
-  }
-  if (extra > BigInt(plan.allowedTokenOut)) return 'The transaction sends more of this coin than it spends.';
-  if (plan.side === 'sell') {
-    const spent = plan.sellerCoins.filter((c) => tx.inputs.some((inp) => `${inp.sourceTXID ?? inp.sourceTransaction?.id('hex')}_${inp.sourceOutputIndex}` === c));
-    if (spent.length !== plan.sellerCoins.length) return 'Your token coins are missing from the transaction.';
-  }
-  return null;
 }
 
 async function sign(b: Record<string, unknown>) {
