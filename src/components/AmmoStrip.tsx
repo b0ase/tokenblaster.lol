@@ -8,6 +8,8 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { TOKEN_FEE } from '@/lib/gun';
+import { MAX_TOKEN_LOAD_ROUNDS } from '@/lib/tokenLoad';
+import { GunKeyNote, GunUnload } from './GunUnload';
 import { iconUrl } from '@/lib/tokens';
 import type { useBlaster } from '@/lib/useBlaster';
 import { houseFirst, houseHeld, type GameCoin } from '@/lib/gameCoins';
@@ -104,7 +106,7 @@ export function AmmoStrip({
 
   const heldTok = b.tokens.find((t) => t.id === b.token?.id);
   const held = Math.max(0, Math.floor(heldTok?.balance ?? 0));
-  const count = Math.max(1, Math.min(tokenLoad, held));
+  const count = Math.max(1, Math.min(tokenLoad, held, MAX_TOKEN_LOAD_ROUNDS));
   const stepNo = !b.wallet ? 1 : armed ? 3 : 2;
   const stepCls = (n: number) => `inset flex flex-col gap-2 bg-black/60 p-2 ${stepNo === n ? 'border-fg' : stepNo > n ? 'opacity-80' : 'pointer-events-none opacity-40'}`;
   const spinning = loading || waiting;
@@ -200,6 +202,7 @@ export function AmmoStrip({
             {satsMode ? (
               <>
                 {sats!.picker}
+                <GunKeyNote />
                 <button onClick={load} disabled={!!b.busy || spinning} className="btn px-3 py-2 font-bold">
                   {spinning ? (
                     <span className="inline-flex items-center gap-2">
@@ -227,8 +230,9 @@ export function AmmoStrip({
                     </button>
                   </div>
                   <p className="text-xs text-dim">
-                    One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(count * TOKEN_FEE).toLocaleString()} sats of network fees. No refunds: unfired fees stay as credit.
+                    One bullet = one ${b.token.sym} = one transaction. One approval loads the tokens plus {(count * TOKEN_FEE).toLocaleString()} sats of network fees. Up to {MAX_TOKEN_LOAD_ROUNDS.toLocaleString()} per load.
                   </p>
+                  <GunKeyNote />
                   <button onClick={load} disabled={!!b.busy || spinning} className="btn px-3 py-2 font-bold">
                     {spinning ? (
                       <span className="inline-flex items-center gap-2">
@@ -263,6 +267,8 @@ export function AmmoStrip({
                 </>
               )}
             </p>
+            <GunKeyNote />
+            <GunUnload b={b} />
             <button onClick={onPlay} disabled={!playReady} className="btn-fire animate-pulse !px-3">
               {playLabel}
             </button>
