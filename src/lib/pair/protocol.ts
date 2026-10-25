@@ -9,7 +9,7 @@
  *   frame:  { s: seq, n: nonce b64, d: ciphertext b64 }, AAD = "<sender role>|<s>", s strictly increasing
  *   code:   first 2 bytes of SHA-256(key bits) → 4 digits, shown on both screens
  */
-import { PrivateKey, PublicKey } from '@bsv/sdk';
+import { PrivateKey, PublicKey, Utils } from '@bsv/sdk';
 
 export const PAIR_VERSION = '1';
 export const PAIR_INFO = 'bwallet-pair-v1';
@@ -22,7 +22,8 @@ export const QR_LIFETIME_S = 120;
 export type Role = 'site' | 'wallet';
 export type WalletInfo = { name: string; icon?: string; rdns: string };
 
-export type PairLink = { v: string; r: string; c: string; k: string; o: string; e: number };
+/** `s` (optional): the site's origin proof, a DER signature (hex) over pairProofMessage by a key in its well-known file. */
+export type PairLink = { v: string; r: string; c: string; k: string; o: string; e: number; s?: string };
 
 /** Plaintext messages inside encrypted frames. */
 export type PairMessage =
@@ -63,6 +64,7 @@ export const newChannel = () => b64url(crypto.getRandomValues(new Uint8Array(16)
 
 export function pairUrl(link: PairLink): string {
   const q = new URLSearchParams({ v: link.v, r: link.r, c: link.c, k: link.k, o: link.o, e: String(link.e) });
+  if (link.s) q.set('s', link.s);
   return `https://${PAIR_HOST}/pair?${q}`;
 }
 
@@ -82,8 +84,26 @@ export function parsePairUrl(text: string, nowS = Math.floor(Date.now() / 1000))
   const o = new URL(link.o);
   if (o.origin !== link.o) throw new Error('Bad pairing code');
   if (!Number.isFinite(link.e) || link.e < nowS) throw new Error('This code has expired. Ask the site for a new one.');
+  const sig = g('s');
+  if (sig && /^30[0-9a-f]{10,150}$/i.test(sig)) link.s = sig.toLowerCase();
   return link;
 }
+
+// ---- Origin proof (bwallet docs/PAIRING-ORIGIN-PROOF.md, bwallet PR #162) ----
+// Copied verbatim from bitcoin-corp/bwallet src/pair/protocol.ts. The site publishes its pairing public keys at
+// https://<origin>/.well-known/bwalletx-pair.json ({"keys":["02…"]}) and puts `s` in the QR: a signature over the
+// channel, its ephemeral key, the origin and the expiry. Without it the phone shows the host as "claims to be".
+// A valid proof only changes that label; it grants nothing.
+
+export const PAIR_PROOF_PATH = '/.well-known/bwalletx-pair.json';
+
+/** What the site signs: binds the proof to this channel and ephemeral key, so it can't be replayed elsewhere. */
+export const pairProofMessage = (l: Pick<PairLink, 'c' | 'k' | 'o' | 'e'>) =>
+  Utils.toArray(`${PAIR_INFO}|proof|${l.c}|${l.k.toLowerCase()}|${l.o}|${l.e}`, 'utf8');
+
+/** Site side (server only): sign a link with the origin's pairing key. */
+export const signPairProof = (l: Pick<PairLink, 'c' | 'k' | 'o' | 'e'>, originKey: PrivateKey) =>
+  Utils.toHex(originKey.sign(pairProofMessage(l)).toDER() as number[]);
 
 export const relaySocketUrl = (relay: string, channel: string, role: Role, expiry?: number) => {
   const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(relay);

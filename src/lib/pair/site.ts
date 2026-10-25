@@ -3,6 +3,7 @@
  * relay channel, compare the 4-digit code, then hand back a WalletInterface whose calls travel to
  * the phone, end-to-end encrypted. To the rest of the site it is just another wallet in the chooser.
  */
+import { fetchPairProof } from './proof-client';
 import { PrivateKey, type WalletInterface } from '@bsv/sdk';
 import QRCode from 'qrcode';
 import {
@@ -315,7 +316,11 @@ export function startPairing(onState: (s: PairState) => void): () => void {
     const S = PrivateKey.fromRandom();
     const c = newChannel();
     const e = Math.floor(Date.now() / 1000) + QR_LIFETIME_S;
-    const link = pairUrl({ v: PAIR_VERSION, r: RELAY, c, k: S.toPublicKey().toString(), o: location.origin, e });
+    const k = S.toPublicKey().toString();
+    const o = location.origin;
+    const s = await fetchPairProof({ c, k, o, e });
+    if (stopped) return;
+    const link = pairUrl({ v: PAIR_VERSION, r: RELAY, c, k, o, e, s });
     const qr = await QRCode.toDataURL(link, { margin: 1, width: 320 });
     if (stopped) return;
     const sock = new WebSocket(relaySocketUrl(RELAY, c, 'site', e));
