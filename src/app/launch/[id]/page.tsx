@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { CoinView } from '@/components/launch/CoinView';
 import { rpc } from '@/lib/launch/server';
+import { parseBuyUsd } from '@/lib/buyPreset';
 
-type Props = { params: Promise<{ id: string }> };
+type Props = { params: Promise<{ id: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
 /** Each coin shares under its own name (the card itself comes from opengraph-image.tsx). */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -21,8 +22,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function Page({ params }: Props) {
+export default async function Page({ params, searchParams }: Props) {
   const { id } = await params;
+  const presetUsd = parseBuyUsd((await searchParams)?.buy);
   if (!/^[0-9a-f]{64}_\d+$/.test(id)) notFound();
-  return <CoinView id={id} />;
+  return <CoinView id={id} presetUsd={presetUsd} />;
 }
