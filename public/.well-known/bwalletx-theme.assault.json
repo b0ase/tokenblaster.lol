@@ -1,13 +1,13 @@
 {
   "v": 2,
-  "name": "Assault on Terrornode",
+  "name": "TERRORNODE",
   "mode": "dark",
-  "accent": "#FF3B3B",
-  "accentHi": "#3FD8E8",
-  "bg": "#05090F",
-  "surface": "#0A121C",
-  "text": "#E8F1F6",
-  "logo": "/brand/assault-logo.svg",
-  "cardArt": "/brand/assault-card.jpg",
+  "accent": "#FF1A2E",
+  "accentHi": "#1AD8FF",
+  "bg": "#0A0204",
+  "surface": "#1C0609",
+  "text": "#F6ECEE",
+  "logo": "/brand/terrornode-wallet-logo.png",
+  "cardArt": "/brand/terrornode-wallet-card.jpg",
   "room": "ASSAULT"
 }
