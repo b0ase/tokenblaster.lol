@@ -134,8 +134,14 @@ export function CoinCabinet(p: {
         {!p.freePlay && <section aria-label="INSERT $b" className="flex flex-col items-center gap-3">
           <div className="flex w-full items-center gap-3">
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[var(--tbx-line-hi)]" />
-            <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
-              <Icon name="coin" size={14} /> INSERT <span className="normal-case">$b</span>
+            <p
+              className="tbx-display flex items-center gap-3 text-[clamp(26px,4vw,40px)] text-[var(--tbx-red)]"
+              style={{ textShadow: '0 0 18px rgba(255,59,48,.55)', animation: total <= 0 ? 'tbx-coin-blink 1.1s steps(1) infinite' : undefined }}
+              data-attract={total <= 0 ? '' : undefined}
+            >
+              {/* attract mode (owner, 25 Oct): INSERT $b flashes here while there is no credit */}
+              <style>{`@keyframes tbx-coin-blink{0%,49%{opacity:1}50%,100%{opacity:.25}}@media (prefers-reduced-motion:reduce){[data-attract]{animation:none!important}}`}</style>
+              <Icon name="coin" size={26} /> INSERT <span className="normal-case">$b</span>
             </p>
             <span className="h-px flex-1 bg-gradient-to-l from-transparent to-[var(--tbx-line-hi)]" />
           </div>
