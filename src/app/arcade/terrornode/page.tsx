@@ -25,7 +25,7 @@ export default function GalleryPage() {
     <GameShell
       title="31 Oct Stress Test · Assault on Terrornode"
       lock
-      liveTicker="TERRORNODE"
+      liveTicker="ASSAULT"
     >
       <ShootingGallery freePlay={!PAID} />
     </GameShell>
