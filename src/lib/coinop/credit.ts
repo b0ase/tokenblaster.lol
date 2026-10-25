@@ -68,10 +68,18 @@ export function cleanName(s: string | null | undefined): string | null {
   if (/^[a-z0-9_]{1,20}$/.test(t)) return t;
   return /^[a-z0-9._-]{1,30}@[a-z0-9.-]{3,30}\.[a-z]{2,}$/.test(t) && t.length <= 40 ? t : null;
 }
+/** The wallet's name for the round tag (owner, 25 Oct): its paymail, else the identity key's short form (key_ + 10 hex). */
+export function playerNameFrom(w: { paymail?: string | null; alias?: string | null; publicKey?: string | null } | null | undefined): { name: string; hasPaymail: boolean } {
+  if (!w) return { name: '', hasPaymail: false };
+  const pm = cleanName(w.paymail ?? '') ?? cleanName(w.alias ?? '');
+  if (pm) return { name: pm, hasPaymail: true };
+  const k = (w.publicKey ?? '').toLowerCase().replace(/[^0-9a-f]/g, '');
+  return { name: k ? `key_${k.slice(0, 10)}` : '', hasPaymail: false };
+}
 export const typingName = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
 
-/** START works only with credit for this play and a valid name. */
-export const canStart = (creditUsd: number, name: string | null | undefined, priceUsd: number) => hasCredit(creditUsd, priceUsd) && cleanName(name) !== null;
+/** START works with credit for this play. No name gate (owner, 25 Oct): the name is the wallet's, LOCK & LOAD connects it. */
+export const canStart = (creditUsd: number, priceUsd: number) => hasCredit(creditUsd, priceUsd);
 
 /** The OP_RETURN pushes after <chain:n> on a play payment. */
 export const playPushes = (game: string, name: string) => ['coinop', game, name];

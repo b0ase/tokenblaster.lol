@@ -857,6 +857,31 @@ body:has([data-game-shell]) > footer {
   }
 }
 
+/* lock (owner, 25 Oct 2026): the page is the game only. No page scroll, so arrow keys can't slide the action away. */
+html:has(.gs-lock),
+body:has(.gs-lock) {
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
+}
+.gs-lock .gs-root {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+.gs-lock .gs-root:fullscreen {
+  height: 100vh;
+}
+.gs-lock .gs-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.gs-lock .gs-stage .game-root {
+  height: 100%;
+  padding: 0 8px;
+}
+
 /* Gallery: the big pulsing LOCK & LOAD button. */
 @keyframes lock-load-pulse {
   0%, 100% { box-shadow: 0 0 24px rgba(232, 38, 29, 0.55), 0 0 0 0 rgba(232, 38, 29, 0.6); }

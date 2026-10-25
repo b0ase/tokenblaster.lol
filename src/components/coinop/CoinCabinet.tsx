@@ -8,21 +8,20 @@
  * Presentational only: CoinOpGate and the Shooting Gallery feed it.
  */
 import { useRef, useState } from 'react';
+import { GET_NAME_URL } from '@/lib/walletBar';
 import { sfx, unlockAudio } from '@/lib/sfx';
 import { CoinFace, CoinSlot, ControlPanel, SevenSeg } from './hardware';
 import { Icon, Modal, Ticker, useWaitSecs } from './ui';
 import { loadMark } from '@/lib/gun';
 import type { CabModal } from './useCabinet';
-import { COINS_USD, MIN_CREDIT_USD, addCoin, cleanName, fmtCredit, hasCredit, typingName } from '@/lib/coinop/credit';
+import { COINS_USD, MIN_CREDIT_USD, addCoin, fmtCredit, hasCredit } from '@/lib/coinop/credit';
 
 export type LoadStage = null | 'approve' | 'loading' | 'ready';
 
-type Missing = 'coin' | 'more' | 'name' | 'bad' | 'price' | 'wait';
+type Missing = 'coin' | 'more' | 'price' | 'wait';
 const MISSING: Record<Missing, string> = {
   coin: 'Put a coin in first.',
   more: 'Put another coin in: this game needs a little more.',
-  name: 'Type your name to play.',
-  bad: 'Use your paymail (like you@bwalletx.com) or a name of letters, numbers and _ (up to 20).',
   price: 'Checking the price. Try again in a moment.',
   wait: 'The game is still loading. One moment.',
 };
@@ -42,8 +41,10 @@ export function CoinCabinet(p: {
   onClear: () => void;
   stage: LoadStage;
   stageText?: string | null;
+  /** The wallet's paymail (or its key's short form): read only. Empty until LOCK & LOAD connects the wallet. */
   name: string;
-  setName: (s: string) => void;
+  /** False: the wallet has no paymail yet, so a "Get a name" link shows. */
+  hasPaymail?: boolean;
   priceUsd: number;
   priceNote: string;
   /** What a dollar amount buys, e.g. shots or plays (null while there is no price). */
@@ -60,23 +61,19 @@ export function CoinCabinet(p: {
   /** False: the wallet stopped answering (a badge shows at once). */
   walletLive?: boolean;
   walletName?: string | null;
-  /** Free play: no coins, no price, no name needed; the button just starts a practice run. */
+  /** Free play: no coins, no price, no wallet; the button just starts a practice run. */
   freePlay?: boolean;
 }) {
   const total = addCoin(p.creditUsd, p.pendingUsd);
   const busy = p.stage === 'approve' || p.stage === 'loading' || Boolean(p.starting);
   const nameOk = hasCredit(total, MIN_CREDIT_USD);
   const enough = hasCredit(total, p.priceUsd);
-  const startOk = p.freePlay ? !busy && !p.blocked : nameOk && enough && cleanName(p.name) !== null && !busy && !p.blocked && Boolean(p.bsvUsd);
-  const nameRef = useRef<HTMLInputElement>(null);
+  const startOk = p.freePlay ? !busy && !p.blocked : nameOk && enough && !busy && !p.blocked && Boolean(p.bsvUsd);
   const [miss, setMiss] = useState<Missing | null>(null);
   // The minimum to play is a total, not one coin (owner, 24 Oct: put 3¢ in and was told "put a coin in first").
   const short = Math.max(0, MIN_CREDIT_USD - total);
   const missText = (m: Missing) =>
     m === 'coin' && total > 0 ? `The minimum to play is ${fmtCredit(MIN_CREDIT_USD)}. Add ${fmtCredit(short)} more.` : m === 'coin' ? `Put at least ${fmtCredit(MIN_CREDIT_USD)} in to play.` : MISSING[m];
-  const [flash, setFlash] = useState(false);
-  const [nameModal, setNameModal] = useState(false);
-  const nameMiss = miss === 'name' || miss === 'bad';
   // A coin pressed drops into the slot (animation + clink).
   const slotRef = useRef<HTMLDivElement>(null);
   const dropN = useRef(0);
@@ -101,17 +98,11 @@ export function CoinCabinet(p: {
       if (!p.blocked) p.onStart();
       return;
     }
-    const why: Missing | null = !nameOk ? 'coin' : !enough ? 'more' : !p.name ? 'name' : !cleanName(p.name) ? 'bad' : !p.bsvUsd ? 'price' : p.blocked ? 'wait' : null;
+    const why: Missing | null = !nameOk ? 'coin' : !enough ? 'more' : !p.bsvUsd ? 'price' : p.blocked ? 'wait' : null;
     setMiss(why);
     sfx(why ? 'hurt' : 'click');
     loadMark(why ? `start blocked: ${missText(why)}` : 'start pressed');
-    if (!why) return p.onStart();
-    if (why === 'name' || why === 'bad') {
-      setNameModal(true);
-      nameRef.current?.focus();
-      setFlash(true);
-      setTimeout(() => setFlash(false), 450);
-    }
+    if (!why) p.onStart();
   };
   const pct = p.stage === 'approve' ? 25 : p.stage === 'loading' ? 70 : 100;
   const unit = p.unit ?? 'plays';
@@ -190,33 +181,24 @@ export function CoinCabinet(p: {
           </p>
         </section>}
 
-        {/* NAME: always editable; the button checks everything and says plainly what is missing. */}
-        <label className="flex w-full flex-col gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
-            <Icon name="user" size={14} /> Your name {p.freePlay ? <span className="text-[var(--tbx-dim)]">· optional</span> : <span className="text-[var(--tbx-red)]">· required</span>}
-          </span>
-          <input
-            ref={nameRef}
-            value={p.name}
-            onChange={(e) => {
-              p.setName(typingName(e.target.value));
-              if (miss === 'name' || miss === 'bad') setMiss(null);
-            }}
-            disabled={busy}
-            maxLength={40}
-            placeholder="Type your name"
-            className={`tbx-input disabled:opacity-40 ${flash ? 'tbx-shake' : ''}`}
-            autoComplete="off"
-            spellCheck={false}
-            aria-label="Your name"
-            aria-invalid={nameMiss}
-          />
-          {nameMiss && (
-            <span className="text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">
-              {missText(miss!)}
-            </span>
-          )}
-        </label>
+        {/* NAME (owner, 25 Oct): the wallet's paymail, shown read only. LOCK & LOAD connects the wallet. */}
+        {!p.freePlay && (
+          <p className="flex w-full flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]" data-player-name>
+            <Icon name="user" size={14} />
+            {p.name ? (
+              <>
+                Playing as <span className="font-semibold text-[var(--tbx-text)]">{p.name}</span>
+                {!p.hasPaymail && (
+                  <a href={GET_NAME_URL} target="_blank" rel="noreferrer" className="text-xs text-[var(--tbx-teal)] underline">
+                    Get a name
+                  </a>
+                )}
+              </>
+            ) : (
+              <>LOCK &amp; LOAD connects bWalletX. Your paymail goes on every round you fire.</>
+            )}
+          </p>
+        )}
 
         {p.stage && p.stage !== 'ready' && (
           <div className="w-full" role="status">
@@ -237,12 +219,7 @@ export function CoinCabinet(p: {
               Wallet disconnected ({p.walletName})
             </p>
           )}
-          {nameMiss && (
-            <p className="tbx-shake rounded-xl border-2 border-[var(--tbx-red)] bg-[var(--tbx-red)]/15 px-4 py-3 text-center text-lg font-bold text-white" role="alert" data-name-callout>
-              {missText(miss!)}
-            </p>
-          )}
-          {p.note && !nameMiss && (
+          {p.note && (
             <p className="rounded-xl border border-[var(--tbx-amber)] bg-[var(--tbx-amber)]/10 px-4 py-2 text-center text-base font-semibold text-[var(--tbx-text)]" role="status" data-ammo-note>
               {p.note}
             </p>
@@ -265,7 +242,7 @@ export function CoinCabinet(p: {
             </button>
           </div>
           <p className={`text-center text-sm ${miss ? 'font-semibold' : 'text-[var(--tbx-dim)]'}`} style={miss ? { color: '#ff7a70' } : undefined} data-start-reason>
-            {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss && !nameMiss ? missText(miss) : nameMiss ? '' : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, type your name, then press the button.'}
+            {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss ? missText(miss) : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, then press the button. It connects your wallet.'}
           </p>
           {p.error && (
             <p className="text-center text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">
@@ -274,19 +251,6 @@ export function CoinCabinet(p: {
           )}
         </div>
       </div>
-      {nameModal && (
-        <Modal
-          title="Type your name to play"
-          tone="warn"
-          action="Type my name"
-          onAction={() => {
-            setNameModal(false);
-            setTimeout(() => nameRef.current?.focus(), 0);
-          }}
-        >
-          {MISSING[miss === 'bad' ? 'bad' : 'name']} Your name goes on every round you fire.
-        </Modal>
-      )}
     </ControlPanel>
   );
 }

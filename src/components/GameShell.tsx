@@ -29,7 +29,7 @@ const subNothing = () => () => undefined;
  * `game`: the coin-op slug (src/lib/coinop/credit.ts PLAY_PRICE_USD). With it, the stage starts behind the coin-op
  * gate (no free play, owner 24 Oct 2026). The Shooting Gallery passes none: its loadout is its own cabinet.
  */
-export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, children }: { title: string; game?: string; back?: string; backLabel?: string; below?: ReactNode; children: ReactNode }) {
+export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, lock = false, children }: { title: string; game?: string; back?: string; backLabel?: string; below?: ReactNode; lock?: boolean; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [fs, setFs] = useState(false);
   const auto = useSyncExternalStore(subAuto, readAutoFullscreen, () => true);
@@ -101,7 +101,7 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
 
   return (
     <GameShellContext.Provider value={api}>
-      <div data-game-shell className="gs-shell">
+      <div data-game-shell className={`gs-shell${lock ? ' gs-lock' : ''}`}>
         <div ref={root} className="gs-root">
           {/* Owner, 8 Oct 2026: the game bar is drawn to bWalletX's side-panel header too (components/walletbar). */}
           <header data-gs-bar className="gs-bar">

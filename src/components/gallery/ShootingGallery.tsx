@@ -37,12 +37,10 @@ import {
   blockRounds,
   overheadSats,
   roundsFor,
-  PRIZE,
   ammoFromPaymail,
   fmtUsd,
   freeForStressTest,
   galleryPushes,
-  inEvent,
   patternLabel,
   platformFeeAt,
   shotSats,
@@ -50,15 +48,14 @@ import {
   ASSAULT_GUNS,
   STREAM_STEP,
   usdOf,
-  type BoardRow,
 } from '@/lib/gallery';
 import { WalletChooser } from '../WalletChooser';
 import { GameAudio } from '../SoundToggle';
 import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal, Ticker } from '../coinop/ui';
-import { IdentityPicker } from '../PlayerBadge';
-import { PrizeBanner } from './PrizeBanner';
+import { PlayerPanel } from './PlayerPanel';
+import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
@@ -99,8 +96,8 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
   const b = useBlaster();
   const { storm, fireBatch } = b;
-  const [name, setName] = usePlayerName();
-  // The NAME typed at the cabinet is the on-chain handle tag and the board name.
+  const { name, hasPaymail } = usePlayerName();
+  // The NAME is the wallet's paymail (owner, 25 Oct): the on-chain handle tag and the board name.
   const handle = cleanName(name);
   const weapons = useMemo(() => {
     // Volume guns only: sustained ~2,000 tx/s streams, no single shots or bursts (owner, 24 Oct: stress test).
@@ -130,8 +127,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [over, setOver] = useState<RunSummary | null>(null);
   const statsRef = useRef<Stats | null>(null);
   const dmgFx = useRef<DamageFxHandle>(null);
-  const [board, setBoard] = useState<BoardRow[]>([]);
-  const [boardWin, setBoardWin] = useState<'event' | '24h'>('event');
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
@@ -561,18 +556,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     [],
   );
 
-  // ── Board ──
-  const loadBoard = useCallback(() => {
-    fetch(`/api/gallery/board?window=${boardWin}`)
-      .then((r) => r.json())
-      .then((j: { rows?: BoardRow[] }) => setBoard(j.rows ?? []))
-      .catch(() => undefined);
-  }, [boardWin, setBoard]);
-  useEffect(() => {
-    void Promise.resolve().then(loadBoard);
-    const i = setInterval(loadBoard, 15_000);
-    return () => clearInterval(i);
-  }, [loadBoard]);
 
   /** Report this session's accepted shots (LIVE, named, real chain only); verified on chain by the last txid. */
   const lastReport = useRef(0);
@@ -598,7 +581,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           xp: cachedProof(handle) ?? undefined,
         }),
       }).catch(() => undefined);
-      loadBoard();
     };
   });
   const sending = fired > run.sent;
@@ -846,15 +828,28 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // the rounds not yet sent are what is left (real spend is rounds sent x cost). Practice: rounds not yet fired,
   // at the same cost, so it looks the same and still claims nothing on chain. It agrees with "rounds left".
   const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * perShotAll, bsvUsd), practice: simulated } : null;
-  const names = useMemo(() => new Map(weapons.map((w) => [w.id, w.name])), [weapons]);
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
   const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.`));
   const toBoard = () => {
     setOver(null);
     setLoadout(true);
-    setTimeout(() => document.getElementById('gallery-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    window.location.assign(INFO_URL);
   };
+
+  // No key scrolls the page while you play (owner, 25 Oct): swallow the scroll keys unless you are typing.
+  useEffect(() => {
+    const SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End']);
+    const kd = (e: KeyboardEvent) => {
+      if (!SCROLL.has(e.code) && !SCROLL.has(e.key)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (e.code === 'Space' && t?.closest('button, a, [role="button"]') && loadout) return; // SPACE still presses a focused button on the loadout
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', kd, { capture: true });
+    return () => window.removeEventListener('keydown', kd, { capture: true });
+  }, [loadout]);
 
   return (
     <div className={`game-root flex flex-col gap-3 ${drFontClass} ${tbxFontClass}`}>
@@ -1033,6 +1028,19 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             practice={simulated}
             rounds={bought}
             paymail={paymail}
+            player={
+              <PlayerPanel
+                freePlay={freePlay}
+                free={free}
+                fee={fee}
+                bsvUsd={bsvUsd}
+                credit={fmtCredit(cab.creditUsd)}
+                gunAddress={b.gunAddress}
+                packLeft={packLeft}
+                ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}
+                error={err ?? b.error}
+              />
+            }
             cabinet={
               <CoinCabinet
                 title="Shooting Gallery"
@@ -1044,7 +1052,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 stage={cab.stage}
                 stageText={cab.stageText}
                 name={name}
-                setName={setName}
+                hasPaymail={hasPaymail}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
                 priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
                 buys={buys}
@@ -1064,131 +1072,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
       </section>
 
-      {!simulated && <PrizeBanner />}
-
-      {freePlay ? (
-        <section className="tbx-glass p-4" data-freeplay-note>
-          <p className="text-sm font-semibold text-[var(--tbx-text)]">{PRACTICE.nothing}</p>
-          <p className="mt-1 text-xs text-[var(--tbx-dim)]">Practice rounds are not scored on the board. The paid game puts every round on the record.</p>
-        </section>
-      ) : (
-      <section className="tbx-glass p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="coin" size={14} /> Credit</span>
-          <span className="text-xs text-[var(--tbx-dim)]">
-            {free ? <span style={{ color: 'var(--tbx-ok)' }}>Free for the stress test: no platform fee until 1 Nov</span> : `${Math.round(fee * 100)}% platform fee`} · BSV ${bsvUsd.toFixed(2)}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--tbx-dim)]">
-          <span>
-            Credit: <span className="tbx-num font-bold" style={{ color: 'var(--tbx-amber)' }}>{fmtCredit(cab.creditUsd)}</span>.
-            {b.gunAddress && (
-              <>
-                {' '}
-                <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noreferrer" className="underline opacity-80 hover:opacity-100">
-                  See your gun&apos;s balance on chain
-                </a>
-              </>
-            )}
-          </span>
-          <span>
-            Rounds ready: <span className="tbx-num font-bold text-white">{packLeft.toLocaleString()}</span>. Unused credit stays in your gun for later rounds.
-          </span>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
-          <span>Paymail on your rounds (from your X handle):</span>
-          <IdentityPicker compact />
-        </div>
-        {b.wallet && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
-            {/* Wallet-basket ownership only on this tap, never in the background or during play (src/lib/useOrdnance.ts) */}
-            <button type="button" className="btn px-2 py-0.5 text-xs" disabled={mode !== 'off' || ordnance.checking || ordnance.walletChecked} onClick={() => void ordnance.checkWallet()}>
-              {ordnance.walletChecked ? 'Wallet checked for ordnance' : 'Check my wallet for ordnance'}
-            </button>
-            <span className="text-xs">Your wallet may ask once to show this site your TokenBlaster weapons, so owned guns unlock.</span>
-          </div>
-        )}
-        {(err || b.error) && <p className="mt-2 text-sm font-semibold text-[#ff7a70]">{err ?? b.error}</p>}
-      </section>
-      )}
-
-      {!simulated && <section className="tbx-glass p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="chain" size={14} /> See them land</span>
-          <span className="text-xs text-[var(--tbx-dim)]">{simulated ? 'practice numbers, not on the record' : 'live'}</span>
-        </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-          <a href="https://bsv.lol" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[var(--tbx-teal)] underline decoration-white/20 underline-offset-2">
-            Watch on bsv.lol <Icon name="external" size={12} />
-          </a>
-          {run.last && !simulated && (
-            <a href={`https://whatsonchain.com/tx/${run.last}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[var(--tbx-teal)] underline decoration-white/20 underline-offset-2">
-              latest shot {run.last.slice(0, 12)}… <Icon name="external" size={12} />
-            </a>
-          )}
-          {run.last && simulated && <span className="font-mono text-xs text-[var(--tbx-mute)]">sim {run.last.slice(0, 16)}…</span>}
-        </div>
-      </section>}
-
-      <section id="gallery-board" className="tbx-glass p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="trophy" size={14} className="text-[var(--tbx-amber)]" /> Top blasters</span>
-          <div className="flex gap-1.5">
-            {(['event', '24h'] as const).map((w) => (
-              <button key={w} onClick={() => setBoardWin(w)} className={`tbx-btn !min-h-[32px] !px-3 !text-[11px] ${boardWin === w ? 'tbx-btn-on' : ''}`}>
-                {w === 'event' ? '31 OCT EVENT' : '24H'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <GalleryBoard rows={board} me={handle} mine={live && !dry ? run.sent : 0} myWeapon={weaponId} myAmmo={ammo ?? DEFAULT_AMMO} names={names} />
-        <p className="mt-3 text-xs text-[var(--tbx-mute)]">
-          Accepted LIVE shots carrying your handle, checked on chain by the tokenblaster.lol &quot;gallery&quot; tag.{' '}
-          {inEvent(clock) ? 'The event is on now.' : `Event: ${new Date(PRIZE.start).toUTCString().slice(0, 16)} (UTC).`}
-        </p>
-      </section>
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </div>
-  );
-}
-
-export function GalleryBoard({
-  rows,
-  me,
-  mine = 0,
-  myWeapon,
-  myAmmo,
-  names,
-}: {
-  rows: BoardRow[];
-  me?: string | null;
-  mine?: number;
-  myWeapon?: string;
-  myAmmo?: string;
-  names?: Map<string, string>;
-}) {
-  // This session's live count, merged in so the player sees themselves climb before the next report lands.
-  const list = [...rows];
-  if (me && mine) {
-    const i = list.findIndex((r) => r.handle === me);
-    if (i >= 0) list[i] = { ...list[i], shots: Math.max(list[i].shots, mine) };
-    else list.push({ handle: me, shots: mine, sessions: 1, weapon: myWeapon, ammo: myAmmo });
-    list.sort((a, b) => b.shots - a.shots);
-  }
-  if (!list.length) return <p className="text-sm text-[var(--tbx-dim)]">No ranked shots yet. Be the first name on the board.</p>;
-  return (
-    <ol className="flex flex-col gap-1.5 text-sm">
-      {list.slice(0, 10).map((r, i) => (
-        <li key={r.handle} className={`tbx-rise flex flex-wrap items-center justify-between gap-x-3 rounded-lg px-3 py-2 ${r.handle === me ? 'border border-[var(--tbx-teal)]/50 bg-[var(--tbx-teal)]/10' : 'bg-white/[0.035]'}`} style={{ ['--d' as string]: `${i * 0.04}s` }}>
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="tbx-display w-7 text-xl" style={{ color: i === 0 ? 'var(--tbx-amber)' : 'var(--tbx-mute)' }}>{String(i + 1).padStart(2, '0')}</span>
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap font-semibold">@{r.handle}</span>
-            {r.weapon && <span className="text-xs text-[var(--tbx-dim)]">{names?.get(r.weapon) ?? r.weapon}</span>}
-            {r.ammo && <span className="text-xs text-[var(--tbx-amber)]">{r.ammo}</span>}
-          </span>
-          <span className="tbx-num font-bold">{r.shots.toLocaleString()}</span>
-        </li>
-      ))}
-    </ol>
   );
 }
