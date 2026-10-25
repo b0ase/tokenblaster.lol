@@ -6,7 +6,8 @@ import { HTTPWalletJSON, WalletClient, type WalletInterface } from '@bsv/sdk';
 import { resumePhone } from './pair/site';
 
 export type WalletKind = 'extension' | 'in-app' | 'web' | 'desktop' | 'phone';
-export type WalletEntry = { id: string; name: string; icon: string | null; kind: WalletKind; wallet: WalletInterface };
+/** `fresh`: just paired by QR (a new session, maybe another phone): its key is asked for, never reused. */
+export type WalletEntry = { id: string; name: string; icon: string | null; kind: WalletKind; wallet: WalletInterface; fresh?: boolean };
 
 type Announce = { info: { uuid: string; name: string; icon?: string; rdns: string; kind?: WalletKind }; wallet: WalletInterface };
 

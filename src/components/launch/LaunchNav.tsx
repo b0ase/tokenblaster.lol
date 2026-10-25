@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { rememberWallet } from '@/lib/discovery';
+import { disconnectSiteWallet } from '@/lib/siteWallet';
 import { short, useBsvUsd } from './data';
 
 const LINKS = [
@@ -51,7 +51,7 @@ export function LaunchNav({ wallet, onConnect, busy }: { wallet?: { address: str
   );
 }
 
-/** The connected wallet: click for Copy address and Disconnect (forgets the wallet so it doesn't reconnect). */
+/** The connected wallet: click for Copy address and Disconnect (the site's one Disconnect: every page and the top bar). */
 function WalletBadge({ address }: { address: string }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -74,8 +74,8 @@ function WalletBadge({ address }: { address: string }) {
             role="menuitem"
             className="btn btn-fire"
             onClick={() => {
-              rememberWallet(null);
-              location.reload();
+              disconnectSiteWallet();
+              setOpen(false);
             }}
           >
             Disconnect

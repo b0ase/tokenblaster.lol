@@ -3,6 +3,11 @@
 import { useEffect, useState } from 'react';
 import { discoverWallets, type WalletEntry } from '@/lib/discovery';
 import { startPairing, type PairState } from '@/lib/pair/site';
+import { usePhoneLink } from '@/lib/pair/usePhoneLink';
+import { getSiteWallet } from '@/lib/siteWallet';
+
+/** Where a phone with no wallet gets one (no App Store / Play listing links yet: bwalletx.com routes to them). */
+export const GET_BWALLETX = { site: 'https://bwalletx.com', web: 'https://web.bwalletx.com' } as const;
 
 const KIND: Record<WalletEntry['kind'], string> = {
   extension: 'browser ext.',
@@ -39,6 +44,7 @@ function WalletRow({
   onClick,
   href,
   action,
+  self,
 }: {
   icon: string | null;
   name: string;
@@ -46,6 +52,8 @@ function WalletRow({
   onClick?: () => void;
   href?: string;
   action?: string;
+  /** Open the link in this tab (a universal link to bWallet), not a new one. */
+  self?: boolean;
 }) {
   const inner = (
     <>
@@ -79,7 +87,7 @@ function WalletRow({
     onMouseLeave: (e: React.MouseEvent<HTMLElement>) => (e.currentTarget.style.borderColor = 'var(--border-dim)'),
   };
   return href ? (
-    <a href={href} target="_blank" rel="noreferrer" className={cls} style={style} {...hover}>
+    <a href={href} target={self ? undefined : '_blank'} rel="noreferrer" className={cls} style={style} {...hover}>
       {inner}
     </a>
   ) : (
@@ -106,15 +114,17 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
     };
   }, []);
   const isPhone = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
+  const isIos = typeof navigator !== 'undefined' && /iPhone|iPad/i.test(navigator.userAgent);
+  const asleep = usePhoneLink(getSiteWallet().wallet?.id === 'phone') === 'asleep';
 
-  // Phone QR, live as soon as the chooser opens (spec §2.1). The channel closes with the chooser.
+  // Phone QR, live as soon as the chooser opens (spec §2.1). The channel closes with the chooser. On a phone the
+  // same pairing link opens bWallet on this phone (universal / app link) instead of a QR to scan.
   const [pair, setPair] = useState<PairState>({ k: 'starting' });
   useEffect(() => {
-    if (isPhone) return;
     return startPairing((st) => {
       setPair(st);
       if (st.k === 'ready')
-        onPick({ id: 'phone', name: `${st.phone} on your phone`, icon: null, kind: 'phone', wallet: st.wallet });
+        onPick({ id: 'phone', name: `${st.phone} on your phone`, icon: null, kind: 'phone', wallet: st.wallet, fresh: true });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPhone]);
@@ -159,6 +169,12 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
           </button>
         </div>
 
+        {asleep && (
+          <p data-phone-asleep-chooser className="mb-3 rounded-none px-3 py-2" style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', fontSize: 13 }}>
+            Phone asleep or disconnected: open bWallet on your phone to resume, or scan the new code below.
+          </p>
+        )}
+
         {note && (
           <p className="mb-3 rounded-none px-3 py-2" style={{ background: 'color-mix(in srgb, var(--bad) 12%, transparent)', color: 'var(--bad)', fontSize: 13 }}>
             {note}
@@ -170,6 +186,32 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
             <p style={{ color: 'var(--muted)', fontSize: 14 }} className="px-1 py-3">
               Looking for wallets…
             </p>
+          )}
+
+          {/* On a phone the wallet in this app (bWallet's own browser) leads, then bWallet on this phone. */}
+          {isPhone &&
+            wallets
+              ?.filter((w) => w.kind === 'in-app' || w.kind === 'phone')
+              .map((w) => <WalletRow key={w.id} icon="/wallets/bwalletx.png" name={w.kind === 'in-app' ? `${w.name} (this app)` : w.name} sub={KIND[w.kind]} onClick={() => onPick(w)} />)}
+          {isPhone && wallets !== null && (
+            <WalletRow
+              icon="/wallets/bwalletx.png"
+              name="bWallet on your phone"
+              sub={pair.k === 'code' ? `Check bWallet shows ${pair.code}, then tap Connect.` : pair.k === 'error' ? pair.message : 'Opens bWallet to connect, then come back here.'}
+              href={pair.k === 'qr' ? pair.link : undefined}
+              onClick={pair.k === 'qr' ? undefined : () => undefined}
+              action={pair.k === 'code' ? pair.code : pair.k === 'qr' ? 'Open bWallet' : '…'}
+              self
+            />
+          )}
+          {isPhone && wallets !== null && (
+            <>
+              <p className="px-1 pt-2" style={{ color: 'var(--muted)', fontSize: 12 }}>
+                No bWallet yet? Get bWalletX, then come back:
+              </p>
+              <WalletRow icon="/wallets/bwalletx.png" name="Get bWalletX" sub={isIos ? 'App Store' : 'Google Play'} href={GET_BWALLETX.site} action="Get it" />
+              <WalletRow icon="/wallets/bwalletx.png" name="bWalletX on the web" sub="web.bwalletx.com, no install" href={GET_BWALLETX.web} action="Open" />
+            </>
           )}
 
           {/* The two browser wallets, always offered: connect if installed, else a link to get it. */}
@@ -194,7 +236,7 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
 
           {/* Anything else found (BSV Desktop when it's running, other browser wallets). */}
           {wallets
-            ?.filter((w) => !FEATURED.some((f) => f.match(w)))
+            ?.filter((w) => !FEATURED.some((f) => f.match(w)) && !(isPhone && (w.kind === 'in-app' || w.kind === 'phone')))
             .map((w) => (
               <WalletRow key={w.id} icon={w.icon} name={w.name} sub={KIND[w.kind]} onClick={() => onPick(w)} />
             ))}

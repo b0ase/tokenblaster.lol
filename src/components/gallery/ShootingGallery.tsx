@@ -52,7 +52,7 @@ import {
   STREAM_STEP,
   usdOf,
 } from '@/lib/gallery';
-import { WalletChooser } from '../WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { GameAudio } from '../SoundToggle';
 import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
@@ -1209,7 +1209,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
       </section>
 
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </div>
   );
 }

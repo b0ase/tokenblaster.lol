@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameAudio } from './SoundToggle';
 import { useCoinOp } from './InsertCoin';
 import { HighScores } from './HighScores';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
 import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
 import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
@@ -1055,7 +1055,7 @@ export function TokenRally() {
         Rivals are real transactions sampled from the live BSV chain when you start: tokens drive as sedans wearing their ticker, payments as delivery vans, ordinals as SUVs. The biggest moves are the fastest cars. RACE LIVE burns your loaded coin as fuel, one tiny real transaction every {FUEL_M} m plus nitro, drift and checkpoint bursts;
         practice sends nothing. Cars, trees, rocks and grass are generated in code. Ground, rock, gravel textures and skies: Poly Haven (CC0).
       </p>
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </section>
   );
 }

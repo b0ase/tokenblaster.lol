@@ -5,16 +5,17 @@
  * with one approval, fire real blasts, unload. One gun per browser (src/lib/gun.ts).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
+import type { WalletEntry } from './discovery';
+import { closeChooser, connectEntry, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive } from './siteWallet';
+import { useSiteWallet } from './useSiteWallet';
 import { Gun, TOKEN_FEE, loadMark } from './gun';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
+import { fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
 import { chainHandle, needsPaymail } from './gallery';
-import { setProofWallet } from './xproof';
 import { forgetBasketReads } from './basketSession';
-import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
+import { lookupPaymail, patchBarWallet } from './walletBar';
 import type { AmmoCoin, SwapLoadQuote } from './launch/ammoCoins';
 import { swapLoad } from './launch/swapLoad';
 import { BURN_FEE } from './launch/ammoCoins';
@@ -27,29 +28,23 @@ import { BURN_FEE } from './launch/ammoCoins';
  */
 export function useBlaster() {
   const gun = useRef<Gun | null>(null);
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  // The hall of fame asks this wallet to sign for the player's X handle (src/lib/xproof.ts).
-  useEffect(() => setProofWallet(wallet?.client ?? null), [wallet]);
-  // The top bar's wallet chip shows the connected wallet (src/lib/walletBar.ts). Only set, never cleared here:
-  // a page mounting with no wallet yet must not wipe one the chip connected.
-  // With who you are: identity key now, the paymail once bWallet's lookup answers (re-checked on every connect).
-  useEffect(() => {
-    if (!wallet) return;
-    setBarWallet({ id: wallet.id, name: wallet.name, publicKey: wallet.publicKey, live: true });
-    let live = true;
-    void lookupPaymail(wallet.publicKey, true).then((id) => {
-      if (live && id) patchBarWallet({ publicKey: wallet.publicKey, paymail: id.paymail, alias: id.alias, avatar: id.avatar });
-    });
-    return () => {
-      live = false;
-    };
-  }, [wallet]);
+  // The site's ONE wallet (src/lib/siteWallet.ts): the top bar, this page and every other Connect share it. The store
+  // also keeps the top bar chip and the X-proof wallet in step.
+  const site = useSiteWallet();
+  const wallet = site.wallet;
   const [ammo, setAmmo] = useState(0);
   const [token, setToken] = useState<Token | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);
-  const [busy, setBusy] = useState<null | 'connecting' | 'loading' | 'loading-tokens' | 'unloading'>(null);
-  const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [ownBusy, setBusy] = useState<null | 'connecting' | 'loading' | 'loading-tokens' | 'unloading'>(null);
+  const busy = ownBusy ?? (site.busy ? 'connecting' : null);
+  const chooser = site.chooser;
+  const setChooser = useCallback((c: { note: string | null } | null) => (c ? openChooser(c.note) : closeChooser()), []);
+  const [ownError, setOwnError] = useState<string | null>(null);
+  const error = ownError ?? site.error;
+  const setError = useCallback((e: string | null) => {
+    setOwnError(e);
+    if (!e) setSiteWalletError(null);
+  }, []);
   /** 'sats': tagged blasts (tokens never move). 'tokens': every bullet burns a real token. */
   const [mode, setModeState] = useState<'sats' | 'tokens'>('sats');
   const [tokenAmmo, setTokenAmmo] = useState<number>(0); // whole tokens loaded in the gun
@@ -57,7 +52,7 @@ export function useBlaster() {
   /** Last load / unload, shown as a receipt with its transaction. */
   const [receipt, setReceipt] = useState<{ text: string; txid: string } | null>(null);
   /** False when the connected wallet stopped answering (owner, 24 Oct 2026: the connection drops mid-session). */
-  const [walletLive, setWalletLive] = useState(true);
+  const walletLive = site.live;
 
   useEffect(() => {
     const g = new Gun();
@@ -68,11 +63,11 @@ export function useBlaster() {
       .catch(() => setAmmo(g.sats));
   }, []);
 
-  const fail = (e: unknown) => {
+  const fail = useCallback((e: unknown) => {
     const m = e instanceof Error ? e.message : String(e);
     // bWalletX answers "reload this page" when the extension was reloaded or updated under an open tab.
     setError(/reload/i.test(m) ? 'Your wallet lost touch with this page. Reload the page (your ammo is safe).' : m);
-  };
+  }, [setError]);
 
   /** Coins TokenBlaster returned to the wallet without a note (the wallet can't see them). */
   const [stranded, setStranded] = useState<(Token & { amt: bigint; why: 'hidden' | 'icon' | 'untagged' })[]>([]);
@@ -87,47 +82,25 @@ export function useBlaster() {
     setStranded(withMeta);
   }, []);
 
+  /** The player picked a wallet in the chooser: it becomes the site's wallet (no token-basket reads here). */
   const pick = useCallback(async (entry: WalletEntry) => {
-    setChooser(null);
     setError(null);
-    setBusy('connecting');
-    try {
-      const w = await connect(entry);
-      rememberWallet(entry.id);
-      setWallet(w);
-      setWalletLive(true);
-      loadMark(`wallet connected: ${w.name}`);
-      // No token-basket reads here: those wait for the player's tap (readTokens).
-    } catch (e) {
-      fail(e);
-    } finally {
-      setBusy(null);
-    }
-  }, []);
+    const w = await connectEntry(entry);
+    if (w) loadMark(`wallet connected: ${w.name}`);
+  }, [setError]);
 
   /** Inside bWallet: its wallet, no chooser. Else the remembered wallet, else the chooser. */
   const connectWallet = useCallback(async () => {
     setError(null);
-    setBusy('connecting');
-    const all = await discoverWallets().catch(() => [] as WalletEntry[]);
-    setBusy(null);
-    const inApp = all.find((w) => w.kind === 'in-app');
-    if (inApp) return pick(inApp);
-    const id = rememberedWallet();
-    const found = id && all.find((w) => w.id === id);
-    if (found) return pick(found);
-    setChooser({ note: id ? 'The wallet you used last time is not available any more.' : null });
-  }, [pick]);
+    await openSiteWallet();
+  }, [setError]);
 
-  useEffect(() => {
-    if (wallet) patchBarWallet({ live: walletLive });
-  }, [wallet, walletLive]);
 
   /** Check the wallet answers right now. Updates `walletLive`. */
   const checkWallet = useCallback(async () => {
     if (!wallet) return false;
     const ok = await walletAlive(wallet);
-    setWalletLive(ok);
+    setSiteWalletLive(ok);
     if (!ok) loadMark(`wallet not answering: ${wallet.name}`);
     return ok;
   }, [wallet]);
@@ -138,15 +111,6 @@ export function useBlaster() {
    * wallet's response, so a payment can never be taken without the gun holding it.
    * Returns 'ok', 'disconnected' (nothing was asked of the wallet), 'timeout' or 'refused'.
    */
-  // The top-bar chip's Reconnect / Switch wallet.
-  useEffect(
-    () =>
-      onWalletAsk((a) => {
-        if (a === 'switch') return setChooser({ note: null });
-        void connectWallet();
-      }),
-    [connectWallet],
-  );
 
   const load = useCallback(
     async (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused'> => {
@@ -175,7 +139,7 @@ export function useBlaster() {
         const m = e instanceof Error ? e.message : String(e);
         loadMark(`payment not made: ${m}`);
         if (m === 'WALLET_TIMEOUT') {
-          setWalletLive(false);
+          setSiteWalletLive(false);
           return 'timeout';
         }
         fail(e);
@@ -184,7 +148,7 @@ export function useBlaster() {
         setBusy(null);
       }
     },
-    [wallet, checkWallet],
+    [wallet, checkWallet, fail, setError],
   );
 
   /** End the gun's running storm session (sender finished, locks released, change saved). */
@@ -332,7 +296,7 @@ export function useBlaster() {
         setBusy(null);
       }
     },
-    [wallet, token, refreshTokens],
+    [wallet, token, refreshTokens, fail, setError],
   );
 
   const fixStranded = useCallback(
@@ -349,7 +313,7 @@ export function useBlaster() {
         setBusy(null);
       }
     },
-    [wallet, checkStranded],
+    [wallet, checkStranded, fail, setError],
   );
 
   /** Re-read the wallet's tokens (after buying or receiving more). */
@@ -368,7 +332,7 @@ export function useBlaster() {
     } finally {
       setRefreshing(false);
     }
-  }, [wallet, checkStranded]);
+  }, [wallet, checkStranded, fail]);
   /** The player opened the token / ammo picker: read the wallet's tokens (once per session per basket). */
   const tokensAsked = useRef(false);
   const [tokensRead, setTokensRead] = useState(false);
@@ -450,7 +414,7 @@ export function useBlaster() {
     } finally {
       setBusy(null);
     }
-  }, [wallet, refreshGun]);
+  }, [wallet, refreshGun, fail, setError]);
 
   /**
    * Swap on load (owner, 25 Oct 2026): ONE approval buys an ammo coin on its BlastPad curve straight into the

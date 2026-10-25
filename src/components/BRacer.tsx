@@ -30,7 +30,7 @@ import { BRACER_COIN } from '@/lib/gameCoins';
 import { formatCount, packSats } from '@/lib/pricing';
 import { AmmoStrip } from './AmmoStrip';
 import { AmmoPicker } from './AmmoPicker';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { cleanRoomCode, type RaceInfo, type RaceLink } from '@/lib/racemp/session';
 import { useRaceRoom } from '@/lib/racemp/useRaceRoom';
 import { RaceLobby, RaceStandings } from './racemp/RaceLobby';
@@ -1299,7 +1299,7 @@ export function BRacer() {
         no outside assets. The graphic style is an homage to 90s electronic-label design, all layouts original.
       </p>
       {co.chooserEl}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </section>
   );
 }

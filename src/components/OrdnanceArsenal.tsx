@@ -4,45 +4,18 @@
 import { CheckOrdnance } from '@/components/CheckOrdnance';
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
-import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from '@/lib/discovery';
-import { connect, type Wallet } from '@/lib/wallet';
+import { openSiteWallet } from '@/lib/siteWallet';
+import { useSiteWallet } from '@/lib/useSiteWallet';
 import { ORDNANCE, RARITY_COLOR, isMinted } from '@/lib/ordnance';
 import { saveOrdinalAddresses, savedOrdinalAddresses, useOrdnance } from '@/lib/useOrdnance';
-import { WalletChooser } from './WalletChooser';
+import { SiteWalletChooser } from './SiteWalletChooser';
 import { GunArt } from './GunArt';
 
-/** Connect a wallet the light way (no gun): in-app wallet, else remembered, else the chooser. */
+/** Connect a wallet the light way (no gun): the site's ONE wallet (src/lib/siteWallet.ts), shared with the top bar. */
 export function useWalletConnect() {
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const pick = useCallback(async (entry: WalletEntry) => {
-    setChooser(null);
-    setBusy(true);
-    setError(null);
-    try {
-      setWallet(await connect(entry));
-      rememberWallet(entry.id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-  const connectWallet = useCallback(async () => {
-    setError(null);
-    setBusy(true);
-    const all = await discoverWallets().catch(() => [] as WalletEntry[]);
-    setBusy(false);
-    const inApp = all.find((w) => w.kind === 'in-app');
-    if (inApp) return pick(inApp);
-    const id = rememberedWallet();
-    const found = id && all.find((w) => w.id === id);
-    if (found) return pick(found);
-    setChooser({ note: id ? 'The wallet you used last time is not available any more.' : null });
-  }, [pick]);
-  const chooserEl = chooser && <WalletChooser note={chooser.note} onPick={pick} onClose={() => setChooser(null)} />;
+  const { wallet, busy, error } = useSiteWallet();
+  const connectWallet = useCallback(() => openSiteWallet(), []);
+  const chooserEl = <SiteWalletChooser />;
   return { wallet, busy, error, connectWallet, chooserEl };
 }
 

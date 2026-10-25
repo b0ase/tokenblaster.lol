@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useBlaster } from '@/lib/useBlaster';
 import { HOUSE } from '@/lib/usePaidPlay';
 import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } from '@/lib/coinop/credit';
-import { WalletChooser } from '../WalletChooser';
+import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { CoinCabinet } from './CoinCabinet';
 import { tbxFontClass } from './fonts';
 import { coinStore } from './store';
@@ -96,7 +96,7 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
           </div>
         </div>
       )}
-      {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
+      <SiteWalletChooser />
     </>
   );
 }
