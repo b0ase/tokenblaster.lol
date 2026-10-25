@@ -51,6 +51,7 @@ test('trading flag: TERRORNODE is play-to-earn, other coins trade', () => {
   const x = coinExtras({ token_id: TERRORNODE_ID, sold: 0 });
   assert.equal(x.trading, false);
   assert.equal((x as { earn_url?: string }).earn_url, 'https://www.tokenblaster.lol/arcade/terrornode');
+  assert.equal((x as { category?: string }).category, 'reward');
   assert.equal(coinExtras({ token_id: 'x', sold: 0 }).trading, true);
 });
 
