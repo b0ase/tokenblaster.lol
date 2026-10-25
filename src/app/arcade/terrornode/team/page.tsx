@@ -16,8 +16,7 @@ const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
 
 export default function TeamPage() {
   return (
-    <GameShell title="Assault on Terrornode · Team" lock liveTicker="TERRORNODE" back="/arcade/terrornode" backLabel="SOLO">
-      <ModeSwitch active="team" />
+    <GameShell title="Assault on Terrornode · Team" lock liveTicker="TERRORNODE" back="/arcade/terrornode" backLabel="SOLO" tabs={<ModeSwitch active="team" />}>
       <TeamMode freePlay={!PAID} />
     </GameShell>
   );

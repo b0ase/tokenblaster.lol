@@ -31,7 +31,7 @@ const subNothing = () => () => undefined;
  * gate (no free play, owner 24 Oct 2026). The Shooting Gallery passes none: its loadout is its own cabinet.
  * `liveTicker`: the token room this game streams into (GO LIVE, src/lib/goLive.ts), e.g. 'TERRORNODE'.
  */
-export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, lock = false, liveTicker, children }: { title: string; game?: string; liveTicker?: string; back?: string; backLabel?: string; below?: ReactNode; lock?: boolean; children: ReactNode }) {
+export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE', below, lock = false, liveTicker, tabs, children }: { title: string; game?: string; liveTicker?: string; back?: string; backLabel?: string; below?: ReactNode; lock?: boolean; tabs?: ReactNode; children: ReactNode }) {
   const root = useRef<HTMLDivElement>(null);
   const [fs, setFs] = useState(false);
   const auto = useSyncExternalStore(subAuto, readAutoFullscreen, () => true);
@@ -121,6 +121,8 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
                   <LeaderboardButton />
                   <SoundButton />
                   {canFs && <FullscreenButton on={fs} onToggle={() => (fs ? exit() : enter())} />}
+                  {/* A game's own mode tabs live in the bar, not above the stage (owner, 25 Oct 2026: TERRORNODE SOLO / TEAM). */}
+                  {tabs}
                 </>
               }
               menu={

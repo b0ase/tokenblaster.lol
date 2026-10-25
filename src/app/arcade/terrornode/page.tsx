@@ -27,8 +27,8 @@ export default function GalleryPage() {
       title="31 Oct Stress Test · Assault on Terrornode"
       lock
       liveTicker="TERRORNODE"
+      tabs={<ModeSwitch active="solo" />}
     >
-      <ModeSwitch active="solo" />
       <ShootingGallery freePlay={!PAID} />
     </GameShell>
   );
