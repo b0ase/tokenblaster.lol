@@ -9,7 +9,8 @@ import type { WalletEntry } from './discovery';
 import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSiteWalletAnswered, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive, setSiteWalletWaiting, walletErrorText } from './siteWallet';
 import { WALLET_CANCELLED, WALLET_SENT_PENDING, isRefusal } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
-import { Gun, TOKEN_FEE, loadMark } from './gun';
+import { GUN_LOCKED, Gun, GunNeedsSats, TOKEN_FEE, loadMark } from './gun';
+import { syncGunBackup } from './gunBackup';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
@@ -69,6 +70,46 @@ export function useBlaster() {
       .catch(() => setAmmo(g.sats));
   }, []);
 
+  /** The stored gun could not be read and no wallet backup restored it yet: nothing loads into it (no orphaned coins). */
+  const [gunLocked, setGunLocked] = useState(false);
+  useEffect(() => {
+    void Promise.resolve().then(() => setGunLocked(Boolean(gun.current?.locked)));
+  }, []);
+  /**
+   * Recoverable gun (25 Oct 2026): back the gun key up, encrypted by the player's own wallet, and restore it when
+   * this browser has none or can't read it. Once per gun per wallet (src/lib/gunBackup.ts); never during play.
+   */
+  const syncing = useRef<Promise<string> | null>(null);
+  const syncBackup = useCallback(async (): Promise<string> => {
+    const g = gun.current;
+    if (!wallet || !g || walletHeld()) return 'skip';
+    if (!syncing.current)
+      syncing.current = syncGunBackup(wallet, g)
+        .then((r) => {
+          if (r === 'restored') {
+            setGunAddress(g.address);
+            void g.balance().then(setAmmo).catch(() => undefined);
+          }
+          setGunLocked(g.locked);
+          if (r === 'locked') setError(`${GUN_LOCKED}. This browser has a gun record it can't read, and no backup in this wallet matched. It has been kept, not replaced.`);
+          return r;
+        })
+        .catch((e) => {
+          setGunLocked(g.locked);
+          loadMark(`gun backup not saved: ${e instanceof Error ? e.message : 'error'}`);
+          return 'error';
+        })
+        .finally(() => {
+          syncing.current = null;
+        });
+    return syncing.current;
+  }, [wallet, setError]);
+  useEffect(() => {
+    if (wallet) void syncBackup();
+  }, [wallet, syncBackup]);
+  /** The "Back up gun key" button, after the player confirmed: the WIF, never logged. */
+  const exportGunKey = useCallback(() => gun.current?.exportWif() ?? null, []);
+
   const fail = useCallback((e: unknown) => {
     const m = e instanceof Error ? e.message : String(e);
     // The wallet's real reason, never a guess (owner, 25 Oct: "reload" in any error became "lost touch").
@@ -123,6 +164,13 @@ export function useBlaster() {
       const g = gun.current;
       if (!wallet || !g) return 'disconnected';
       setError(null);
+      // Never pay into a gun we can't read back, and back the gun up before money goes into it.
+      if (g.locked) await syncBackup();
+      if (g.locked) {
+        setError(GUN_LOCKED);
+        return 'failed';
+      }
+      await syncBackup();
       // An earlier payment's outcome is unknown (timed out / cancelled while its sheet was open): read the gun's own
       // balance first, and if that payment landed, use it instead of charging again (owner, 25 Oct 2026).
       const unk = unknownPay.current;
@@ -202,7 +250,7 @@ export function useBlaster() {
         setBusy(null);
       }
     },
-    [wallet, checkWallet, fail, setError],
+    [wallet, checkWallet, fail, setError, syncBackup],
   );
 
   /** End the gun's running storm session (sender finished, locks released, change saved). */
@@ -454,15 +502,26 @@ export function useBlaster() {
     setError(null);
     try {
       const parts: string[] = [];
+      const short: string[] = [];
+      let need = 0;
       let last = '';
       for (const held of await g.tokensHeld()) {
         const meta = await tokenById(held.id).catch(() => ({ id: held.id, sym: held.id.slice(0, 8), icon: null, dec: 0 }) as Token);
-        const r = await returnTokens(wallet.client, g, { id: held.id, sym: meta.sym, dec: meta.dec, icon: meta.icon });
-        parts.push(`${(Number(r.amt) / 10 ** meta.dec).toLocaleString()} $${meta.sym}`);
-        last = r.txid;
+        try {
+          const r = await returnTokens(wallet.client, g, { id: held.id, sym: meta.sym, dec: meta.dec, icon: meta.icon });
+          parts.push(`${(Number(r.amt) / 10 ** meta.dec).toLocaleString()} $${meta.sym}`);
+          last = r.txid;
+        } catch (e) {
+          if (!(e instanceof GunNeedsSats)) throw e;
+          short.push(`$${meta.sym}`);
+          need = Math.max(need, e.sats);
+        }
       }
-      setTokenAmmo(0);
-      if (opts.sats !== false) {
+      if (!short.length) setTokenAmmo(0);
+      if (short.length) {
+        // Keep the sats in the gun: they pay the token transfer once topped up.
+        setError(`Your ${short.join(', ')} tokens are still in the gun: it needs ${need.toLocaleString()} more sats to pay the network fee to return them. Load at least ${need.toLocaleString()} sats, then UNLOAD again.`);
+      } else if (opts.sats !== false) {
         const before = await g.balance().catch(() => g.sats);
         const txid = await g.unload(wallet.address);
         if (txid) {
@@ -546,5 +605,5 @@ export function useBlaster() {
     [],
   );
 
-  return { ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

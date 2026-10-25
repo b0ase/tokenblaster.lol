@@ -18,8 +18,87 @@ export function GunKeyNote({ className = 'text-xs text-dim' }: { className?: str
   );
 }
 
+/**
+ * "Back up gun key": the WIF is shown (and can be saved as a file) only after an explicit confirm with a warning.
+ * It is never logged. The gun is also backed up automatically, encrypted by the player's wallet (src/lib/gunBackup.ts).
+ */
+export function GunKeyBackup({ b }: { b: Blaster }) {
+  const [step, setStep] = useState<'idle' | 'confirm' | 'shown'>('idle');
+  const [wif, setWif] = useState<string | null>(null);
+  if (b.gunLocked) return null;
+  const hide = () => {
+    setWif(null);
+    setStep('idle');
+  };
+  const download = (k: string) => {
+    const url = URL.createObjectURL(new Blob([`TokenBlaster gun key (WIF). Anyone with this controls the gun's coins.\naddress: ${b.gunAddress}\nkey: ${k}\n`], { type: 'text/plain' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tokenblaster-gun-${b.gunAddress.slice(0, 8)}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  if (step === 'idle')
+    return (
+      <button type="button" className="btn px-2 py-0.5 text-xs" data-gun-key-backup onClick={() => setStep('confirm')}>
+        Back up gun key
+      </button>
+    );
+  if (step === 'confirm')
+    return (
+      <div className="flex flex-col gap-1 text-xs" data-gun-key-backup>
+        <span className="font-bold">Warning: anyone who sees this key can take everything in the gun. Never share it or paste it into a site. Show it only somewhere private.</span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="btn px-2 py-0.5 text-xs font-bold"
+            onClick={() => {
+              setWif(b.exportGunKey());
+              setStep('shown');
+            }}
+          >
+            I understand, show the key
+          </button>
+          <button type="button" className="btn px-2 py-0.5 text-xs" onClick={hide}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-1 text-xs" data-gun-key-backup>
+      <input readOnly className="font-mono text-[10px]" value={wif ?? ''} onFocus={(e) => e.currentTarget.select()} aria-label="Gun key (WIF)" />
+      <div className="flex gap-2">
+        {wif && (
+          <button type="button" className="btn px-2 py-0.5 text-xs" onClick={() => download(wif)}>
+            Download
+          </button>
+        )}
+        <button type="button" className="btn px-2 py-0.5 text-xs" onClick={hide}>
+          Hide
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The stored gun could not be read: never a new key over it. Restore it from the wallet backup. */
+export function GunLocked({ b }: { b: Blaster }) {
+  if (!b.gunLocked) return null;
+  return (
+    <div className="flex flex-col gap-1 text-xs" data-gun-locked>
+      <span className="font-bold">Gun locked: restore from wallet</span>
+      <span className="text-dim">This browser&apos;s gun record could not be read. It has been kept as it is; nothing loads into the gun until it is restored.</span>
+      <button type="button" className="btn px-2 py-0.5 text-xs font-bold" disabled={!b.wallet} onClick={() => void b.syncBackup()}>
+        {b.wallet ? 'Restore from wallet' : 'Connect your wallet to restore'}
+      </button>
+    </div>
+  );
+}
+
 export function GunUnload({ b, disabled = false, className = '' }: { b: Blaster; disabled?: boolean; className?: string }) {
   const [asking, setAsking] = useState(false);
+  if (b.gunLocked) return <GunLocked b={b} />;
   // No wallet yet: show the control disabled with a hint, so copy that mentions UNLOAD always has a button to point at.
   if (!b.wallet)
     return (
@@ -67,6 +146,7 @@ export function GunUnload({ b, disabled = false, className = '' }: { b: Blaster;
           </div>
         </div>
       )}
+      <GunKeyBackup b={b} />
     </div>
   );
 }

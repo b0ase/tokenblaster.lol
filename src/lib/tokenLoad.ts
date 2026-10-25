@@ -11,7 +11,7 @@ import { tokenCoins } from './tokens';
 
 
 /** Where the gun lives, said plainly next to the gun balance and in the load step. */
-export const GUN_KEY_NOTE = 'Your gun lives in this browser. Clearing site data loses anything still in it. Unload before you clear.';
+export const GUN_KEY_NOTE = 'Your gun lives in this browser. Its key is backed up encrypted by your wallet (restored when you connect), and Back up gun key saves your own copy. Unload before you clear site data.';
 
 export const ONESAT: WalletProtocol = [0, 'onesat'];
 

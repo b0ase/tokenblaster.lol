@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FEED_EVENT, type FeedTx } from '@/lib/feed';
-import { Gun } from '@/lib/gun';
+import { GUN_LOCKED, Gun } from '@/lib/gun';
+import { syncGunBackup } from '@/lib/gunBackup';
 import { PACKS, formatCount, formatUsd, packSats, usd } from '@/lib/pricing';
 import { AmmoPicker } from './AmmoPicker';
 import { iconUrl, tokenById, walletTokens, type Token } from '@/lib/tokens';
@@ -146,6 +147,9 @@ export function GunApp() {
     setPhase('loading');
     try {
       const need = cost; // top-ups merge into the gun's coin
+      // Recoverable gun: restore an unreadable gun / back this one up (wallet-encrypted) before paying into it.
+      await syncGunBackup(wallet, gun.current).catch(() => undefined);
+      if (gun.current.locked) throw new Error(GUN_LOCKED);
       const tx = await fund(wallet, gun.current.address, need, `TokenBlaster: load ${formatCount(pack)} blasts`);
       await gun.current.load(tx);
       setAmmo(gun.current.sats);
