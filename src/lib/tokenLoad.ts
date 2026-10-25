@@ -3,20 +3,22 @@
  * 1Sat way (Yours v5, bWallet, bWalletX): token coins sit in a `bsv21` basket and each records the
  * key it is locked to in customInstructions ({ protocolID, keyID }). We build the transfer, the
  * wallet adds fee inputs, and we ask the wallet to sign the token inputs with that key
- * (createSignature). One approval prompt; the wallet broadcasts.
+ * (createSignature). bWalletX instead signs its own token coins itself (src/lib/siteTokens.ts).
+ * One approval prompt; the wallet broadcasts.
  */
-import { Beef, Hash, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
+import { Beef, Hash, P2PKH, Transaction, TransactionSignature, UnlockingScript, Utils, type SignableTransaction, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
 import { bsv21 } from './gun';
 import { tokenCoins } from './tokens';
+import { ONESAT, receiveKey, receiveNote, siteCoins } from './siteTokens';
+
+export { ONESAT };
 
 
 /** Where the gun lives, said plainly next to the gun balance and in the load step. */
 export const GUN_KEY_NOTE = 'Your gun lives in this browser. Clearing site data loses anything still in it. Unload before you clear.';
 
-export const ONESAT: WalletProtocol = [0, 'onesat'];
-
 /** The note the 1Sat wallets write on a token coin (bsv21 basket): the wallet counts it from this. */
-export const noteFor = (id: string, amt: bigint, sym: string, dec: number | undefined, keyID: string, icon?: string | null) =>
+export const noteFor = (id: string, amt: bigint, sym: string, dec: number | undefined, keyID: string, icon?: string | null, protocolID: WalletProtocol = ONESAT) =>
   JSON.stringify({
     id,
     amt: amt.toString(),
@@ -24,7 +26,7 @@ export const noteFor = (id: string, amt: bigint, sym: string, dec: number | unde
     sym,
     ...(dec !== undefined ? { dec: String(dec) } : {}),
     ...(icon ? { icon } : {}), // the wallet draws the token's icon from this
-    protocolID: ONESAT,
+    protocolID,
     keyID,
     counterparty: 'self',
   });
@@ -41,7 +43,31 @@ export function stampIds<T extends { basket?: string; tags?: string[] }>(outputs
   return outputs;
 }
 
-type Coin = { outpoint: string; amt: bigint; protocolID: WalletProtocol; keyID: string };
+/** A token coin to spend. `walletSigns`: bWalletX signs it itself after its sheet (no spends from us). */
+export type Coin = { outpoint: string; amt: bigint; protocolID: WalletProtocol; keyID: string; walletSigns?: boolean };
+
+/**
+ * Coins of `id` covering `amount`: the wallet's own `bsv21` basket first (wallets that let a site
+ * read it and sign with the coin's key), else the coins on the receive keys bWalletX gave us.
+ */
+export async function pickCoins(wallet: WalletInterface, id: string, amount: bigint, filter: (c: { noted: boolean }) => boolean = (c) => c.noted) {
+  const { coins: all, beef } = await tokenCoins(wallet, true).catch(() => ({ coins: [], beef: undefined }));
+  const pick = (coins: Coin[]) => {
+    const use: Coin[] = [];
+    let sum = BigInt(0);
+    for (const c of [...coins].sort((a, b) => (b.amt > a.amt ? 1 : -1))) {
+      if (sum >= amount) break;
+      use.push(c);
+      sum += c.amt;
+    }
+    return { use, sum };
+  };
+  const own = pick(all.filter((c) => c.id === id && c.keyID && filter(c)).map((c) => ({ outpoint: c.outpoint, amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! })));
+  if (own.sum >= amount) return { ...own, beef };
+  const site = pick((await siteCoins(id)).map((c) => ({ outpoint: c.outpoint.replace('_', '.'), amt: c.amt, protocolID: ONESAT, keyID: '', walletSigns: true })));
+  if (site.sum > own.sum) return { ...site, beef: undefined };
+  return { ...own, beef };
+}
 const SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_FORKID;
 
 /** Send `amount` base units of token `id` from the wallet to `to`. Returns the txid. */
@@ -56,19 +82,8 @@ export async function loadTokens(
   dec?: number,
   icon?: string | null,
 ): Promise<Transaction> {
-  const { coins: all, beef } = await tokenCoins(wallet, true);
-  // This token's coins whose key the wallet recorded (needed to ask it to sign).
-  const coins: Coin[] = all
-    .filter((c) => c.id === id && c.keyID && c.noted) // only coins the wallet itself counts
-    .map((c) => ({ outpoint: c.outpoint, amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! }));
-  coins.sort((a, b) => (b.amt > a.amt ? 1 : -1));
-  const use: Coin[] = [];
-  let sum = BigInt(0);
-  for (const c of coins) {
-    if (sum >= amount) break;
-    use.push(c);
-    sum += c.amt;
-  }
+  // Only coins the wallet itself counts (noted), or the ones bWalletX holds on our receive keys.
+  const { use, sum, beef } = await pickCoins(wallet, id, amount);
   if (sum < amount) throw new Error(`Your wallet has only ${sum} base units of $${sym} it can spend here.`);
 
   // Change goes back to the wallet under a fresh key it can find again (same 1Sat convention).
@@ -78,19 +93,7 @@ export async function loadTokens(
   ];
   // Fuel: the sats to pay each bullet's fee, in the same transaction (one approval for both).
   if (fuelSats > 0) outputs.push({ lockingScript: new P2PKH().lock(to).toHex(), satoshis: fuelSats, outputDescription: `Fuel to fire them (${fuelSats.toLocaleString()} sats)` });
-  if (change > BigInt(0)) {
-    const keyID = `${id}-${Date.now()}`; // the 1Sat wallets' own change key pattern
-    const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
-    outputs.push({
-      lockingScript: bsv21(id, change, PublicKey.fromString(publicKey).toAddress()).toHex(),
-      satoshis: 1,
-      outputDescription: `The rest of your $${sym}, back to your wallet`,
-      basket: 'bsv21',
-      tags: [`bsv21:${id}`],
-      // Same notes the 1Sat wallets write (BRC-163 style): token fields + the key it's locked to.
-      customInstructions: noteFor(id, change, sym, dec, keyID, icon),
-    });
-  }
+  if (change > BigInt(0)) outputs.push(await tokenChange(wallet, id, change, sym, dec, icon));
 
   const created = await wallet.createAction({
     description: `Load ${shown} $${sym} into your TokenBlaster gun as ammunition${fuelSats ? `, plus ${fuelSats.toLocaleString()} sats to fire them` : ''}`,
@@ -113,11 +116,30 @@ export async function loadTokens(
   }
 }
 
+/** Token change back to the wallet on a fresh receive key (bWalletX: `{ keyID }` only). */
+export async function tokenChange(wallet: WalletInterface, id: string, amt: bigint, sym: string, dec?: number, icon?: string | null, what = `The rest of your $${sym}, back to your wallet`) {
+  const k = await receiveKey(wallet, id);
+  return {
+    lockingScript: bsv21(id, amt, k.address).toHex(),
+    satoshis: 1,
+    outputDescription: what,
+    basket: 'bsv21',
+    ...(k.walletSigns ? {} : { tags: [`bsv21:${id}`] }),
+    // Other wallets: the notes the 1Sat wallets write (BRC-163 style): token fields + the key.
+    customInstructions: receiveNote(k, () => noteFor(id, amt, sym, dec, k.keyID, icon, k.protocolID)),
+  };
+}
+
+/** Our unlocking scripts for the coins we sign; bWalletX's own coins are left to the wallet. */
+export const ourSpends = (wallet: WalletInterface, tx: Transaction, coins: Coin[], base = 0) =>
+  tokenSpends(wallet, tx, coins.flatMap((c, k) => (c.walletSigns ? [] : [{ index: base + k, protocolID: c.protocolID, keyID: c.keyID }])));
+
 async function signAndSend(wallet: WalletInterface, signable: SignableTransaction, use: Coin[]): Promise<Transaction> {
   const tx = Transaction.fromAtomicBEEF(signable.tx);
-  const spends = await tokenSpends(wallet, tx, use.map((c, i) => ({ ...c, index: i })));
+  const spends = await ourSpends(wallet, tx, use);
   const done = await wallet.signAction({ reference: signable.reference, spends });
   if (done.tx) return Transaction.fromAtomicBEEF(done.tx);
+  if (use.some((c) => c.walletSigns)) throw new Error('The wallet signed but returned no transaction.');
   tx.inputs.forEach((inp, i) => spends[i] && (inp.unlockingScript = UnlockingScript.fromHex(spends[i].unlockingScript)));
   return tx; // wallet sent it but returned no tx: ours is the same one, now with the token signatures
 }
@@ -175,20 +197,19 @@ export async function reNoteTokens(wallet: WalletInterface, id: string, sym: str
     .map((c) => ({ outpoint: c.outpoint, amt: c.amt, protocolID: c.protocolID ?? ONESAT, keyID: c.keyID! }));
   const total = use.reduce((n, c) => n + c.amt, BigInt(0));
   if (!total) throw new Error('Nothing to fix.');
-  const keyID = `${id}-${Date.now()}`;
-  const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
+  const k = await receiveKey(wallet, id);
   const created = await wallet.createAction({
     description: `Show ${total.toLocaleString()} $${sym} in your wallet again (re-save the coin TokenBlaster returned without its note)`,
     inputBEEF: beef,
     inputs: use.map((c) => ({ outpoint: c.outpoint, unlockingScriptLength: 108, inputDescription: `$${sym}` })),
     outputs: [
       {
-        lockingScript: bsv21(id, total, PublicKey.fromString(publicKey).toAddress()).toHex(),
+        lockingScript: bsv21(id, total, k.address).toHex(),
         satoshis: 1,
         outputDescription: `Your $${sym}, back in your wallet`,
         basket: 'bsv21',
         tags: [`bsv21:${id}`, `id:${randomActionId()}_0`],
-        customInstructions: noteFor(id, total, sym, dec, keyID, icon),
+        customInstructions: receiveNote(k, () => noteFor(id, total, sym, dec, k.keyID, icon, k.protocolID)),
       },
     ],
     labels: ['tokenblaster'],
@@ -214,9 +235,8 @@ export async function returnTokens(
   gun: { unloadTokens: (id: string, to: string) => Promise<{ tx: Transaction; amt: bigint }> },
   t: { id: string; sym: string; dec?: number; icon?: string | null },
 ): Promise<{ txid: string; amt: bigint }> {
-  const keyID = `${t.id}-${Date.now()}`;
-  const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
-  const { tx, amt } = await gun.unloadTokens(t.id, PublicKey.fromString(publicKey).toAddress());
+  const k = await receiveKey(wallet, t.id);
+  const { tx, amt } = await gun.unloadTokens(t.id, k.address);
   const txid = tx.id('hex');
   // The wallet wants the tx with its history back to mined transactions (BEEF).
   const beef = new Beef();
@@ -235,7 +255,9 @@ export async function returnTokens(
       {
         outputIndex: 0,
         protocol: 'basket insertion',
-        insertionRemittance: { basket: 'bsv21', tags: [`bsv21:${t.id}`, `id:${randomActionId()}_0`], customInstructions: noteFor(t.id, amt, t.sym, t.dec, keyID, t.icon) },
+        insertionRemittance: k.walletSigns
+          ? { basket: 'bsv21', customInstructions: receiveNote(k, () => '') }
+          : { basket: 'bsv21', tags: [`bsv21:${t.id}`, `id:${randomActionId()}_0`], customInstructions: noteFor(t.id, amt, t.sym, t.dec, k.keyID, t.icon, k.protocolID) },
       },
     ],
     description: `Unload ${amt.toLocaleString()} $${t.sym} from your TokenBlaster gun back to your wallet`,

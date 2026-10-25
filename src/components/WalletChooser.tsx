@@ -7,7 +7,7 @@ import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { getSiteWallet } from '@/lib/siteWallet';
 
 /** Where a phone with no wallet gets one (no App Store / Play listing links yet: bwalletx.com routes to them). */
-export const GET_BWALLETX = { site: 'https://bwalletx.com', web: 'https://web.bwalletx.com' } as const;
+export const GET_BWALLETX = { site: 'https://bwalletx.com/get', web: 'https://web.bwalletx.com' } as const;
 
 const KIND: Record<WalletEntry['kind'], string> = {
   extension: 'browser ext.',
@@ -23,8 +23,8 @@ const FEATURED: { key: string; name: string; icon: string; get: string; match: (
     key: 'bwalletx',
     name: 'bWalletX',
     icon: '/wallets/bwalletx.png',
-    // Points at the Chrome Web Store once bWalletX is listed (one link to keep current).
-    get: 'https://bwalletx.com/extension',
+    // bwalletx.com/get picks the right store for the device (one link to keep current).
+    get: 'https://bwalletx.com/get',
     // announced, or an unannounced window.CWI that names itself bWalletX
     match: (w) => w.id === 'com.bwalletx.extension' || (w.id === 'window.CWI' && /bwalletx/i.test(w.name)),
   },

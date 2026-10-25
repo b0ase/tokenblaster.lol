@@ -8,11 +8,12 @@
  *  - player: buy a listing (OrdLock v2 purchase path) and receive the tokens in the wallet's
  *    `bsv21` basket, noted the way the 1Sat wallets count them.
  */
-import { Beef, Hash, LockingScript, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type WalletInterface } from '@bsv/sdk';
+import { Beef, Hash, LockingScript, P2PKH, PublicKey, Transaction, TransactionSignature, UnlockingScript, Utils, type WalletInterface, type WalletProtocol } from '@bsv/sdk';
 import { BSV21, OrdLockV2 } from '@1sat/templates';
 import { inscriptionScript } from './inscribe';
-import { ONESAT, noteFor, stampIds } from './tokenLoad';
-import { tokenCoins } from './tokens';
+import { bsv21 } from './gun';
+import { noteFor, ourSpends, pickCoins, stampIds, tokenChange } from './tokenLoad';
+import { ONESAT, receiveKey, receiveNote } from './siteTokens';
 import type { AmmoDef } from './ammo';
 
 export const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
@@ -22,10 +23,17 @@ const SIGHASH = TransactionSignature.SIGHASH_ALL | TransactionSignature.SIGHASH_
 
 const txidOf = (r: { txid?: string; tx?: Parameters<typeof Transaction.fromAtomicBEEF>[0] }) => r.txid ?? (r.tx ? Transaction.fromAtomicBEEF(r.tx).id('hex') : '');
 
-async function freshAddress(wallet: WalletInterface, keyID: string) {
-  const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
+/** Owner-side keys (icon, deploy): the 1Sat key, for wallets that still allow it. */
+async function freshAddress(wallet: WalletInterface, keyID: string, protocolID: WalletProtocol = ONESAT) {
+  const { publicKey } = await wallet.getPublicKey({ protocolID, keyID, counterparty: 'self' });
   return PublicKey.fromString(publicKey).toAddress();
 }
+
+/**
+ * TokenBlaster's own keys in the player's wallet (front funding, listing cancel). A site protocol,
+ * so every BRC-100 wallet, bWalletX included, lets us sign with it. Never holds tokens.
+ */
+export const AMMO_KEYS: WalletProtocol = [1, 'tokenblaster ammo'];
 
 /** Overlay processing fee some BSV-21 tokens need per output so the 1Sat overlay indexes it. */
 async function overlayFee(tokenId: string): Promise<{ lockingScript: string; satoshis: number; outputDescription: string } | null> {
@@ -107,19 +115,11 @@ export async function deployAmmo(wallet: WalletInterface, def: AmmoDef, iconOutp
  */
 export async function listAmmoPack(wallet: WalletInterface, def: AmmoDef, tokenId: string, pack: bigint, priceSats: number): Promise<string> {
   if (pack <= BigInt(0) || priceSats < 1) throw new Error('Pack size and price must be positive.');
-  const { coins, beef } = await tokenCoins(wallet, true);
-  const mine = coins.filter((c) => c.id === tokenId && c.keyID).sort((a, b) => (b.amt > a.amt ? 1 : -1));
-  const use: typeof mine = [];
-  let sum = BigInt(0);
-  for (const c of mine) {
-    if (sum >= pack) break;
-    use.push(c);
-    sum += c.amt;
-  }
+  const { use, sum, beef } = await pickCoins(wallet, tokenId, pack, () => true);
   if (sum < pack) throw new Error(`Your wallet holds only ${sum} $${def.sym} it can spend here.`);
 
   const cancelKey = `ammo-listing-${def.sym}-${Date.now()}`;
-  const cancelAddress = await freshAddress(wallet, cancelKey);
+  const cancelAddress = await freshAddress(wallet, cancelKey, AMMO_KEYS);
   const listing = BSV21.transfer(tokenId, pack).lock(LockingScript.fromHex(OrdLockV2.lock(cancelAddress, HOUSE, priceSats).toHex()));
   const outputs: Parameters<WalletInterface['createAction']>[0]['outputs'] = [
     {
@@ -127,22 +127,12 @@ export async function listAmmoPack(wallet: WalletInterface, def: AmmoDef, tokenI
       satoshis: 1,
       outputDescription: `Listing: ${pack} $${def.sym} for ${priceSats.toLocaleString()} sats`,
       basket: 'ammo listings',
-      customInstructions: JSON.stringify({ protocolID: ONESAT, keyID: cancelKey, counterparty: 'self', tokenId, amt: pack.toString(), price: priceSats }),
+      customInstructions: JSON.stringify({ protocolID: AMMO_KEYS, keyID: cancelKey, counterparty: 'self', tokenId, amt: pack.toString(), price: priceSats }),
       tags: ['ammo', `ammo:${def.sym}`, 'listing'],
     },
   ];
   const change = sum - pack;
-  if (change > BigInt(0)) {
-    const keyID = `${tokenId}-${Date.now()}`;
-    outputs.push({
-      lockingScript: BSV21.transfer(tokenId, change).lock(new P2PKH().lock(await freshAddress(wallet, keyID))).toHex(),
-      satoshis: 1,
-      outputDescription: `The rest of your $${def.sym}`,
-      basket: 'bsv21',
-      tags: [`bsv21:${tokenId}`],
-      customInstructions: noteFor(tokenId, change, def.sym, def.dec, keyID),
-    });
-  }
+  if (change > BigInt(0)) outputs.push(await tokenChange(wallet, tokenId, change, def.sym, def.dec, undefined, `The rest of your $${def.sym}`));
   const fee = await overlayFee(tokenId);
   if (fee) outputs.push(fee);
 
@@ -158,30 +148,8 @@ export async function listAmmoPack(wallet: WalletInterface, def: AmmoDef, tokenI
   if (!signable) throw new Error('The wallet did not return a transaction to sign.');
   try {
     const tx = Transaction.fromAtomicBEEF(signable.tx);
-    const spends: Record<number, { unlockingScript: string }> = {};
-    for (let i = 0; i < use.length; i++) {
-      const input = tx.inputs[i];
-      const src = input.sourceTransaction!.outputs[input.sourceOutputIndex];
-      const preimage = TransactionSignature.format({
-        sourceTXID: input.sourceTXID ?? input.sourceTransaction!.id('hex'),
-        sourceOutputIndex: input.sourceOutputIndex,
-        sourceSatoshis: src.satoshis ?? 1,
-        transactionVersion: tx.version,
-        otherInputs: tx.inputs.filter((_, j) => j !== i),
-        inputIndex: i,
-        outputs: tx.outputs,
-        inputSequence: input.sequence ?? 0xffffffff,
-        subscript: src.lockingScript,
-        lockTime: tx.lockTime,
-        scope: SIGHASH,
-      });
-      const protocolID = use[i].protocolID ?? ONESAT;
-      const { signature } = await wallet.createSignature({ hashToDirectlySign: Hash.sha256(Hash.sha256(preimage)), protocolID, keyID: use[i].keyID!, counterparty: 'self' });
-      const { publicKey } = await wallet.getPublicKey({ protocolID, keyID: use[i].keyID!, counterparty: 'self' });
-      const sig = [...signature, SIGHASH];
-      const pub = Utils.toArray(publicKey, 'hex');
-      spends[i] = { unlockingScript: new UnlockingScript([{ op: sig.length, data: sig }, { op: pub.length, data: pub }]).toHex() };
-    }
+    // Our signatures for coins we sign; bWalletX signs its own token inputs after its sheet.
+    const spends = await ourSpends(wallet, tx, use);
     const done = await wallet.signAction({ reference: signable.reference, spends });
     return done.txid ?? (done.tx ? Transaction.fromAtomicBEEF(done.tx).id('hex') : tx.id('hex'));
   } catch (e) {
@@ -224,8 +192,8 @@ async function signWithWallet(wallet: WalletInterface, tx: Transaction, i: numbe
     lockTime: tx.lockTime,
     scope: SIGHASH,
   });
-  const { signature } = await wallet.createSignature({ hashToDirectlySign: Hash.sha256(Hash.sha256(preimage)), protocolID: ONESAT, keyID, counterparty: 'self' });
-  const { publicKey } = await wallet.getPublicKey({ protocolID: ONESAT, keyID, counterparty: 'self' });
+  const { signature } = await wallet.createSignature({ hashToDirectlySign: Hash.sha256(Hash.sha256(preimage)), protocolID: AMMO_KEYS, keyID, counterparty: 'self' });
+  const { publicKey } = await wallet.getPublicKey({ protocolID: AMMO_KEYS, keyID, counterparty: 'self' });
   const sig = [...signature, SIGHASH];
   const pub = Utils.toArray(publicKey, 'hex');
   return new UnlockingScript([{ op: sig.length, data: sig }, { op: pub.length, data: pub }]).toHex();
@@ -252,7 +220,7 @@ export async function buyAmmo(wallet: WalletInterface, l: AmmoListing, icon?: st
 
   // 1. Front funding, exactly the payout (no cushion: its slot becomes a 0-sat filler).
   const fundKey = `ammo-front-${Date.now()}`;
-  const fundAddr = await freshAddress(wallet, fundKey);
+  const fundAddr = await freshAddress(wallet, fundKey, AMMO_KEYS);
   const prep = await wallet.createAction({
     description: `Set aside ${paySats.toLocaleString()} sats to buy ${l.amt} $${l.sym} ammo`,
     outputs: [
@@ -261,7 +229,7 @@ export async function buyAmmo(wallet: WalletInterface, l: AmmoListing, icon?: st
         satoshis: paySats,
         outputDescription: `Payment for $${l.sym} ammo`,
         basket: 'ammo funding',
-        customInstructions: JSON.stringify({ protocolID: ONESAT, keyID: fundKey, counterparty: 'self' }),
+        customInstructions: JSON.stringify({ protocolID: AMMO_KEYS, keyID: fundKey, counterparty: 'self' }),
         tags: ['ammo', 'funding'],
       },
     ],
@@ -273,15 +241,22 @@ export async function buyAmmo(wallet: WalletInterface, l: AmmoListing, icon?: st
   const prepTxid = prepTx.id('hex');
 
   // 2. The purchase, laid out by the template: [filler] [payout] [receive], then wallet change.
-  const keyID = `${l.id}-${Date.now()}`;
+  const k = await receiveKey(wallet, l.id);
   const receive = {
-    lockingScript: BSV21.transfer(l.id, l.amt).lock(new P2PKH().lock(await freshAddress(wallet, keyID))),
+    lockingScript: bsv21(l.id, l.amt, k.address), // the exact transfer script bWalletX accepts
     satoshis: 1,
   };
   const plan = OrdLockV2.planPurchase({ frontSatoshis: [paySats], listings: [src.lockingScript], receives: [receive as never], cushionScript: new P2PKH().lock(fundAddr) });
   const outputs: Parameters<WalletInterface['createAction']>[0]['outputs'] = plan.outputs.map((o, i) =>
     i === plan.receiveVouts[0]
-      ? { lockingScript: o.lockingScript.toHex(), satoshis: 1, outputDescription: `${l.amt} $${l.sym} ammo`, basket: 'bsv21', tags: [`bsv21:${l.id}`], customInstructions: noteFor(l.id, l.amt, l.sym, l.dec, keyID, icon) }
+      ? {
+          lockingScript: o.lockingScript.toHex(),
+          satoshis: 1,
+          outputDescription: `${l.amt} $${l.sym} ammo`,
+          basket: 'bsv21',
+          ...(k.walletSigns ? {} : { tags: [`bsv21:${l.id}`] }),
+          customInstructions: receiveNote(k, () => noteFor(l.id, l.amt, l.sym, l.dec, k.keyID, icon, k.protocolID)),
+        }
       : { lockingScript: o.lockingScript.toHex(), satoshis: o.satoshis ?? 0, outputDescription: i === plan.payoutVouts[0] ? 'Payment to the seller (TokenBlaster)' : 'Layout filler' },
   );
   const fee = await overlayFee(l.id);
