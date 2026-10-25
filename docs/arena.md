@@ -18,7 +18,8 @@ the maze spawns a constant swarm of skulls (CPU monsters, separate from players)
 1. **Solo drones (shipped 3 Oct 2026).** Pixelated maze, token-faced drones, DOOM status bar,
    desktop (pointer lock, WASD, arrows) and touch controls. Shots queue for the chain; the gun
    overheats at 12 queued shots so play can't outrun the chain.
-2. **Multiplayer.** Game server on Hetzner (websocket) holds positions and decides hits; up to 8
+2. **Multiplayer.** Built as TERRORNODE team mode (up to 16, co-op PvE or NPG vs Erobotz 8 v 8): see
+   `docs/terrornode-team.md`. Original plan: Game server on Hetzner (websocket) holds positions and decides hits; up to 8
    players; players shown as sprites with their token's icon. Shot tag gains the target player id.
 3. **Frags board.** The indexer counts arena kills per player and per token ("most lethal token").
 
