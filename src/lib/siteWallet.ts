@@ -14,7 +14,7 @@
 import { PublicKey } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { PairError, disconnectPhone, getPhoneEnd, getPhoneStatus, subPhoneStatus } from './pair/site';
-import { connect, serialised, type Wallet } from './wallet';
+import { cancelWalletCalls, connect, serialised, withTimeout, WALLET_CANCELLED, type Wallet } from './wallet';
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
 
@@ -26,9 +26,11 @@ export type SiteWalletState = {
   error: string | null;
   /** The chooser is open (with an optional note at the top). */
   chooser: { note: string | null } | null;
+  /** We are waiting on the wallet (shown by <SiteWalletWaiting/> with Cancel / Try again). Never a silent wait. */
+  waiting: { text: string; since: number; kind: 'discover' | 'connect' | 'pay' } | null;
 };
 
-const EMPTY: SiteWalletState = { wallet: null, live: true, busy: false, error: null, chooser: null };
+const EMPTY: SiteWalletState = { wallet: null, live: true, busy: false, error: null, chooser: null, waiting: null };
 let state: SiteWalletState = EMPTY;
 const subs = new Set<() => void>();
 export const getSiteWallet = () => state;
@@ -83,39 +85,109 @@ function adopt(w: Wallet) {
   rememberWallet(w.id);
   saveKey({ id: w.id, publicKey: w.publicKey });
   setProofWallet(w.client);
-  set({ wallet: w, live: true, error: null, busy: false, chooser: null });
+  set({ wallet: w, live: true, error: null, busy: false, chooser: null, waiting: null });
   setBarWallet({ id: w.id, name: w.name, publicKey: w.publicKey, live: true });
   void lookupPaymail(w.publicKey, true).then((id) => {
     if (id && getBarWallet()?.publicKey === w.publicKey) patchBarWallet({ publicKey: w.publicKey, paymail: id.paymail, alias: id.alias, avatar: id.avatar });
   });
 }
 
-let connecting: Promise<Wallet | null> | null = null;
+/** The connect in progress: its entry and a way to give up on it (Cancel, a timeout, or a new pick). */
+let connecting: { entry: WalletEntry; promise: Promise<Wallet | null>; abort: (why: string) => void } | null = null;
 
-/** Connect the wallet the player picked (or the remembered one). Every page sees it at once. */
-export function connectEntry(entry: WalletEntry): Promise<Wallet | null> {
-  if (!entry.fresh && state.wallet && state.wallet.id === entry.id && state.live) return Promise.resolve(state.wallet);
-  if (connecting) return connecting;
-  set({ busy: true, error: null, chooser: null });
-  connecting = (async () => {
+/** How long "Connect" may look for wallets before it says so (MV3 extensions can be asleep). */
+export const DISCOVERY_TIMEOUT_MS = 8_000;
+
+const waitText = (entry: Pick<WalletEntry, 'kind' | 'name'>) =>
+  entry.kind === 'phone' ? 'Waiting for your phone… open bWallet on your phone to approve.' : `Waiting for ${entry.name}… open the extension to approve.`;
+
+/** Show that we are waiting on the wallet (payments use this too), or clear it. */
+export const setSiteWalletWaiting = (w: SiteWalletState['waiting']) => set({ waiting: w });
+
+/**
+ * Connect the wallet the player picked (or the remembered one). Every page sees it at once.
+ * A connect that never settles can not wedge the site any more (owner, 25 Oct 2026): it times out (CONNECT_TIMEOUT_MS,
+ * in wallet.connect), Cancel gives up on it, and a fresh pick (the chooser) replaces it instead of joining it.
+ */
+export function connectEntry(entry: WalletEntry, opts: { retry?: boolean } = {}): Promise<Wallet | null> {
+  if (!entry.fresh && !opts.retry && state.wallet && state.wallet.id === entry.id && state.live) return Promise.resolve(state.wallet);
+  if (connecting) {
+    if (!opts.retry && !entry.fresh && connecting.entry.id === entry.id) return connecting.promise;
+    connecting.abort(WALLET_CANCELLED);
+  }
+  set({ busy: true, error: null, chooser: null, waiting: { text: waitText(entry), since: Date.now(), kind: 'connect' } });
+  let abort!: (why: string) => void;
+  const aborted = new Promise<never>((_, no) => (abort = (why) => no(new Error(why))));
+  const mine = {
+    entry,
+    abort: (why: string) => {
+      cancelWalletCalls(entry.wallet, why);
+      abort(why);
+    },
+    promise: null as unknown as Promise<Wallet | null>,
+  };
+  mine.promise = (async () => {
     try {
       // Same wallet as earlier in this tab: reuse its key, ask nothing.
       // A wallet that stopped answering (not a phone: that is the relay's job) gets a real connect, to re-ask it.
+      // A retry from the chooser always asks again: the old key may be what the wedged extension no longer honours.
       const stale = state.wallet?.id === entry.id && !state.live && entry.kind !== 'phone';
-      const known = entry.fresh || stale ? null : savedKey(entry.id);
+      const known = entry.fresh || stale || opts.retry ? null : savedKey(entry.id);
       const w: Wallet = known
         ? { client: serialised(entry.wallet), publicKey: known, address: PublicKey.fromString(known).toAddress(), id: entry.id, name: entry.name }
-        : await connect(entry);
+        : await Promise.race([connect(entry), aborted]);
+      if (connecting !== mine) return null; // replaced by a newer pick
       adopt(w);
       return w;
     } catch (e) {
-      set({ busy: false, error: walletErrorText(e, entry) });
+      if (connecting === mine) {
+        const cancelled = e instanceof Error && e.message === WALLET_CANCELLED;
+        set({ busy: false, waiting: null, error: cancelled ? null : walletErrorText(e, entry) });
+      }
       return null;
     } finally {
-      connecting = null;
+      if (connecting === mine) connecting = null;
     }
   })();
-  return connecting;
+  aborted.catch(() => undefined);
+  connecting = mine;
+  return mine.promise;
+}
+
+/**
+ * Cancel whatever we are waiting on the wallet for (connect, discovery, a payment): frees the wallet queue so the
+ * next press goes straight to the wallet. A payment cancelled this way may still have gone through in the wallet:
+ * the gun's balance is checked before any re-pay (useBlaster.load).
+ */
+export function cancelSiteWalletWait() {
+  connecting?.abort(WALLET_CANCELLED);
+  connecting = null;
+  if (state.wallet) cancelWalletCalls(state.wallet.client);
+  discoverGen++;
+  set({ busy: false, waiting: null });
+}
+
+let discoverGen = 0;
+/** Wallet discovery with a timeout (and visible state while it runs). */
+async function discoverVisible(): Promise<WalletEntry[] | null> {
+  const gen = ++discoverGen;
+  set({ busy: true, error: null, waiting: { text: 'Looking for your wallet…', since: Date.now(), kind: 'discover' } });
+  const all = await withTimeout(discoverWallets(), DISCOVERY_TIMEOUT_MS, 'WALLET_TIMEOUT').catch(() => null);
+  if (gen !== discoverGen) return null; // cancelled
+  set({ busy: false, waiting: null });
+  return all;
+}
+
+/** A chooser row was clicked: look again for that wallet (it may have been reloaded) and ask it afresh, every click. */
+export async function pickWallet(entry: WalletEntry): Promise<Wallet | null> {
+  if (entry.kind === 'phone') return connectEntry(entry);
+  connecting?.abort(WALLET_CANCELLED);
+  connecting = null;
+  const gen = discoverGen + 1;
+  const all = await discoverVisible();
+  if (discoverGen !== gen) return null; // the player pressed Cancel
+  const found = all?.find((w) => w.id === entry.id) ?? entry;
+  return connectEntry(found, { retry: true });
 }
 
 export const openChooser = (note: string | null = null) => set({ chooser: { note }, error: null });
@@ -124,15 +196,17 @@ export const closeChooser = () => set({ chooser: null });
 /** Any "Connect" button: the in-app wallet (inside bWallet), else the remembered one, else the chooser. */
 export async function openSiteWallet(): Promise<Wallet | null> {
   if (state.wallet && state.live) return state.wallet;
-  set({ busy: true, error: null });
-  const all = await discoverWallets().catch(() => [] as WalletEntry[]);
-  set({ busy: false });
+  if (connecting) return connecting.promise; // already waiting: the waiting card says so, with Cancel
+  const gen = discoverGen + 1;
+  const found0 = await discoverVisible();
+  if (discoverGen !== gen) return null; // the player pressed Cancel
+  const all = found0 ?? [];
   const inApp = all.find((w) => w.kind === 'in-app');
   if (inApp) return connectEntry(inApp);
   const id = state.wallet?.id ?? rememberedWallet();
   const found = id ? all.find((w) => w.id === id) : null;
   if (found) return connectEntry(found);
-  openChooser(id ? 'The wallet you used last time is not available any more.' : null);
+  openChooser(found0 === null ? 'Your wallet did not answer. Pick it below to try again.' : id ? 'The wallet you used last time is not available any more.' : null);
   return null;
 }
 
@@ -191,4 +265,5 @@ export function _resetSiteWallet() {
   state = EMPTY;
   resumed = false;
   connecting = null;
+  discoverGen = 0;
 }

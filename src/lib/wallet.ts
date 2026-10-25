@@ -18,7 +18,27 @@ export const inBwallet = () =>
  * an unticked "risky" line, and "I trust it, allow" then DENIES it, leaving the site looking disconnected. So every
  * call to a wallet goes through one queue per wallet object.
  */
-const queues = new WeakMap<object, { tail: Promise<unknown>; inFlight: number }>();
+type Queue = { tail: Promise<unknown>; inFlight: number; gen: number; cancels: Set<(e: Error) => void> };
+const queues = new WeakMap<object, Queue>();
+export const WALLET_CANCELLED = 'WALLET_CANCELLED';
+
+/**
+ * Hang fix (owner, 25 Oct 2026: a payment sheet left unanswered blocked every later wallet call in the tab, so
+ * Connect and LOCK & LOAD did nothing). Rejects every call queued or open on this wallet with WALLET_CANCELLED and
+ * frees the queue at once, so the next call goes straight to the wallet. The wallet's own sheet (if any) is left to
+ * the wallet; whatever it answers later is ignored.
+ */
+export function cancelWalletCalls(client: object, reason = WALLET_CANCELLED) {
+  const q = queues.get(client);
+  if (!q) return;
+  q.gen++;
+  const err = new Error(reason);
+  for (const c of [...q.cancels]) c(err);
+  q.cancels.clear();
+  q.tail = Promise.resolve();
+  q.inFlight = 0;
+  if (paying) paying = null;
+}
 
 /**
  * PLAY GUARD (owner playtest, 25 Oct 2026: wallet sheets kept opening mid-fire). While a paid round is live the
@@ -37,7 +57,7 @@ export const holdWalletForPlay = (on: boolean, key = 'play') => {
 export const walletHeld = () => playHeld;
 export const walletBusy = (client: object) => (queues.get(client)?.inFlight ?? 0) > 0;
 export function serialised(client: WalletInterface): WalletInterface {
-  const q = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0 };
+  const q: Queue = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0, gen: 0, cancels: new Set() };
   queues.set(client, q);
   const proxy: WalletInterface = new Proxy(client, {
     get(target, prop, recv) {
@@ -50,8 +70,22 @@ export function serialised(client: WalletInterface): WalletInterface {
           return Promise.reject(new Error(WALLET_HELD));
         }
         q.inFlight++;
-        const run = q.tail.then(() => (v as (...a: unknown[]) => unknown).apply(target, args));
-        q.tail = run.catch(() => undefined).finally(() => q.inFlight--);
+        const gen = q.gen;
+        let cancel!: (e: Error) => void;
+        const cancelled = new Promise<never>((_, no) => (cancel = no));
+        q.cancels.add(cancel);
+        const call = q.tail.then(() => {
+          if (q.gen !== gen) throw new Error(WALLET_CANCELLED);
+          return (v as (...a: unknown[]) => unknown).apply(target, args);
+        });
+        // The caller sees the wallet's answer or a cancel, whichever comes first; a cancel frees the queue.
+        const run = Promise.race([call, cancelled]);
+        run.catch(() => undefined);
+        const done = run.catch(() => undefined).finally(() => {
+          q.cancels.delete(cancel);
+          if (q.gen === gen) q.inFlight = Math.max(0, q.inFlight - 1);
+        });
+        q.tail = done;
         return run;
       };
     },
@@ -60,14 +94,22 @@ export function serialised(client: WalletInterface): WalletInterface {
   return proxy;
 }
 
+/** How long a connect (identity key) request may wait for the player's approval before we stop waiting. */
+export const CONNECT_TIMEOUT_MS = 45_000;
+
 /** Connect the wallet the player picked in the chooser. */
-export async function connect(entry: WalletEntry): Promise<Wallet> {
+export async function connect(entry: WalletEntry, ms = CONNECT_TIMEOUT_MS): Promise<Wallet> {
   const client = serialised(entry.wallet);
   try {
-    const { publicKey } = await client.getPublicKey({ identityKey: true });
+    const { publicKey } = await withTimeout(client.getPublicKey({ identityKey: true }), ms, 'WALLET_TIMEOUT').catch((e) => {
+      // Never leave a hung connect in the queue: it would block every later call to this wallet.
+      if (e instanceof Error && e.message === 'WALLET_TIMEOUT') cancelWalletCalls(client, 'WALLET_TIMEOUT');
+      throw e;
+    });
     return { client, publicKey, address: PublicKey.fromString(publicKey).toAddress(), id: entry.id, name: entry.name };
   } catch (e) {
     // A paired phone says exactly why (bWallet's reply codes): keep that, never "did not answer".
+    if (e instanceof Error && (e.message === WALLET_CANCELLED || e.message === 'WALLET_TIMEOUT')) throw e;
     if (e instanceof Error && 'code' in e && typeof (e as { code: unknown }).code === 'string') throw e;
     // A locked wallet refuses getPublicKey: that means "unlock me", not "not installed".
     throw new Error(`${entry.name} did not answer: ${e instanceof Error ? e.message : e}. Unlock it and try again.`);
@@ -78,7 +120,9 @@ export async function connect(entry: WalletEntry): Promise<Wallet> {
 // Only one payment request may be open in the wallet at a time (a second createAction while one is pending
 // can wedge an extension wallet's prompt queue).
 let paying: Promise<unknown> | null = null;
-export async function fund(w: Wallet, address: string, sats: number, description: string): Promise<Transaction> {
+/** A payment sheet left this long counts as "outcome unknown": the queue is freed and the gun balance decides. */
+export const PAY_TIMEOUT_MS = 180_000;
+export async function fund(w: Wallet, address: string, sats: number, description: string, ms = PAY_TIMEOUT_MS): Promise<Transaction> {
   if (paying) throw new Error('A payment is already waiting in your wallet. Approve or cancel it first.');
   const req = w.client.createAction({
     description,
@@ -89,9 +133,12 @@ export async function fund(w: Wallet, address: string, sats: number, description
   paying = req;
   let r: Awaited<typeof req>;
   try {
-    r = await req;
+    r = await withTimeout(req, ms, 'WALLET_TIMEOUT');
+  } catch (e) {
+    if (e instanceof Error && e.message === 'WALLET_TIMEOUT') cancelWalletCalls(w.client, 'WALLET_TIMEOUT');
+    throw e;
   } finally {
-    paying = null;
+    if (paying === req) paying = null;
   }
   if (!r.tx) throw new Error('bWallet returned no transaction.');
   return Transaction.fromAtomicBEEF(r.tx);
