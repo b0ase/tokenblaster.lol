@@ -43,39 +43,52 @@ test('combat: sustained fire pushes the boss back, easing off lets him advance f
   assert.ok(B.minDist < B.reach && B.reach < B.maxBack);
 });
 
-test('combat: the player can die and CONTINUE is an arcade countdown with coins', () => {
-  assert.ok(TUNING.player.hp > 0);
-  assert.ok(TUNING.continueSecs >= 5 && TUNING.continueSecs <= 15);
-  assert.equal('continueFree' in TUNING, false, 'the free-continue flag is gone');
-});
-
-test('stages: four, in order, street and floors by kills, core by sustained fire, roof by the boss', () => {
+test('block: one ten-minute run, four stages in order, back to back with no gaps', () => {
+  const R = TUNING.run;
   const S = TUNING.stages;
+  assert.equal(R.secs, 600, 'one block is ten minutes');
   assert.deepEqual(S.map((x) => x.id), ['street', 'floors', 'core', 'roof']);
-  assert.equal(S[0].goal.kind, 'kills');
-  assert.equal(S[1].goal.kind, 'kills');
-  assert.equal(S[2].goal.kind, 'jam');
-  assert.equal(S[3].goal.kind, 'boss');
-  S.forEach((x, i) => assert.equal(x.level, i + 1));
+  assert.equal(S[0].at, 0);
+  for (let i = 1; i < S.length; i++) assert.ok(S[i].at > S[i - 1].at && S[i].at - S[i - 1].at >= 60, `stage ${i + 1} follows on`);
+  assert.ok(S[3].at < R.bossAt && R.bossAt < R.secs - 30, 'the Liquid Unit has the last minutes');
+  // one connected route: each leg starts where the last one ended, walked forward the whole way
+  const E = R.route.enter;
+  assert.equal(E.length, S.length);
+  for (let i = 1; i < E.length; i++) assert.ok(E[i] > E[i - 1], `leg ${i} moves forward`);
+  assert.ok(R.route.end > E[E.length - 1]);
+  assert.ok(R.route.ahead >= 30 && R.route.ahead > R.route.blend, 'the next piece is streamed in ahead of the seam');
+  assert.equal('leaveMs' in TUNING.stageFlow, false, 'no lift: nothing stops play between stages');
+  S.forEach((x, i) => {
+    assert.equal(x.level, i + 1);
+  });
 });
 
-test('stages: the street has Erobots and no boss; only the roof has the Liquid Unit', () => {
-  const S = TUNING.stages;
-  assert.ok(S[0].lane.liveCap > 0 && S[1].lane.liveCap > 0 && S[2].lane.liveCap > 0);
-  assert.equal(S[3].lane.liveCap, 0, 'the roof is the boss alone');
-  assert.ok('bossLevel' in S[3] && S[3].bossLevel >= 1);
-  for (const x of S.slice(0, 3)) assert.equal('bossLevel' in x, false);
+test('block: the player almost never dies (knockdown, fast regen, light damage)', () => {
+  const P = TUNING.player;
+  assert.ok(P.knockdownHp >= 0.5, 'a knockdown puts you straight back in');
+  assert.ok(P.regenPerSec >= 10 && P.regenDelay <= 2);
+  assert.ok(TUNING.erobots.bolt.damage <= 2 && TUNING.erobots.melee.damage <= 3);
+  for (const k of TUNING.horde.kinds) assert.ok(k.damage <= 5, k.id);
 });
 
-test('stages: the core jam needs a steady stream, not a few lucky hits', () => {
-  const g = TUNING.stages[2].goal;
-  assert.equal(g.kind, 'jam');
-  if (g.kind !== 'jam') return;
+test('block: a constant swarm of different sizes, inside the pools', () => {
+  const H = TUNING.horde;
+  const sizes = H.kinds.flatMap((k) => k.size);
+  assert.ok(Math.min(...sizes) < 0.9 && Math.max(...sizes) > 2.5, 'small, medium and huge');
+  const pool = H.kinds.reduce((n, k) => n + k.pool, 0);
+  for (const x of TUNING.stages) {
+    assert.ok(x.horde > 0 && Math.max(x.horde, x.hordeEnd) <= pool, x.id);
+    assert.ok(x.lane.liveCap <= TUNING.erobots.poolHigh, x.id);
+    assert.ok(x.lane.liveCap + x.horde >= 12, `${x.id}: always something to shoot`);
+  }
+  assert.ok('bossLevel' in TUNING.stages[3]);
+});
+
+test('stages: the core jam is a bonus that needs a steady stream', () => {
+  const g = TUNING.stages[2].jam;
   const secs = g.rounds / (MINIGUN_DPS - g.drainPerSec);
   assert.ok(secs > 2 && secs < 12, `a full minigun jams the core in ${secs.toFixed(1)}s`);
-  assert.ok(g.drainPerSec > 100, 'it drains when you let up');
-  // a trickle of 200 rounds a second never gets there
-  assert.ok(200 <= g.drainPerSec);
+  assert.ok(g.drainPerSec > 100);
 });
 
 test('stages: the lanes fit their sets (flankers stay inside the walls)', () => {
@@ -84,5 +97,4 @@ test('stages: the lanes fit their sets (flankers stay inside the walls)', () => 
     assert.ok(x.lane.strafeX <= x.lane.wallX, x.id);
     assert.ok(x.lane.spawnZ < x.lane.stopZ[0], x.id);
   }
-  assert.ok(TUNING.stageFlow.leaveMs > 300 && TUNING.stageFlow.holdMs > 300);
 });

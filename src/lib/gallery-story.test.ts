@@ -83,7 +83,7 @@ test('story: Kweg is the good hostage; the Erobots are evil; the Liquid Unit is 
   assert.equal(characterById('kweg')?.bio, KWEG.bio);
   assert.equal(characterById('liquid')?.kind, 'boss');
   for (const c of CHARACTERS.filter((x) => x.kind === 'erobot')) assert.ok(c.threat.length > 10);
-  assert.match(KWEG.bio, /brilliant, devastatingly so/);
+  assert.equal(KWEG.bio, 'Dr Kweg S Wong: held hostage at the top of TERRORNODE HQ. Get him out.'); // owner, 25 Oct: one plain line
   assert.doesNotMatch(KWEG.bio + KWEG.threat, /villain|evil|Hyde|liquid metal/i, 'no Jekyll/Hyde, no liquid Kweg');
   assert.doesNotMatch(characterById('liquid')?.bio ?? '', /Dr Kweg Wong\.|It is Dr Kweg/, 'the Liquid Unit is not Kweg');
   assert.match(all(), /is not Kweg/);

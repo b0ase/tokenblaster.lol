@@ -21,26 +21,28 @@ import { halo } from '../bsvgun/targets';
 import type { Fx } from '../bsvgun/fx';
 import type { Bolts } from './combat';
 import { TUNING, ramp, roleWeights } from './tuning';
+import { CAST, CLOSE, WEAPONS, holdOut, pickCast, standOff, type CastMember, type WeaponSpec } from './cast';
+
+const HOLD: [number, number] = [0, 0];
+import { buildWeapon, recolour, weaponMaterial } from './castModels';
 
 const ROOT = '/gallery/erobots';
-const IDS = ['bot', 'tech', 'frog-bot', 'stripey-bot', 'graf-bot'] as const;
-type Id = (typeof IDS)[number];
+type Id = string;
+/** Dev: `?erobot=<id>` fills every body with that one cast member (for screenshots / tuning). */
+const FORCE = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('erobot') : null;
 /** Standing height in metres: menacing, a head taller than a person. */
 const HEIGHT = 2.2;
+/** Bodies keep this many metres (x their average scale) apart, so they never stack up in front of the camera. */
+const SEPARATION = 1.5;
+/** Weapon grip offset in the right hand (metres, hand-bone frame at the identity rest). */
+const WEAPON_GRIP = new THREE.Vector3(-0.06, 0, 0);
 const HP = TUNING.erobots.hp;
 const rand = (r: readonly [number, number]) => r[0] + Math.random() * (r[1] - r[0]);
 
 // ── Retarget (port of rigMocap.ts) ───────────────────────────────────────────────────────────────────────
 
-/** The Hips position track was baked at Kimiko's rest height; each model gets its offset. */
+/** The Hips position track was baked at Kimiko's rest height; each model gets its offset (its own Hips rest). */
 const KIMIKO_HIPS = new THREE.Vector3(-0.0172, 0.2806, 0.0248);
-const HIPS_REST: Record<Id, THREE.Vector3> = {
-  bot: new THREE.Vector3(0, 0.25, 0.0387),
-  tech: new THREE.Vector3(0, 0.25, 0.0334),
-  'graf-bot': new THREE.Vector3(0, 0.25, 0.0356),
-  'frog-bot': new THREE.Vector3(0, 0.25, 0.0468),
-  'stripey-bot': new THREE.Vector3(0, 0.25, 0.0696),
-};
 const keyOf = (n: string) => n.replace(/^mixamorig\d*[:_]?/, '');
 let library: Promise<THREE.AnimationClip[]> | null = null;
 const loadLibrary = () =>
@@ -49,12 +51,16 @@ const loadLibrary = () =>
     .then((g) => g.animations)
     .catch(() => []));
 
-function retarget(src: THREE.AnimationClip[], model: THREE.Object3D, id: Id): Map<string, THREE.AnimationClip> {
+function retarget(src: THREE.AnimationClip[], model: THREE.Object3D): Map<string, THREE.AnimationClip> {
   const names = new Map<string, string>();
+  const hips = new THREE.Vector3(0, 0.25, 0.04);
   model.traverse((o) => {
-    if ((o as THREE.Bone).isBone) names.set(keyOf(o.name), o.name);
+    if ((o as THREE.Bone).isBone) {
+      names.set(keyOf(o.name), o.name);
+      if (keyOf(o.name) === 'Hips') hips.copy(o.position);
+    }
   });
-  const off = HIPS_REST[id].clone().sub(KIMIKO_HIPS);
+  const off = hips.sub(KIMIKO_HIPS);
   const spineDamp = 0.3;
   const hipsDamp = 0.2;
   const q = new THREE.Quaternion();
@@ -133,6 +139,13 @@ type State = 'off' | 'boot' | 'run' | 'aim' | 'melee' | 'dying' | 'down';
 type Role = 'shooter' | 'rusher' | 'flanker';
 type Slot = {
   id: Id;
+  cast: CastMember;
+  spec: WeaponSpec;
+  /** Where shots leave from: the weapon's muzzle, else the palm. */
+  muzzle: THREE.Object3D | null;
+  /** Shots left in the current burst, and seconds to the next one. */
+  burstLeft: number;
+  burstT: number;
   root: THREE.Group;
   model: THREE.Object3D;
   mixer: THREE.AnimationMixer;
@@ -169,6 +182,8 @@ type Slot = {
   meleeX: number;
   /** Knock-back velocity while dying. */
   dv: THREE.Vector3;
+  /** Body scale for this spawn (TUNING.erobots.sizes): small runners to hulking heavies. */
+  size: number;
 };
 
 export type ErHit = { slot: Slot; point: THREE.Vector3; dist: number; head: boolean };
@@ -205,13 +220,15 @@ export class ErobotWave {
   playerAlive = true;
   /** Dev only: false stops new spawns. */
   spawning = true;
+  /** True while the gun is still loading real rounds: no spawns (the engine sets it). */
+  paused = false;
 
   constructor(
     private scene: THREE.Scene,
     private fx: Fx,
     private opts: { high: boolean; canvas: HTMLCanvasElement; reticle: () => { x: number; y: number }; light?: THREE.PointLight; flash?: (at: THREE.Vector3, color: string, intensity: number, ms: number) => void; bolts: Bolts; melee: (from: THREE.Vector3, dmg: number) => void },
   ) {
-    this.cap = opts.high ? 10 : 6;
+    this.cap = opts.high ? TUNING.erobots.poolHigh : TUNING.erobots.poolLow;
     this.group.name = 'erobots';
     scene.add(this.group);
     this.decalMat = new THREE.MeshBasicMaterial({ map: scorchTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, toneMapped: false, color: new THREE.Color(1.5, 1.2, 1.1) });
@@ -246,21 +263,38 @@ export class ErobotWave {
   private async load() {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const dir = this.opts.high ? 'hi' : 'lo';
-    const [lib, ...gl] = await Promise.all([loadLibrary(), ...IDS.map((id) => loader.loadAsync(`${ROOT}/${dir}/${id}.glb`).catch(() => null))]);
+    // the bodies: every named Erobot first, then the generic ranks, round-robin up to the pool cap
+    const order = FORCE && CAST.some((c) => c.id === FORCE) ? [FORCE] : [...CAST.filter((c) => c.named), ...CAST.filter((c) => !c.named)].map((c) => c.id);
+    const ids = order.slice(0, this.cap);
+    const [lib, ...gl] = await Promise.all([loadLibrary(), ...ids.map((id) => loader.loadAsync(`${ROOT}/${dir}/${id}.glb`).catch(() => null))]);
     if (this.disposed || !lib.length) return;
-    const clipsById = new Map<Id, Map<string, THREE.AnimationClip>>();
-    IDS.forEach((id, i) => {
-      if (gl[i]) clipsById.set(id, retarget(lib, gl[i]!.scene, id));
-    });
-    const have = IDS.filter((id) => gl[IDS.indexOf(id)]);
+    const have = ids.filter((_, i) => gl[i]);
     if (!have.length) return;
+    const clipsById = new Map<Id, Map<string, THREE.AnimationClip>>();
+    for (const id of have) clipsById.set(id, retarget(lib, gl[ids.indexOf(id)]!.scene));
     for (let i = 0; i < this.cap; i++) {
       const id = have[i % have.length];
-      this.slots.push(this.makeSlot(id, gl[IDS.indexOf(id)]!.scene, clipsById.get(id)!));
+      this.slots.push(this.makeSlot(id, gl[ids.indexOf(id)]!.scene, clipsById.get(id)!));
     }
   }
 
+  /** Weapon geometry, built once per cast member and shared by all its bodies. */
+  private kit = new Map<Id, { weapon: THREE.BufferGeometry | null; muzzle: THREE.Vector3 }>();
+  private weaponMat = weaponMaterial();
+
+  private kitFor(c: CastMember) {
+    let k = this.kit.get(c.id);
+    if (!k) {
+      const w = buildWeapon(c.weapon, this.opts.high);
+      if (w.geo && c.id === 'scarlet') recolour(w.geo, '#e8233a', '#15131a'); // BLACK AX (canon)
+      k = { weapon: w.geo, muzzle: w.muzzle };
+      this.kit.set(c.id, k);
+    }
+    return k;
+  }
+
   private makeSlot(id: Id, src: THREE.Object3D, clips: Map<string, THREE.AnimationClip>): Slot {
+    const cast = CAST.find((c) => c.id === id)!;
     const model = cloneSkinned(src);
     const mats: THREE.MeshStandardMaterial[] = [];
     let hand: THREE.Object3D | null = null;
@@ -288,6 +322,24 @@ export class ErobotWave {
     root.visible = false;
     this.group.add(root);
     model.updateMatrixWorld(true);
+
+    // WEAPON in the right hand (bone-local units: undo the bone's world scale)
+    const kit = this.kitFor(cast);
+    let muzzle: THREE.Object3D | null = hand;
+    const handB = hand as THREE.Object3D | null;
+    if (kit.weapon && handB) {
+      const wm = new THREE.Mesh(kit.weapon, this.weaponMat);
+      const bs = handB.getWorldScale(new THREE.Vector3()).x || 1;
+      wm.scale.setScalar(1 / bs);
+      wm.position.set(WEAPON_GRIP.x / bs, WEAPON_GRIP.y / bs, WEAPON_GRIP.z / bs);
+      wm.castShadow = false;
+      wm.frustumCulled = false;
+      handB.add(wm);
+      const mz = new THREE.Object3D();
+      mz.position.copy(kit.muzzle);
+      wm.add(mz);
+      muzzle = mz;
+    }
 
     const bones = new Map<string, THREE.Object3D>();
     model.traverse((o) => {
@@ -332,7 +384,7 @@ export class ErobotWave {
       d.userData.noAO = true;
       decals.push(d);
     }
-    return { id, root, model, mixer, act, cur: null, mats, proxies, hand, decals, decalI: 0, glow, state: 'off', t: 0, hp: HP, flash: 0, stopZ: -14, strafe: 0, baseX: 0, speed: 6, nextShot: 0, hurtT: 0, boot: 0, burst: false, role: 'shooter', side: 1, flankX: 12, startZ: 0, charge: 0, swingIn: 0, swingHit: -1, meleeX: 0, dv: new THREE.Vector3() };
+    return { id, cast, spec: WEAPONS[cast.weapon], muzzle, burstLeft: 0, burstT: 0, root, model, mixer, act, cur: null, mats, proxies, hand, decals, decalI: 0, glow, state: 'off', t: 0, hp: HP, flash: 0, stopZ: -14, strafe: 0, baseX: 0, speed: 6, nextShot: 0, hurtT: 0, boot: 0, burst: false, role: 'shooter', side: 1, flankX: 12, startZ: 0, charge: 0, swingIn: 0, swingHit: -1, meleeX: 0, dv: new THREE.Vector3(), size: 1 };
   }
 
   // ── Spawning ──
@@ -344,23 +396,47 @@ export class ErobotWave {
     s.cur = a;
   }
 
+  /** A free body, weighted by cast member (named Erobots come round more often than each generic bot). */
+  private freeIdx: number[] = [];
+  private freeSlot(): Slot | null {
+    this.freeIdx.length = 0;
+    for (let i = 0; i < CAST.length; i++) if (this.slots.some((s) => s.state === 'off' && s.cast === CAST[i])) this.freeIdx.push(i);
+    const ci = pickCast(this.freeIdx, Math.random());
+    if (ci < 0) return null;
+    return this.slots.find((s) => s.state === 'off' && s.cast === CAST[ci]) ?? null;
+  }
+
+  /** Erobots swinging in close right now. */
+  private get closeCount() {
+    let n = 0;
+    for (const s of this.slots) if (s.state === 'melee') n++;
+    return n;
+  }
+
   private spawn(s: Slot) {
     const T = TUNING.erobots;
     const w = this.wave;
     const rw = roleWeights(w);
     const r = Math.random();
-    s.role = r < rw.shooter ? 'shooter' : r < rw.shooter + rw.rusher ? 'rusher' : 'flanker';
+    // the weapon decides the job: guns hang back (a few flank), blades and fists close in
+    if (s.cast.weapon === 'palm') s.role = r < rw.shooter ? 'shooter' : r < rw.shooter + rw.rusher ? 'rusher' : 'flanker';
+    else if (s.spec.ranged) s.role = r < 0.75 ? 'shooter' : 'flanker';
+    else s.role = r < 0.6 ? 'rusher' : 'flanker';
+    s.burstLeft = 0;
+    s.burstT = 0;
     s.state = 'boot';
     s.t = 0;
     s.boot = 0;
-    s.hp = HP * ramp(TUNING.waveRamp.erobotHp, w);
+    const sz = TUNING.erobots.sizes;
+    s.size = Math.random() < sz.heavyChance ? sz.heavy : rand(sz.range);
+    s.hp = HP * ramp(TUNING.waveRamp.erobotHp, w) * s.size * s.size;
     s.flash = 0;
     s.burst = false;
     s.charge = 0;
     s.swingIn = 0;
     s.swingHit = -1;
     s.dv.set(0, 0, 0);
-    s.speed = rand(T.runSpeed) * ramp(TUNING.waveRamp.erobotSpeed, w);
+    s.speed = (rand(T.runSpeed) * ramp(TUNING.waveRamp.erobotSpeed, w)) / Math.sqrt(s.size);
     s.stopZ = rand(this.lane.stopZ);
     s.strafe = (Math.random() < 0.5 ? -1 : 1) * T.strafeSpeed * (0.6 + Math.random() * 0.6);
     s.nextShot = (1.0 + Math.random() * 1.5) / ramp(TUNING.waveRamp.erobotRate, w);
@@ -372,7 +448,7 @@ export class ErobotWave {
     s.startZ = this.lane.spawnZ;
     s.root.position.set(x, 0, s.startZ);
     s.root.rotation.set(0, 0, 0);
-    s.root.scale.set(1, 0.05, 1);
+    s.root.scale.set(s.size, 0.05 * s.size, s.size);
     s.root.visible = true;
     for (const d of s.decals) {
       d.visible = false;
@@ -386,11 +462,10 @@ export class ErobotWave {
     this.opts.flash?.(V.a, '#27c8e0', 70, 400); // teleport-in
   }
 
-  /** Switch to a stage's lane and level. Anything still on the floor is cleared. */
+  /** Switch to a stage's lane and level. Whoever is already on the floor keeps coming (the run never breaks). */
   setStage(lane: Lane, level: number) {
     this.lane = lane;
     this.wave = level;
-    this.clearAll();
   }
 
   /** Drop everything on the street (Continue): the wave starts again from nothing. */
@@ -419,12 +494,13 @@ export class ErobotWave {
     const capW = Math.min(this.cap, L.liveCap);
     const want = Math.min(capW, L.liveBase + Math.floor(this.hold * T.holdBonusPerSec));
     this.spawnT -= dt;
-    if (this.spawnT <= 0 && this.live < want && this.spawning) {
-      const free = this.slots.find((s) => s.state === 'off');
+    if (this.spawnT <= 0 && this.live < want && this.spawning && !this.paused) {
+      const free = this.freeSlot();
       if (free) this.spawn(free);
       this.spawnT = Math.max(T.spawnMin, (T.spawnEvery - this.hold * 0.05) / ramp(TUNING.waveRamp.erobotRate, w));
     }
     const cx = camera.position.x;
+    const cz = camera.position.z;
     const rate = ramp(TUNING.waveRamp.erobotRate, w);
     for (const s of this.slots) {
       if (s.state === 'off') continue;
@@ -445,18 +521,18 @@ export class ErobotWave {
       switch (s.state) {
         case 'boot': {
           s.boot = Math.min(1, s.t / 0.35);
-          s.root.scale.set(1, 0.05 + 0.95 * (1 - Math.pow(1 - s.boot, 3)), 1);
+          s.root.scale.set(s.size, (0.05 + 0.95 * (1 - Math.pow(1 - s.boot, 3))) * s.size, s.size);
           p.z += s.speed * 0.5 * dt;
           if (s.t > 0.5) {
             s.state = 'run';
-            s.root.scale.set(1, 1, 1);
+            s.root.scale.setScalar(s.size);
             this.play(s, s.act.run, 0.25);
           }
           break;
         }
         case 'run': {
           p.z += s.speed * dt;
-          const stop = s.role === 'shooter' ? s.stopZ : TUNING.erobots.melee.stopZ;
+          const stop = s.role === 'shooter' ? Math.min(s.stopZ, cz + TUNING.erobots.melee.stopZ - 2) : cz + TUNING.erobots.melee.stopZ;
           const u = THREE.MathUtils.clamp((p.z - s.startZ) / (stop - s.startZ), 0, 1);
           if (s.role === 'flanker') {
             // swing wide along an arc, then cut in on the player
@@ -472,7 +548,9 @@ export class ErobotWave {
           } else p.x = s.baseX + Math.sin(s.t * 1.7 + s.baseX) * 0.8;
           this.face(s, cx, p.z, dt, 7);
           if (p.z >= stop) {
-            if (s.role === 'shooter') {
+            if (s.role === 'shooter' || this.closeCount >= CLOSE.maxClose) {
+              // FAIRNESS: at most CLOSE.maxClose swing at once; the rest hold back and shoot / throw
+              if (s.role !== 'shooter') p.z = Math.min(p.z, cz - CLOSE.minDist - 2);
               s.state = 'aim';
               s.t = 0;
               this.play(s, s.act.aim, 0.3);
@@ -490,23 +568,40 @@ export class ErobotWave {
           p.x += s.strafe * dt;
           if (Math.abs(p.x) > this.lane.strafeX) s.strafe = -s.strafe;
           p.x = THREE.MathUtils.clamp(p.x, -this.lane.wallX, this.lane.wallX);
-          p.z = Math.min(-6, p.z + T.creepSpeed * dt);
+          p.z = Math.min(cz - 6, p.z + T.creepSpeed * dt);
           this.face(s, cx, p.z, dt, 8);
-          if (s.charge > 0) {
+          const fs = this.fireSpec(s);
+          if (s.burstLeft > 0) {
+            s.burstT -= dt;
+            if (s.burstT <= 0 && this.playerAlive) {
+              s.burstLeft--;
+              s.burstT = fs.burstGap;
+              this.fireBolt(s, camera);
+            }
+          } else if (s.charge > 0) {
             s.charge -= dt;
             if (s.charge <= 0 && this.playerAlive) {
               s.act.shoot.reset().setEffectiveWeight(1).fadeIn(0.1).play();
               s.act.shoot.crossFadeTo?.(s.act.aim, 0, false);
               s.cur = s.act.shoot;
               this.fireBolt(s, camera);
-              s.hurtT = 0.55; // returns to aim after the cast
+              s.burstLeft = fs.burst - 1;
+              s.burstT = fs.burstGap;
+              s.hurtT = 0.55 + fs.burstGap * (fs.burst - 1); // returns to aim after the cast
             }
           } else if (this.grace <= 0 && this.playerAlive) {
             s.nextShot -= dt;
             if (s.nextShot <= 0) {
-              s.nextShot = rand(T.bolt.every) / rate;
-              s.charge = 0.28; // the palm lights up first: a fair warning
+              s.nextShot = (rand(T.bolt.every) * Math.max(1, fs.burst * 0.6)) / rate;
+              s.charge = fs.charge; // the weapon lights up first: a fair warning
             }
+          }
+          // a blade / fist held back for the close cap goes back in once there is room
+          if (s.role !== 'shooter' && s.charge <= 0 && s.burstLeft <= 0 && this.closeCount < CLOSE.maxClose && Math.random() < dt * 0.8) {
+            s.state = 'run';
+            s.startZ = p.z - 0.01;
+            s.baseX = p.x;
+            this.play(s, s.act.run, 0.25);
           }
           if (s.cur === s.act.shoot || s.cur === s.act.hurt) {
             s.hurtT -= dt;
@@ -517,12 +612,14 @@ export class ErobotWave {
         case 'melee': {
           // right in the player's face: swing, wind-up first, then the damage
           p.x += (s.meleeX - p.x) * Math.min(1, dt * 3);
+          // keep its distance when the player walks in on it (never inside point-blank)
+          p.z = Math.min(p.z, cz + T.melee.stopZ, cz - standOff(s.size));
           this.face(s, cx, p.z, dt, 10);
           if (s.swingHit >= 0) {
             s.swingHit -= dt;
             if (s.swingHit <= 0) {
               s.swingHit = -1;
-              if (this.playerAlive && this.grace <= 0) this.opts.melee(V.a.copy(p).setY(1.4), T.melee.damage * ramp(TUNING.waveRamp.erobotDamage, w));
+              if (this.playerAlive && this.grace <= 0 && Math.hypot(p.x - cx, p.z - cz) < Math.max(T.melee.range, standOff(s.size) + 1.2) * Math.max(1, s.size)) this.opts.melee(V.a.copy(p).setY(1.4), T.melee.damage * s.spec.melee * ramp(TUNING.waveRamp.erobotDamage, w));
             }
           } else {
             s.swingIn -= dt;
@@ -567,9 +664,42 @@ export class ErobotWave {
         }
       }
       // heat glow at the palm while charging or shooting
-      const charging = s.charge > 0 ? 1 - s.charge / 0.28 : 0;
+      const charging = s.charge > 0 ? 1 - s.charge / Math.max(0.05, this.fireSpec(s).charge) : 0;
       s.glow.material.opacity = s.state === 'aim' ? Math.max(charging * 1.4, s.cur === s.act.shoot ? Math.max(0, s.hurtT - 0.2) * 1.6 : 0) : 0;
-      if (s.glow.material.opacity > 0 && s.hand) s.glow.position.setFromMatrixPosition(s.hand.matrixWorld);
+      if (s.glow.material.opacity > 0 && s.muzzle) s.glow.position.setFromMatrixPosition(s.muzzle.matrixWorld);
+    }
+    // STAND-OFF (PR #46): every live Erobot, named or generic, melee included, holds >= standOff(size) metres from
+    // the player and never stacks in front of the camera: bodies push apart, and anything the player walks into is
+    // pushed back out
+    for (let i = 0; i < this.slots.length; i++) {
+      const a = this.slots[i];
+      if (a.state !== 'boot' && a.state !== 'run' && a.state !== 'aim' && a.state !== 'melee') continue;
+      const pa = a.root.position;
+      for (let j = i + 1; j < this.slots.length; j++) {
+        const b = this.slots[j];
+        if (b.state !== 'boot' && b.state !== 'run' && b.state !== 'aim' && b.state !== 'melee') continue;
+        const pb = b.root.position;
+        const dx = pb.x - pa.x;
+        const dz = pb.z - pa.z;
+        const want = SEPARATION * (a.size + b.size) * 0.5;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= want * want) continue;
+        const d = Math.sqrt(d2) || 1e-3;
+        const push = ((want - d) / d) * 0.5;
+        const ux = d2 > 1e-6 ? dx : i % 2 ? 1e-3 : -1e-3;
+        pa.x -= ux * push;
+        pa.z -= dz * push;
+        pb.x += ux * push;
+        pb.z += dz * push;
+      }
+    }
+    for (const s of this.slots) {
+      if (s.state !== 'boot' && s.state !== 'run' && s.state !== 'aim' && s.state !== 'melee') continue;
+      const p = s.root.position;
+      if (holdOut(p.x, p.z, cx, cz, standOff(s.size), HOLD)) {
+        p.x = THREE.MathUtils.clamp(HOLD[0], -this.lane.wallX, this.lane.wallX);
+        p.z = HOLD[1];
+      }
     }
     // hit-marker fade
     if (this.markerT > 0 && this.marker) {
@@ -585,18 +715,25 @@ export class ErobotWave {
     s.root.rotation.y += d * Math.min(1, dt * rate);
   }
 
+  /** What this body fires: its weapon if it is a gun or a thrower, else the stock palm-bolt. */
+  private fireSpec(s: Slot): WeaponSpec {
+    return s.spec.ranged || s.spec.throws ? s.spec : WEAPONS.palm;
+  }
+
   private fireBolt(s: Slot, camera: THREE.Camera) {
     const B = TUNING.erobots.bolt;
     const w = this.wave;
-    const from = (s.hand ? V.b.setFromMatrixPosition(s.hand.matrixWorld) : V.b.copy(s.root.position).setY(1.6)).clone();
+    const fs = this.fireSpec(s);
+    const from = s.muzzle ? V.b.setFromMatrixPosition(s.muzzle.matrixWorld) : V.b.copy(s.root.position).setY(1.6);
     const miss = Math.random() < Math.max(B.missMin, B.miss - B.missPerWave * (w - 1));
     // a true bolt is aimed at the player's head; a wide one whips past to either side
     const target = V.c.copy(camera.position);
     if (miss) target.add(V.d.set((Math.random() < 0.5 ? -1 : 1) * (1.4 + Math.random() * 1.6), (Math.random() - 0.4) * 1.2, 0));
     else target.add(V.d.set((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.4, 0));
-    this.opts.bolts.fire(from, target, B.speed * ramp(TUNING.waveRamp.erobotSpeed, w), B.damage * ramp(TUNING.waveRamp.erobotDamage, w), '#ff4a30', !miss);
-    this.fx.sparks(from, '#ff7a50', 6, 4);
-    this.opts.flash?.(from, '#ff3a2a', 55, 110); // muzzle flash on the robot's arm
+    const col = fs === WEAPONS.palm ? '#ff4a30' : s.cast.shot;
+    this.opts.bolts.fire(from, target, B.speed * fs.speed * ramp(TUNING.waveRamp.erobotSpeed, w), B.damage * fs.damage * ramp(TUNING.waveRamp.erobotDamage, w), col, !miss, fs.kind);
+    this.fx.sparks(from, col, 6, 4);
+    this.opts.flash?.(from, col, 55, 110); // muzzle flash on the robot's arm
     if (miss) this.impulse = Math.max(this.impulse, 0.08);
   }
 
@@ -611,13 +748,16 @@ export class ErobotWave {
       for (let i = 0; i < s.proxies.length; i++) {
         const pr = s.proxies[i];
         V.a.copy(pr.local).applyMatrix4(pr.bone.matrixWorld);
-        const r = pr.r * HEIGHT * TUNING.erobots.hitScale;
+        const r = pr.r * HEIGHT * TUNING.erobots.hitScale * s.size;
         V.d.subVectors(V.a, org);
         const tc = V.d.dot(dir);
-        if (tc < 0) continue;
-        const d2 = V.d.lengthSq() - tc * tc;
-        if (d2 > r * r) continue;
-        const th = tc - Math.sqrt(r * r - d2);
+        const l2 = V.d.lengthSq();
+        // POINT-BLANK: the ray starts inside the sphere (it is pressed up against you): that is a hit, not a miss
+        const inside = l2 < r * r;
+        if (tc < 0 && !inside) continue;
+        const d2 = l2 - tc * tc;
+        if (d2 > r * r && !inside) continue;
+        const th = inside ? 0.01 : tc - Math.sqrt(r * r - d2);
         if (th < bd && th > 0) {
           bd = th;
           if (!best) best = { slot: s, point: new THREE.Vector3(), dist: th, head: false };
@@ -771,6 +911,7 @@ export class ErobotWave {
     });
     this.decalGeo.dispose();
     this.decalMat.dispose();
+    this.weaponMat.dispose();
     this.scene.remove(this.group);
     this.geos.forEach((g) => g.dispose());
   }

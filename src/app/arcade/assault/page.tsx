@@ -23,15 +23,7 @@ export default function GalleryPage() {
   return (
     <GameShell
       title="31 Oct Stress Test · Assault on Terrornode"
-      below={
-        <p className="panel text-dim">
-          Neo-Tokyo, 2048. Evil Dr Kweg Wong&apos;s Erobots hold TERRORNODE HQ. Fight up from the street through the HQ floors and the server core
-          to the rooftop, and get the hostage out. Keep the LIQUID UNIT down: it reforms the moment you let up.{' '}
-          {PAID
-            ? 'In paid play every round is a real tagged BSV transaction ("tokenblaster.lol" … "gallery"), signed in your browser from a gun your wallet funds, so you can watch them land on bsv.lol.'
-            : 'Free play: these are practice rounds. Nothing is paid, signed or sent on chain.'}
-        </p>
-      }
+      lock
     >
       <ShootingGallery freePlay={!PAID} />
     </GameShell>

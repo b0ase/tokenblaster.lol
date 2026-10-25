@@ -1,9 +1,10 @@
 /**
- * Every combat number for ASSAULT ON TERRORNODE, in one place (owner, 24 Oct 2026: "HARD and dangerous"),
- * including ALL the stage tuning (`stages`, `stageFlow`): kill goals, the core jam, the Erobot lanes, the boss.
+ * Every combat number for ASSAULT ON TERRORNODE, in one place, including ALL the stage tuning (`run`, `stages`,
+ * `horde`, `stageFlow`): the ten-minute block, the auto-walk, the Erobot lanes, the monster swarm, the boss.
  *
- * Shape of the difficulty: STAGE 1 is survivable for a new player who keeps the trigger down and sweeps the
- * gun across the threats; after that it escalates hard. Per-level growth is `1 + perLevel * (level - 1)` (see
+ * Shape of the difficulty (owner, 24 Oct 2026, for the BSV stress test): a constant swarm the minigun can hold
+ * the trigger on for ten minutes, light damage, fast regen and a knockdown instead of death, so nothing ends a
+ * run before the block lands. The swarm thickens stage by stage. Per-level growth is `1 + perLevel * (level - 1)` (see
  * `ramp`), so a value in waveRamp of 0.2 means +20% on level 2, +40% on level 3, and so on. A stage's `level`
  * is the number its Erobots (and the Liquid Unit's `bossLevel`) are scaled by.
  *
@@ -16,32 +17,80 @@
 
 export const TUNING = {
   /**
-   * COIN-OP CONTINUE (owner, 24 Oct 2026): the death screen counts down like a classic arcade cabinet. Putting
-   * coins in (one wallet approval) resets the count to `continueSecs`, resets health and ADDS the new ammo to
-   * whatever is still loaded; the count also holds while the wallet approval is pending. At 0 it is GAME OVER
-   * and the results screen opens (leftover ammo stays in the gun as credit).
+   * THE BLOCK (owner, 24 Oct 2026, for the BSV stress test): one continuous ten-minute run, the length of a
+   * block. The player is walked forward automatically down ONE connected route (street, through the lobby
+   * doorway into the HQ floors, out of the corridor's open end into the server core shaft, out of the shaft onto
+   * the roof and the server room) with no lift, no loading, no cut and no stage card that stops play. Each stage
+   * starts at its `at` second; the Liquid Unit walks in at `bossAt` and the run ends at `secs` (if he is still
+   * standing then, the block lands on him).
    */
-  continueSecs: 9,
+  run: {
+    secs: 600,
+    bossAt: 520,
+    /**
+     * The route, in metres down -Z. `base`: where each set's origin sits (street, floors, core, roof), `lift` a
+     * hair of height so seams never z-fight, `enter`: how far along the route each stage's set begins (the
+     * seams: the street's lobby, the corridor's open end, the shaft's far opening), `end`: where the walk stops
+     * in the server room. `doorZ`: the street's lobby doorway plane (the tower is carved behind it). Pieces are
+     * drawn from `ahead` metres before they begin to `behind` metres after they end. `blend`: metres either side
+     * of a seam over which the fog and sky blend. `coreBend`: the walk swings this far round the core pedestal.
+     */
+    route: {
+      base: [0, -71.5, -140.5, -196.5],
+      lift: [0, 0.02, 0, 0],
+      enter: [0, 66.5, 136.5, 188.5],
+      end: 214.5,
+      doorZ: -69.3,
+      ahead: 40,
+      behind: 12,
+      blend: 8,
+      coreBend: 9,
+    },
+    /** Point-light slots the route's lights share (High / Low), and the exposure-kick cap while the trigger is held. */
+    lightSlots: 8,
+    lightSlotsLow: 4,
+    fireKickCap: 0.05,
+    /** Near a seam the player is kept to the middle (metres either side) so the walk threads the doorway. */
+    seamLane: 2.2,
+    /** Head bob while walked forward: metres up/down and steps a second. */
+    bobY: 0.035,
+    stepHz: 1.7,
+  },
 
   player: {
     hp: 100,
-    /** Seconds without a hit before health trickles back. */
-    regenDelay: 5,
-    regenPerSec: 3,
+    /** Seconds without a hit before health comes back (fast: a stress test run must not end early). */
+    regenDelay: 1.2,
+    regenPerSec: 14,
     /** After a hit nothing else lands for this long, so one burst is not three hits (s). */
     hitCooldown: 0.12,
     /** Health from a kill (erobot) and from melting the boss (fraction of max). */
     healOnKill: 2,
     healOnBossMelt: 0.4,
-    /** Invulnerable for this long after Continue (s). */
+    /** Invulnerable for this long after a knockdown (s). */
     reviveGrace: 3,
+    /**
+     * KNOCKDOWN instead of death (owner, 24 Oct: "death must not end a stress-test run early"): at zero health
+     * the player is shielded for `reviveGrace` seconds, back on `knockdownHp` of max, and keeps firing.
+     */
+    knockdownHp: 0.6,
     /** Under this fraction the screen edge pulses red. */
     lowFraction: 0.3,
     /** Wave 1 only: enemies hold their fire this long at the start (s). */
     openingGrace: 3.5,
     /** STRAFE (A/D, arrows, the touch pad): metres a second, and how far across the set (fraction of its wall half-width). */
     strafeSpeed: 5.5,
-    strafeRange: 0.55,
+    strafeRange: 0.75,
+    /**
+     * FREE MOVE (owner, 25 Oct: "full movement like the Arena, plus slow automatic forward travel"): how far you
+     * can walk ahead of (-) or drop behind (+) the auto-walk's spot (m), the arrow-key turn rate (rad/s) and how
+     * far the view can turn from straight down the route (rad).
+     */
+    freeZ: [-6, 6] as [number, number],
+    /** The box's soft edge: movement fades to nothing over this many metres at each wall of the box. */
+    edgeSoft: 1,
+    turnSpeed: 2.2,
+    lookYaw: 2.4,
     /** Camera kick on a hit: radians at damage 10, scaled by damage. */
     kickPer10: 0.045,
   },
@@ -64,11 +113,16 @@ export const TUNING = {
     hitScale: 1.8,
     headMultiplier: 2.5,
     /** Extra Erobots allowed alive per second the trigger has been held (up to 14 s). */
-    holdBonusPerSec: 0.45,
+    holdBonusPerSec: 0.8,
+    /** Bodies built once (High / Low): the most that can ever be on the floor. */
+    poolHigh: 16,
+    poolLow: 9,
+    /** Body scale per spawn: most in `range`, a few hulking `heavy` ones (health grows with size squared). */
+    sizes: { range: [0.8, 1.3] as [number, number], heavy: 1.9, heavyChance: 0.12 },
     /** How many are alive at once is per stage: `stages[].lane.liveBase` / `liveCap`, plus a bonus while the trigger is held. */
     /** Seconds between spawns (wave 1), and the floor. */
-    spawnEvery: 1.05,
-    spawnMin: 0.28,
+    spawnEvery: 0.5,
+    spawnMin: 0.16,
     runSpeed: [7.5, 10.5] as [number, number],
     /** Share of each role at wave 1 and at wave 6+ (shooters hang back and fire, rushers close for melee, flankers swing wide). */
     roles: {
@@ -79,11 +133,11 @@ export const TUNING = {
     strafeSpeed: 3.2,
     bolt: {
       speed: 34,
-      damage: 4,
+      damage: 1.0,
       /** Seconds between shots per shooter (wave 1), random in range. */
-      every: [1.0, 2.0] as [number, number],
+      every: [1.9, 3.4] as [number, number],
       /** Chance a bolt is aimed wide and misses (wave 1), falling by missPerWave to missMin. */
-      miss: 0.34,
+      miss: 0.4,
       missPerWave: 0.05,
       missMin: 0.08,
       /** Bolts are small: a round that passes this close shoots one down. */
@@ -91,67 +145,99 @@ export const TUNING = {
       hitRadius: 0.55,
     },
     melee: {
-      range: 2.7,
-      damage: 7,
+      range: 5.2,
+      damage: 2,
       windup: 0.32,
       every: 0.95,
-      /** The z a rusher plants itself at. */
-      stopZ: -2.1,
+      /** The z (in front of the player) a rusher plants itself at: never inside point-blank range. */
+      stopZ: -4.2,
     },
   },
 
   /**
-   * THE FOUR STAGES (the same 3D engine, one set each). A stage ends on its `goal`:
-   *  - `kills`: that many Erobots stopped (a kill of the nearest wins the floor; racks and glass only add points);
-   *  - `jam`: sustained fire on the core. Each round on the core adds 1/`rounds` to the jam; after `holdSecs`
-   *    without a hit it drains `drainPerSec` rounds a second, so only a steady stream gets it over the line;
-   *  - `boss`: the Liquid Unit melts (once; he does not get back up), then the RESCUED beat.
-   * `lane` is where the Erobots come from and how they move in that set: `spawnZ`/`halfW` the line they teleport in
-   * on, `stopZ` where shooters plant, `flankX` the width flankers swing, `strafeX` the most a shooter sidesteps,
-   * `snipeX` how far off-axis a flanker fires, and the live caps. A cap of 0 turns the Erobots off.
+   * THE FOUR STAGES, one seamless walk (see `run.route`). Each starts at its `at` second of the block; there
+   * are no goals to clear any more, the clock moves you on. `lane` is where the Erobots and the horde come from: `spawnZ`/`halfW` the line
+   * they arrive on, `stopZ` where shooters plant, `flankX` the width flankers swing, `strafeX` the most a shooter
+   * sidesteps, `snipeX` how far off-axis a flanker fires, and the Erobot live caps. `horde` is how many Arena
+   * monsters are alive at once (High; Low takes `TUNING.horde.lowLive` of it), ramping across the stage to `hordeEnd`.
+   * The core's jam is a score bonus now: jam it and it blows, then re-arms.
    */
   stages: [
     {
       id: 'street',
       level: 1,
-      goal: { kind: 'kills', n: 12 },
-      lane: { spawnZ: -63.5, halfW: 12, stopZ: [-22, -11], flankX: [11, 16], strafeX: 14, snipeX: 5, liveBase: 3, liveCap: 5, wallX: 17 },
+      at: 0,
+      horde: 7,
+      hordeEnd: 12,
+      lane: { spawnZ: -63.5, halfW: 12, stopZ: [-22, -11], flankX: [11, 16], strafeX: 14, snipeX: 5, liveBase: 4, liveCap: 8, wallX: 17 },
     },
     {
       id: 'floors',
       level: 2,
-      goal: { kind: 'kills', n: 16 },
-      lane: { spawnZ: -44, halfW: 3.6, stopZ: [-21, -10], flankX: [3.6, 5.2], strafeX: 5.2, snipeX: 2.2, liveBase: 3, liveCap: 6, wallX: 6.3 },
+      at: 150,
+      horde: 10,
+      hordeEnd: 15,
+      lane: { spawnZ: -44, halfW: 3.6, stopZ: [-21, -10], flankX: [3.6, 5.2], strafeX: 5.2, snipeX: 2.2, liveBase: 4, liveCap: 8, wallX: 6.3 },
     },
     {
       id: 'core',
       level: 3,
-      goal: { kind: 'jam', rounds: 6000, holdSecs: 0.35, drainPerSec: 400 },
-      lane: { spawnZ: -34, halfW: 7, stopZ: [-17, -9], flankX: [6, 9], strafeX: 9, snipeX: 3, liveBase: 2, liveCap: 4, wallX: 12 },
+      at: 300,
+      horde: 12,
+      hordeEnd: 17,
+      jam: { rounds: 6000, holdSecs: 0.35, drainPerSec: 400 },
+      lane: { spawnZ: -34, halfW: 7, stopZ: [-17, -9], flankX: [6, 9], strafeX: 9, snipeX: 3, liveBase: 4, liveCap: 8, wallX: 12 },
     },
     {
       id: 'roof',
       level: 4,
-      goal: { kind: 'boss' },
+      at: 430,
+      horde: 13,
+      hordeEnd: 9,
       /** The Liquid Unit's level (health x1.5 and damage x1.22 per level above 1), once, on this stage. */
       bossLevel: 2,
-      lane: { spawnZ: -40, halfW: 8, stopZ: [-20, -12], flankX: [8, 11], strafeX: 10, snipeX: 4, liveBase: 0, liveCap: 0, wallX: 11 },
+      lane: { spawnZ: -40, halfW: 8, stopZ: [-20, -12], flankX: [8, 11], strafeX: 10, snipeX: 4, liveBase: 4, liveCap: 8, wallX: 11 },
     },
   ],
 
-  /** The lift between stages and the RESCUED beat (milliseconds unless noted). */
+  /** The Arena's monsters in the run (src/lib/galleryGame/horde.ts): pool per kind (High), sizes, speeds, light bites. */
+  horde: {
+    kinds: [
+      // small and fast
+      { id: 'raptor', pool: 6, weight: 3, size: [0.7, 0.95] as [number, number], speed: [7, 10] as [number, number], hp: 8, damage: 1.5, score: 120 },
+      { id: 'minion', pool: 8, weight: 4, size: [0.75, 0.95] as [number, number], speed: [4.5, 6.5] as [number, number], hp: 5, damage: 1, score: 80 },
+      // medium
+      { id: 'zombie', pool: 6, weight: 3, size: [1.0, 1.3] as [number, number], speed: [2.6, 3.6] as [number, number], hp: 12, damage: 2, score: 150 },
+      { id: 'zombiewarrior', pool: 4, weight: 2, size: [1.0, 1.35] as [number, number], speed: [4, 5.5] as [number, number], hp: 14, damage: 2, score: 180 },
+      { id: 'hazmat', pool: 3, weight: 1.5, size: [1.2, 1.6] as [number, number], speed: [2.4, 3.2] as [number, number], hp: 20, damage: 2.5, score: 220 },
+      { id: 'eyebeast', pool: 3, weight: 1.5, size: [1.1, 1.8] as [number, number], speed: [3, 4.5] as [number, number], hp: 10, damage: 1.5, score: 200 },
+      // huge
+      { id: 'helldemon', pool: 2, weight: 0.7, size: [2.4, 3.2] as [number, number], speed: [1.8, 2.4] as [number, number], hp: 60, damage: 4, score: 2500 },
+    ],
+    /** Low quality builds this share of each pool and keeps this share of the live count. */
+    lowPool: 0.5,
+    lowLive: 0.55,
+    spawnEvery: 0.35,
+    burst: 3,
+    biteEvery: 2.0,
+    hitScale: 1.15,
+    /**
+     * FAIRER CLOSE RANGE (owner, 25 Oct): a monster plants at least `minDist` + its size x `sizeDist` metres in
+     * front of you, at most `maxClose` bite at once (the rest hold back `holdBack` metres further, still in the
+     * line of fire), bodies push apart, and a bite only lands within `biteReach` (+ size) metres sideways.
+     */
+    minDist: 3.6,
+    sizeDist: 1.2,
+    maxClose: 3,
+    holdBack: 6,
+    biteReach: 3,
+  },
+
+  /** The seamless stage flow and the RESCUED beat (milliseconds unless noted). */
   stageFlow: {
-    /** The doors close: how long the screen takes to go black, then the stage swaps while black. */
-    leaveMs: 950,
-    /** Black hold in the lift after the swap, then the doors open on the new stage. */
-    holdMs: 1300,
-    /** Nothing can hurt you for this long after a stage opens (s), and the Erobots hold their fire. */
-    openGraceSecs: 3,
     /** After the Liquid Unit is down: seconds after the unit pools until Kweg is up and walking, and how long the RESCUED cutscene runs before the results screen. */
     downToFreeSecs: 0.8,
     cutsceneSecs: 8,
-    /** Health returned between stages (fraction of max). */
-    healBetween: 0.5,
   },
 
   boss: {
@@ -181,10 +267,10 @@ export const TUNING = {
     staggerFor: 1.5,
     staggerCooldown: 3.4,
     staggerKick: 5,
-    swipe: { windup: 0.55, damage: 20, every: 1.7 },
-    lunge: { every: [4.5, 7.5] as [number, number], windup: 0.5, speed: 15, time: 0.42, damage: 30, fromDist: 24 },
-    slam: { every: [8, 12] as [number, number], windup: 0.8, damage: 16 },
-    shards: { every: [3.2, 4.6] as [number, number], count: 3, damage: 4, speed: 30, fromDist: 11 },
+    swipe: { windup: 0.55, damage: 6, every: 1.7 },
+    lunge: { every: [4.5, 7.5] as [number, number], windup: 0.5, speed: 15, time: 0.42, damage: 9, fromDist: 24 },
+    slam: { every: [8, 12] as [number, number], windup: 0.8, damage: 6 },
+    shards: { every: [3.2, 4.6] as [number, number], count: 3, damage: 1.5, speed: 30, fromDist: 11 },
     /** Melt and re-form, in seconds: collapse, lie pooled, rise. */
     melt: { collapse: 2.6, pooled: 1.4, rise: 2.6, glide: 0.9 },
   },

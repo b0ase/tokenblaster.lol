@@ -7,12 +7,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { Gun, TOKEN_FEE, loadMark } from './gun';
+import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { connect, fund, walletAlive, type Wallet } from './wallet';
+import { connect, fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
+import { chainHandle, needsPaymail } from './gallery';
 import { setProofWallet } from './xproof';
+import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, onWalletAsk, patchBarWallet, setBarWallet } from './walletBar';
 
+/**
+ * No background wallet calls (owner, 25 Oct 2026): connecting asks only for the identity key. The wallet's token
+ * baskets are read only when the player opens the token / ammo picker (`readTokens`, or picking token ammo with
+ * setMode('tokens')), once per session per basket, refusals remembered (src/lib/basketSession.ts). Nothing is read
+ * on refocus, there is no liveness timer, and the wallet is held (no calls at all) while a storm session runs.
+ */
 export function useBlaster() {
   const gun = useRef<Gun | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -39,7 +48,7 @@ export function useBlaster() {
   const [chooser, setChooser] = useState<{ note: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** 'sats': tagged blasts (tokens never move). 'tokens': every bullet burns a real token. */
-  const [mode, setMode] = useState<'sats' | 'tokens'>('sats');
+  const [mode, setModeState] = useState<'sats' | 'tokens'>('sats');
   const [tokenAmmo, setTokenAmmo] = useState<number>(0); // whole tokens loaded in the gun
   const [gunAddress, setGunAddress] = useState('');
   /** Last load / unload, shown as a receipt with its transaction. */
@@ -85,24 +94,13 @@ export function useBlaster() {
       setWallet(w);
       setWalletLive(true);
       loadMark(`wallet connected: ${w.name}`);
-      // The tokens really in the wallet (bWallet's bsv21 basket, else the index).
-      const first = (held: Token[]) => {
-        setTokens(held);
-        setToken((cur) => (cur && held.some((t) => t.id === cur.id) ? held.find((t) => t.id === cur.id)! : (held[0] ?? null)));
-      };
-      void checkStranded(w);
-      walletTokens(w, first)
-        .then((held) => {
-          first(held);
-          if (!held[0]) setMode('sats'); // nothing to burn
-        })
-        .catch(() => undefined);
+      // No token-basket reads here: those wait for the player's tap (readTokens).
     } catch (e) {
       fail(e);
     } finally {
       setBusy(null);
     }
-  }, [checkStranded]);
+  }, []);
 
   /** Inside bWallet: its wallet, no chooser. Else the remembered wallet, else the chooser. */
   const connectWallet = useCallback(async () => {
@@ -130,14 +128,7 @@ export function useBlaster() {
     if (!ok) loadMark(`wallet not answering: ${wallet.name}`);
     return ok;
   }, [wallet]);
-  // Watch the connection while on the page: a drop shows at once (a badge), and the next pay asks to reconnect.
-  useEffect(() => {
-    if (!wallet) return;
-    const t = setInterval(() => {
-      if (!busy) void checkWallet();
-    }, 20_000);
-    return () => clearInterval(t);
-  }, [wallet, busy, checkWallet]);
+  // No liveness timer: checkWallet runs only right before a payment (isAuthenticated, never a sheet).
 
   /**
    * Pay `sats` into the gun. Only after a confirmed live connection; the paid coin is saved straight from the
@@ -214,7 +205,7 @@ export function useBlaster() {
   const storm = useCallback(
     async (
       total: number,
-      onProgress: (sent: number, last?: string) => void,
+      onProgress: (sent: number, last?: string, net?: StormNet) => void,
       stop?: () => boolean,
       onStatus?: (s: string) => void,
       tag?: { game?: string; extra?: string[] },
@@ -227,13 +218,26 @@ export function useBlaster() {
     ) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
+      // Every round carries the player's paymail (owner, 25 Oct). The page passes the bar's; if it only had the
+      // key_ name (the lookup had not answered, or failed), ask pay.bwallet.space once more (HTTP, not the wallet).
+      if (tag && wallet && needsPaymail(tag.extra?.[0])) {
+        const id = await withTimeout(lookupPaymail(wallet.publicKey), 3000, 'LOOKUP_TIMEOUT').catch(() => null);
+        const pm = chainHandle(id?.paymail);
+        if (pm) {
+          patchBarWallet({ publicKey: wallet.publicKey, paymail: id?.paymail, alias: id?.alias });
+          tag = { ...tag, extra: [pm, ...(tag.extra ?? []).slice(1)] };
+        }
+      }
+      console.info(`[tb-fire] round tag: tokenblaster.lol ${tokenLabel ?? token?.id ?? ''} <n> ${tag?.game ?? 'bsvgun'} ${(tag?.extra ?? []).join(' ')}`);
+      holdWalletForPlay(true, 'storm'); // the gun signs every round itself: nothing may ask the wallet meanwhile
       try {
         return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused, step);
       } finally {
+        holdWalletForPlay(false, 'storm');
         setAmmo(await g.balance().catch(() => g.sats)); // the session's saved change, from the real coin set
       }
     },
-    [token],
+    [token, wallet],
   );
 
   /** LOCK & LOAD: find the coin, split it into lanes, wait for the network. Then storm() fires at once. */
@@ -347,7 +351,8 @@ export function useBlaster() {
   /** Re-read the wallet's tokens (after buying or receiving more). */
   const [refreshing, setRefreshing] = useState(false);
   const refreshWallet = useCallback(async () => {
-    if (!wallet) return;
+    if (!wallet || walletHeld()) return;
+    forgetBasketReads(); // the player tapped refresh: really re-read (refused baskets stay refused)
     setRefreshing(true);
     try {
       void checkStranded(wallet);
@@ -360,13 +365,27 @@ export function useBlaster() {
       setRefreshing(false);
     }
   }, [wallet, checkStranded]);
-  // Coming back to the tab (e.g. after buying tokens elsewhere): look again.
-  useEffect(() => {
-    if (!wallet) return;
-    const onFocus = () => document.visibilityState === 'visible' && void refreshWallet();
-    document.addEventListener('visibilitychange', onFocus);
-    return () => document.removeEventListener('visibilitychange', onFocus);
+  /** The player opened the token / ammo picker: read the wallet's tokens (once per session per basket). */
+  const tokensAsked = useRef(false);
+  const [tokensRead, setTokensRead] = useState(false);
+  const readTokens = useCallback(async () => {
+    if (!wallet || walletHeld() || tokensAsked.current) return;
+    tokensAsked.current = true;
+    await refreshWallet();
+    setTokensRead(true);
   }, [wallet, refreshWallet]);
+  useEffect(() => {
+    tokensAsked.current = false;
+    void Promise.resolve().then(() => setTokensRead(false));
+  }, [wallet]);
+  /** Picking token ammo is the player's tap: it reads the wallet's tokens first time. */
+  const setMode = useCallback(
+    (m: 'sats' | 'tokens') => {
+      setModeState(m);
+      if (m === 'tokens') void readTokens();
+    },
+    [readTokens],
+  );
 
   /** What's in the gun right now: tokens by id (for the Wallet → Gun → Fired strip). */
   const [gunTokens, setGunTokens] = useState<{ id: string; amt: bigint }[]>([]);
@@ -415,5 +434,5 @@ export function useBlaster() {
     }
   }, [wallet, refreshGun]);
 
-  return { wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

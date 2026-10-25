@@ -48,7 +48,7 @@ test('free for the stress test up to and including 31 Oct UTC, 5% from 1 Nov', (
 });
 
 test('weapons map to tx patterns: the minigun streams, a shotgun bursts its pellets', () => {
-  assert.deepEqual(txPattern({ id: 'minigun', auto: true, fireMs: 70, pellets: 1 }), { kind: 'stream', rate: 2000 });
+  assert.deepEqual(txPattern({ id: 'minigun', auto: true, fireMs: 70, pellets: 1 }), { kind: 'stream', rate: 3000 });
   assert.deepEqual(txPattern({ id: 'sawedoff', auto: false, fireMs: 720, pellets: 9 }), { kind: 'burst', n: 9 });
   assert.equal(txPattern({ id: 'plasmarifle', auto: true, fireMs: 115, pellets: 1 }).kind, 'stream');
 });
@@ -79,8 +79,18 @@ test('assault rack: volume streams only, honest LIVE ceiling', async () => {
     assert.equal(p.kind, 'stream', `${id} streams`);
     assert.ok(p.kind === 'stream' && p.rate >= 2000, `${id} ~2000 tx/s`);
   }
-  assert.equal(liveCeiling(10_000), 680); // 34 lanes x 20
-  assert.equal(liveCeiling(1_000_000), 2000); // 100 lanes x 20
+  assert.equal(liveCeiling(10_000), 6666); // 100 lanes x 100 per 1.5 s round
+  assert.equal(liveCeiling(1_000_000), 6666);
+  assert.equal(liveCeiling(3_000), 2000); // 30 lanes x 100 per 1.5 s
+  assert.ok(liveCeiling(10_000) >= 3000, 'a 10k pack has headroom over 3,000 tx/s');
   assert.equal(liveRate({ kind: 'stream', rate: 2000 }, 30_000), 2000);
-  assert.equal(roundsForFullRate(2000), 30_000);
+  assert.equal(roundsForFullRate(2000), 3_000);
+  assert.equal(roundsForFullRate(3000), 4_500);
+});
+
+test('block: a full ten-minute block of rounds at the gun rate, with a margin', async () => {
+  const { blockRounds, BLOCK_SECS } = await import('./gallery');
+  assert.equal(BLOCK_SECS, 600);
+  assert.ok(blockRounds({ kind: 'stream', rate: 2000 }) >= 2000 * 600, 'a minigun held for 10:00');
+  assert.ok(blockRounds({ kind: 'burst', n: 8 }) > 0);
 });

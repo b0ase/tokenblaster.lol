@@ -5,6 +5,7 @@
  * this owns the DR-style title, weapon select, HUD and results, the wallet/ammo wiring (LIVE shots go
  * through src/lib/bsvgun/useShots.ts -> useBlaster().fireBatch) and the scores.
  */
+import { CheckOrdnance } from '@/components/CheckOrdnance';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HighScores } from './HighScores';
@@ -85,7 +86,8 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
   const feedRef = useRef(feed);
   const heightRef = useRef(0);
   const shots = useShots(b, live);
-  const { owned } = useOrdnance(b.wallet);
+  const ordnance = useOrdnance(b.wallet);
+  const { owned } = ordnance;
   const unlocked = useMemo(() => new Set([...STOCK_IDS, ...owned]), [owned]);
   const weapon = weapons.find((w) => w.id === weaponId) ?? weapons[0];
 
@@ -598,6 +600,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
             </div>
             <div className="flex items-center justify-between gap-2">
               <Display size={16}>CHOOSE YOUR WEAPON</Display>
+              <CheckOrdnance ordnance={ordnance} connected={!!b.wallet} />
               <span className="bg-hint hidden text-[10px] sm:inline" style={{ color: DR.colour.grey }}>
                 aim with mouse/touch · click or tap to fire · right-click / Shift scope · 1-9, Q E switch · pad: stick, RT, LT
               </span>

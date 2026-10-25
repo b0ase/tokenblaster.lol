@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COINS_USD, addCoin, canStart, cleanName, fmtCredit, hasCredit, playPriceUsd, typingName, usdToSats } from './credit';
+import { COINS_USD, addCoin, canStart, cleanName, playerNameFrom, fmtCredit, hasCredit, playPriceUsd, typingName, usdToSats } from './credit';
 
 test('coins stack in whole cents: 10 × $1 = $10.00, 0.1 + 0.2 = 0.3', () => {
   let t = 0;
@@ -25,11 +25,17 @@ test('credit counter floors', () => {
 test('name needs credit; start needs credit + name', () => {
   assert.equal(hasCredit(0.09), false);
   assert.equal(hasCredit(0.1), true);
-  assert.equal(canStart(0.1, 'neo', 0.1), true);
-  assert.equal(canStart(0.1, '', 0.1), false);
-  assert.equal(canStart(0.05, 'neo', 0.1), false);
+  assert.equal(canStart(0.1, 0.1), true);
+  assert.equal(canStart(0.05, 0.1), false);
   assert.equal(cleanName('@Neo_1'), 'neo_1');
   assert.equal(cleanName('a b'), null);
   assert.equal(typingName('Hello World!!'), 'helloworld');
   assert.equal(playPriceUsd('unknown'), 0.1);
+});
+
+test('the player name is the wallet paymail, else the identity key short form, never typed', () => {
+  assert.deepEqual(playerNameFrom({ paymail: 'B0aseX@bwalletx.com', publicKey: '03abcdef0123456789' }), { name: 'b0asex@bwalletx.com', hasPaymail: true });
+  assert.deepEqual(playerNameFrom({ paymail: null, publicKey: '03ABCDEF0123456789ff' }), { name: 'key_03abcdef01', hasPaymail: false });
+  assert.equal(cleanName(playerNameFrom({ publicKey: '03abcdef0123456789' }).name), 'key_03abcdef01');
+  assert.deepEqual(playerNameFrom(null), { name: '', hasPaymail: false });
 });

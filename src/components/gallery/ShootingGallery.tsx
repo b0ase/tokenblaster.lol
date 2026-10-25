@@ -21,10 +21,13 @@
  * the rounds are locked). Dev only: `?dryrun=1` simulates everything (no wallet, no broadcast); not linked in the UI.
  * `?autofire=1` (with ?dryrun=1) holds the trigger on the boss, for screenshots.
  */
+import { TxMeter } from '@/lib/txMeter';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
+import { holdWalletForPlay } from '@/lib/wallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
+import { LiveTxBadge } from './LiveTxBadge';
 import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, skipTrack, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
@@ -32,14 +35,15 @@ import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons'
 import { GalleryEngine, type Hooks, type Quality, type StageEvent, type Stats } from '@/lib/galleryGame/engine';
 import {
   DEFAULT_AMMO,
+  blockRounds,
   overheadSats,
   roundsFor,
-  PRIZE,
   ammoFromPaymail,
   fmtUsd,
   freeForStressTest,
   galleryPushes,
-  inEvent,
+  HANDLE_BUDGET,
+  roundHandle,
   patternLabel,
   platformFeeAt,
   shotSats,
@@ -47,26 +51,24 @@ import {
   ASSAULT_GUNS,
   STREAM_STEP,
   usdOf,
-  type BoardRow,
 } from '@/lib/gallery';
 import { WalletChooser } from '../WalletChooser';
 import { GameAudio } from '../SoundToggle';
 import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal, Ticker } from '../coinop/ui';
-import { IdentityPicker } from '../PlayerBadge';
-import { PrizeBanner } from './PrizeBanner';
+import { PlayerPanel } from './PlayerPanel';
+import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
-import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, TRANSITION, forPractice, stageBrief } from '@/lib/gallery/story';
+import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
-import { BannerStage, LiftOverlay, RescuedBeat, useBanners } from './Banners';
+import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { Results, type RunSummary } from './Results';
 import { DamageFx, type DamageFxHandle } from './DamageFx';
-import { Flatlined, type FlatStats } from './Flatlined';
 import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 
 import { loadMark } from '@/lib/gun';
@@ -77,6 +79,8 @@ import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit'
 const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
 const FALLBACK_USD = 17.4;
 const PREFS = 'tb:gallery-prefs';
+/** Trigger held this long with rounds queued and none sent: the gun shows JAMMED (ms). */
+const JAM_MS = 6000;
 const TUNING_FLOW = TUNING.stageFlow;
 const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before the clock is read
 
@@ -97,15 +101,14 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
   const b = useBlaster();
   const { storm, fireBatch } = b;
-  const [name, setName] = usePlayerName();
-  // The NAME typed at the cabinet is the on-chain handle tag and the board name.
-  const handle = cleanName(name);
+  const { name, hasPaymail } = usePlayerName();
   const weapons = useMemo(() => {
     // Volume guns only: sustained ~2,000 tx/s streams, no single shots or bursts (owner, 24 Oct: stress test).
     const all = buildWeapons();
     return ASSAULT_GUNS.map((id) => all.find((w) => w.id === id)).filter((w): w is RangeWeapon => !!w);
   }, []);
-  const { owned } = useOrdnance(b.wallet);
+  const ordnance = useOrdnance(b.wallet); // wallet baskets only on the loadout's explicit tap
+  const { owned } = ordnance;
   const [dry, setDry] = useState(false);
   const [autofire, setAutofire] = useState(false);
   const [weaponId, setWeaponId] = useState('minigun');
@@ -114,6 +117,10 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const barWallet = useSyncExternalStore(subBarWallet, getBarWallet, () => null);
   const paymail = b.wallet && barWallet?.publicKey === b.wallet.publicKey ? ammoFromPaymail(barWallet) : null;
   const ammo = paymail ?? DEFAULT_AMMO;
+  // The NAME is the wallet's paymail (owner, 25 Oct): the on-chain handle tag and the board name (src/lib/gallery.ts roundHandle).
+  const handle = roundHandle(barWallet?.paymail, cleanName(name));
+  const [netSeen, setNetSeen] = useState(0);
+  const netSeenRef = useRef(0); // across reload sessions (each session's count starts at 0)
   const [loadout, setLoadout] = useState(true);
   const [bsvUsd, setBsvUsd] = useState(FALLBACK_USD);
   const [locked, setLocked] = useState(false);
@@ -125,18 +132,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const hudWave = useRef(1);
   const finishRef = useRef<() => void>(() => undefined); // set below, once finish exists
   const [over, setOver] = useState<RunSummary | null>(null);
-  // FLATLINED: the player's health hit zero. The CONTINUE? countdown runs on this screen (src/components/gallery/Flatlined.tsx).
-  const [flat, setFlat] = useState<FlatStats | null>(null);
-  const flatRef = useRef(false);
   const statsRef = useRef<Stats | null>(null);
   const dmgFx = useRef<DamageFxHandle>(null);
-  const [board, setBoard] = useState<BoardRow[]>([]);
-  const [boardWin, setBoardWin] = useState<'event' | '24h'>('event');
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
   const [now, setNow] = useState(0);
   const canvas = useRef<HTMLCanvasElement>(null);
   const reticle = useRef<HTMLDivElement>(null);
+  const stickRef = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
   const engine = useRef<GalleryEngine | null>(null);
   const simRef = useRef<Sim>({ on: false, rate: 0, target: 2000, carry: 0 });
   const stop = useRef(false);
@@ -156,7 +160,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const fee = platformFeeAt(clock);
   const free = freeForStressTest(clock);
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
-  const perShot = shotSats(handle?.length ?? 0, ammoLen);
+  const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   const cab = useCabinet(b, 'Shooting Gallery', { dry });
   // FREE PLAY (production while payments are fixed): credit is on the house, so LOCK & LOAD just works.
   const { setDryCredit } = cab;
@@ -202,7 +206,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   }, [weaponId, ammo]);
 
   // ── Hooks the engine calls (refs, so the engine never needs re-creating) ──
-  const diedRef = useRef<() => void>(() => undefined);
   const stageRef = useRef<(e: StageEvent) => void>(() => undefined);
   const pullRef = useRef<(w: RangeWeapon) => boolean>(() => false);
   const triggerRef = useRef<(down: boolean) => void>(() => undefined);
@@ -215,7 +218,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     },
     trigger: (d) => triggerRef.current(d),
     hurt: (h) => dmgFx.current?.hit(h.angle, h.dmg),
-    died: () => diedRef.current(),
     stage: (e) => stageRef.current(e),
   });
 
@@ -226,6 +228,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     const phone = /iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.hardwareConcurrency ?? 8) <= 4;
     const quality: Quality = new URLSearchParams(location.search).get('q') === 'low' || phone ? 'low' : 'high';
     const eng = new GalleryEngine(cv, hooks, { quality, weapons, bossBase: 20_000 });
+    eng.stickEl = stickRef.current;
+    eng.knobEl = knobRef.current;
     engine.current = eng;
     if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = eng; // dev only: screenshot scripts poke the combat
     let alive = true;
@@ -269,10 +273,25 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [fired, setFired] = useState(0);
   const modeRef = useRef<'off' | 'warm' | 'live'>('off');
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
+  /** GO: real rounds are live (a short banner the moment the load finishes). */
+  const [goAt, setGoAt] = useState(0);
+  useEffect(() => {
+    if (!goAt) return;
+    const t = setTimeout(() => setGoAt(0), 1300);
+    return () => clearTimeout(t);
+  }, [goAt]);
+  // Zero wallet prompts during play: from warm-up to the end of the round nothing may reach the wallet (src/lib/wallet.ts).
+  useEffect(() => {
+    // Only while a round is actually on: back on the loadout / results the wallet is free again (a payment there must
+    // reach it; owner, 25 Oct: "my wallet keeps saying no to lock and load").
+    holdWalletForPlay(mode !== 'off' && !loadout && !over);
+    return () => holdWalletForPlay(false);
+  }, [mode, loadout, over]);
   // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
   useEffect(() => {
     const e = engine.current;
-    if (e) e.combat = !loadout && mode !== 'off' && !over;
+    // LOADING YOUR AMMO (owner, 25 Oct): the warm-up is safe. Nothing spawns, attacks or hurts until GO.
+    if (e) e.combat = !loadout && mode === 'live' && !over;
   }, [loadout, mode, over, ready]);
   const setMode = useCallback((m: 'off' | 'warm' | 'live') => {
     modeRef.current = m;
@@ -284,16 +303,31 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   }, [bought]);
   const lastSent = useRef(0);
   const sendErrors = useRef(0);
+  /** Storm-session restarts since rounds last landed. */
+  const tries = useRef(0);
+  /** The stream sender gave up (3 failed restarts): it needs RELOAD. Never shown on its own, see the jam watch. */
+  const senderDead = useRef(false);
+  /** When the trigger went down (0 = up): the jam watch only counts time with the trigger held. */
+  const heldSince = useRef(0);
+  /**
+   * JAMMED (owner, 25 Oct): only when the trigger has been held for JAM_MS with rounds queued and NOT ONE round
+   * sent or accepted in that time. It clears itself the moment a round lands. It used to latch on a count of
+   * old errors and stay up while the gun kept firing.
+   */
   const [jammed, setJammed] = useState(false);
   const [queueNote, setQueueNote] = useState(false);
 
+  const acceptedMeter = useRef(new TxMeter());
   const landed = useCallback(
     (n: number, txid: string | null) => {
       if (n <= 0) return;
       sentRef.current += n;
+      acceptedMeter.current.add(n);
       // A sender round can run a few rounds ahead of the trigger: those count as fired too.
       if (sentRef.current > firedRef.current) firedRef.current = sentRef.current;
       lastAccept.current = lastSent.current = performance.now();
+      tries.current = 0;
+      setJammed(false); // rounds are flowing: never jammed
       setRun((r) => ({ ...r, sent: sentRef.current, last: txid ?? r.last, started: r.started || Date.now() }));
     },
     [setRun],
@@ -307,31 +341,34 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       const s = simRef.current;
       const m = modeRef.current;
       const left = boughtRef.current - firedRef.current;
-      s.on = held.current && !loadout && !flatRef.current && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
+      s.on = held.current && !loadout && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
       s.target = pattern.kind === 'stream' ? pattern.rate : 0;
-      if (flatRef.current) s.rate = s.carry = 0;
-      let n = flatRef.current ? 0 : simTick(s, (t - last) / 1000);
+      let n = simTick(s, (t - last) / 1000);
       last = t;
       if (m === 'live') {
         n = Math.max(0, Math.min(n, left));
         firedRef.current += n;
       }
-      if (n && !flatRef.current) engine.current?.accept(n);
+      if (n) engine.current?.accept(n);
       if (m === 'live') setFired((f) => (f === firedRef.current ? f : firedRef.current));
-      const tps = Math.round(s.rate);
+      // LIVE (paid): the HUD shows what ARC accepted per second, never the trigger's rate (src/lib/txMeter.ts).
+      // Practice / free play: the gun's simulated stream rate, labelled rounds/s (owner: show the full volume).
+      const tps = m === 'live' && !dry ? acceptedMeter.current.rate() : Math.round(s.rate);
       setRun((r) => (r.tps === tps ? r : { ...r, tps }));
     }, 50);
     return () => clearInterval(i);
-  }, [loadout, pattern]);
+  }, [loadout, pattern, dry]);
 
   // Bursts (shotguns, launchers): every pull fires at once and queues its rounds.
   useEffect(() => {
     triggerRef.current = (down: boolean) => {
+      if (down && !held.current) heldSince.current = performance.now();
+      if (!down) heldSince.current = 0;
       held.current = down;
       if (down) unlockAudio();
     };
     pullRef.current = (w: RangeWeapon) => {
-      if (loadout || flatRef.current) return false;
+      if (loadout) return false;
       const p = txPattern(w);
       if (p.kind !== 'burst') return false;
       const m = modeRef.current;
@@ -354,7 +391,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     if (!dry || mode !== 'live') return;
     const qs = new URLSearchParams(location.search);
     const rate = Number(qs.get('sendrate') ?? 600) || 600;
-    const failP = Number(qs.get('sendfail') ?? 0.25);
+    const failP = Number(qs.get('sendfail') ?? 0); // practice never fakes a bad network unless asked (?sendfail=)
     const stallMs = Number(qs.get('stallms') ?? 2500);
     let stallUntil = 0;
     let lastRoll = 0;
@@ -392,11 +429,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           chainN.current += txids.length;
           landed(txids.length, txids[txids.length - 1] ?? null);
           backoff = 0;
+          sendErrors.current = 0;
         } catch (e) {
           sendErrors.current++;
           backoff = Math.min(8000, backoff ? backoff * 2 : 500);
           console.warn('[tb-fire] batch failed, retrying', e);
-          if (sendErrors.current >= 12) setJammed(true);
           await new Promise((r) => setTimeout(r, backoff));
         }
       }
@@ -411,7 +448,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const sessionAlive = useRef(false);
   const reloadRef = useRef<() => Promise<void>>(async () => undefined);
   const sessionRef = useRef<(rounds: number) => void>(() => undefined);
-  const tries = useRef(0);
   /** Each storm session's number: a finished old session never touches the new one's state. */
   const sessionGen = useRef(0);
   useEffect(() => {
@@ -425,9 +461,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       console.info(`[tb-fire] session ${gen} start: ${rounds} rounds`);
       stop.current = false;
       let prev = 0;
+      const seenBase = netSeenRef.current;
       void storm(
         rounds,
-        (n, last) => {
+        (n, last, net) => {
+          if (net) setNetSeen((netSeenRef.current = seenBase + net.seen));
           const d = n - prev;
           prev = n;
           landed(d, last ?? null);
@@ -438,7 +476,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         perShot,
         ammo,
         () => sentRef.current >= firedRef.current, // nothing queued: hold, keep the lanes
-        STREAM_STEP, // blasts per lane per ARC round: 100 lanes x 20 = 2,000 a round
+        STREAM_STEP, // most blasts per lane per ARC round: up to 100 lanes x 100 a round
       )
         .catch((e) => {
           sendErrors.current++;
@@ -450,7 +488,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           console.info(`[tb-fire] session ${gen} ended`);
           const left = boughtRef.current - sentRef.current;
           if (stop.current || left <= 0 || modeRef.current !== 'live') return;
-          if (++tries.current > 3) return setJammed(true);
+          if (++tries.current > 3) return void (senderDead.current = true);
           void reloadRef.current();
         });
     };
@@ -462,18 +500,21 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       if (left <= 0) return;
       try {
         if (!dry) await b.prepareStorm(left, perShot);
-        setJammed(false);
+        senderDead.current = false;
         if (!dry) sessionRef.current(left);
       } catch (e) {
         console.warn('[tb-fire] reload failed', e);
-        setJammed(true);
+        senderDead.current = true;
       }
     };
   });
 
-  // Queue note + [tb-fire] timing logs.
+  // Queue note, the jam watch + [tb-fire] timing logs.
+  const liveSince = useRef(0);
+  const reloading = useRef(false);
   useEffect(() => {
     if (mode !== 'live') return;
+    liveSince.current = performance.now();
     let prevSent = sentRef.current;
     let tLog = performance.now();
     const i = setInterval(() => {
@@ -481,6 +522,15 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       const q = firedRef.current - sentRef.current;
       const behind = q > 0 && (q > 1500 || t - lastSent.current > 3000);
       setQueueNote((v) => (v === behind ? v : behind));
+      // the jam watch: trigger held JAM_MS, rounds queued, nothing sent in that whole window
+      const since = Math.max(heldSince.current, lastSent.current, liveSince.current);
+      const jam = held.current && heldSince.current > 0 && q > 0 && t - since > JAM_MS;
+      setJammed((v) => (v === jam ? v : jam));
+      if (jam && senderDead.current && !reloading.current) {
+        // the sender gave up: try one quiet reload by itself before asking
+        reloading.current = true;
+        void reloadRef.current().finally(() => (reloading.current = false));
+      }
       if (t - tLog >= 2000) {
         const rate = Math.round(((sentRef.current - prevSent) * 1000) / (t - tLog));
         console.info(`[tb-fire] queue ${q} · sent/s ${rate} · sent ${sentRef.current} · fired ${firedRef.current} · loaded ${boughtRef.current} · errors ${sendErrors.current}`);
@@ -541,18 +591,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     [],
   );
 
-  // ── Board ──
-  const loadBoard = useCallback(() => {
-    fetch(`/api/gallery/board?window=${boardWin}`)
-      .then((r) => r.json())
-      .then((j: { rows?: BoardRow[] }) => setBoard(j.rows ?? []))
-      .catch(() => undefined);
-  }, [boardWin, setBoard]);
-  useEffect(() => {
-    void Promise.resolve().then(loadBoard);
-    const i = setInterval(loadBoard, 15_000);
-    return () => clearInterval(i);
-  }, [loadBoard]);
 
   /** Report this session's accepted shots (LIVE, named, real chain only); verified on chain by the last txid. */
   const lastReport = useRef(0);
@@ -578,7 +616,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           xp: cachedProof(handle) ?? undefined,
         }),
       }).catch(() => undefined);
-      loadBoard();
     };
   });
   const sending = fired > run.sent;
@@ -586,9 +623,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     if (live && !dry && run.sent) void reportRef.current(!sending);
   }, [live, dry, run.sent, sending]);
 
-  // STAGE FLOW (from the engine): the lift closes (black, floor counter, Dr Wong's line), the new stage opens with its
-  // banner, the Liquid Unit goes down, the hostage is free and the RESCUED beat plays before the results.
-  const [lift, setLift] = useState<{ shown: boolean; label: string; line: string }>({ shown: false, label: '', line: '' });
+  // STAGE FLOW (from the engine): ONE seamless ten-minute walk (owner, 24 Oct). A new stage opens under a fog
+  // surge with a non-blocking banner and a new song while the fire never stops; the Liquid Unit walks in for the
+  // last minutes, goes down, the hostage is free and the RESCUED beat plays before the results.
   const [rescued, setRescued] = useState(false);
   const rescuedRef = useRef(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -596,18 +633,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const stageEvent = useRef<(e: StageEvent) => void>(() => undefined);
   useEffect(() => {
     stageEvent.current = (e) => {
-      if (e.kind === 'leave') {
-        setLift({ shown: true, label: TRANSITION.floors[Math.min(3, e.to - 1)], line: forPractice(e.line) });
-        return;
-      }
       if (e.kind === 'enter') {
         hudWave.current = e.stage;
         skipTrack(); // a new stage, a new song
-        later(() => setLift((l) => ({ ...l, shown: false })), TUNING_FLOW.holdMs - 500);
-        later(() => {
-          pushBanner({ kind: 'stage', n: e.stage });
-          if (e.stage === 4) pushBanner({ kind: 'boss' });
-        }, TUNING_FLOW.holdMs + 300);
+        pushBanner({ kind: 'stage', n: e.stage });
+        return;
+      }
+      if (e.kind === 'boss') {
+        pushBanner({ kind: 'boss' });
         return;
       }
       if (e.kind === 'rescued') {
@@ -637,8 +670,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     minigun(false);
     setLocked(false);
     clearBanners();
-    flatRef.current = false;
-    setFlat(null);
     setOver({
       fired: firedRef.current,
       sent: sentRef.current,
@@ -655,7 +686,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     setMode('off');
     boughtRef.current = firedRef.current;
     setBought(firedRef.current);
-  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought, setFlat]);
+  }, [hud, run.started, run.sent, run.last, perShot, bsvUsd, dry, handle, setMode, clearBanners, setLocked, setOver, setBought]);
   useEffect(() => {
     finishRef.current = finish;
   });
@@ -671,6 +702,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   // ── LOCK & LOAD: turn the loaded credit into rounds (credit is the ammunition) ──
   // After the payment the player drops straight into the street in WARM-UP while the gun loads.
   const perShotAll = perShot * (1 + fee);
+  // THE FULL BLOCK: how many rounds holding the trigger for all ten minutes takes at this gun's rate, and the price
+  const fullBlock = blockRounds(pattern);
+  const blockNote = freePlay ? `Free play loads ${fullBlock.toLocaleString('en-US')} practice rounds: enough for the full 10:00 block.` : `A full 10:00 block at this gun's rate needs ${fullBlock.toLocaleString('en-US')} rounds, about ${fmtUsd(usdOf(fullBlock * perShotAll, bsvUsd))}.`;
   const goLive = useCallback(
     (rounds: number, continued = false) => {
       setLoadedRounds(rounds);
@@ -679,23 +713,29 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
       sentRef.current = firedRef.current; // warm-up rounds were never queued
       setRun((r) => ({ ...r, sent: sentRef.current }));
       setMode('live');
+      setGoAt(Date.now());
       setLoad(null);
       setOver(null);
       sfx('coin');
       if (continued) return; // play resumes on the same stage: no new banners
-      pushBanner({ kind: 'loaded' });
-      pushBanner({ kind: 'stage', n: 1 });
+      // GO (the overlay below) is the "gun loaded" moment now; the stage banner follows once it has gone
+      setTimeout(() => pushBanner({ kind: 'stage', n: 1 }), 1300);
     },
     [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
+  /** How many rounds are being loaded (for "Loading 30,000 real rounds into your gun"), and when the load began. */
+  const [loadingRounds, setLoadingRounds] = useState(0);
+  const [loadStart, setLoadStart] = useState(0);
+  const [loadNow, setLoadNow] = useState(0);
   const lockAndLoad = async (continued = false) => {
+    setLoadStart(performance.now());
+    setLoadingRounds(0);
     setErr(null);
     if (!continued) {
       // a fresh attempt: back to the street, the doors open, a new song
       engine.current?.startRun();
       rescuedRef.current = false;
       setRescued(false);
-      setLift((l) => ({ ...l, shown: false }));
       skipTrack();
     }
     unlockAudio();
@@ -708,9 +748,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     setLoad({ kind: 'loading', pct: 5, slowSecs: 0 });
     if (dry) {
       // Dev dry run: a realistic split delay (?splitms=, default 8 s) so the warm-up can be seen.
-      // Free play: the same pack $1 would buy, fixed, no waiting. (Nothing is paid.)
+      // Free play / practice: enough practice rounds to hold the trigger for the whole ten-minute block at this gun's rate
+      // (plus a margin), never less than $1 would buy, no waiting. (Nothing is paid.)
       const sats = usdToSats(freePlay ? 1 : cab.creditUsd, bsvUsd) ?? 0;
-      const n = roundsFor(sats, perShotAll);
+      const n = Math.max(roundsFor(sats, perShotAll), blockRounds(pattern)); // practice: always enough for the full block
+      setLoadingRounds(n);
       const ms = freePlay ? 300 : Number(new URLSearchParams(location.search).get('splitms') ?? 2500) || 0;
       for (const pct of [15, 30, 45, 60, 75, 90]) {
         setLoad({ kind: 'loading', pct, slowSecs: 0 });
@@ -737,6 +779,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         await b.fireBatch(0, [['gallery', 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots)) / perShot));
       }
+      setLoadingRounds(shots);
       if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
       loadMark(`loaded: ${shots} rounds`);
       goLive(shots, continued);
@@ -774,6 +817,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [eased, setEased] = useState(0);
   useEffect(() => {
     const i = setInterval(() => {
+      setLoadNow(performance.now());
       setEased((e) => {
         if (target <= 0) return 0;
         const ceil = Math.min(99, target + 14);
@@ -784,6 +828,13 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     return () => clearInterval(i);
   }, [target]);
   const warmPct = Math.round(Math.max(target, eased));
+  // seconds left on the load, from how fast the bar has moved so far (whole seconds, never negative)
+  const loadEta = (() => {
+    if (warmPct <= 5 || !loadStart || loadNow < loadStart) return null;
+    const el = (loadNow - loadStart) / 1000;
+    return Math.max(1, Math.ceil((el * (100 - warmPct)) / warmPct));
+  })();
+  const loadLine = `Loading ${loadingRounds > 0 ? `${loadingRounds.toLocaleString('en-US')} ` : ''}${simulated ? 'practice' : 'real'} rounds into your gun…${loadEta != null ? ` ${loadEta} s` : ''}`;
   const packLeft = Math.max(0, bought - fired);
 
   // LOCK & LOAD is the bill: pay the coins (one approval), load, then lock the rounds and start by itself.
@@ -793,40 +844,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   });
   const startCabinet = () => (freePlay ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
 
-  // ── FLATLINED: health at zero ──
-  useEffect(() => {
-    diedRef.current = () => {
-      held.current = false;
-      simRef.current.on = false;
-      minigun(false);
-      flatRef.current = true;
-      setLocked(false);
-      const st = statsRef.current;
-      setFlat({ fired: firedRef.current, score: st?.score ?? 0, wave: st?.wave ?? 1, kills: st?.kills ?? 0, secs: run.started ? Math.max(1, Math.round((Date.now() - run.started) / 1000)) : 0 });
-    };
-  });
-  /** CONTINUE: the coins on the death screen were paid in ONE approval. Health resets, the new rounds ADD to what is loaded, play resumes. */
-  const resumeAfterPay = async (paidUsd: number) => {
-    const remaining = Math.max(0, boughtRef.current - firedRef.current);
-    flatRef.current = false;
-    setFlat(null);
-    engine.current?.revive();
-    if (dry) {
-      const extra = roundsFor(usdToSats(paidUsd, bsvUsd) ?? 0, perShotAll);
-      goLive(remaining + extra, true);
-      return;
-    }
-    // live: let the rounds already fired finish sending, then load everything in the gun (what was left plus the new coins)
-    setMode('off');
-    boughtRef.current = firedRef.current;
-    setBought(firedRef.current);
-    for (let i = 0; i < 40 && sentRef.current < firedRef.current; i++) await new Promise((r) => setTimeout(r, 250));
-    await lockRef.current(true);
-  };
-  const flatBuys = (usd: number) => {
-    const sats = usdToSats(usd, bsvUsd);
-    return sats == null ? null : roundsFor(sats, perShotAll);
-  };
   const buys = (usd: number) => {
     const sats = usdToSats(usd, bsvUsd);
     return sats == null ? null : roundsFor(sats, perShotAll);
@@ -842,15 +859,44 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   }, [run.last]);
 
   const spent = simulated ? 0 : run.sent * perShot;
-  const names = useMemo(() => new Map(weapons.map((w) => [w.id, w.name])), [weapons]);
+  // CREDIT COUNTDOWN (owner, 25 Oct): while live the credit ticks down round by round, to the micro-dollar. Paid:
+  // the rounds not yet sent are what is left (real spend is rounds sent x cost). Practice: rounds not yet fired,
+  // at the same cost, so it looks the same and still claims nothing on chain. It agrees with "rounds left".
+  const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * perShotAll, bsvUsd), practice: simulated } : null;
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
-  const hint = mode === 'warm' ? (simulated ? 'Getting your practice rounds ready. HOLD to fire.' : 'WARM-UP: practice rounds while your gun loads. HOLD to fire.') : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). A / D to strafe.`));
+  const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.`));
   const toBoard = () => {
     setOver(null);
     setLoadout(true);
-    setTimeout(() => document.getElementById('gallery-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    window.location.assign(INFO_URL);
   };
+
+  // While JAMMED, R reloads the sender (works while pointer-locked, where no button can be clicked).
+  useEffect(() => {
+    const kd = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyR' || e.repeat || loadout) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (jammed && modeRef.current === 'live') void reloadRef.current();
+    };
+    window.addEventListener('keydown', kd);
+    return () => window.removeEventListener('keydown', kd);
+  }, [loadout, jammed]);
+
+  // No key scrolls the page while you play (owner, 25 Oct): swallow the scroll keys unless you are typing.
+  useEffect(() => {
+    const SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End']);
+    const kd = (e: KeyboardEvent) => {
+      if (!SCROLL.has(e.code) && !SCROLL.has(e.key)) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      if (e.code === 'Space' && t?.closest('button, a, [role="button"]') && loadout) return; // SPACE still presses a focused button on the loadout
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', kd, { capture: true });
+    return () => window.removeEventListener('keydown', kd, { capture: true });
+  }, [loadout]);
 
   return (
     <div className={`game-root flex flex-col gap-3 ${drFontClass} ${tbxFontClass}`}>
@@ -879,28 +925,16 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </div>
         )}
 
-        {!loadout && !over && !rescued && !flat && (
-          <div className="pointer-events-none absolute bottom-[104px] left-1/2 z-10 flex -translate-x-1/2 gap-3 sm:hidden" data-strafe-pad>
-            {([-1, 1] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                data-fs-skip
-                aria-label={d < 0 ? 'Strafe left' : 'Strafe right'}
-                className="tbx-btn pointer-events-auto !min-h-[48px] !min-w-[64px] !px-3 !text-lg"
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  if (engine.current) engine.current.padMove = d;
-                }}
-                onPointerUp={() => engine.current && (engine.current.padMove = 0)}
-                onPointerCancel={() => engine.current && (engine.current.padMove = 0)}
-              >
-                {d < 0 ? '◀' : '▶'}
-              </button>
-            ))}
-          </div>
+        {/* Touch: the left side is a virtual stick (it appears under your thumb), the right side drags the view and fires. */}
+        <div ref={stickRef} className="pointer-events-none absolute z-10 hidden h-[104px] w-[104px] rounded-full border-2 border-white/30 bg-black/30" aria-hidden data-move-stick>
+          <div ref={knobRef} className="absolute left-[30px] top-[30px] h-11 w-11 rounded-full bg-[var(--tbx-teal)]/60" />
+        </div>
+        {!loadout && !over && !rescued && (
+          <p className="pointer-events-none absolute bottom-[104px] left-3 z-10 text-[10px] font-bold tracking-[0.18em] text-white/50 sm:hidden" data-touch-help>
+            LEFT: MOVE · RIGHT: LOOK + FIRE
+          </p>
         )}
-        {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
+                {!loadout && !over && <AmmoColumn left={packLeft} loaded={Math.max(loadedRounds, packLeft)} />}
         {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={false} />}
         {/* Free play with no coin in (owner, 24 Oct): a big flashing INSERT COIN over the game, like a real cabinet. */}
         {!loadout && !over && simulated && (
@@ -910,12 +944,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             <button
               type="button"
               onClick={() => (barWallet ? setLoadout(true) : b.setChooser({ note: 'Connect a wallet to put a coin in.' }))}
-              className="pointer-events-auto cursor-pointer bg-transparent font-black tracking-[0.12em] text-[var(--tbx-red)]"
-              style={{ fontSize: 'clamp(40px, 9vw, 112px)', lineHeight: 1, textShadow: '0 0 24px rgba(255,59,48,.75), 0 4px 0 #000', animation: 'tbx-coin-blink 1.1s steps(1) infinite' }}
+              className="pointer-events-auto cursor-pointer rounded-md bg-black/70 px-5 py-2 font-black tracking-[0.12em] text-[var(--tbx-red)] ring-2 ring-[var(--tbx-red)]/70 backdrop-blur-sm"
+              style={{ fontSize: 'clamp(40px, 9vw, 112px)', lineHeight: 1, textShadow: '0 0 18px rgba(255,59,48,.6), 0 3px 0 #000', animation: 'tbx-coin-blink 1.1s steps(1) infinite' }}
             >
-              INSERT COIN
+              INSERT $b
             </button>
-            <span className="mt-2 text-xs font-bold tracking-[0.25em] text-white/80 sm:text-sm">
+            <span className="mt-2 rounded bg-black/70 px-3 py-1 text-xs font-bold tracking-[0.25em] text-white sm:text-sm">
               {barWallet ? 'PRACTICE ROUNDS · NOTHING ON CHAIN' : 'CONNECT WALLET · PRACTICE ROUNDS · NOTHING ON CHAIN'}
             </span>
           </div>
@@ -925,14 +959,14 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             {PRACTICE.badge.toUpperCase()}
           </div>
         )}
-        {stall && !loadout && !over && !flat && (
+        {stall && !loadout && !over && (
           <div className="pointer-events-none absolute inset-x-0 top-[42%] z-10 flex justify-center px-4">
             <p className="tbx-glass tbx-pop flex max-w-[560px] items-center gap-2 px-4 py-2.5 text-center text-base font-semibold" style={{ borderColor: 'var(--tbx-red)' }} role="status">
               <Icon name="bullet" size={18} className="shrink-0 text-[var(--tbx-red)]" /> {stall}
             </p>
           </div>
         )}
-        {((cab.stage === 'approve' && !flat && !freePlay) || load?.kind === 'failed') && (
+        {((cab.stage === 'approve' && !freePlay) || load?.kind === 'failed') && (
           <LoadingScreen
             title={GAME_TITLE}
             kicker={GAME_KICKER}
@@ -946,35 +980,47 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           />
         )}
         {(mode === 'warm' || cab.stage === 'loading') && !loadout && !over && (
-          <div className="tbx-in-d pointer-events-none absolute inset-x-0 top-[150px] z-20 flex justify-center px-3 sm:top-[118px]" role="status" data-warmup>
-            <div className="tbx-glass w-full max-w-[460px] px-4 py-3">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="flex items-center gap-2 text-sm font-bold tracking-wide text-white">
-                  <Icon name="chip" size={15} className="text-[var(--tbx-teal)]" /> WARM-UP. Your gun is loading…
+          <div className="tbx-in-d pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4" role="status" data-warmup>
+            {/* Big and centred (owner, 25 Oct: "the LOADING YOUR AMMO bar needs to be a lot bigger"). */}
+            <div className="tbx-glass w-full max-w-[880px] px-6 py-6 sm:px-10 sm:py-8">
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="tbx-display flex items-center gap-3 text-[clamp(22px,4.2vw,48px)] leading-none text-white">
+                  <Icon name="chip" size={34} className="shrink-0 text-[var(--tbx-teal)]" /> LOADING YOUR AMMO
                 </span>
-                <Ticker value={warmPct} format={(n) => `${Math.round(n)}%`} className="tbx-display text-xl" />
+                <Ticker value={warmPct} format={(n) => `${Math.round(n)}%`} className="tbx-display tbx-num text-[clamp(28px,5vw,60px)] leading-none text-[var(--tbx-teal)]" />
               </div>
-              <div className="tbx-bar mt-2">
+              <div className="tbx-bar mt-5 !h-5 sm:!h-7">
                 <i style={{ transform: `scaleX(${warmPct / 100})`, transition: 'transform 0.25s linear' }} />
               </div>
-              <p className="mt-1.5 text-[11px] text-white/65">{simulated ? PRACTICE.nothing : 'Practice rounds: nothing is sent, nothing is scored. Live rounds start when the gun is loaded.'}</p>
+              <p className="tbx-num mt-4 text-[clamp(15px,2vw,22px)] font-semibold text-white" data-load-line>{loadLine}</p>
+              <p className="mt-1.5 text-sm text-white/70 sm:text-base">{mode === 'warm' ? 'Warm-up shots while you wait (not live). No enemies until GO.' : 'No enemies until GO.'}</p>
             </div>
           </div>
         )}
+        {goAt > 0 && !loadout && !over && (
+          <div className="pointer-events-none absolute inset-x-0 top-[38%] z-30 flex flex-col items-center" role="status" data-go>
+            <p className="tbx-display tbx-pop text-[clamp(72px,16vw,180px)] leading-none text-[var(--tbx-teal)]" style={{ textShadow: '0 0 50px rgba(63,216,232,.6), 0 6px 40px rgba(0,0,0,.85)' }}>
+              GO
+            </p>
+            <p className="mt-1 rounded bg-black/70 px-3 py-1 text-xs font-bold tracking-[0.25em] text-white">{simulated ? 'PRACTICE ROUNDS LIVE' : 'REAL ROUNDS LIVE'}</p>
+          </div>
+        )}
         {!loadout && !over && <BannerStage item={bannerCur} practice={simulated} />}
-        <LiftOverlay shown={lift.shown} label={lift.label} line={lift.line} />
         {rescued && !over && <RescuedBeat />}
-        {queueNote && !simulated && !loadout && !jammed && !over && !flat && (
+        {queueNote && !simulated && !loadout && !jammed && !over && (
           <div className="tbx-glass pointer-events-none absolute bottom-[96px] left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-white/85" role="status">
             Rounds are queueing, the network is catching up.
           </div>
         )}
-        {jammed && !loadout && !over && (
-          <div className="absolute inset-x-0 top-1/3 z-20 flex justify-center px-4" role="alert">
-            <div className="tbx-glass tbx-pop flex flex-col items-center gap-3 px-6 py-4 text-center">
-              <p className="text-lg font-bold text-white">Your gun jammed. Your rounds are safe, press RELOAD.</p>
-              <button type="button" data-fs-skip onClick={() => { tries.current = 0; sendErrors.current = 0; void reloadRef.current(); }} className="tbx-btn tbx-btn-red !min-h-[48px] !px-7 !text-base">
-                <Icon name="refresh" size={16} /> Reload
+        {/* JAMMED: a small screen-fixed toast, never a modal (owner, 25 Oct: the old box could not be reached while
+            pointer-locked and stayed after the gun recovered). R reloads from the keyboard; ESC frees the mouse. */}
+        {jammed && mode === 'live' && !loadout && !over && (
+          <div className="pointer-events-none fixed inset-x-0 top-[72px] z-[60] flex justify-center px-4" role="status" aria-live="polite" data-jam-toast>
+            <div className="tbx-glass tbx-pop pointer-events-auto flex items-center gap-3 rounded-full px-4 py-2 text-sm" style={{ borderColor: 'var(--tbx-red)' }}>
+              <Icon name="refresh" size={16} className="shrink-0 text-[var(--tbx-red)]" />
+              <span className="font-semibold text-white">No rounds getting through. Your rounds are safe.</span>
+              <button type="button" data-fs-skip onClick={() => void reloadRef.current()} className="tbx-btn tbx-btn-red !min-h-[32px] !px-3 !py-1 !text-xs">
+                RELOAD <kbd className="ml-1 rounded bg-black/40 px-1 font-mono">R</kbd>
               </button>
             </div>
           </div>
@@ -986,6 +1032,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
         <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
 
+        {!loadout && !over && mode === 'live' && !dry && <LiveTxBadge last={run.last} sent={run.sent} seen={netSeen} />}
         {!loadout && !over && <DamageFx ref={dmgFx} hp={hud?.hp ?? TUNING.player.hp} hpMax={TUNING.player.hp} />}
         {!loadout && !over && (
           <Hud
@@ -995,6 +1042,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             weaponName={weapon.name}
             ammo={ammo ?? DEFAULT_AMMO}
             creditUsd={cab.creditUsd}
+            live={creditLive}
             tps={run.tps}
             spent={simulated ? '$0.00' : fmtUsd(usdOf(spent, bsvUsd))}
             stats={hud}
@@ -1019,23 +1067,6 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           />
         )}
 
-        {/* FLATLINED: the CONTINUE? countdown */}
-        {flat && !over && (
-          <Flatlined
-            stats={flat}
-            pendingUsd={cab.pending}
-            buys={flatBuys}
-            rounds={flatBuys(cab.pending) ?? 0}
-            hold={cab.stage === 'approve' || cab.stage === 'loading' || locking || cab.modal !== null}
-            onCoin={cab.onCoin}
-            onClear={cab.onClear}
-            onContinue={() => (freePlay ? void resumeAfterPay(1) : cab.payThen(() => void resumeAfterPay(cab.pending)))}
-            onGameOver={() => finishRef.current()}
-            walletName={cab.walletName}
-            freePlay={freePlay}
-          />
-        )}
-
         {/* GAME OVER */}
         {over && <Results r={over} onAgain={() => (setOver(null), setLoadout(true))} onBoard={toBoard} />}
 
@@ -1049,6 +1080,19 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             practice={simulated}
             rounds={bought}
             paymail={paymail}
+            player={
+              <PlayerPanel
+                freePlay={freePlay}
+                free={free}
+                fee={fee}
+                bsvUsd={bsvUsd}
+                credit={fmtCredit(cab.creditUsd)}
+                gunAddress={b.gunAddress}
+                packLeft={packLeft}
+                ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}
+                error={err ?? b.error}
+              />
+            }
             cabinet={
               <CoinCabinet
                 title="Shooting Gallery"
@@ -1060,9 +1104,9 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 stage={cab.stage}
                 stageText={cab.stageText}
                 name={name}
-                setName={setName}
+                hasPaymail={hasPaymail}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
-                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
+                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'Free for the stress test until 1 Nov.' : ''}`}
                 buys={buys}
                 unit="shots"
                 startLabel={ready ? 'Lock & load' : 'Loading…'}
@@ -1080,122 +1124,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         )}
       </section>
 
-      {!simulated && <PrizeBanner />}
-
-      {freePlay ? (
-        <section className="tbx-glass p-4" data-freeplay-note>
-          <p className="text-sm font-semibold text-[var(--tbx-text)]">{PRACTICE.nothing}</p>
-          <p className="mt-1 text-xs text-[var(--tbx-dim)]">Practice rounds are not scored on the board. The paid game puts every round on the record.</p>
-        </section>
-      ) : (
-      <section className="tbx-glass p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="coin" size={14} /> Credit</span>
-          <span className="text-xs text-[var(--tbx-dim)]">
-            {free ? <span style={{ color: 'var(--tbx-ok)' }}>Free for the stress test: no platform fee until 1 Nov</span> : `${Math.round(fee * 100)}% platform fee`} · BSV ${bsvUsd.toFixed(2)}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--tbx-dim)]">
-          <span>
-            Credit: <span className="tbx-num font-bold" style={{ color: 'var(--tbx-amber)' }}>{fmtCredit(cab.creditUsd)}</span>.
-            {b.gunAddress && (
-              <>
-                {' '}
-                <a href={`https://whatsonchain.com/address/${b.gunAddress}`} target="_blank" rel="noreferrer" className="underline opacity-80 hover:opacity-100">
-                  See your gun&apos;s balance on chain
-                </a>
-              </>
-            )}
-          </span>
-          <span>
-            Rounds ready: <span className="tbx-num font-bold text-white">{packLeft.toLocaleString()}</span>. Unused credit stays in your gun for later rounds.
-          </span>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-[var(--tbx-dim)]">
-          <span>Paymail on your rounds (from your X handle):</span>
-          <IdentityPicker compact />
-        </div>
-        {(err || b.error) && <p className="mt-2 text-sm font-semibold text-[#ff7a70]">{err ?? b.error}</p>}
-      </section>
-      )}
-
-      {!simulated && <section className="tbx-glass p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="chain" size={14} /> See them land</span>
-          <span className="text-xs text-[var(--tbx-dim)]">{simulated ? 'practice numbers, not on the record' : 'live'}</span>
-        </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
-          <a href="https://bsv.lol" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[var(--tbx-teal)] underline decoration-white/20 underline-offset-2">
-            Watch on bsv.lol <Icon name="external" size={12} />
-          </a>
-          {run.last && !simulated && (
-            <a href={`https://whatsonchain.com/tx/${run.last}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[var(--tbx-teal)] underline decoration-white/20 underline-offset-2">
-              latest shot {run.last.slice(0, 12)}… <Icon name="external" size={12} />
-            </a>
-          )}
-          {run.last && simulated && <span className="font-mono text-xs text-[var(--tbx-mute)]">sim {run.last.slice(0, 16)}…</span>}
-        </div>
-      </section>}
-
-      <section id="gallery-board" className="tbx-glass p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="trophy" size={14} className="text-[var(--tbx-amber)]" /> Top blasters</span>
-          <div className="flex gap-1.5">
-            {(['event', '24h'] as const).map((w) => (
-              <button key={w} onClick={() => setBoardWin(w)} className={`tbx-btn !min-h-[32px] !px-3 !text-[11px] ${boardWin === w ? 'tbx-btn-on' : ''}`}>
-                {w === 'event' ? '31 OCT EVENT' : '24H'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <GalleryBoard rows={board} me={handle} mine={live && !dry ? run.sent : 0} myWeapon={weaponId} myAmmo={ammo ?? DEFAULT_AMMO} names={names} />
-        <p className="mt-3 text-xs text-[var(--tbx-mute)]">
-          Accepted LIVE shots carrying your handle, checked on chain by the tokenblaster.lol &quot;gallery&quot; tag.{' '}
-          {inEvent(clock) ? 'The event is on now.' : `Event: ${new Date(PRIZE.start).toUTCString().slice(0, 16)} (UTC).`}
-        </p>
-      </section>
       {b.chooser && <WalletChooser note={b.chooser.note} onPick={b.pick} onClose={() => b.setChooser(null)} />}
     </div>
-  );
-}
-
-export function GalleryBoard({
-  rows,
-  me,
-  mine = 0,
-  myWeapon,
-  myAmmo,
-  names,
-}: {
-  rows: BoardRow[];
-  me?: string | null;
-  mine?: number;
-  myWeapon?: string;
-  myAmmo?: string;
-  names?: Map<string, string>;
-}) {
-  // This session's live count, merged in so the player sees themselves climb before the next report lands.
-  const list = [...rows];
-  if (me && mine) {
-    const i = list.findIndex((r) => r.handle === me);
-    if (i >= 0) list[i] = { ...list[i], shots: Math.max(list[i].shots, mine) };
-    else list.push({ handle: me, shots: mine, sessions: 1, weapon: myWeapon, ammo: myAmmo });
-    list.sort((a, b) => b.shots - a.shots);
-  }
-  if (!list.length) return <p className="text-sm text-[var(--tbx-dim)]">No ranked shots yet. Be the first name on the board.</p>;
-  return (
-    <ol className="flex flex-col gap-1.5 text-sm">
-      {list.slice(0, 10).map((r, i) => (
-        <li key={r.handle} className={`tbx-rise flex flex-wrap items-center justify-between gap-x-3 rounded-lg px-3 py-2 ${r.handle === me ? 'border border-[var(--tbx-teal)]/50 bg-[var(--tbx-teal)]/10' : 'bg-white/[0.035]'}`} style={{ ['--d' as string]: `${i * 0.04}s` }}>
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="tbx-display w-7 text-xl" style={{ color: i === 0 ? 'var(--tbx-amber)' : 'var(--tbx-mute)' }}>{String(i + 1).padStart(2, '0')}</span>
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap font-semibold">@{r.handle}</span>
-            {r.weapon && <span className="text-xs text-[var(--tbx-dim)]">{names?.get(r.weapon) ?? r.weapon}</span>}
-            {r.ammo && <span className="text-xs text-[var(--tbx-amber)]">{r.ammo}</span>}
-          </span>
-          <span className="tbx-num font-bold">{r.shots.toLocaleString()}</span>
-        </li>
-      ))}
-    </ol>
   );
 }

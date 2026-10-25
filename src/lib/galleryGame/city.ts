@@ -54,6 +54,21 @@ export type City = {
   dispose: () => void;
 };
 
+/** A box with one flat vertex colour, for the merged glow meshes (lights, windows, strips). */
+const glowBox = (parts: THREE.BufferGeometry[], w: number, h: number, d: number, x: number, y: number, z: number, c: [number, number, number]) => {
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(x, y, z);
+  const n = g.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) col.set(c, i * 3);
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  parts.push(g);
+};
+const mergeAll = (parts: THREE.BufferGeometry[]) => {
+  const m = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
+  parts.forEach((g) => g.dispose());
+  return m;
+};
 const neon = (c: string, k = 2.4) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(k), toneMapped: false });
 const X0 = 27; // street face of the first row of buildings
 const X1 = 51; // back of the first row / front of the second
@@ -641,13 +656,60 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   group.add(idolBeam);
   addGlow(idol.group.position.x, heroRoof.y + 1, idol.group.position.z, '#35e8ff', 14, 0, 0.55);
 
+  // MAGLEV on the elevated line (owner, 25 Oct: "proper train cars with windows and lights"): rounded extruded
+  // cars, a dark underframe, rows of lit windows, door seams, cyan skirt LEDs and roof markers, all in two
+  // instanced draws, plus one nose (headlights + a light bar) that leads the set.
   const TRAIN_N = 6;
-  const trainBody = new THREE.InstancedMesh(track(new THREE.BoxGeometry(3.0, 3.1, 9)), track(new THREE.MeshStandardMaterial({ color: '#c8ccd8', roughness: 0.35, metalness: 0.7, envMapIntensity: 1.6 })), TRAIN_N);
-  const trainWin = new THREE.InstancedMesh(track(new THREE.BoxGeometry(3.06, 0.95, 8.5)), track(neon('#ffeccc', 1.8)), TRAIN_N);
+  const CAR_L = 9;
+  const trainBodyGeo = (() => {
+    const sh = new THREE.Shape();
+    const w = 1.5;
+    const r = 0.7;
+    sh.moveTo(-w, -1.2);
+    sh.lineTo(w, -1.2);
+    sh.lineTo(w, 1.55 - r);
+    sh.quadraticCurveTo(w, 1.55, w - r, 1.55);
+    sh.lineTo(-w + r, 1.55);
+    sh.quadraticCurveTo(-w, 1.55, -w, 1.55 - r);
+    sh.closePath();
+    const shell = new THREE.ExtrudeGeometry(sh, { depth: CAR_L - 0.5, bevelEnabled: true, bevelSize: 0.12, bevelThickness: 0.25, bevelSegments: 2, curveSegments: 6 });
+    shell.translate(0, 0, -(CAR_L - 0.5) / 2);
+    const under = new THREE.BoxGeometry(2.5, 0.4, CAR_L - 1.2);
+    under.translate(0, -1.4, 0);
+    const parts = [shell.toNonIndexed(), under.toNonIndexed()];
+    shell.dispose();
+    under.dispose();
+    const m = mergeGeometries(parts, false)!;
+    parts.forEach((g) => g.dispose());
+    return m;
+  })();
+  const trainGlowGeo = (() => {
+    const parts: THREE.BufferGeometry[] = [];
+    const WIN: [number, number, number] = [1.5, 1.35, 1.0]; // under the bloom threshold: frames stay readable
+    for (const sx of [-1, 1]) {
+      for (let k = 0; k < 6; k++) glowBox(parts, 0.05, 0.85, 0.95, sx * 1.63, 0.45, -3.3 + k * 1.32, WIN);
+      glowBox(parts, 0.05, 0.08, CAR_L - 0.6, sx * 1.64, -0.95, 0, [0.3, 2.2, 2.8]); // skirt LED
+      glowBox(parts, 0.05, 0.05, CAR_L - 0.8, sx * 1.62, 1.08, 0, [0.6, 0.9, 1.3]); // cant rail
+      for (const dz of [-4.1, 4.1]) glowBox(parts, 0.06, 1.9, 0.06, sx * 1.63, 0.1, dz, [0.9, 1.1, 1.4]); // door seams
+    }
+    glowBox(parts, 0.5, 0.06, 0.5, 0, 1.6, -3.6, [3, 0.25, 0.25]); // roof markers
+    glowBox(parts, 0.5, 0.06, 0.5, 0, 1.6, 3.6, [3, 0.25, 0.25]);
+    return mergeAll(parts);
+  })();
+  const trainBody = new THREE.InstancedMesh(track(trainBodyGeo), track(new THREE.MeshStandardMaterial({ color: '#d4d8e2', roughness: 0.28, metalness: 0.75, envMapIntensity: 1.7 })), TRAIN_N);
+  const trainWin = new THREE.InstancedMesh(track(trainGlowGeo), track(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false })), TRAIN_N);
   trainWin.instanceMatrix = trainBody.instanceMatrix;
   trainBody.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   trainBody.frustumCulled = trainWin.frustumCulled = false;
   group.add(trainBody, trainWin);
+  const trainNose = (() => {
+    const parts: THREE.BufferGeometry[] = [];
+    glowBox(parts, 2.4, 0.12, 0.08, 0, 0.95, 0, [3, 3, 2.7]); // light bar
+    for (const sx of [-1, 1]) glowBox(parts, 0.55, 0.22, 0.08, sx * 0.95, -0.7, 0, [3.2, 3.1, 2.8]); // headlights
+    glowBox(parts, 2.0, 0.9, 0.04, 0, 0.35, -0.02, [0.05, 0.25, 0.35]); // cab glass
+    return new THREE.Mesh(track(mergeAll(parts)), trainWin.material);
+  })();
+  group.add(trainNose);
 
   // ── Street furniture: lamps, cables, lanterns, vending machines, barriers, trash ──
   const poleMat = track(new THREE.MeshStandardMaterial({ color: '#1b1e25', roughness: 0.5, metalness: 0.8 }));
@@ -870,36 +932,82 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   }
 
   // ── Hover cars: parked along the kerbs, flying in the distance, driving the expressway ──
+  // Sleek hover cars (owner, 25 Oct: modern, detailed, never retro): an extruded wedge side profile with a soft
+  // bevel, a smoked canopy, a full-width light bar front and back, cyan underglow, twin thrusters, and (flying
+  // ones) additive light trails, all instanced.
   const carBody = (() => {
-    const parts: THREE.BufferGeometry[] = [];
-    const b = new THREE.BoxGeometry(1.9, 0.5, 4.4);
-    b.translate(0, 0.5, 0);
-    const c = new THREE.BoxGeometry(1.55, 0.5, 2.1);
-    c.translate(0, 0.95, -0.25);
-    const n = new THREE.BoxGeometry(1.7, 0.28, 1.2);
-    n.translate(0, 0.38, 1.9);
-    parts.push(b, c, n);
-    const m = mergeGeometries(parts, false)!;
-    parts.forEach((g) => g.dispose());
+    const sh = new THREE.Shape();
+    const P: [number, number][] = [
+      [2.35, 0.3], [2.2, 0.5], [1.15, 0.66], [0.25, 1.02], [-0.95, 1.06], [-1.9, 0.82], [-2.3, 0.62], [-2.3, 0.3], [-1.9, 0.16], [1.9, 0.16],
+    ];
+    sh.moveTo(P[0][0], P[0][1]);
+    for (const [u, v] of P.slice(1)) sh.lineTo(u, v);
+    sh.closePath();
+    const W = 1.75;
+    const g = new THREE.ExtrudeGeometry(sh, { depth: W, bevelEnabled: true, bevelSize: 0.09, bevelThickness: 0.1, bevelSegments: 2, curveSegments: 1 });
+    g.rotateY(-Math.PI / 2);
+    g.translate(W / 2, 0, 0);
+    // side pods (the thruster housings)
+    const pods: THREE.BufferGeometry[] = [g.toNonIndexed()];
+    g.dispose();
+    for (const sx of [-1, 1]) {
+      const pod = new THREE.CylinderGeometry(0.2, 0.24, 1.6, 10);
+      pod.rotateX(Math.PI / 2);
+      pod.translate(sx * 0.98, 0.32, -1.45);
+      pods.push(pod.toNonIndexed());
+      pod.dispose();
+    }
+    const m = mergeGeometries(pods, false)!;
+    pods.forEach((p) => p.dispose());
+    m.computeVertexNormals();
     return m;
   })();
   const carGlow = (() => {
     const parts: THREE.BufferGeometry[] = [];
-    const add = (w: number, h: number, d: number, x: number, y: number, z: number, c: [number, number, number]) => {
-      const g = new THREE.BoxGeometry(w, h, d);
-      g.translate(x, y, z);
-      const n = g.attributes.position.count;
-      const col = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) col.set(c, i * 3);
-      g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      parts.push(g);
-    };
-    add(1.7, 0.05, 3.7, 0, 0.2, 0, [0.4, 1.6, 2.4]);
-    add(1.5, 0.07, 0.06, 0, 0.58, 2.24, [3, 3, 2.8]);
-    add(1.7, 0.08, 0.06, 0, 0.58, -2.22, [3, 0.12, 0.1]);
-    const m = mergeGeometries(parts, false)!;
-    parts.forEach((g) => g.dispose());
-    return m;
+    // smoked canopy (dark, a faint cyan sheen) over the cabin
+    const can = new THREE.Shape();
+    can.moveTo(1.05, 0.7);
+    can.lineTo(0.27, 1.05);
+    can.lineTo(-0.9, 1.09);
+    can.lineTo(-1.5, 0.92);
+    can.closePath();
+    const cg = new THREE.ExtrudeGeometry(can, { depth: 1.5, bevelEnabled: false });
+    cg.rotateY(-Math.PI / 2);
+    cg.translate(0.75, 0.02, 0);
+    const n = cg.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) col.set([0.04, 0.12, 0.18], i * 3);
+    cg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    parts.push(cg);
+    glowBox(parts, 1.7, 0.04, 3.9, 0, 0.12, 0, [0.4, 1.6, 2.4]); // underglow
+    glowBox(parts, 1.65, 0.06, 0.06, 0, 0.5, 2.27, [3, 3, 2.8]); // front light bar
+    for (const sx of [-1, 1]) glowBox(parts, 0.32, 0.1, 0.06, sx * 0.6, 0.36, 2.33, [3.4, 3.4, 3.2]); // headlamps
+    glowBox(parts, 1.85, 0.07, 0.06, 0, 0.6, -2.38, [3, 0.12, 0.1]); // tail bar
+    for (const sx of [-1, 1]) {
+      glowBox(parts, 0.04, 0.03, 3.2, sx * 0.97, 0.62, 0.3, [0.5, 1.4, 2.2]); // side accent
+      glowBox(parts, 0.3, 0.3, 0.05, sx * 0.98, 0.32, -2.27, [0.6, 2.2, 3.2]); // thruster cores
+    }
+    return mergeAll(parts.map((p) => (p.index ? p.toNonIndexed() : p)));
+  })();
+  /** Light trails behind a flyer's thrusters: two thin quads fading to black (additive), 7 m long. */
+  const carTrail = (() => {
+    const parts: THREE.BufferGeometry[] = [];
+    for (const sx of [-1, 1])
+      for (const up of [false, true]) {
+        const g = new THREE.PlaneGeometry(0.22, 7, 1, 1);
+        g.rotateX(-Math.PI / 2); // flat, along -Z
+        if (up) g.rotateZ(Math.PI / 2); // and a vertical twin, so the trail reads from the side too
+        g.translate(sx * 0.98, 0.32, -2.3 - 3.5);
+        const pos = g.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+          const k = THREE.MathUtils.clamp((pos.getZ(i) + 9.3) / 7, 0, 1); // 1 at the thruster, 0 at the tail
+          col.set([0.5 * k, 1.6 * k, 2.4 * k], i * 3);
+        }
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        parts.push(g);
+      }
+    return mergeAll(parts);
   })();
   const carPaint = track(new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.22, metalness: 0.9, envMapIntensity: 1.8 }));
   const carLight = track(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
@@ -944,8 +1052,15 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     flyGlow.setColorAt(i, new THREE.Color(GLOWC[ri(GLOWC.length)]).lerp(new THREE.Color('#ffffff'), 0.5));
     f.dir *= 1;
   });
-  flyBody.frustumCulled = flyGlow.frustumCulled = false;
-  group.add(flyBody, flyGlow);
+  const flyTrail = new THREE.InstancedMesh(
+    track(carTrail),
+    track(new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })),
+    flyers.length,
+  );
+  flyTrail.instanceMatrix = flyBody.instanceMatrix;
+  flyTrail.userData.noAO = true;
+  flyBody.frustumCulled = flyGlow.frustumCulled = flyTrail.frustumCulled = false;
+  group.add(flyBody, flyGlow, flyTrail);
 
   // light pools (one instanced additive draw): lamps, shop spill, cars, vents, the lobby
   {
@@ -1180,6 +1295,77 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
   canopyLight.position.set(0, 8.66, T.z + 6.3);
   group.add(canopyLight);
   for (let i = 0; i < 9; i++) addGlow(-T.w / 2 + 2 + i * ((T.w - 4) / 8), 8.55, T.z + 5.4, '#ffe0b0', 2.2, 0, 0.8);
+  // STREET SIGN (owner, 25 Oct): the tower's TERRORNODE name is out of shot from the street, so it is repeated
+  // at eye range on the canopy over the lobby doors, as big red neon tubes with the eye logo. One quad, one
+  // backing box and a few halo sprites: the bloom pass (threshold ~1.7) does the glow, no extra lights.
+  {
+    const W = 2048;
+    const H = 360;
+    const signTex = track(
+      tex(
+        canvas(W, H, (g) => {
+          g.clearRect(0, 0, W, H);
+          // the eye logo: an almond, a red iris, a slit pupil
+          const ex = 230;
+          const ey = H / 2;
+          g.lineCap = g.lineJoin = 'round';
+          const tube = (draw: () => void, w: number) => {
+            for (const [lw, c, blur] of [
+              [w * 3.2, 'rgba(255,30,40,0.35)', 60],
+              [w * 1.6, '#ff2030', 26],
+              [w * 0.55, '#ffd6d0', 6],
+            ] as [number, string, number][]) {
+              g.shadowColor = '#ff1a2a';
+              g.shadowBlur = blur;
+              g.strokeStyle = c;
+              g.lineWidth = lw;
+              g.beginPath();
+              draw();
+              g.stroke();
+            }
+          };
+          tube(() => {
+            g.moveTo(ex - 170, ey);
+            g.quadraticCurveTo(ex, ey - 150, ex + 170, ey);
+            g.quadraticCurveTo(ex, ey + 150, ex - 170, ey);
+          }, 9);
+          tube(() => g.arc(ex, ey, 52, 0, Math.PI * 2), 8);
+          g.shadowBlur = 30;
+          g.fillStyle = '#ffe8e4';
+          g.beginPath();
+          g.ellipse(ex, ey, 9, 40, 0, 0, Math.PI * 2);
+          g.fill();
+          // the name: outlined tube letters with a hot core
+          g.font = '900 210px "Arial Black", Impact, sans-serif';
+          g.textBaseline = 'middle';
+          g.textAlign = 'center';
+          const tx = 1230;
+          for (const [lw, c, blur] of [
+            [26, 'rgba(255,30,40,0.35)', 70],
+            [12, '#ff2030', 28],
+            [4, '#ffd6d0', 6],
+          ] as [number, string, number][]) {
+            g.shadowColor = '#ff1a2a';
+            g.shadowBlur = blur;
+            g.strokeStyle = c;
+            g.lineWidth = lw;
+            g.strokeText('TERRORNODE', tx, ey + 6, 1500);
+          }
+        }),
+      ),
+    );
+    const SW = Math.min(T.w + 2, 30);
+    const SH = (SW * H) / W;
+    const back = new THREE.Mesh(track(new THREE.BoxGeometry(SW + 0.8, SH + 0.5, 0.35)), mull);
+    back.position.set(0, 9.3 + SH / 2 + 0.2, T.z + 6.25);
+    group.add(back);
+    const signMat = track(new THREE.MeshBasicMaterial({ map: signTex, color: new THREE.Color('#ffffff').multiplyScalar(2.6), toneMapped: false, transparent: true, depthWrite: false }));
+    const sign = new THREE.Mesh(track(new THREE.PlaneGeometry(SW, SH)), signMat);
+    sign.position.set(0, back.position.y, T.z + 6.45);
+    sign.userData.noAO = true;
+    group.add(sign);
+    for (let i = 0; i < 5; i++) addGlow(-SW / 2 + SW * (0.1 + i * 0.2), back.position.y, T.z + 6.8, '#ff2030', 5.5, 0, 0.5);
+  }
   const rackCv = canvas(64, 128, (g) => {
     g.fillStyle = '#05070a';
     g.fillRect(0, 0, 64, 128);
@@ -1201,7 +1387,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     const mat = track(new THREE.MeshStandardMaterial({ color: '#141a24', metalness: 0.7, roughness: 0.4, emissive: '#ffffff', emissiveMap: rt, emissiveIntensity: 2.2 }));
     rackMats.push(mat);
     const m = new THREE.Mesh(track(new THREE.BoxGeometry(2.6, 6.4, 1.6)), mat);
-    m.position.set(-T.w / 2 + 4 + i * ((T.w - 8) / 7), 3.2, T.z + 2.2);
+    m.position.set((i < 4 ? -1 : 1) * (4.2 + (i % 4) * 3.1), 3.2, T.z + 2.2); // a clear aisle down the middle: the walk goes into the lobby
     m.castShadow = high;
     group.add(m);
     racks.push({ mesh: m, hp: 160, broke: false, t: 0 });
@@ -1380,6 +1566,8 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
       tmpM.compose(tmp.set(RLX, RLY + 1.95, head + i * 9.6), tmpQ, tmpS.setScalar(active ? 1 : 0));
       trainBody.setMatrixAt(i, tmpM);
     }
+    trainNose.visible = active;
+    trainNose.position.set(RLX, RLY + 1.95, head - CAR_L / 2 - 0.2);
     trainBody.instanceMatrix.needsUpdate = true;
     hitLight.intensity *= Math.pow(0.002, dt);
   };

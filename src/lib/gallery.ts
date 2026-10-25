@@ -57,7 +57,7 @@ export const PACKS = [10_000, 100_000, 1_000_000] as const;
 export type Pack = (typeof PACKS)[number];
 
 /** Lane split + merge overhead the storm needs on top of the shots (src/lib/gun.ts storm()). */
-export const overheadSats = (shots: number) => Math.min(100, Math.ceil(shots / 300)) * 60 + 1000;
+export const overheadSats = (shots: number) => lanesFor(shots) * 60 + 1000;
 
 export type Quote = { shots: number; network: number; fee: number; total: number };
 /** What a pack costs: network fees at cost, plus the platform fee (rounded up to whole sats). */
@@ -80,6 +80,19 @@ export function chainHandle(h: string | null | undefined): string | null {
   if (/^[a-z0-9_]{1,20}$/.test(s)) return s;
   return /^[a-z0-9._-]{1,30}@[a-z0-9.-]{3,30}\.[a-z]{2,}$/.test(s) && s.length <= 40 ? s : null;
 }
+
+/**
+ * The handle every round carries (owner test, 25 Oct 2026: paid rounds went out without the paymail). The wallet's
+ * paymail always wins and is kept even while the wallet is marked not answering (the gun signs every round itself,
+ * so liveness has nothing to do with the tag; the old path read the name through `live !== false` and dropped it
+ * to nothing). Else the player's name (key_ form). Null only with no wallet at all.
+ */
+export const roundHandle = (paymail: string | null | undefined, name: string | null | undefined) => chainHandle(paymail) ?? chainHandle(name);
+/** A live key_ name, not a paymail: the storm looks the paymail up once more before it fires. */
+export const needsPaymail = (h: string | null | undefined) => !h || !h.includes('@');
+/** Per-shot budget for the handle: always the longest paymail (40), so a paymail that arrives after LOCK & LOAD
+ * (or replaces a key_ name at the trigger) still fits the lanes' fee. Spare sats stay in the lane and merge back. */
+export const HANDLE_BUDGET = 40;
 
 /** The pushes after <chain:n>: the game, then the handle when there is one. */
 export const galleryPushes = (handle: string | null) => [GALLERY_GAME, ...(handle ? [handle] : [])];
@@ -106,31 +119,47 @@ export const inEvent = (now = Date.now()) => now >= Date.parse(PRIZE.start) && n
  * batch (a shotgun's pellets). LIVE sends at min(rate, liveCeiling(rounds)): see below.
  */
 export type TxPattern = { kind: 'stream'; rate: number } | { kind: 'burst'; n: number };
-/** Volume guns (owner, 24 Oct: "this is a STRESS TEST ... ~2000 tx/second"): their stream rate, tx/s. */
-export const STREAM_RATES: Record<string, number> = { minigun: 2000, plasmarifle: 2000, 'big-block': 2000 };
+/**
+ * Volume guns (owner, 24 Oct: "this is a STRESS TEST ... ~2000 tx/second"; 25 Oct: "we're not hitting 2000 tx/sec
+ * and we need to"): their stream rate, tx/s. 3,000 so the LIVE sender (which only runs as far ahead of the trigger
+ * as this rate) has headroom over 2,000 accepted a second (docs/throughput.md).
+ */
+export const STREAM_RATES: Record<string, number> = { minigun: 3000, plasmarifle: 3000, 'big-block': 3000 };
 /** The ASSAULT ON TERRORNODE rack: sustained high-volume streams only, no single shots or bursts. */
 export const ASSAULT_GUNS = ['minigun', 'plasmarifle', 'big-block'] as const;
 export function txPattern(w: { id: string; auto: boolean; fireMs: number; pellets: number }): TxPattern {
   if (w.auto) return { kind: 'stream', rate: STREAM_RATES[w.id] ?? Math.round(Math.min(1500, (1500 * 70) / Math.max(70, w.fireMs)) / 10) * 10 };
   return { kind: 'burst', n: Math.max(1, Math.min(25, w.pellets)) };
 }
+/**
+ * Rounds a full ten-minute block needs at the gun's rate (owner, 24 Oct: hold the trigger for the whole run),
+ * plus a margin. A burst gun is counted at two pulls a second.
+ */
+export const BLOCK_SECS = 600;
+export function blockRounds(p: TxPattern, secs = BLOCK_SECS, margin = 1.1): number {
+  const perSec = p.kind === 'stream' ? p.rate : p.n * 2;
+  return Math.ceil(perSec * secs * margin);
+}
 export const patternLabel = (p: TxPattern) => (p.kind === 'stream' ? `STREAM · up to ${p.rate.toLocaleString()} tx/s` : `BURST · ${p.n} tx per pull`);
 
 /**
  * The LIVE sender (src/lib/gun.ts storm + src/workers/storm.ts): the paid rounds are split into
- * ceil(rounds / 300) lanes (max 100); each sender round, every lane chains STREAM_STEP blasts and each worker
- * (up to 12 cores) posts its lanes in one ARC /v1/txs request. So one round carries at most lanes × STREAM_STEP
- * transactions. ROUND_SECS is an estimate of one round (sign + ARC answer), not a measurement: real tx/s can be
- * lower on a slow device or a slow ARC, never higher than this.
+ * ceil(rounds / 100) lanes (max 100); each sender round, every lane chains up to STREAM_STEP blasts and every
+ * worker (up to 12 cores) posts its lanes to ARC in parallel requests of <= 600, while it signs the next round.
+ * So one round carries at most lanes × STREAM_STEP transactions and takes about one ARC answer (signing is
+ * overlapped). ROUND_SECS is the ARC answer we plan for (the bench, scripts/storm-bench.ts, measured the sender
+ * itself; GorillaPool's real batch latency is the unknown: docs/throughput.md). Real tx/s can be lower on a slow
+ * device or a slow ARC, never higher than this.
  */
-export const STREAM_STEP = 20;
-export const ROUND_SECS = 1;
-export const lanesFor = (rounds: number) => Math.max(1, Math.min(100, Math.ceil(rounds / 300)));
+export const STREAM_STEP = 100;
+export const ROUND_SECS = 1.5;
+export const MAX_LANES = 100;
+export const lanesFor = (rounds: number) => Math.max(1, Math.min(MAX_LANES, Math.ceil(rounds / 100)));
 export const liveCeiling = (rounds: number) => Math.floor((lanesFor(rounds) * STREAM_STEP) / ROUND_SECS);
 /** What a gun can really send LIVE with `rounds` loaded: the lower of its rate and the sender's ceiling. */
 export const liveRate = (p: TxPattern, rounds: number) => (p.kind === 'stream' ? Math.min(p.rate, liveCeiling(rounds)) : 0);
-/** Rounds needed for the sender to reach a gun's full rate (all 100 lanes at 2,000 tx/s). */
-export const roundsForFullRate = (rate: number) => Math.min(100, Math.ceil((rate * ROUND_SECS) / STREAM_STEP)) * 300;
+/** Rounds needed for the sender to reach a gun's full rate (enough lanes for `rate` tx/s). */
+export const roundsForFullRate = (rate: number) => Math.min(MAX_LANES, Math.ceil((rate * ROUND_SECS) / STREAM_STEP)) * 100;
 
 /** Sum per-session rows into a per-player board: a session is counted once, at its highest report. */
 export type SessionRow = { name: string; score: number; meta: Record<string, unknown> };
