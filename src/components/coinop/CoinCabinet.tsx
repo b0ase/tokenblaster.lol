@@ -173,7 +173,9 @@ export function CoinCabinet(p: {
               </span>
               {p.buys && (
                 <span className="text-sm text-[var(--tbx-dim)]">
-                  buys <Ticker value={pendingBuys ?? 0} className="font-bold text-[var(--tbx-text)]" /> {unit}
+                  {/* Say where the total comes from: credit already in the gun is not part of this payment (owner, 25 Oct). */}
+                  {p.creditUsd > 0 ? <>+ {fmtCredit(p.creditUsd)} already in your gun = </> : null}
+                  <Ticker value={pendingBuys ?? 0} className="font-bold text-[var(--tbx-text)]" /> {unit}
                 </span>
               )}
             </div>
