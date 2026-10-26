@@ -13,7 +13,7 @@ import { Icon, useExisting } from '../coinop/ui';
 import { CharacterCard } from '../coinop/LoadingScreen';
 import { GunPreview } from './GunPreview';
 
-export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, practice = false, rounds = 0 }: { player?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
+export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, levels, practice = false, rounds = 0 }: { player?: ReactNode; levels?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
   const have = useExisting(CHARACTERS.map((c) => c.portrait ?? ''));
   const c = CHARACTERS.find((x) => x.id === who) ?? CHARACTERS[0];
@@ -35,6 +35,7 @@ export function Loadout({ weapons, weaponId, setWeaponId, canUse, paymail, cabin
             <p className="hidden max-w-[320px] text-right text-sm text-[var(--tbx-dim)] sm:block">{practice ? forPractice(TAGLINE) : TAGLINE}</p>
           </div>
         </header>
+        {levels}
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)] xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)_minmax(0,560px)] lg:items-start">
           {/* MISSION BRIEFING */}

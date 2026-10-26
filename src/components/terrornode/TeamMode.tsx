@@ -25,6 +25,11 @@ import { DEFAULT_AMMO } from '@/lib/gallery';
 import { TeamClient, createTeamMatch, type TeamStatus } from '@/lib/teammode/client';
 import { RULES, TEAM_NAME, teamShotPushes, type Mode, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
 import type { TeamScene } from '@/lib/teammode/scene';
+import dynamic from 'next/dynamic';
+import { teamLevelOf, type LevelId } from '@/lib/teammode/levels';
+import type { Progress } from '@/lib/terrornode/levels';
+// the level select (and the full level table) is its own chunk
+const LevelSelect = dynamic(() => import('./Levels').then((m) => m.LevelSelect), { ssr: false });
 
 /** Sats per team-mode round: a ~300-byte tagged blast at 100 sat/kB plus margin (src/lib/gun.ts fireBatch). */
 const PER_SHOT = 35;
@@ -59,6 +64,12 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
   const sentN = useRef(0);
   const namesRef = useRef(new Map<string, string>());
   const [loadPct, setLoadPct] = useState(0);
+  // the level the next match is made on (every level is open in team mode: the squad picks together)
+  const [level, setLevel] = useState<LevelId>('assault');
+  const [progress, setProgress] = useState<Progress>(() => ({ v: 1, reached: ['assault', 'market'], best: {} }));
+  useEffect(() => {
+    void import('@/lib/terrornode/levels').then((m) => setProgress(m.loadProgress()));
+  }, []);
 
   const b = useBlaster();
   const cab = useCabinet(b, 'TERRORNODE Team', { dry });
@@ -164,6 +175,10 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
     };
   }, [wantScene]);
   useEffect(() => () => scene.current?.dispose(), []);
+  // the match's level: palette + dressing on the street
+  useEffect(() => {
+    if (state?.level && loadPct >= 1) void scene.current?.setLevel(state.level);
+  }, [state?.level, loadPct]);
 
   // send queued rounds as real transactions, in batches, tagged with the match id and team
   const matchId = state?.id ?? null;
@@ -206,7 +221,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
     setBusy(true);
     setErr(null);
     try {
-      const m = await createTeamMatch(mode);
+      const m = await createTeamMatch(mode, null, level);
       history.replaceState(null, '', `?match=${m.code}${dry ? '&dryrun=1' : ''}`);
       setCode(m.code);
     } catch (e) {
@@ -222,6 +237,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
     setCode(c);
   };
   const invite = useMemo(() => (code && typeof location !== 'undefined' ? `${location.origin}/arcade/terrornode/team?match=${code}` : ''), [code]);
+  const watchUrl = code ? `/arcade/terrornode/watch?room=${code}` : '';
   const copy = () => {
     void navigator.clipboard?.writeText(invite).then(() => {
       setCopied(true);
@@ -256,8 +272,11 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#ff2a46]">Assault on Terrornode · Team mode</p>
           <h1 className="mt-2 text-center text-3xl font-black tracking-tight sm:text-5xl">Squad up. Up to 16 players.</h1>
           <p className="mt-3 max-w-xl text-center text-sm text-white/70">Neo-Tokyo, 2048. Make a match, send the invite link to your crew or the bChatX TERRORNODE room, and fight on the same street. Every bullet is a real BSV transaction from your own wallet.</p>
-          <div className="mt-8 grid w-full gap-4 sm:grid-cols-2">
-            <ModeCard title="Co-op squads" kicker="PvE · up to 16" colour={COLOUR.npg} body="Everyone fights for NPG against Dr Kweg Wong's Erobot horde. Ten waves, each one bigger. Clear them all to take TERRORNODE HQ." onClick={() => void create('coop')} disabled={busy} cta="Make co-op match" />
+          <div className="mt-6 w-full">
+            <LevelSelect progress={progress} active={level} onPick={setLevel} compact all />
+          </div>
+          <div className="mt-4 grid w-full gap-4 sm:grid-cols-2">
+            <ModeCard title="Co-op squads" kicker="PvE · up to 16" colour={COLOUR.npg} body={`Everyone fights for NPG against Dr Kweg Wong's Erobot horde on ${teamLevelOf(level).name}. ${teamLevelOf(level).waves} waves, each one bigger${teamLevelOf(level).bossHp ? ', and the Heart itself on the last' : ''}. Clear them all to take TERRORNODE HQ.`} onClick={() => void create('coop')} disabled={busy} cta="Make co-op match" />
             <ModeCard title="NPG vs Erobotz" kicker="PvP · 8 v 8" colour={COLOUR.erobotz} body="Two teams of up to eight. Pick a side in the lobby, friendly fire off. First team to 50 frags, or the most frags when the 10-minute clock runs out." onClick={() => void create('pvp')} disabled={busy} cta="Make PvP match" />
           </div>
           <div className="mt-6 flex w-full max-w-sm items-center gap-2">
@@ -275,11 +294,12 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           <div className="tbx-glass w-full rounded-2xl border border-white/10 bg-black/60 p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? 'NPG vs Erobotz · 8 v 8' : 'Co-op squads vs the horde'}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? 'NPG vs Erobotz · 8 v 8' : 'Co-op squads vs the horde'}{state?.level ? ` · ${teamLevelOf(state.level).name}` : ''}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
                 <p className="font-mono text-3xl font-black tracking-[0.25em]" data-match-code>{code}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={copy} className="h-9 rounded-full border border-white/20 px-4 text-xs font-bold uppercase">{copied ? 'Copied' : 'Copy invite link'}</button>
+                <a href={watchUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center rounded-full border border-white/20 px-4 text-xs font-bold uppercase" data-watch-link>Spectator view</a>
                 {meP?.host && <button type="button" onClick={() => client.current?.start()} className="h-9 rounded-full bg-[#ff2a46] px-5 text-xs font-black uppercase">Start match</button>}
               </div>
             </div>
@@ -356,7 +376,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           <div className="absolute inset-x-0 top-3 flex justify-center gap-3">
             <ScorePill label={state?.mode === 'pvp' ? 'NPG' : 'Squad'} value={snapInfo?.frags.npg ?? 0} colour={COLOUR.npg} />
             <div className="rounded-full bg-black/60 px-4 py-2 font-mono text-lg font-bold">{snapInfo?.endsAt ? fmtClock(snapInfo.endsAt - now) : '--:--'}</div>
-            {state?.mode === 'pvp' ? <ScorePill label="Erobotz" value={snapInfo?.frags.erobotz ?? 0} colour={COLOUR.erobotz} /> : <ScorePill label={`Wave ${snapInfo?.wave ?? 1}/${RULES.waves}`} value={state?.enemiesLive ?? 0} colour={COLOUR.erobotz} />}
+            {state?.mode === 'pvp' ? <ScorePill label="Erobotz" value={snapInfo?.frags.erobotz ?? 0} colour={COLOUR.erobotz} /> : <ScorePill label={`Wave ${snapInfo?.wave ?? 1}/${state?.waves ?? RULES.waves}`} value={state?.enemiesLive ?? 0} colour={COLOUR.erobotz} />}
           </div>
           <div className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2" style={{ borderColor: COLOUR[myTeam] }} />
           <div className="absolute bottom-4 left-4 rounded-xl bg-black/60 px-4 py-2">

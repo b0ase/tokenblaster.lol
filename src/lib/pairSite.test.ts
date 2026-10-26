@@ -70,7 +70,17 @@ async function pair() {
     return out;
   };
   const reply = async (m: PairMessage) => sock.push(await phone.seal(m));
-  return { w, sock, phone, reqs, reply, link, stop };
+  /** Collect requests until `n` have arrived. Each one is sealed with async WebCrypto before it is sent,
+   *  so under load a single tick can see only the first of several; wait on the count, not on a sleep. */
+  const reqsN = async (n: number): Promise<Extract<PairMessage, { t: 'req' }>[]> => {
+    const out: Extract<PairMessage, { t: 'req' }>[] = [];
+    for (let i = 0; i < 400 && out.length < n; i++) {
+      out.push(...(await reqs()));
+      if (out.length < n) await tick(1);
+    }
+    return out;
+  };
+  return { w, sock, phone, reqs, reqsN, reply, link, stop };
 }
 
 async function refusedWith(code: string, message: string) {
@@ -150,16 +160,14 @@ test("{t:'ready'} on rejoin resends outstanding requests with the SAME ids", asy
   const p = await pair();
   const a = p.w.getPublicKey({ identityKey: true });
   const b = p.w.listOutputs({ basket: 'ammo' });
-  await tick();
-  const first = await p.reqs();
+  const first = await p.reqsN(2);
   assert.equal(first.length, 2);
   // The phone slept and came back: the relay says joined, then bWallet says ready within 1 s: ONE resend.
   p.sock.push({ t: 'relay', role: 'wallet', peer: 'joined' });
   await tick();
   assert.equal((await p.reqs()).length, 0, 'joined waits briefly for ready');
   await p.reply({ t: 'ready' });
-  await tick();
-  const again = await p.reqs();
+  const again = await p.reqsN(2);
   await tick(1200);
   assert.equal((await p.reqs()).length, 0, 'joined + ready = one resend');
   assert.deepEqual(

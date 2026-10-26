@@ -72,7 +72,16 @@ import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
 import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
-import { Results, type RunSummary } from './Results';
+import type { RunSummary } from './Results';
+import dynamic from 'next/dynamic';
+import type { LevelId, Progress } from '@/lib/terrornode/levels';
+// LEVELS: the table, the select and the clear card are their own chunks (the first load stays the same size)
+const LevelSelect = dynamic(() => import('../terrornode/Levels').then((m) => m.LevelSelect), { ssr: false });
+const LevelClear = dynamic(() => import('../terrornode/Levels').then((m) => m.LevelClear), { ssr: false });
+type LevelsModule = typeof import('@/lib/terrornode/levels');
+// the results screen only shows at the end of a run: its own chunk, fetched once the engine is up
+const loadResults = () => import('./Results').then((m) => m.Results);
+const Results = dynamic(loadResults, { ssr: false });
 import { Flatlined, type FlatStats } from './Flatlined';
 import { DamageFx, type DamageFxHandle } from './DamageFx';
 import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
@@ -135,6 +144,11 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const [netSeen, setNetSeen] = useState(0);
   const netSeenRef = useRef(0); // across reload sessions (each session's count starts at 0)
   const [loadout, setLoadout] = useState(true);
+  // LEVELS (src/lib/terrornode/levels.ts): which window of the block plays, what you have reached, LEVEL CLEAR.
+  const [levels, setLevels] = useState<Progress>(() => ({ v: 1, reached: ['assault', 'market'], best: {} }));
+  const lvMod = useRef<LevelsModule | null>(null);
+  const [levelId, setLevelId] = useState<LevelId>('assault');
+  const [levelClear, setLevelClear] = useState<{ id: LevelId; score: number; rounds: number } | null>(null);
   const [bsvUsd, setBsvUsd] = useState(FALLBACK_USD);
   const [locked, setLocked] = useState(false);
   const [run, setRun] = useState<Run>({ sent: 0, started: 0, last: null, tps: 0, status: null });
@@ -286,6 +300,38 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   useEffect(() => {
     if (ready) void engine.current?.setWeapon(weaponId);
   }, [ready, weaponId]);
+  useEffect(() => {
+    if (ready) void loadResults();
+  }, [ready]);
+  // levels: what this browser has reached, and ?level=<id> to jump straight to one you have reached
+  useEffect(() => {
+    const want = new URLSearchParams(location.search).get('level');
+    void import('@/lib/terrornode/levels').then((m) => {
+      lvMod.current = m;
+      const p = m.loadProgress();
+      setLevels(p);
+      if (m.isLevelId(want) && m.isReached(p, want)) setLevelId(want);
+    });
+  }, []);
+  /** Put the engine on a level and back to its start (the gun, its rounds and the payment state are untouched). */
+  const pickLevel = (id: LevelId) => {
+    setLevelId(id);
+    const e = engine.current;
+    if (e) void e.setLevel(id).then(() => e.startRun());
+  };
+  useEffect(() => {
+    const e = engine.current;
+    if (ready && e && e.level.id !== levelId) void e.setLevel(levelId).then(() => e.startRun());
+  }, [ready, levelId]);
+  const clearLevel = (id: LevelId, score: number, rounds: number) => {
+    const m = lvMod.current;
+    if (!m) return;
+    setLevels((p) => {
+      const q = m.recordClear(p, id, score, rounds);
+      m.saveProgress(q);
+      return q;
+    });
+  };
   useEffect(() => {
     engine.current?.setBossBase(Math.min(100_000, Math.max(20_000, Math.round(bought / 8))));
   }, [bought, ready]);
@@ -755,7 +801,18 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         pushBanner({ kind: 'boss' });
         return;
       }
+      if (e.kind === 'clear') {
+        // LEVEL CLEAR: the swarm is called off; the rounds still in the gun carry into the next level
+        held.current = false;
+        engine.current?.setTrigger(false);
+        clearBanners();
+        clearLevel(e.level, e.score, e.rounds);
+        setLevelClear({ id: e.level, score: e.score, rounds: e.rounds });
+        return;
+      }
       if (e.kind === 'rescued') {
+        const lr = engine.current?.levelRun();
+        if (engine.current && lr) clearLevel(engine.current.level.id, lr.score, lr.rounds);
         rescuedRef.current = true;
         setRescued(true);
         clearBanners();
@@ -1361,6 +1418,20 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
 
         {/* GAME OVER */}
         {over && <Results r={over} onAgain={() => (setOver(null), setLoadout(true))} onBoard={toBoard} />}
+        {levelClear && !over && (
+          <LevelClear
+            id={levelClear.id}
+            score={levelClear.score}
+            rounds={levelClear.rounds}
+            best={levels.best[levelClear.id]?.score ?? levelClear.score}
+            onNext={(nx) => {
+              setLevelClear(null);
+              pickLevel(nx);
+              skipTrack();
+            }}
+            onLevels={() => (setLevelClear(null), setLoadout(true))}
+          />
+        )}
         {over && rc.note && (
           <p className="tbx-glass absolute bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-[var(--tbx-teal)]" role="status" data-receipt-sent>
             {rc.note}
@@ -1437,6 +1508,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         {/* LOADOUT */}
         {loadout && !over && (
           <Loadout
+            levels={<LevelSelect progress={levels} active={levelId} onPick={(id) => (setLevelClear(null), pickLevel(id))} />}
             weapons={weapons}
             weaponId={weaponId}
             setWeaponId={setWeaponId}

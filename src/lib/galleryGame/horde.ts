@@ -65,6 +65,8 @@ export class Horde {
   /** Live cap right now (the engine sets it from the stage and the run clock). */
   want = 0;
   spawning = true;
+  /** A level's weights by kind id (missing kinds keep their stock weight, 0 removes one), or null for stock. */
+  weights: Partial<Record<string, number>> | null = null;
   /** True while the gun is still loading real rounds: no spawns (the engine sets it). */
   paused = false;
   /** Seconds of grace left: nobody bites. */
@@ -147,12 +149,13 @@ export class Horde {
       if (f) return f;
     }
     let total = 0;
-    for (const k of TUNING.horde.kinds) total += k.weight;
+    const wt = (k: Kind) => this.weights?.[k.id] ?? k.weight;
+    for (const k of TUNING.horde.kinds) total += wt(k);
     for (let tries = 0; tries < 4; tries++) {
       let r = Math.random() * total;
       let kind: Kind = TUNING.horde.kinds[0];
       for (const k of TUNING.horde.kinds) {
-        r -= k.weight;
+        r -= wt(k);
         if (r <= 0) {
           kind = k;
           break;
@@ -161,7 +164,7 @@ export class Horde {
       const free = this.mobs.find((m) => m.state === 'off' && !m.fused && m.kind.id === kind.id);
       if (free) return free;
     }
-    return this.mobs.find((m) => m.state === 'off' && !m.fused) ?? null;
+    return this.mobs.find((m) => m.state === 'off' && !m.fused && wt(m.kind) > 0) ?? null;
   }
 
   private spawn(mob: Mob) {
