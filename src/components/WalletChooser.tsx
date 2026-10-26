@@ -5,6 +5,7 @@ import { diagLine, discoverWallets, lastDiscovery, type WalletEntry } from '@/li
 import { GET_BWALLETX_URL, openInBwalletUrl, startPairing, type PairState } from '@/lib/pair/site';
 import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { getSiteWallet } from '@/lib/siteWallet';
+import { BWALLET_BROWSER_LINK_READY, detectPhone, openInBwalletBrowserUrl, phoneRows, showQrPanel } from '@/lib/pair/phoneUi';
 
 /** Where a phone with no wallet gets one (no App Store / Play listing links yet: bwalletx.com routes to them). */
 export const GET_BWALLETX = { site: GET_BWALLETX_URL, web: 'https://web.bwalletx.com' } as const;
@@ -113,7 +114,7 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
       alive = false;
     };
   }, []);
-  const isPhone = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
+  const isPhone = detectPhone();
   const isIos = typeof navigator !== 'undefined' && /iPhone|iPad/i.test(navigator.userAgent);
   const asleep = usePhoneLink(getSiteWallet().wallet?.id === 'phone') === 'asleep';
 
@@ -171,7 +172,7 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
 
         {asleep && (
           <p data-phone-asleep-chooser className="mb-3 rounded-none px-3 py-2" style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', fontSize: 13 }}>
-            Phone asleep or disconnected: open bWallet on your phone to resume, or scan the new code below.
+            Phone asleep or disconnected: {isPhone ? 'open bWallet to resume, or tap Open in bWallet below.' : 'open bWallet on your phone to resume, or scan the new code below.'}
           </p>
         )}
 
@@ -195,31 +196,51 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
             </p>
           )}
 
-          {/* On a phone the wallet in this app (bWallet's own browser) leads, then bWallet on this phone. */}
+          {/* On a phone (no QR, ever): a wallet in this app leads, then "Open in bWallet's browser", then bWallet on
+              this phone, then the install links. Order: src/lib/pair/phoneUi.ts phoneRows. */}
           {isPhone &&
-            wallets
-              ?.filter((w) => w.kind === 'in-app' || w.kind === 'phone')
-              .map((w) => <WalletRow key={w.id} icon="/wallets/bwalletx.png" name={w.kind === 'in-app' ? `${w.name} (this app)` : w.name} sub={KIND[w.kind]} onClick={() => onPick(w)} />)}
-          {isPhone && wallets !== null && (
-            <WalletRow
-              icon="/wallets/bwalletx.png"
-              name="bWallet on your phone"
-              sub={pair.k === 'code' ? `Check bWallet shows ${pair.code}, then tap Connect.` : pair.k === 'error' ? pair.message : 'Opens bWallet to connect, then come back here.'}
-              href={pair.k === 'qr' ? openInBwalletUrl(pair.link) : undefined}
-              onClick={pair.k === 'qr' ? undefined : () => undefined}
-              action={pair.k === 'code' ? pair.code : pair.k === 'qr' ? 'Open in bWallet' : '…'}
-              self
-            />
-          )}
-          {isPhone && wallets !== null && (
-            <>
-              <p className="px-1 pt-2" style={{ color: 'var(--muted)', fontSize: 12 }}>
-                No bWallet yet? Get bWalletX, then come back:
-              </p>
-              <WalletRow icon="/wallets/bwalletx.png" name="Get bWalletX" sub={isIos ? 'App Store' : 'Google Play'} href={GET_BWALLETX.site} action="Get it" />
-              <WalletRow icon="/wallets/bwalletx.png" name="bWalletX on the web" sub="web.bwalletx.com, no install" href={GET_BWALLETX.web} action="Open" />
-            </>
-          )}
+            wallets !== null &&
+            phoneRows(wallets.some((w) => w.kind === 'in-app' || w.kind === 'phone')).map((row) => {
+              if (row === 'in-app')
+                return wallets
+                  .filter((w) => w.kind === 'in-app' || w.kind === 'phone')
+                  .map((w) => <WalletRow key={w.id} icon="/wallets/bwalletx.png" name={w.kind === 'in-app' ? `${w.name} (this app)` : w.name} sub={KIND[w.kind]} onClick={() => onPick(w)} />);
+              if (row === 'open-in-browser')
+                return !BWALLET_BROWSER_LINK_READY ? null : (
+                  <WalletRow
+                    key={row}
+                    icon="/wallets/bwalletx.png"
+                    name="Open in bWallet's browser"
+                    sub="Play inside bWallet: the wallet is built in"
+                    href={openInBwalletBrowserUrl(location.href.split('#')[0])}
+                    action="Open"
+                    self
+                  />
+                );
+              if (row === 'phone-link')
+                return (
+                  <WalletRow
+                    key={row}
+                    icon="/wallets/bwalletx.png"
+                    name="bWallet on your phone"
+                    sub={pair.k === 'code' ? `Check bWallet shows ${pair.code}, then tap Connect.` : pair.k === 'error' ? pair.message : 'Opens bWallet to connect, then come back here.'}
+                    href={pair.k === 'qr' ? openInBwalletUrl(pair.link) : undefined}
+                    onClick={pair.k === 'qr' ? undefined : () => undefined}
+                    action={pair.k === 'code' ? pair.code : pair.k === 'qr' ? 'Open in bWallet' : '…'}
+                    self
+                  />
+                );
+              if (row === 'get')
+                return (
+                  <div key={row} className="flex flex-col gap-2">
+                    <p className="px-1 pt-2" style={{ color: 'var(--muted)', fontSize: 12 }}>
+                      No bWallet yet? Get bWalletX, then come back:
+                    </p>
+                    <WalletRow icon="/wallets/bwalletx.png" name="Get bWalletX" sub={isIos ? 'App Store' : 'Google Play'} href={GET_BWALLETX.site} action="Get it" />
+                  </div>
+                );
+              return <WalletRow key={row} icon="/wallets/bwalletx.png" name="bWalletX on the web" sub="web.bwalletx.com, no install" href={GET_BWALLETX.web} action="Open" />;
+            })}
 
           {/* The two browser wallets, always offered: connect if installed, else a link to get it. */}
           {wallets !== null &&
@@ -248,8 +269,8 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
               <WalletRow key={w.id} icon={w.icon} name={w.name} sub={KIND[w.kind]} onClick={() => onPick(w)} />
             ))}
 
-          {/* bWallet on the phone: QR shown straight away, an equal option (spec §2). */}
-          {!isPhone && (
+          {/* bWallet on the phone: QR shown straight away, an equal option (spec §2). Computers only. */}
+          {showQrPanel(isPhone) && (
             <div
               className="flex items-center gap-4 rounded-none px-3 py-3"
               style={{ background: 'var(--input)', border: '1px solid var(--border-dim)' }}
