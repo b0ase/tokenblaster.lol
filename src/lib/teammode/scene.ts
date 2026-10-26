@@ -17,7 +17,9 @@ import { buildCity, EYE, type City } from '../galleryGame/city';
 import { loadLook, makeGradePass, type Look } from '../visuals/look';
 import { loadLibrary, retarget } from '../galleryGame/enemies';
 import { buildWeapon, weaponMaterial } from '../galleryGame/castModels';
-import { ARENA, dirOf, type Snapshot, type Team } from './match';
+import { ARENA, BOSS_KIND, dirOf, type Snapshot, type Team } from './match';
+import { levelOf, type LevelId } from '../terrornode/levels';
+import type { Dressing } from '../terrornode/dressing';
 
 export const TEAM_COLOUR: Record<Team, string> = { npg: '#2ec8e0', erobotz: '#ff2a46' };
 const SKINS: Record<Team, string[]> = { npg: ['hikaru', 'matoko', 'phi-phi', 'yamarashii'], erobotz: ['bot', 'graf-bot', 'stripey-bot', 'tech'] };
@@ -68,13 +70,51 @@ export class TeamScene {
   private lastFire = 0;
   private lastSend = 0;
   readonly high: boolean;
+  /** SPECTATOR (the livestream view): no gun, no input, a slow broadcast camera over the whole arena. */
+  readonly spectate: boolean;
   private ready = false;
+  private hemi!: THREE.HemisphereLight;
+  private bloom!: UnrealBloomPass;
+  private level: LevelId = 'assault';
+  private dressing: Dressing | null = null;
+  private dressReq = 0;
+  private camAt = new THREE.Vector3(0, 0, -20);
 
   constructor(
     private canvas: HTMLCanvasElement,
-    opts: { high: boolean },
+    opts: { high: boolean; spectate?: boolean },
   ) {
     this.high = opts.high;
+    this.spectate = Boolean(opts.spectate);
+  }
+
+  /**
+   * The match's level (src/lib/terrornode/levels.ts): its palette on the street (fog, sky, light, bloom) and its
+   * dressing, fetched with a dynamic import only for the levels that have one.
+   */
+  async setLevel(id: LevelId) {
+    if (!this.city || id === this.level) return;
+    this.level = id;
+    const L = levelOf(id);
+    const P = L.palette;
+    const fog = this.scene.fog as THREE.FogExp2;
+    fog.color.set(P.fog);
+    fog.density = P.density;
+    (this.scene.background as THREE.Color).set(P.bg);
+    this.hemi.color.set(id === 'assault' ? '#3a6aff' : P.key);
+    this.renderer.toneMappingExposure = 1 + P.exposure;
+    this.bloom.strength = (this.high ? 0.32 : 0.26) + P.bloom;
+    const req = ++this.dressReq;
+    this.dressing?.dispose();
+    this.dressing = null;
+    if (id === 'assault') return;
+    const { buildDressing } = await import('../terrornode/dressing');
+    if (req !== this.dressReq || this.disposed) return;
+    const halfW = id === 'datacore' ? 16 : 14;
+    const d = buildDressing(id, { high: this.high, palette: P, halfW, z0: ARENA.z1, z1: ARENA.z0 });
+    if (!d) return;
+    this.scene.add(d.group);
+    this.dressing = d;
   }
 
   async init(onProgress: (p: number) => void) {
@@ -118,12 +158,15 @@ export class TeamScene {
     this.flash = new THREE.PointLight('#ffb870', 0, 18, 1.6);
     this.camera.add(this.flash);
     this.flash.position.set(0.2, -0.1, -1);
-    this.scene.add(new THREE.HemisphereLight('#3a6aff', '#120814', 0.5));
+    this.hemi = new THREE.HemisphereLight('#3a6aff', '#120814', 0.5);
+    this.scene.add(this.hemi);
+    if (this.spectate) this.gun.visible = false;
     // post
     const size = r.getSize(new THREE.Vector2());
     const comp = new EffectComposer(r);
     comp.addPass(new RenderPass(this.scene, this.camera));
-    comp.addPass(new UnrealBloomPass(new THREE.Vector2(size.x, size.y), high ? 0.32 : 0.26, 0.4, high ? 1.7 : 1.6));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), high ? 0.32 : 0.26, 0.4, high ? 1.7 : 1.6);
+    comp.addPass(this.bloom);
     comp.addPass(new OutputPass());
     this.grade = makeGradePass();
     this.grade.apply({ shadow: [0.76, 1.0, 1.14], high: [1.08, 1.0, 0.9], sat: 0.95, contrast: 1.2, vignette: 0.72 });
@@ -132,7 +175,7 @@ export class TeamScene {
     onProgress(0.6);
     await this.loadModels((p) => onProgress(0.6 + p * 0.4));
     this.ready = true;
-    this.bindInput();
+    if (!this.spectate) this.bindInput();
     this.resize();
     this.loop();
   }
@@ -231,7 +274,8 @@ export class TeamScene {
       const key = `e${id}`;
       let b = this.bodies.get(key);
       if (!b) {
-        b = this.makeBody(HORDE[kind % HORDE.length], TEAM_COLOUR.erobotz, null);
+        b = this.makeBody(HORDE[kind % HORDE.length], TEAM_COLOUR.erobotz, kind === BOSS_KIND ? 'TERRORNODE HEART' : null);
+        if (kind === BOSS_KIND) b.g.scale.setScalar(2.8);
         b.g.position.set(x, 0, z);
         this.bodies.set(key, b);
       }
@@ -281,6 +325,8 @@ export class TeamScene {
   }
 
   private tracer(x: number, z: number, yaw: number, len: number, team: Team) {
+    // 16 players fire ~200 rounds a second: cap the lines on screen (the spectator's wide shot sees them all)
+    if (this.tracers.length >= (this.spectate ? 36 : 90)) return;
     const { dx, dz } = dirOf(yaw);
     const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, 1.35, z), new THREE.Vector3(x + dx * len, 1.35, z + dz * len)]);
     const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: new THREE.Color(TEAM_COLOUR[team]).multiplyScalar(3), toneMapped: false, transparent: true }));
@@ -382,7 +428,7 @@ export class TeamScene {
     this.t += dt;
     const me = this.me;
     // movement (predicted)
-    if (me.alive) {
+    if (me.alive && !this.spectate) {
       let f = (this.keys.has('KeyW') || this.keys.has('ArrowUp') ? 1 : 0) - (this.keys.has('KeyS') || this.keys.has('ArrowDown') ? 1 : 0);
       let s = (this.keys.has('KeyD') ? 1 : 0) - (this.keys.has('KeyA') ? 1 : 0);
       if (this.keys.has('ArrowLeft')) me.yaw += 2.2 * dt;
@@ -404,8 +450,12 @@ export class TeamScene {
         this.onFire(me.yaw);
       }
     }
-    this.camera.position.set(me.x, me.alive ? EYE : 0.5, me.z);
-    this.camera.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+    if (this.spectate) this.broadcastCam(dt);
+    else {
+      this.camera.position.set(me.x, me.alive ? EYE : 0.5, me.z);
+      this.camera.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
+    }
+    this.dressing?.update(dt, this.t);
     this.kick *= Math.pow(0.001, dt);
     this.gun.position.z = -0.62 + this.kick * 0.06;
     this.gun.rotation.x = this.kick * 0.08;
@@ -459,7 +509,25 @@ export class TeamScene {
     this.composer.render();
   };
 
+  /** The spectator's camera: high and wide behind the NPG line, easing toward the middle of the action, slow sway. */
+  private broadcastCam(dt: number) {
+    let n = 0;
+    const c = new THREE.Vector3();
+    for (const b of this.bodies.values())
+      if (b.alive) {
+        c.add(b.g.position);
+        n++;
+      }
+    if (n) c.divideScalar(n);
+    else c.set(0, 0, -20);
+    this.camAt.lerp(c, 1 - Math.pow(0.2, dt));
+    const sway = Math.sin(this.t * 0.07) * 10;
+    this.camera.position.set(this.camAt.x * 0.5 + sway, 15, Math.min(ARENA.z1 + 16, this.camAt.z + 26));
+    this.camera.lookAt(this.camAt.x, 1, this.camAt.z - 6);
+  }
+
   dispose() {
+    this.dressing?.dispose();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.unbind();

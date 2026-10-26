@@ -13,6 +13,8 @@
  * (the client fires the tx, the server just counts what it is told: `txid` is recorded for the board).
  */
 
+import { isLevelId, teamLevelOf, teamWaveSize, type LevelId } from './levels';
+
 export type Team = 'npg' | 'erobotz';
 export type Mode = 'coop' | 'pvp';
 export type Phase = 'lobby' | 'live' | 'over';
@@ -70,7 +72,10 @@ export type Player = {
   host: boolean;
 };
 
+/** `kind` indexes the scene's horde skins; BOSS_KIND is the level's boss (one huge Erobot on the last wave). */
 export type Enemy = { id: number; x: number; z: number; yaw: number; hp: number; kind: number };
+export const BOSS_KIND = 9;
+export const BOSS_RADIUS = 2.2;
 
 export type GameEvent =
   | { k: 'hit'; by: string; on: string; dmg: number; x: number; z: number }
@@ -84,6 +89,8 @@ export type Match = {
   code: string;
   tournamentId: string | null;
   mode: Mode;
+  /** The TERRORNODE level (src/lib/terrornode/levels.ts): co-op waves, enemy mix and boss; the arena's palette and dressing. */
+  level: LevelId;
   phase: Phase;
   createdAt: number;
   startedAt: number | null;
@@ -112,12 +119,13 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const fin = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const cleanName = (s: unknown) => String(s ?? '').replace(/[^\w .@$-]/g, '').trim().slice(0, 24) || 'Player';
 
-export function createMatch(o: { code: string; mode: Mode; tournamentId?: string | null; now: number; rand?: () => number }): Match {
+export function createMatch(o: { code: string; mode: Mode; level?: unknown; tournamentId?: string | null; now: number; rand?: () => number }): Match {
   return {
     id: `TN-${o.code}`,
     code: o.code,
     tournamentId: o.tournamentId ? String(o.tournamentId).replace(/[^\w-]/g, '').slice(0, 48) || null : null,
     mode: o.mode,
+    level: isLevelId(o.level) ? o.level : 'assault',
     phase: 'lobby',
     createdAt: o.now,
     startedAt: null,
@@ -306,7 +314,7 @@ export function shoot(m: Match, id: string, yaw: unknown, txid: unknown, now: nu
     }
   } else {
     for (const e of m.enemies) {
-      const t = rayCircle(p.x, p.z, dx, dz, e.x, e.z, RULES.enemyRadius);
+      const t = rayCircle(p.x, p.z, dx, dz, e.x, e.z, e.kind === BOSS_KIND ? BOSS_RADIUS : RULES.enemyRadius);
       if (t < best) [best, hit] = [t, { kind: 'enemy', ref: e }];
     }
   }
@@ -349,20 +357,29 @@ function kill(m: Match, p: Player, now: number) {
   p.respawnAt = now + RULES.respawnMs;
 }
 
+/** How many co-op waves this match's level runs. */
+export const wavesOf = (m: Match) => teamLevelOf(m.level).waves;
+
 function nextWave(m: Match) {
   m.wave++;
-  m.waveLeft = 4 + m.wave * 3;
+  const L = teamLevelOf(m.level);
+  m.waveLeft = teamWaveSize(L, m.wave);
   m.events.push({ k: 'wave', n: m.wave });
+  // the level's boss walks in with the last wave
+  if (L.bossHp && m.wave === L.waves) {
+    m.enemies.push({ id: m.nextEnemy++, x: 0, z: ARENA.z0 + 3, yaw: 0, hp: L.bossHp, kind: BOSS_KIND });
+  }
 }
 
 function spawnEnemy(m: Match) {
+  const L = teamLevelOf(m.level);
   const e: Enemy = {
     id: m.nextEnemy++,
     x: (m.rand() - 0.5) * 36,
     z: ARENA.z0 + 2 + m.rand() * 6,
     yaw: 0,
-    hp: RULES.enemyHp + m.wave * 4,
-    kind: Math.floor(m.rand() * 5),
+    hp: Math.round((RULES.enemyHp + m.wave * 4) * L.hpK),
+    kind: L.kinds[Math.floor(m.rand() * L.kinds.length)] ?? 0,
   };
   m.enemies.push(e);
 }
@@ -372,7 +389,7 @@ export function end(m: Match, now: number) {
   m.phase = 'over';
   m.endedAt = now;
   if (m.mode === 'pvp') m.winner = m.frags.npg === m.frags.erobotz ? 'draw' : m.frags.npg > m.frags.erobotz ? 'npg' : 'erobotz';
-  else m.winner = m.wave > RULES.waves || (m.wave === RULES.waves && m.waveLeft === 0 && m.enemies.length === 0) ? 'squad' : 'horde';
+  else m.winner = m.wave > wavesOf(m) || (m.wave === wavesOf(m) && m.waveLeft === 0 && m.enemies.length === 0) ? 'squad' : 'horde';
 }
 
 /** One server step. Returns the events since the last tick (and clears them). */
@@ -405,7 +422,8 @@ function stepHorde(m: Match, now: number, dt: number) {
     m.waveLeft--;
   }
   const alive = [...m.players.values()].filter((p) => p.alive && p.connected);
-  const speed = 2.4 + m.wave * 0.25;
+  const L = teamLevelOf(m.level);
+  const speed = L.speed + m.wave * L.speedPerWave;
   for (const e of m.enemies) {
     let best: Player | null = null;
     let bd = Infinity;
@@ -415,13 +433,14 @@ function stepHorde(m: Match, now: number, dt: number) {
     }
     if (!best) continue;
     e.yaw = Math.atan2(-(best.x - e.x), -(best.z - e.z));
-    if (bd > RULES.enemyReach * 0.8) {
-      const k = Math.min(speed * dt, bd - RULES.enemyReach * 0.8) / bd;
+    const reach = e.kind === BOSS_KIND ? RULES.enemyReach + BOSS_RADIUS : RULES.enemyReach;
+    if (bd > reach * 0.8) {
+      const k = Math.min(speed * (e.kind === BOSS_KIND ? 0.7 : 1) * dt, bd - reach * 0.8) / bd;
       e.x += (best.x - e.x) * k;
       e.z += (best.z - e.z) * k;
     }
-    if (bd <= RULES.enemyReach) {
-      best.hp -= RULES.enemyDps * dt;
+    if (bd <= reach) {
+      best.hp -= RULES.enemyDps * (e.kind === BOSS_KIND ? 3 : 1) * dt;
       if (best.hp <= 0) {
         kill(m, best, now);
         m.events.push({ k: 'kill', by: `e${e.id}`, on: best.id, x: best.x, z: best.z });
@@ -445,7 +464,7 @@ function stepHorde(m: Match, now: number, dt: number) {
       }
     }
   if (m.waveLeft === 0 && m.enemies.length === 0) {
-    if (m.wave >= RULES.waves) {
+    if (m.wave >= wavesOf(m)) {
       m.wave++;
       end(m, now);
     } else nextWave(m);
@@ -455,6 +474,13 @@ function stepHorde(m: Match, now: number, dt: number) {
 // ── What goes out ────────────────────────────────────────────────────────────────
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
+
+const roundEvent = (e: GameEvent): GameEvent => {
+  if (e.k === 'shot') return { k: 'shot', by: e.by, x: r2(e.x), z: r2(e.z), yaw: Math.round(e.yaw * 1000) / 1000, len: r2(e.len) };
+  if (e.k === 'hit') return { ...e, x: r2(e.x), z: r2(e.z) };
+  if (e.k === 'kill') return { ...e, x: r2(e.x), z: r2(e.z) };
+  return e;
+};
 
 /** 20 Hz snapshot for the players in the match (compact arrays). */
 export function snapshot(m: Match, events: GameEvent[]) {
@@ -467,7 +493,8 @@ export function snapshot(m: Match, events: GameEvent[]) {
     endsAt: m.endsAt,
     p: [...m.players.values()].map((p) => [p.id, r2(p.x), r2(p.z), r2(p.yaw), Math.max(0, Math.round(p.hp)), p.alive ? 1 : 0, p.team, p.connected ? 1 : 0] as const),
     e: m.enemies.map((e) => [e.id, r2(e.x), r2(e.z), r2(e.yaw), Math.round(e.hp), e.kind] as const),
-    ev: events,
+    // positions to the centimetre: the same events at about half the bytes (16 players fire ~200 shots a second)
+    ev: events.map(roundEvent),
   };
 }
 export type Snapshot = ReturnType<typeof snapshot>;
@@ -506,6 +533,7 @@ export function publicState(m: Match, now: number, opts: { inviteBase?: string }
     code: m.code,
     tournamentId: m.tournamentId,
     mode: m.mode,
+    level: m.level,
     phase: m.phase,
     maxPlayers: MAX_PLAYERS,
     createdAt: m.createdAt,
@@ -514,6 +542,10 @@ export function publicState(m: Match, now: number, opts: { inviteBase?: string }
     endedAt: m.endedAt,
     now,
     wave: m.mode === 'coop' ? m.wave : null,
+    waves: m.mode === 'coop' ? wavesOf(m) : null,
+    /** Every shot the players fired and the ones ARC accepted as real transactions (the spectator's tx/s). */
+    shots: players.reduce((a, p) => a + p.shots, 0),
+    txShots: players.reduce((a, p) => a + p.txShots, 0),
     enemiesLive: m.mode === 'coop' ? m.enemies.length : null,
     fragLimit: m.mode === 'pvp' ? RULES.fragLimit : null,
     winner: m.winner,

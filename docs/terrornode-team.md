@@ -34,6 +34,29 @@ skip the wallet entirely.
 - GO LIVE: the existing button (#82/#83) streams the canvas to the room; on start/stop it fires `tb:golive`
   `{handle}` and team mode sends it to the server, so `streamSlot` = the player's bChatX LiveKit handle.
 
+## Levels (26 Oct)
+
+Every match is made on a level (`POST /api/terrornode/team {mode, level}`; `level` = `assault` (default, the
+original 10 waves) | `market` | `rails` | `datacore` | `heart`). Co-op waves, enemy kinds and speed come from
+`src/lib/teammode/levels.ts`; the Heart's last wave brings a boss (one huge Erobot, 4000 HP). The street takes the
+level's palette and its dressing (`src/lib/terrornode/dressing.ts`, lazy-loaded). Solo levels: `src/lib/terrornode/levels.ts`.
+
+## Spectators (livestream)
+
+`/arcade/terrornode/watch?room=CODE`: read-only (`{t:'watch', match}` on the socket: no slot, no wallet), all
+players, the wave / PvP clock and frags, tx/s, a slow broadcast camera. `&hud=only` = transparent overlay only (OBS
+browser source over another scene), `&q=low` for a light machine. Up to 64 spectators a match. Falls back to polling
+`/api/terrornode/team/CODE` if the socket can't connect.
+
+## Load test (16 players)
+
+    pnpm team:load -- --url https://team.tokenblaster.lol --n 16 --mode coop --level heart --secs 30
+    # local: pnpm team:server, then pnpm team:load -- --n 16 --pid <server pid>
+
+16 WebSocket bots + 2 spectators: tick rate on the wire, snapshot gaps, ping RTT, kB/s per player, and the
+server's own tick rate / tick cost / CPU from `/health`. Exit 1 if fewer than N join, the tick drops under 18 Hz or
+the reconnect loses its slot. `src/lib/teamSpectate.test.ts` runs it in CI against a local server.
+
 ## Run locally
 
     pnpm team:server                       # :8787

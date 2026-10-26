@@ -4,15 +4,20 @@
  * or moves money: players' shots are real BSV transactions fired by their own browser gun.
  *
  * HTTP
- *   GET  /health                 → { ok, matches }
- *   POST /matches {mode, tournamentId?}  → { code, id, inviteUrl }   (the bChatX room or the lobby creates one)
+ *   GET  /health                 → { ok, matches, players, conns, spectators, tick: {hz, ms, maxMs}, cpu, rssMb }
+ *   POST /matches {mode, level?, tournamentId?}  → { code, id, level, inviteUrl }   (the bChatX room or the lobby creates one)
  *   GET  /matches                → public state of every open match (newest first)
  *   GET  /matches/:code          → public state (players, teams, score, stream slots) for the bChatX room
  * WS  /ws
- *   → {t:'join', match, name, identityKey?, side?, resume?} | {t:'side', side} | {t:'start'}
+ *   → {t:'join', match, name, identityKey?, side?, resume?} | {t:'watch', match} (read-only spectator) | {t:'side', side} | {t:'start'}
  *     {t:'in', x, z, yaw} | {t:'shot', yaw} | {t:'tx', n} (shots ARC accepted) | {t:'live', slot} | {t:'ping'}
- *   ← {t:'welcome', you, resume, state} | {t:'state', state} | {t:'snap', …} | {t:'err', error} | {t:'pong'}
+ *   ← {t:'welcome', you, resume, state} | {t:'watching', state} | {t:'state', state} | {t:'snap', …} | {t:'err', error} | {t:'pong', now, id?}
  *
+ * Load (26 Oct, for 16-player sessions; `pnpm team:load`): each match keeps its own socket set (no scan of every
+ * connection per match per tick), a snapshot or state is serialised ONCE and the same string goes to every socket,
+ * full state goes out at most STATE_HZ a second (kills no longer push it every tick), lobbies and finished matches
+ * get snapshots at 5 Hz, and the 20 Hz loop corrects its own drift. /health reports the measured tick rate,
+ * tick cost and process CPU.
  * Env: PORT (8787), PUBLIC_SITE (https://tokenblaster.lol, for invite links), ALLOW_ORIGINS (comma list; empty = any).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -38,25 +43,64 @@ import {
   type Mode,
   type Team,
 } from '../../src/lib/teammode/match';
+import { performance } from 'node:perf_hooks';
 
 const PORT = Number(process.env.PORT || 8787);
 const SITE = process.env.PUBLIC_SITE || 'https://tokenblaster.lol';
 const ORIGINS = (process.env.ALLOW_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const MAX_MATCHES = 200;
 const IDLE_MS = 15 * 60_000;
+/** Spectators per match (the livestream overlay, OBS, the bChatX Space). */
+const MAX_WATCHERS = 64;
+/** Full public state at most this often per match (snapshots stay at TICK_HZ). */
+const STATE_HZ = 4;
 
 const rand = () => randomInt(0, 1 << 30) / (1 << 30);
 const matches = new Map<string, Match>();
-type Conn = { ws: WebSocket; match: Match | null; player: string | null; msgs: number; window: number };
+type Conn = { ws: WebSocket; match: Match | null; player: string | null; watch: boolean; msgs: number; window: number };
 const conns = new Set<Conn>();
+/** Each match's sockets (players and spectators). */
+const rooms = new Map<Match, Set<Conn>>();
+const roomOf = (m: Match) => {
+  let r = rooms.get(m);
+  if (!r) rooms.set(m, (r = new Set()));
+  return r;
+};
+const enter = (c: Conn, m: Match) => {
+  if (c.match && c.match !== m) rooms.get(c.match)?.delete(c);
+  c.match = m;
+  roomOf(m).add(c);
+};
+const exit = (c: Conn) => {
+  if (c.match) rooms.get(c.match)?.delete(c);
+  c.match = null;
+  c.player = null;
+};
 
-export function newMatch(mode: Mode, tournamentId: string | null, now = Date.now()): Match {
+export function newMatch(mode: Mode, tournamentId: string | null, now = Date.now(), level?: unknown): Match {
   let code = makeCode(rand);
   while (matches.has(code)) code = makeCode(rand);
-  const m = createMatch({ code, mode, tournamentId, now, rand });
+  const m = createMatch({ code, mode, level, tournamentId, now, rand });
   matches.set(code, m);
   return m;
 }
+
+// ── measured load (for /health and the 16-player load script) ──
+const perf = { ticks: 0, since: Date.now(), hz: 0, ms: 0, maxMs: 0, sumMs: 0, cpu: 0, lastCpu: process.cpuUsage(), lastAt: Date.now() };
+setInterval(() => {
+  const now = Date.now();
+  const secs = (now - perf.since) / 1000;
+  perf.hz = perf.ticks / Math.max(0.001, secs);
+  perf.ms = perf.ticks ? perf.sumMs / perf.ticks : 0;
+  const u = process.cpuUsage(perf.lastCpu);
+  perf.cpu = ((u.user + u.system) / 1000 / Math.max(1, now - perf.lastAt)) * 100;
+  perf.lastCpu = process.cpuUsage();
+  perf.lastAt = now;
+  perf.since = now;
+  perf.ticks = 0;
+  perf.sumMs = 0;
+  perf.maxMs = 0;
+}, 2000).unref();
 
 function cors(req: IncomingMessage, res: ServerResponse) {
   const o = req.headers.origin;
@@ -88,13 +132,26 @@ const http = createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return res.writeHead(204).end();
   const url = new URL(req.url || '/', 'http://x');
   const now = Date.now();
-  if (url.pathname === '/health') return json(res, 200, { ok: true, matches: matches.size, players: [...matches.values()].reduce((s, m) => s + m.players.size, 0) });
+  if (url.pathname === '/health') {
+    let spectators = 0;
+    for (const c of conns) if (c.watch) spectators++;
+    return json(res, 200, {
+      ok: true,
+      matches: matches.size,
+      players: [...matches.values()].reduce((s, m) => s + m.players.size, 0),
+      conns: conns.size,
+      spectators,
+      tick: { target: TICK_HZ, hz: Math.round(perf.hz * 10) / 10, ms: Math.round(perf.ms * 1000) / 1000, maxMs: Math.round(perf.maxMs * 1000) / 1000 },
+      cpu: Math.round(perf.cpu * 10) / 10,
+      rssMb: Math.round(process.memoryUsage().rss / 1e6),
+    });
+  }
   if (url.pathname === '/matches' && req.method === 'POST') {
     if (matches.size >= MAX_MATCHES) return json(res, 503, { error: 'Too many matches running. Try again soon.' });
     const b = await body(req);
     const mode: Mode = b.mode === 'pvp' ? 'pvp' : 'coop';
-    const m = newMatch(mode, typeof b.tournamentId === 'string' ? b.tournamentId : null, now);
-    return json(res, 201, { code: m.code, id: m.id, mode, inviteUrl: publicState(m, now, { inviteBase: SITE }).inviteUrl });
+    const m = newMatch(mode, typeof b.tournamentId === 'string' ? b.tournamentId : null, now, b.level);
+    return json(res, 201, { code: m.code, id: m.id, mode, level: m.level, inviteUrl: publicState(m, now, { inviteBase: SITE }).inviteUrl });
   }
   if (url.pathname === '/matches' && req.method === 'GET') {
     const t = url.searchParams.get('tournament');
@@ -117,13 +174,24 @@ http.on('upgrade', (req, sock, head) => {
 });
 
 const send = (ws: WebSocket, msg: unknown) => ws.readyState === WebSocket.OPEN && ws.send(JSON.stringify(msg));
-const broadcastState = (m: Match) => {
-  const s = publicState(m, Date.now(), { inviteBase: SITE });
-  for (const c of conns) if (c.match === m) send(c.ws, { t: 'state', state: s });
+/** One string to every socket in the room. */
+const fanout = (m: Match, s: string) => {
+  const r = rooms.get(m);
+  if (r) for (const c of r) if (c.ws.readyState === WebSocket.OPEN) c.ws.send(s);
 };
+const lastState = new Map<Match, number>();
+const dirty = new Set<Match>();
+/** Full state now (joins, sides, start, phase changes). */
+const broadcastState = (m: Match) => {
+  dirty.delete(m);
+  lastState.set(m, Date.now());
+  fanout(m, JSON.stringify({ t: 'state', state: publicState(m, Date.now(), { inviteBase: SITE }) }));
+};
+/** Full state soon: coalesced to STATE_HZ (kills, waves, tx counts). */
+const markState = (m: Match) => dirty.add(m);
 
 wss.on('connection', (ws) => {
-  const c: Conn = { ws, match: null, player: null, msgs: 0, window: Date.now() };
+  const c: Conn = { ws, match: null, player: null, watch: false, msgs: 0, window: Date.now() };
   conns.add(c);
   let alive = true;
   ws.on('pong', () => (alive = true));
@@ -146,7 +214,7 @@ wss.on('connection', (ws) => {
     const m = c.match;
     switch (msg.t) {
       case 'ping':
-        return send(ws, { t: 'pong', now });
+        return send(ws, { t: 'pong', now, id: typeof msg.id === 'number' ? msg.id : undefined });
       case 'join': {
         if (c.match) return;
         const code = String(msg.match || '').toUpperCase();
@@ -164,12 +232,25 @@ wss.on('connection', (ws) => {
         });
         if (!r.ok) return send(ws, { t: 'err', error: r.error });
         // a resumed player's old socket (if still open) is dropped
-        for (const o of conns) if (o !== c && o.match === target && o.player === r.player.id) [o.player, o.match] = [null, null];
-        c.match = target;
+        for (const o of [...(rooms.get(target) ?? [])]) if (o !== c && o.player === r.player.id) exit(o);
+        enter(c, target);
         c.player = r.player.id;
         send(ws, { t: 'welcome', you: r.player.id, resume: r.player.resume, resumed: r.resumed, state: publicState(target, now, { inviteBase: SITE }) });
         return broadcastState(target);
       }
+    }
+    if (msg.t === 'watch') {
+      // SPECTATOR: read-only, no slot, no wallet. Gets the same snapshots and state as the players.
+      if (c.match) return;
+      const code = String(msg.match || '').toUpperCase();
+      const target = validCode(code) ? matches.get(code) : undefined;
+      if (!target) return send(ws, { t: 'err', error: 'No match with that code.' });
+      let w = 0;
+      for (const o of rooms.get(target) ?? []) if (o.watch) w++;
+      if (w >= MAX_WATCHERS) return send(ws, { t: 'err', error: 'Too many spectators on this match.' });
+      c.watch = true;
+      enter(c, target);
+      return send(ws, { t: 'watching', state: publicState(target, now, { inviteBase: SITE }) });
     }
     if (!m || !c.player) return;
     switch (msg.t) {
@@ -189,7 +270,8 @@ wss.on('connection', (ws) => {
         shoot(m, c.player, msg.yaw, msg.txid, now);
         return;
       case 'tx':
-        return confirmTx(m, c.player, msg.n);
+        confirmTx(m, c.player, msg.n);
+        return markState(m);
       case 'live':
         setStream(m, c.player, msg.slot);
         return broadcastState(m);
@@ -198,31 +280,53 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     clearInterval(hb);
     conns.delete(c);
-    if (c.match && c.player) {
-      leave(c.match, c.player, Date.now());
-      broadcastState(c.match);
+    const [m, p] = [c.match, c.player];
+    exit(c);
+    if (m && p) {
+      leave(m, p, Date.now());
+      broadcastState(m);
     }
   });
 });
 
-// ── 20 Hz tick ──
+// ── 20 Hz tick (drift-corrected: each step is scheduled against the ideal clock, not the last wake-up) ──
 const lastPhase = new Map<string, string>();
-setInterval(() => {
+const STEP = 1000 / TICK_HZ;
+let nextAt = Date.now() + STEP;
+function step() {
+  const t0 = performance.now();
   const now = Date.now();
   for (const [code, m] of matches) {
     const ev = tick(m, now);
-    const snap = snapshot(m, ev);
-    const s = JSON.stringify(snap);
-    for (const c of conns) if (c.match === m && c.ws.readyState === WebSocket.OPEN) c.ws.send(s);
-    if (lastPhase.get(code) !== m.phase || ev.some((e) => e.k === 'kill' || e.k === 'wave')) broadcastState(m);
+    const room = rooms.get(m);
+    const live = m.phase === 'live';
+    // lobbies and finished matches: 5 Hz is plenty; nobody watching: nothing to serialise
+    if (room?.size && (live || m.tick % 4 === 0)) fanout(m, JSON.stringify(snapshot(m, ev)));
+    const phaseChanged = lastPhase.get(code) !== m.phase;
+    if (phaseChanged) broadcastState(m);
+    else if (ev.some((e) => e.k === 'kill' || e.k === 'wave' || e.k === 'spawn')) markState(m);
+    if (dirty.has(m) && now - (lastState.get(m) ?? 0) >= 1000 / STATE_HZ) broadcastState(m);
     lastPhase.set(code, m.phase);
     const idle = m.players.size === 0 && now - (m.endedAt ?? m.createdAt) > IDLE_MS;
     const stale = m.phase === 'over' && now - (m.endedAt ?? now) > IDLE_MS;
     if (idle || stale) {
       matches.delete(code);
       lastPhase.delete(code);
+      lastState.delete(m);
+      dirty.delete(m);
+      for (const c of rooms.get(m) ?? []) exit(c);
+      rooms.delete(m);
     }
   }
-}, 1000 / TICK_HZ);
+  const ms = performance.now() - t0;
+  perf.ticks++;
+  perf.sumMs += ms;
+  perf.maxMs = Math.max(perf.maxMs, ms);
+  nextAt += STEP;
+  const wait = nextAt - Date.now();
+  if (wait < -STEP * 5) nextAt = Date.now() + STEP; // a long stall (GC, suspend): resync, don't burst
+  setTimeout(step, Math.max(0, nextAt - Date.now()));
+}
+setTimeout(step, STEP);
 
 http.listen(PORT, () => console.log(`[terrornode-team] listening on :${PORT} (${TICK_HZ} Hz)`));
