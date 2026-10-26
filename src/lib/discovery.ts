@@ -52,6 +52,28 @@ function announced(ms: number): Promise<Announce[]> {
   });
 }
 
+const CLI_SEEN = 'tb.cliWalletSeen';
+const localWalletSeen = () => {
+  try {
+    return Boolean(localStorage.getItem(CLI_SEEN));
+  } catch {
+    return false;
+  }
+};
+const markLocalWalletSeen = () => {
+  try {
+    localStorage.setItem(CLI_SEEN, '1');
+  } catch {
+    /* storage blocked: probe again next time only when no browser wallet appears */
+  }
+};
+/** Probe the local wallet port (bwalletx-cli / BSV Desktop on localhost:3321)? Pure, tested in discovery.test.ts. */
+export function shouldProbeLocal(a: { seen: boolean; query: string; injected: boolean }): boolean {
+  if (a.seen) return true;
+  if (new URLSearchParams(a.query).get('wallet') === 'cli') return true;
+  return !a.injected;
+}
+
 const withTimeout = <T,>(p: Promise<T>, ms: number) =>
   Promise.race([p, new Promise<never>((_, no) => setTimeout(() => no(new Error('timeout')), ms))]);
 
@@ -131,10 +153,15 @@ async function discoverAll(): Promise<WalletEntry[]> {
   }
 
   // BSV Desktop (formerly MetaNet Desktop) on this computer. Only when the chooser is open, never on a phone.
-  if (!isPhone()) {
+  // Probing localhost:3321 when nothing listens prints a red ERR_CONNECTION_REFUSED in every console (owner, 26 Oct
+  // 2026), so only probe when a local wallet was seen before, ?wallet=cli asks for it, or no browser wallet showed up
+  // (announce/CWI, after the ~400 ms wait above). getVersion stays the probe (bwalletx-cli keeps it open).
+  const injected = list.some((w) => w.kind === 'extension' || w.kind === 'in-app') || Boolean(cwi);
+  if (!isPhone() && shouldProbeLocal({ seen: localWalletSeen(), query: window.location.search, injected })) {
     try {
       const desk = new HTTPWalletJSON(window.location.host, 'http://localhost:3321');
       await withTimeout(desk.getVersion({}), 1500);
+      markLocalWalletSeen();
       list.push({ id: 'metanet.desktop', name: 'BSV Desktop', icon: '/wallets/bsv-desktop.png', kind: 'desktop', wallet: desk });
     } catch {
       /* not running */

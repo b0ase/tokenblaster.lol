@@ -89,7 +89,7 @@ import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 import { loadMark } from '@/lib/gun';
 import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo';
 import { useCabinet } from '../coinop/useCabinet';
-import { GALLERY_GAME } from '@/lib/gallery';
+import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
 
@@ -767,8 +767,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     reportRef.current = async (force: boolean) => {
       if (!live || dry || !handle || !run.last || !sentRef.current) return;
       if (!force && Date.now() - lastReport.current < 60_000) return;
-      lastReport.current = Date.now();
       const secs = Math.round((Date.now() - run.started) / 100) / 10;
+      // The scores function rejects a run under MIN_REPORT_SECS as "implausible run" (400): the first report fired the
+      // moment the first round landed (owner, 26 Oct 2026). Wait until the run is long enough.
+      if (!run.started || secs < MIN_REPORT_SECS) return;
+      lastReport.current = Date.now();
       await fetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

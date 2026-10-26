@@ -183,7 +183,7 @@ test('flow: underpaid, short gas, and non-settlement txs are refused; nothing mo
   assert.equal((await settleReceipts(noGas.id('hex'), POOL, w.d)).ok, false);
   assert.equal((await settleReceipts(plain.id('hex'), POOL, w.d)).ok, false);
   const missing = await settleReceipts('f'.repeat(64), POOL, w.d);
-  assert.equal(!missing.ok && missing.status, 404);
+  assert.equal(!missing.ok && missing.status, 202);
   assert.equal(w.broadcasts.length, 0);
   assert.equal(w.issued(), 0);
 });

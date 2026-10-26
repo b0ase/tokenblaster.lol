@@ -42,7 +42,7 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
   let settleTx: Transaction | null = null;
   if (!row) {
     const hex = await d.txHex(txid);
-    if (!hex) return { ok: false, why: 'The settlement transaction is not on the network yet. Try again shortly.', status: 404 };
+    if (!hex) return { ok: false, why: 'The settlement transaction is not on the network yet. Try again shortly.', status: 202 };
     settleTx = Transaction.fromHex(hex.trim());
     if (settleTx.id('hex') !== txid) return { ok: false, why: 'The chain returned a different transaction.', status: 502 };
     const st = readSettlement(settleTx, gasAddress);

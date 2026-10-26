@@ -193,3 +193,7 @@ export function aggregateBoard(rows: SessionRow[]): BoardRow[] {
   }
   return [...by.values()].sort((a, b) => b.shots - a.shots);
 }
+
+/** Shortest run the gallery reports to /api/scores. The DB's tokenblaster_score_limit('gallery').min_secs is 1 s and a
+ * shorter run is rejected as "implausible run" (400); 2 s keeps clear of rounding. */
+export const MIN_REPORT_SECS = 2;
