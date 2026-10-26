@@ -242,7 +242,7 @@ export class RangeEngine {
     r.outputColorSpace = THREE.SRGBColorSpace;
     if (high) {
       r.shadowMap.enabled = true;
-      r.shadowMap.type = THREE.PCFSoftShadowMap;
+      r.shadowMap.type = THREE.PCFShadowMap;
     }
     onProgress(0.1);
     this.range = await buildRange({ high, font: this.opts.font, renderer: r, scene: this.scene });

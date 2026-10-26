@@ -676,7 +676,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     shell.translate(0, 0, -(CAR_L - 0.5) / 2);
     const under = new THREE.BoxGeometry(2.5, 0.4, CAR_L - 1.2);
     under.translate(0, -1.4, 0);
-    const parts = [shell.toNonIndexed(), under.toNonIndexed()];
+    const parts = [shell.index ? shell.toNonIndexed() : shell.clone(), under.index ? under.toNonIndexed() : under.clone()];
     shell.dispose();
     under.dispose();
     const m = mergeGeometries(parts, false)!;
@@ -948,7 +948,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     g.rotateY(-Math.PI / 2);
     g.translate(W / 2, 0, 0);
     // side pods (the thruster housings)
-    const pods: THREE.BufferGeometry[] = [g.toNonIndexed()];
+    const pods: THREE.BufferGeometry[] = [g.index ? g.toNonIndexed() : g.clone()];
     g.dispose();
     for (const sx of [-1, 1]) {
       const pod = new THREE.CylinderGeometry(0.2, 0.24, 1.6, 10);

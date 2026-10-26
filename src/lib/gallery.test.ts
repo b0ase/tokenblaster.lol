@@ -94,3 +94,8 @@ test('block: a full ten-minute block of rounds at the gun rate, with a margin', 
   assert.ok(blockRounds({ kind: 'stream', rate: 2000 }) >= 2000 * 600, 'a minigun held for 10:00');
   assert.ok(blockRounds({ kind: 'burst', n: 8 }) > 0);
 });
+
+import { MIN_REPORT_SECS as MIN_REPORT } from './gallery';
+test('gallery score reports wait past the DB min_secs (1 s) so the first report is not an "implausible run"', () => {
+  assert.ok(MIN_REPORT > 1);
+});

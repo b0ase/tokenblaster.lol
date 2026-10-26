@@ -189,7 +189,7 @@ export function SatoshiCity() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMappingExposure = 0.8;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
     renderer.domElement.style.display = 'block';

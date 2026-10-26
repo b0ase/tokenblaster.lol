@@ -313,7 +313,7 @@ export class GalleryEngine {
     r.toneMappingExposure = 1.0;
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.shadowMap.enabled = high;
-    r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.shadowMap.type = THREE.PCFShadowMap;
     onProgress(0.05);
     this.look = await loadLook(r, high ? 'high' : 'low', (p) => onProgress(0.05 + p * 0.45));
     if (this.disposed) return;

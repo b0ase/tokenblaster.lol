@@ -1206,8 +1206,11 @@ export class Gun {
         const list = (await r.json()) as { txid: string; vout: number; hex?: string }[];
         const cache = new Map<string, Transaction>();
         const out: { tx: Transaction; vout: number }[] = [];
+        // Parents the server skipped (`have`) or could not fetch: read them in parallel, not one by one.
+        const missing = [...new Set(list.filter((c) => !c.hex).map((c) => c.txid))];
+        const got = new Map(await Promise.all(missing.map(async (t) => [t, await txHex(t)] as const)));
         for (const c of list) {
-          const hex = c.hex || (await txHex(c.txid));
+          const hex = c.hex || got.get(c.txid)!;
           if (c.hex) rememberTxHex(c.txid, c.hex);
           const tx = cache.get(c.txid) ?? Transaction.fromHex(hex);
           cache.set(c.txid, tx);

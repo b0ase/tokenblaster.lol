@@ -232,7 +232,7 @@ export class HopperEngine {
     renderer.toneMappingExposure = 1.0;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = hi;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;touch-action:none';
     this.el.appendChild(renderer.domElement);
     this.el.appendChild(this.popLayer);
