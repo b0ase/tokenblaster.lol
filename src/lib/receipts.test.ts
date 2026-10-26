@@ -210,3 +210,14 @@ test('flow: a transfer that went out but was not booked is booked on retry, not 
   assert.equal(w.broadcasts.length, 1);
   assert.equal(w.rows.get(st.id('hex'))!.status, 'sent');
 });
+
+test('a settlement only takes what one coin can afford; the rest is carried forward', async () => {
+  const { affordableReceipts } = await import('./launch/receipts');
+  const first = 1_000_000;
+  const budget = Number(rangeSats(first, 500, PENNY));
+  assert.equal(affordableReceipts(first, 10_000, PENNY, budget), 500);
+  assert.equal(affordableReceipts(first, 10_000, PENNY, budget - 1), 499);
+  assert.equal(affordableReceipts(first, 200, PENNY, budget), 200, 'never more than owed');
+  assert.equal(affordableReceipts(first, 200, PENNY, 0), 0);
+  assert.equal(affordableReceipts(first, 200, PENNY, -50), 0);
+});
