@@ -11,6 +11,7 @@ import { WALLET_CANCELLED, WALLET_SENT_PENDING, isRefusal } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
 import { GUN_LOCKED, Gun, GunNeedsSats, TOKEN_FEE, loadMark } from './gun';
 import { restoreGunIfNeeded, scheduleGunBackup } from './gunBackup';
+import { restoreGate } from './gunRestoreGate';
 import { payIntoGun } from './lockLoadPay';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
@@ -77,36 +78,27 @@ export function useBlaster() {
     void Promise.resolve().then(() => setGunLocked(Boolean(gun.current?.locked)));
   }, []);
   /**
-   * Recoverable gun (25 Oct 2026). ON CONNECT: restore only, and only when this browser has no readable gun (no wallet
-   * call at all when it has one). The BACKUP runs once per gun per identity AFTER a paid LOCK & LOAD, in the
-   * background, never awaited (one-prompt play, #45: LOCK & LOAD is the payment and nothing else).
+   * Recoverable gun (25 Oct 2026). Restore only, and only when this browser has no readable gun (no wallet call at all
+   * when it has one). It runs ONLY after the player presses a button that needs the wallet (LOCK & LOAD, UNLOAD,
+   * Connect), never on page load or a silent resume (owner, 25 Oct, after #95: nothing may ask the wallet on load;
+   * src/lib/gunRestoreGate.ts). The BACKUP runs after a paid LOCK & LOAD, in the background, never awaited.
+   * A failed restore is invisible (debug log only).
    */
-  const restoring = useRef<string | null>(null);
-  const syncBackup = useCallback(async (): Promise<string> => {
+  const gate = useRef(restoreGate());
+  const syncBackup = useCallback(async (w: Wallet | null = wallet ?? getSiteWallet().wallet): Promise<string> => {
     const g = gun.current;
-    if (!wallet || !g || walletHeld()) return 'skip';
-    const id = `${wallet.publicKey}:${g.address}`;
-    if (restoring.current === id) return 'skip'; // double connect / re-render: one restore per wallet per gun
-    restoring.current = id;
-    return restoreGunIfNeeded(wallet, g)
-      .then((r) => {
-        if (r === 'restored') {
-          setGunAddress(g.address);
-          void g.balance().then(setAmmo).catch(() => undefined);
-        }
-        setGunLocked(g.locked);
-        if (r === 'locked') setError(`${GUN_LOCKED}. This browser has a gun record it can't read, and no backup in this wallet matched. It has been kept, not replaced.`);
-        return r;
-      })
-      .catch((e) => {
-        setGunLocked(g.locked);
-        loadMark(`gun restore skipped: ${e instanceof Error ? e.message : 'error'}`);
-        return 'error';
-      });
+    if (!w || !g || walletHeld()) return 'skip';
+    return gate.current('press', w, g, restoreGunIfNeeded).then((r) => {
+      if (r === 'restored') {
+        setGunAddress(g.address);
+        void g.balance().then(setAmmo).catch(() => undefined);
+      }
+      setGunLocked(g.locked);
+      if (r === 'locked') setError(`${GUN_LOCKED}. This browser has a gun record it can't read, and no backup in this wallet matched. It has been kept, not replaced.`);
+      if (r === 'error') loadMark('gun restore skipped');
+      return r;
+    });
   }, [wallet, setError]);
-  useEffect(() => {
-    if (wallet) void syncBackup();
-  }, [wallet, syncBackup]);
   /** After a paid LOCK & LOAD: back the gun up in the background. Never awaited, never blocks play. */
   const backupLater = useCallback(() => {
     const g = gun.current;
@@ -140,13 +132,16 @@ export function useBlaster() {
     setError(null);
     const w = await connectEntry(entry);
     if (w) loadMark(`wallet connected: ${w.name}`);
-  }, [setError]);
+    if (w) void syncBackup(w); // the player's press: the restore may ask now
+  }, [setError, syncBackup]);
 
   /** Inside bWallet: its wallet, no chooser. Else the remembered wallet, else the chooser. */
   const connectWallet = useCallback(async () => {
     setError(null);
     await openSiteWallet();
-  }, [setError]);
+    const w = getSiteWallet().wallet;
+    if (w) void syncBackup(w); // the player's press: the restore may ask now
+  }, [setError, syncBackup]);
 
 
   /** Check the wallet answers right now. Updates `walletLive`. */
