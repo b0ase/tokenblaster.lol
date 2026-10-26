@@ -5,7 +5,7 @@ import { diagLine, discoverWallets, lastDiscovery, type WalletEntry } from '@/li
 import { GET_BWALLETX_URL, openInBwalletUrl, startPairing, type PairState } from '@/lib/pair/site';
 import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { getSiteWallet } from '@/lib/siteWallet';
-import { detectPhone, openInBwalletBrowserUrl, phoneRows, showQrPanel } from '@/lib/pair/phoneUi';
+import { BWALLET_BROWSER_LINK_READY, detectPhone, openInBwalletBrowserUrl, phoneRows, showQrPanel } from '@/lib/pair/phoneUi';
 
 /** Where a phone with no wallet gets one (no App Store / Play listing links yet: bwalletx.com routes to them). */
 export const GET_BWALLETX = { site: GET_BWALLETX_URL, web: 'https://web.bwalletx.com' } as const;
@@ -206,7 +206,7 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
                   .filter((w) => w.kind === 'in-app' || w.kind === 'phone')
                   .map((w) => <WalletRow key={w.id} icon="/wallets/bwalletx.png" name={w.kind === 'in-app' ? `${w.name} (this app)` : w.name} sub={KIND[w.kind]} onClick={() => onPick(w)} />);
               if (row === 'open-in-browser')
-                return (
+                return !BWALLET_BROWSER_LINK_READY ? null : (
                   <WalletRow
                     key={row}
                     icon="/wallets/bwalletx.png"

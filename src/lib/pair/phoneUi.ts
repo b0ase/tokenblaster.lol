@@ -21,6 +21,9 @@ export function detectPhone(): boolean {
  * Open this page inside bWallet's own (dapp) browser, where the wallet is injected and no pairing is needed.
  * NOTE: the scheme follows bWallet's other bwalletx:// links; confirm the handler name with the bWalletX session.
  */
+/** bWallet has no in-app-browser deep link yet; the row stays hidden until the bWalletX session ships one (then set this true and fix the URL). */
+export const BWALLET_BROWSER_LINK_READY = false;
+
 export const openInBwalletBrowserUrl = (pageUrl: string) => `bwalletx://browse?url=${encodeURIComponent(pageUrl)}`;
 
 export type PhoneRow = 'in-app' | 'open-in-browser' | 'phone-link' | 'get' | 'web';
