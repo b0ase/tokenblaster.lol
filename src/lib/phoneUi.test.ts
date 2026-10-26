@@ -30,5 +30,5 @@ test("phone option order: Open in bWallet's browser first, then bWallet on your 
 
 test('dapp-browser link carries the page URL', () => {
   const u = openInBwalletBrowserUrl('https://www.tokenblaster.lol/arcade?x=1');
-  assert.equal(u, 'bwalletx://browse?url=https%3A%2F%2Fwww.tokenblaster.lol%2Farcade%3Fx%3D1');
+  assert.equal(u, 'https://www.bwallet.space/browse?url=https%3A%2F%2Fwww.tokenblaster.lol%2Farcade%3Fx%3D1');
 });

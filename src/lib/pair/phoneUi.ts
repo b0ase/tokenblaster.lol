@@ -22,9 +22,9 @@ export function detectPhone(): boolean {
  * NOTE: the scheme follows bWallet's other bwalletx:// links; confirm the handler name with the bWalletX session.
  */
 /** bWallet has no in-app-browser deep link yet; the row stays hidden until the bWalletX session ships one (then set this true and fix the URL). */
-export const BWALLET_BROWSER_LINK_READY = false;
+export const BWALLET_BROWSER_LINK_READY = true; // bwallet #191 ships /browse (universal link)
 
-export const openInBwalletBrowserUrl = (pageUrl: string) => `bwalletx://browse?url=${encodeURIComponent(pageUrl)}`;
+export const openInBwalletBrowserUrl = (pageUrl: string) => `https://www.bwallet.space/browse?url=${encodeURIComponent(pageUrl)}`;
 
 export type PhoneRow = 'in-app' | 'open-in-browser' | 'phone-link' | 'get' | 'web';
 
