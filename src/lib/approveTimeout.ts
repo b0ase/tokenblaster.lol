@@ -8,6 +8,21 @@
 /** How long the game waits for the wallet's approval before showing "didn't respond" + Retry. */
 export const APPROVE_TIMEOUT_MS = 20_000;
 
+/**
+ * bWalletX (yours-mobile #355) rejects createAction itself when its sheet never showed (ERR_PROMPT_NOT_SHOWN, 503,
+ * ~8 s) or the player never answered it (ERR_PROMPT_EXPIRED, 408, 60 s). Both mean "didn't respond", not a refusal:
+ * the game shows Retry / Cancel at once instead of a generic failure.
+ */
+export const NO_PROMPT_CODES = ['ERR_PROMPT_NOT_SHOWN', 'ERR_PROMPT_EXPIRED'] as const;
+export function isPromptNoResponse(e: unknown): boolean {
+  if (!e) return false;
+  const o = (typeof e === 'object' ? e : {}) as { code?: unknown; status?: unknown; message?: unknown };
+  const text = `${String(o.code ?? '')} ${typeof e === 'string' ? e : String(o.message ?? '')}`;
+  if (NO_PROMPT_CODES.some((c) => text.includes(c))) return true;
+  const status = Number(o.status);
+  return (status === 503 || status === 408) && /prompt/i.test(text);
+}
+
 /** A wallet request that outlived our timer. `done` settles when the request finally does. */
 export type LatePay<T> = { state: 'pending' | 'paid' | 'failed'; value?: T; done: Promise<void> };
 
@@ -42,6 +57,13 @@ export function raceApproval<T>(p: Promise<T>, ms: number, onLate?: (v: T) => vo
       (e) => {
         if (timedOut) return;
         clearTimeout(t);
+        // The wallet says its prompt never showed / expired: same as our own timeout (Retry checks before re-sending).
+        if (isPromptNoResponse(e)) {
+          timedOut = true;
+          late.state = 'failed';
+          ok({ kind: 'timeout', late });
+          return;
+        }
         no(e);
       },
     );
