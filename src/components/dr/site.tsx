@@ -96,8 +96,11 @@ export function SiteFooter() {
       <div className="dr-hazard" aria-hidden />
       <div className="w-full px-[clamp(12px,2.6vw,64px)] pb-6 pt-4">
         <div className="grid gap-6 sm:grid-cols-[1fr_auto]">
-          <div>
-            <p className="dr-display dr-logo text-[clamp(26px,7.4vw,92px)] leading-[0.95] text-hot" aria-hidden>
+          {/* Size the wordmark to its own column (cqi), not the viewport: with the
+              barcode beside it (sm+), 7.4vw made it wider than the column and the
+              whole page scrolled sideways on phones in landscape. */}
+          <div className="@container min-w-0">
+            <p className="dr-display dr-logo text-[clamp(26px,8cqi,92px)] leading-[0.95] text-hot" aria-hidden>
               Token<span className="text-[var(--accent)]">Blaster</span>
               <span className="dr-outline">.lol</span>
             </p>
