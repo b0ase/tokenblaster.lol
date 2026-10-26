@@ -33,7 +33,7 @@ export default function ArcadePage() {
 
       <Link href="/1satordnance" className="dr-poster group dr-rise flex flex-wrap items-center gap-3 p-3 transition-shadow hover:shadow-[6px_6px_0_var(--accent-2)]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/ordnance/cards/safu-blaster.webp" alt="" className="h-16 w-16 border-2 border-[var(--border)] object-cover" />
+        <img src="/ordnance/cards/safu-blaster.webp" alt="" loading="lazy" decoding="async" className="h-16 w-16 border-2 border-[var(--border)] object-cover" />
         <div className="min-w-[14rem] flex-1">
           <p className="flex flex-wrap items-center gap-2">
             <span className="dr-sticker text-xs">New</span>

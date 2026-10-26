@@ -4,7 +4,7 @@ import { DR } from '@/lib/dr/tokens';
 import { GAME_B, GAME_REST } from '@/lib/hyper/brand';
 
 /** The bRacer logotype face. Only the logo uses it; everything else keeps the DR pair. */
-export const logoFont = Audiowide({ weight: '400', subsets: ['latin'], display: 'swap', fallback: ['Arial Black', 'Impact', 'sans-serif'] });
+export const logoFont = Audiowide({ weight: '400', subsets: ['latin'], display: 'swap', preload: false, fallback: ['Arial Black', 'Impact', 'sans-serif'] });
 export const LOGO_FAMILY = logoFont.style.fontFamily;
 
 /** Lowercase red b + RACER, in Audiowide. `size` is a CSS length. */

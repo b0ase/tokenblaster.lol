@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { DR } from '@/lib/dr/tokens';
 
 /** The Block Hopper logotype face (wide, geometric). Only the logo uses it; everything else keeps the DR pair. */
-export const hopperLogoFont = Syncopate({ weight: ['700'], subsets: ['latin'], display: 'swap', fallback: ['Arial Black', 'Impact', 'sans-serif'] });
+export const hopperLogoFont = Syncopate({ weight: ['700'], subsets: ['latin'], display: 'swap', preload: false, fallback: ['Arial Black', 'Impact', 'sans-serif'] });
 export const HOPPER_LOGO_FAMILY = hopperLogoFont.style.fontFamily;
 
 /** BLOCK in outline over HOPPER in house red, slightly sheared, with a hop-arc chevron. `size` is a CSS length. */
