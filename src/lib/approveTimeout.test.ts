@@ -110,3 +110,24 @@ test('a real refusal is still thrown, not shown as "didn\'t respond"', async () 
   assert.equal(isPromptNoResponse({ status: 503, message: 'service unavailable' }), false);
   await assert.rejects(raceApproval(Promise.reject(new Error('User denied')), 50), /denied/);
 });
+
+for (const [code, status] of [
+  ['ERR_WALLET_NOT_READY', 503],
+  ['ERR_FUNDING_TIMEOUT', 504],
+  ['ERR_WALLET_LOCKED_TIMEOUT', 408],
+] as const) {
+  test(`${code} (${status}) counts as "didn't respond"`, async () => {
+    assert.equal(isPromptNoResponse({ code, status }), true);
+    assert.equal(isPromptNoResponse(new Error(`createAction failed: ${code}`)), true);
+    const r = await raceApproval(Promise.reject({ code, status, message: 'x' }), 5_000);
+    assert.equal(r.kind, 'timeout');
+    if (r.kind === 'timeout') {
+      assert.equal(r.late.state, 'failed');
+      // Retry keeps the paid-check: a chain payment means no re-send.
+      assert.equal(await retryDecision(r.late, { paidOnChain: async () => true, cancelHung: () => undefined }), 'paid');
+      assert.equal(await retryDecision(r.late, { paidOnChain: async () => false, cancelHung: () => undefined }), 'resend');
+    }
+  });
+}
+
+test('an unrelated 504 is still a failure', () => assert.equal(isPromptNoResponse({ status: 504, message: 'gateway' }), false));

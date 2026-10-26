@@ -11,9 +11,17 @@ export const APPROVE_TIMEOUT_MS = 20_000;
 /**
  * bWalletX (yours-mobile #355) rejects createAction itself when its sheet never showed (ERR_PROMPT_NOT_SHOWN, 503,
  * ~8 s) or the player never answered it (ERR_PROMPT_EXPIRED, 408, 60 s). Both mean "didn't respond", not a refusal:
- * the game shows Retry / Cancel at once instead of a generic failure.
+ * the game shows Retry / Cancel at once instead of a generic failure. The same goes for a wallet that was not ready
+ * (ERR_WALLET_NOT_READY, 503), could not fund in time (ERR_FUNDING_TIMEOUT, 504) or stayed locked
+ * (ERR_WALLET_LOCKED_TIMEOUT, 408). Retry still checks the first request did not pay before re-sending.
  */
-export const NO_PROMPT_CODES = ['ERR_PROMPT_NOT_SHOWN', 'ERR_PROMPT_EXPIRED'] as const;
+export const NO_PROMPT_CODES = [
+  'ERR_PROMPT_NOT_SHOWN',
+  'ERR_PROMPT_EXPIRED',
+  'ERR_WALLET_NOT_READY',
+  'ERR_FUNDING_TIMEOUT',
+  'ERR_WALLET_LOCKED_TIMEOUT',
+] as const;
 export function isPromptNoResponse(e: unknown): boolean {
   if (!e) return false;
   const o = (typeof e === 'object' ? e : {}) as { code?: unknown; status?: unknown; message?: unknown };
