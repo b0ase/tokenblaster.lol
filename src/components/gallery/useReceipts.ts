@@ -4,7 +4,7 @@
  * the count fired this session, and the settlement at session end (the gun pays, the server sends the tokens).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RECEIPT_GAS, rangeSats, settlementAsm } from '@/lib/launch/receipts';
+import { RECEIPT_GAS, affordableReceipts, rangeSats, settlementAsm } from '@/lib/launch/receipts';
 import { SETTLE_FEE, shotsForSats, type ReceiptCurve } from '@/lib/coinop/shots';
 
 export type ReceiptQuote = { live: boolean; issued: number; pennySats: number; nextPriceSats: number; creator: string; gasAddress: string | null; gasSats: number; bsvUsd: number };
@@ -118,24 +118,44 @@ export function useReceipts(on: boolean) {
 
   /** Session end: one settlement tx from the gun, then ask the server to send the tokens. */
   const settle = useCallback(
-    async (a: { pay: (asm: string, outs: { address: string; sats: number }[]) => Promise<string>; recipient: string | null; session: string; handle: string; shownAs: string }) => {
-      const count = owed.current;
-      if (!count || settling.current) return;
+    async (a: {
+      pay: (plan: (coinSats: number) => { asm: string; outs: { address: string; sats: number }[] } | null) => Promise<string | null>;
+      recipient: string | null;
+      session: string;
+      handle: string;
+      shownAs: string;
+    }) => {
+      const owedNow = owed.current;
+      if (!owedNow || settling.current) return;
       if (!a.recipient) {
         // Never drop them silently (the old code returned when no wallet was attached): they wait for a wallet.
-        setNote(`${count.toLocaleString('en-US')} $TERRORNODE receipts are waiting: connect your wallet to receive them.`);
+        setNote(`${owedNow.toLocaleString('en-US')} $TERRORNODE receipts are waiting: connect your wallet to receive them.`);
         return;
       }
+      const recipient = a.recipient;
       settling.current = true;
       try {
         const fresh = (await quote()) ?? q;
         if (!fresh?.live || !fresh.gasAddress) throw new Error('Receipts are offline: your rounds are kept and settle next time.');
-        const total = Number(rangeSats(fresh.issued + 1, count, fresh.pennySats));
-        setNote(`Paying for ${count.toLocaleString('en-US')} $TERRORNODE receipts from your gun…`);
-        const txid = await a.pay(settlementAsm({ count, recipient: a.recipient, session: a.session, handle: a.handle }), [
-          { address: fresh.creator, sats: total },
-          { address: fresh.gasAddress, sats: RECEIPT_GAS },
-        ]);
+        const gasAddress = fresh.gasAddress;
+        setNote(`Paying for ${owedNow.toLocaleString('en-US')} $TERRORNODE receipts from your gun…`);
+        // Only what the gun's one coin can pay (receipts + gas + network fee); the rest stays owed for the next settle.
+        let count = 0;
+        let total = 0;
+        const txid = await a.pay((coinSats) => {
+          count = affordableReceipts(fresh.issued + 1, owedNow, fresh.pennySats, coinSats - RECEIPT_GAS - SETTLE_FEE);
+          if (!count) return null;
+          total = Number(rangeSats(fresh.issued + 1, count, fresh.pennySats));
+          return {
+            asm: settlementAsm({ count, recipient, session: a.session, handle: a.handle }),
+            outs: [
+              { address: fresh.creator, sats: total },
+              { address: gasAddress, sats: RECEIPT_GAS },
+            ],
+          };
+        });
+        if (!txid) throw new Error('Not enough in the gun to pay for them yet: they are kept and settle after your next load.');
+        if (count < owedNow) console.info(`[tb-receipts] settled ${count} of ${owedNow}; ${owedNow - count} carried forward`);
         writeJson(PAID_KEY, { txid, count, shownAs: a.shownAs } satisfies Paid);
         setOwed(owed.current - count);
         setNote(`Paid ${total.toLocaleString('en-US')} sats for ${count.toLocaleString('en-US')} $TERRORNODE receipts. Sending…`);

@@ -5,6 +5,7 @@
  * choice (src/lib/discovery.ts, docs/wallet-connect.md).
  */
 import { P2PKH, PublicKey, Transaction, type WalletInterface } from '@bsv/sdk';
+import { payRefScript } from './payRef';
 import type { WalletEntry } from './discovery';
 
 export type Wallet = { client: WalletInterface; address: string; publicKey: string; id: string; name: string };
@@ -176,11 +177,14 @@ export async function connect(entry: WalletEntry, ms = CONNECT_TIMEOUT_MS): Prom
 let paying: Promise<unknown> | null = null;
 /** A payment sheet left this long counts as "outcome unknown": the queue is freed and the gun balance decides. */
 export const PAY_TIMEOUT_MS = 180_000;
-export async function fund(w: Wallet, address: string, sats: number, description: string, ms = PAY_TIMEOUT_MS): Promise<Transaction> {
+export async function fund(w: Wallet, address: string, sats: number, description: string, ms = PAY_TIMEOUT_MS, ref?: string): Promise<Transaction> {
   if (paying) throw new Error('A payment is already waiting in your wallet. Approve or cancel it first.');
   const req = w.client.createAction({
     description,
-    outputs: [{ lockingScript: new P2PKH().lock(address).toHex(), satoshis: sats, outputDescription: description }],
+    outputs: [
+      { lockingScript: new P2PKH().lock(address).toHex(), satoshis: sats, outputDescription: description },
+      ...(ref ? [{ lockingScript: payRefScript(ref).toHex(), satoshis: 0, outputDescription: 'TokenBlaster payment id' }] : []),
+    ],
     // No labels: a BRC-100 wallet asks permission for every new label, an extra sheet before the payment (playtest 25 Oct).
     options: { randomizeOutputs: false, acceptDelayedBroadcast: false },
   });

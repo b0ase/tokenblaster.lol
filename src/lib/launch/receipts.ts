@@ -66,6 +66,24 @@ export function rangeSats(first: bigint | number, count: bigint | number, pennyS
   return (num + den - BigInt(1)) / den;
 }
 
+/**
+ * Most receipts (≤ `count`) one settlement can pay for out of `budget` sats: receipts #first … at the curve price.
+ * 26 Oct 2026: owed receipts piled up across sessions and were settled from ONE coin at the fresh price, so the
+ * settlement failed "inputs insufficient". The caller settles this many and carries the rest forward.
+ */
+export function affordableReceipts(first: bigint | number, count: number, pennySats: bigint | number, budget: number): number {
+  if (count <= 0 || budget <= 0) return 0;
+  const room = Number(RECEIPT_SUPPLY - big(first) + BigInt(1));
+  let lo = 0;
+  let hi = Math.max(0, Math.min(count, room));
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (Number(rangeSats(first, mid, pennySats)) <= budget) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 /** How many shots `sats` buys now: each shot = `feeSats` (the BSV round incl. network fee) + its receipt. */
 export function shotsFor(sats: number, feeSats: number, issued: bigint | number, pennySats: bigint | number, max = 1_000_000): number {
   if (sats <= 0) return 0;

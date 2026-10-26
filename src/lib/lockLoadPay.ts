@@ -9,7 +9,9 @@ import type { Wallet } from './wallet';
 
 export type PayGun = { readonly address: string; load(funding: Transaction): Promise<void> | void };
 export type PayDeps = {
-  fund: (w: Wallet, address: string, sats: number, description: string) => Promise<Transaction>;
+  fund: (w: Wallet, address: string, sats: number, description: string, ms?: number, ref?: string) => Promise<Transaction>;
+  /** The client payment id carried on chain (src/lib/payRef.ts), so a retry can find exactly this payment. */
+  ref?: string;
   /** Called once the coin is in the gun. Fire-and-forget: its result is never awaited. */
   afterPaid?: () => void;
   /** Right after the wallet answered (before anything else), e.g. close the waiting card. */
@@ -17,7 +19,7 @@ export type PayDeps = {
 };
 
 export async function payIntoGun(w: Wallet, g: PayGun, sats: number, label: string, deps: PayDeps): Promise<Transaction> {
-  const funding = await deps.fund(w, g.address, sats, label);
+  const funding = await (deps.ref ? deps.fund(w, g.address, sats, label, undefined, deps.ref) : deps.fund(w, g.address, sats, label));
   loadMark('approved + paid (wallet answered)');
   deps.onAnswered?.();
   // The wallet has paid the gun's address: from here the money is in the gun whatever happens next.

@@ -31,12 +31,16 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
 
   useEffect(() => coinStore.setCredit(cab.creditUsd), [cab.creditUsd]);
 
-  const payPlay = useCallback(async () => {
+  const payPlay = useCallback(async (signal?: AbortSignal) => {
     const who = cleanName(coinStore.name()) ?? 'player';
     const sats = usdToSats(price, cab.bsvUsd);
     if (!sats) throw new Error('Checking the price. Try again in a moment.');
     if (!hasCredit(coinStore.credit(), price)) throw new Error(`Not enough credit: one play is ${fmtCredit(price)}. Put another coin in.`);
-    const txids = await b.fireBatch(++n.current, [playPushes(game, who)], { address: HOUSE, sats }, 'coinop').catch(() => [] as string[]);
+    const txids = await b.fireBatch(++n.current, [playPushes(game, who)], { address: HOUSE, sats }, 'coinop', signal).catch((e) => {
+      loadMark(`play payment not sent: ${e instanceof Error ? e.message : String(e)}`);
+      if (signal?.aborted) throw e; // START timed out and cancelled it: nothing was charged
+      return [] as string[];
+    });
     if (!txids[0]) throw new Error('That did not go through. Your credit is safe. Try again.');
     return txids[0];
   }, [b, cab.bsvUsd, game, price]);
@@ -50,12 +54,19 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
     cab.setErr(null);
     setStarting(true);
     try {
+      // A play that was paid after an earlier START timed out is the player's: open with it, never charge again.
+      if (coinStore.prepaidCount() > 0) {
+        loadMark('start: using a play already paid');
+        setOpen(true);
+        return;
+      }
       await startPlay({
         pay: payPlay,
         open: (txid) => {
           coinStore.addPrepaid(txid);
           setOpen(true);
         },
+        credit: (txid) => coinStore.addPrepaid(txid),
         mark: loadMark,
       });
     } catch (e) {

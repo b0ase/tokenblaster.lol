@@ -7,6 +7,7 @@
 import { spendableCoins } from './coinop/ammo';
 import { STREAM_STEP, lanesFor } from './gallery';
 import { runStorm, type StormNet } from './stormRun';
+import { hasPayRef } from './payRef';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
@@ -449,6 +450,20 @@ export class Gun {
     return spendableCoins([tag(this.extra), tag(own), tag(chain)], this.spent).map((x) => x.c);
   }
 
+  /**
+   * Did payment `ref` (src/lib/wallet.ts payRefScript) or `txid` reach the gun? Looks at the wallet responses this gun
+   * saved and at the coins on chain. Never a balance comparison. Null when the chain could not be read (and nothing
+   * local proves it): the caller must not send the payment again on a null.
+   */
+  async findPayment(ref: string, txid?: string): Promise<boolean | null> {
+    this.refresh();
+    const match = (tx: Transaction) => (txid && tx.id('hex') === txid) || hasPayRef(tx, ref);
+    if (this.extra.some((c) => match(c.tx)) || (this.coin && match(this.coin.tx))) return true;
+    const chain = await this.coinsOnChain().catch(() => null);
+    if (!chain) return null;
+    return chain.some((c) => match(c.tx));
+  }
+
   /** Spendable sats at the gun right now (what the CREDIT shows). */
   async balance(): Promise<number> {
     const coins = await this.candidates();
@@ -608,8 +623,14 @@ export class Gun {
    * what lets the arena fire thousands of shots instead of a few a second. Returns accepted txids.
    */
   /** `pay`: an optional payment output in every blast (e.g. 1 sat to the house per game action). */
-  async fireBatch(token: string, startN: number, extras: string[][], pay?: { address: string; sats: number }): Promise<string[]> {
+  /** `signal`: once aborted, nothing more is broadcast (START's timeout cancels the play payment, src/lib/coinop/startPlay.ts). */
+  async fireBatch(token: string, startN: number, extras: string[][], pay?: { address: string; sats: number }, signal?: AbortSignal): Promise<string[]> {
+    const abortCheck = () => {
+      if (signal?.aborted) throw new Error('START_ABORTED');
+    };
+    abortCheck();
     return this.exclusive(async () => {
+      abortCheck();
       this.refresh();
       let chain: Transaction[] = [];
       let accepted = 0;
@@ -636,6 +657,7 @@ export class Gun {
           prev = { tx, vout: changeVout };
         }
         if (!chain.length) throw new Error('Out of ammo.');
+        abortCheck(); // the last moment a timed-out START can still stop the payment
         ({ accepted, why } = await this.broadcastChain(chain));
         if (accepted) break;
         // Nothing went through: our coin is probably stale. Re-read it from the chain and try again.
@@ -892,11 +914,19 @@ export class Gun {
    * $TERRORNODE receipts (src/lib/launch/receipts.ts): ONE settlement tx from the gun's sats carrying the session's
    * receipt tag, the receipt money to the creator and the transfer gas to the pool. Returns the txid.
    */
-  async payReceipts(asm: string, outs: { address: string; sats: number }[]): Promise<string> {
+  /**
+   * `plan` is told the sats of the ONE coin this settlement spends (inside the lock, so it can't change underneath)
+   * and returns the settlement to pay from it, or null when that coin can't afford any (nothing is sent: null).
+   */
+  async payReceipts(plan: (coinSats: number) => { asm: string; outs: { address: string; sats: number }[] } | null): Promise<string | null> {
     return this.exclusive(async () => {
       this.refresh();
       if (!this.coin) await this.startCoin(() => undefined).catch(() => undefined);
       if (!this.coin) throw new Error('No sats in the gun to pay the receipts.');
+      const p = plan(this.sats);
+      if (!p) return null;
+      const { asm, outs } = p;
+      if (outs.reduce((n, o) => n + o.sats, 0) >= this.sats) throw new Error('The gun coin cannot cover this settlement.');
       const tx = new Transaction();
       tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
       tx.addOutput({ lockingScript: Script.fromASM(asm), satoshis: 0 });

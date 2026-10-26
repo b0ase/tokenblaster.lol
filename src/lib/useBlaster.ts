@@ -10,6 +10,7 @@ import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSi
 import { WALLET_CANCELLED, WALLET_SENT_PENDING, isRefusal } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
 import { GUN_LOCKED, Gun, GunNeedsSats, TOKEN_FEE, loadMark } from './gun';
+import { newPayRef } from './payRef';
 import { BACKUP_RETRY_MS, restoreGunIfNeeded, scheduleGunBackup } from './gunBackup';
 import { restoreGate } from './gunRestoreGate';
 import { payIntoGun } from './lockLoadPay';
@@ -61,10 +62,10 @@ export function useBlaster() {
   const [receipt, setReceipt] = useState<{ text: string; txid: string } | null>(null);
   /** False when the connected wallet stopped answering (owner, 24 Oct 2026: the connection drops mid-session). */
   const walletLive = site.live;
-  /** A payment whose outcome we never heard (timeout / Cancel): checked against the gun balance before any re-pay. */
-  const unknownPay = useRef<{ sats: number; before: number } | null>(null);
+  /** A payment whose outcome we never heard (timeout / Cancel): checked for its payment id on chain before any re-pay. */
+  const unknownPay = useRef<{ sats: number; ref: string; txid?: string } | null>(null);
   /** A payment whose approval outlived our 20 s wait: still open in the wallet, honoured if it pays late. */
-  const latePay = useRef<{ late: LatePay<unknown>; sats: number; before: number } | null>(null);
+  const latePay = useRef<{ late: LatePay<unknown>; sats: number; ref: string } | null>(null);
   /** Bumped when a timed-out payment pays after all: the cabinet starts the game, no new charge. */
   const [latePaid, setLatePaid] = useState(0);
 
@@ -200,11 +201,9 @@ export function useBlaster() {
         loadMark('retry');
         setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
         const out = await retryDecision(lp.late, {
-          paidOnChain: async () => {
-            const bal = await g.balance().catch(() => null);
-            if (bal !== null) setAmmo(bal);
-            return bal === null ? null : bal >= lp.before + Math.floor(lp.sats * 0.9);
-          },
+          // This payment's own id on chain, never a balance difference (26 Oct: a 3 s balance fallback read an old
+          // coin as a new payment and said "paid" for a request the wallet had refused).
+          paidOnChain: () => g.findPayment(lp.ref),
           cancelHung: () => cancelWalletCalls(wallet.client, 'WALLET_TIMEOUT'),
         });
         setSiteWalletWaiting(null);
@@ -227,26 +226,24 @@ export function useBlaster() {
       const unk = unknownPay.current;
       if (unk) {
         setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
-        const bal = await g.balance().catch(() => null);
+        const landed = await g.findPayment(unk.ref, unk.txid);
         setSiteWalletWaiting(null);
-        if (bal !== null) setAmmo(bal);
-        if (bal !== null && bal >= unk.before + Math.floor(unk.sats * 0.9)) {
+        void g.balance().then(setAmmo).catch(() => undefined);
+        if (landed) {
           unknownPay.current = null;
-          loadMark('the earlier payment landed: using it, no new charge');
+          loadMark(`the earlier payment ${unk.ref} landed: using it, no new charge`);
           return 'ok';
         }
-        if (bal === null) {
+        if (landed === null) {
           setError('Could not read the gun balance to check your last payment. Try again in a moment (no charge was made).');
           return 'refused';
         }
         unknownPay.current = null;
       }
-      // The liveness check and the gun's balance read run together: one round trip of wait, not two (latency, 25 Oct).
-      // Capped at 3 s: a slow chain read must never hold the wallet sheet back (owner log, 25 Oct).
-      const beforeP = Promise.race([g.balance().catch(() => g.sats), new Promise<number>((ok) => setTimeout(() => ok(g.sats), 3000))]);
       if (!(await checkWallet())) return 'disconnected';
       setBusy('loading');
-      const before = await beforeP;
+      // This payment's id, carried on chain: a retry looks for exactly this payment (src/lib/payRef.ts).
+      const ref = newPayRef();
       setSiteWalletWaiting({ text: `Waiting for ${wallet.name}… open it to approve the payment.`, since: Date.now(), kind: 'pay' });
       try {
         loadMark('approve start');
@@ -254,6 +251,7 @@ export function useBlaster() {
         // After 20 s with no answer the player gets Retry / Cancel (approveTimeout.ts); a late answer is still honoured.
         const payP = payIntoGun(wallet, g, sats, label, {
           fund,
+          ref,
           // Paid: the wallet wait is over NOW. Nothing after this (a slow balance read) may leave the waiting card up,
           // where a timeout or Cancel used to reset the cabinet and charge again (owner log, 25 Oct: paid twice).
           onAnswered: () => {
@@ -267,9 +265,9 @@ export function useBlaster() {
         const raced = await raceApproval(payP, APPROVE_TIMEOUT_MS);
         if (raced.kind === 'timeout') {
           loadMark('approve timeout');
-          const entry = { late: raced.late as LatePay<unknown>, sats, before };
+          const entry = { late: raced.late as LatePay<unknown>, sats, ref };
           latePay.current = entry;
-          unknownPay.current = { sats, before };
+          unknownPay.current = { sats, ref };
           void raced.late.done.then(() => {
             if (raced.late.state !== 'paid' || latePay.current !== entry) return;
             latePay.current = null;
@@ -289,7 +287,7 @@ export function useBlaster() {
         const m = e instanceof Error ? e.message : String(e);
         loadMark(`payment not made: ${m}`);
         // Timed out or cancelled with the sheet open: it may still go through. Remember, so the next press checks first.
-        if (m === 'WALLET_TIMEOUT' || m === WALLET_CANCELLED) unknownPay.current = { sats, before };
+        if (m === 'WALLET_TIMEOUT' || m === WALLET_CANCELLED) unknownPay.current = { sats, ref };
         if (m === WALLET_CANCELLED) {
           setError('Payment cancelled. If your wallet still shows it, you can approve it: the next LOCK & LOAD checks your gun first, so you are never charged twice.');
           return 'refused';
@@ -304,14 +302,13 @@ export function useBlaster() {
           loadMark(`wallet sent ${txid}, waiting for it to reach the gun`);
           for (let i = 0; i < 15; i++) {
             await new Promise((r) => setTimeout(r, 2000));
-            const bal = await g.balance().catch(() => null);
-            if (bal !== null && bal >= before + Math.floor(sats * 0.9)) {
-              setAmmo(bal);
-              loadMark('gun has the coin (from the balance)');
+            if (await g.findPayment(ref, txid)) {
+              void g.balance().then(setAmmo).catch(() => undefined);
+              loadMark('gun has the coin (found the payment on chain)');
               return 'ok';
             }
           }
-          unknownPay.current = { sats, before };
+          unknownPay.current = { sats, ref, txid };
           setError(`Your wallet sent the payment (${txid.slice(0, 8)}…) and it is on its way. Press LOCK & LOAD in a moment: it will be used, not charged again.`);
           return 'failed';
         }
@@ -427,10 +424,10 @@ export function useBlaster() {
 
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
-    async (startN: number, extras: string[][], pay?: { address: string; sats: number }, tokenLabel?: string) => {
+    async (startN: number, extras: string[][], pay?: { address: string; sats: number }, tokenLabel?: string, signal?: AbortSignal) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
-      const txids = await g.fireBatch(tokenLabel ?? token?.id ?? '', startN, extras, pay);
+      const txids = await g.fireBatch(tokenLabel ?? token?.id ?? '', startN, extras, pay, signal);
       setAmmo(g.sats);
       return txids;
     },
@@ -665,10 +662,10 @@ export function useBlaster() {
     return txid;
   }, []);
   /** $TERRORNODE receipts: the gun pays the session's settlement tx (src/lib/gun.ts payReceipts). */
-  const payReceipts = useCallback(async (asm: string, outs: { address: string; sats: number }[]) => {
+  const payReceipts = useCallback(async (plan: Parameters<Gun['payReceipts']>[0]) => {
     const g = gun.current;
     if (!g) throw new Error('No gun.');
-    const txid = await g.payReceipts(asm, outs);
+    const txid = await g.payReceipts(plan);
     setAmmo(g.sats);
     return txid;
   }, []);
