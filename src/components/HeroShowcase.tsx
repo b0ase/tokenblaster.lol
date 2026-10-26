@@ -20,7 +20,7 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
  */
 type Slide = { href: string; img: string; vid?: string; title: string; tag: string; kana: string };
 const SLIDES: readonly Slide[] = [
-  { href: '/arcade/terrornode', img: '/gallery/loading/boss-fire.webp', vid: '/hero/assault', title: 'Assault on Terrornode', tag: 'Rail shooter', kana: 'テラーノード強襲' },
+  { href: '/arcade/terrornode', img: '/gallery/loading/boss-fire.webp', vid: '/hero/assault', title: 'Escape from TERRORNODE', tag: 'Rail shooter', kana: 'テラーノード強襲' },
   { href: '/arena', img: '/arcade/arena.jpg', vid: '/hero/arena', title: 'Arena', tag: 'Hell-forge shooter', kana: 'アリーナ' },
   { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', vid: '/hero/npg-arena', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
   { href: '/arcade/bracer', img: '/arcade/bracer.jpg', vid: '/hero/bracer-v2', title: 'bRacer', tag: 'Anti-gravity racer', kana: '反重力レース' },
@@ -310,7 +310,7 @@ export function HeroShowcase() {
             <p key={`c-${i}`} className="hp-card-code dr-code !text-[var(--accent)]">
               {String(i + 1).padStart(2, '0')}/{String(SLIDES.length).padStart(2, '0')} · TB-F{String(i + 1).padStart(2, '0')}
             </p>
-            <p key={`t-${i}`} className="hp-card-title dr-display overflow-hidden text-ellipsis !whitespace-nowrap text-[22px] text-hot sm:text-[26px]">{s.title}</p>
+            <p key={`t-${i}`} className={`hp-card-title dr-display text-hot ${s.title.length > 16 ? 'line-clamp-2 leading-[1.05] text-[17px] sm:text-[20px]' : 'overflow-hidden text-ellipsis !whitespace-nowrap text-[22px] sm:text-[26px]'}`}>{s.title}</p>
             <p className="dr-kana text-[10px] text-[var(--muted)]" aria-hidden>
               {s.kana}
             </p>

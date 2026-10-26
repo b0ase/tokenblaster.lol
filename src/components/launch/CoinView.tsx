@@ -216,7 +216,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
             <p className="panel-title">Play to earn</p>
             <p className="mt-2">This coin is not bought or sold on BlastPad.</p>
             <a className="btn btn-on mt-3 block text-center" href="/arcade/terrornode">
-              Earn ${c.sym} by playing Assault on Terrornode
+              Earn ${c.sym} by playing Escape from TERRORNODE
             </a>
             <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt; the price rises as receipts sell. No sell-back.</p>
           </section>

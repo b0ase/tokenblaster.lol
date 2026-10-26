@@ -1,5 +1,5 @@
 /**
- * THE EROBOT CAST: Dr Kweg Wong's named Erobots as enemy types in ASSAULT ON TERRORNODE, plus the generic
+ * THE EROBOT CAST: Dr Kweg Wong's named Erobots as enemy types in ESCAPE FROM TERRORNODE, plus the generic
  * Tripo bots that fill the ranks. Pure data (no three.js), so it is unit-tested on its own.
  *
  * Canon sources:

@@ -1,5 +1,5 @@
 /**
- * ASSAULT ON TERRORNODE: the sets for stages 2 to 4, built in the same engine as the street (./city.ts).
+ * ESCAPE FROM TERRORNODE: the sets for stages 2 to 4, built in the same engine as the street (./city.ts).
  *
  *   FLOORS  an HQ floor: a long corridor between glass labs (smashable), server racks, desks, neon and a lift
  *           at the far end. New geometry; the facade/curtain-wall look is reused from the city assets.

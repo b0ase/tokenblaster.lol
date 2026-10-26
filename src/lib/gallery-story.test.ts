@@ -70,9 +70,9 @@ test('story: share text carries the numbers', () => {
   assert.match(shareText({ rounds: 1, score: 1, stage: 4, rescued: true }), /rescued Dr Kweg S Wong/);
 });
 
-test('story: ASSAULT ON TERRORNODE, Neo-Tokyo 2048, Kweg S Wong, the Ninja Punk Girls', () => {
+test('story: ESCAPE FROM TERRORNODE, Neo-Tokyo 2048, Kweg S Wong, the Ninja Punk Girls', () => {
   const a = all();
-  assert.equal(GAME_TITLE, 'ASSAULT ON TERRORNODE');
+  assert.equal(GAME_TITLE, 'ESCAPE FROM TERRORNODE');
   assert.match(a, /Neo-Tokyo/);
   assert.match(a, /2048/);
   assert.match(a, /KWEG S WONG/i);

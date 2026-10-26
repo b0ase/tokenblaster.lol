@@ -129,7 +129,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div className="rounded-xl border border-white/10 bg-black/55 px-4 py-2.5 backdrop-blur-md">
             <p className="text-[11px] font-bold uppercase tracking-[0.32em]" style={{ color: L.palette.key }}>
-              Assault on Terrornode · {pvp ? 'NPG vs Erobotz' : 'Co-op'} · {L.name}
+              Escape from TERRORNODE · {pvp ? 'NPG vs Erobotz' : 'Co-op'} · {L.name}
             </p>
             <p className="mt-0.5 font-mono text-sm text-white/70">
               Room <span className="font-bold text-white">{room}</span>

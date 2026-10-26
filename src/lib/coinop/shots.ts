@@ -1,5 +1,5 @@
 /**
- * How many shots a dollar amount buys in ASSAULT ON TERRORNODE (owner, 25 Oct 2026: every "buys N shots" figure,
+ * How many shots a dollar amount buys in ESCAPE FROM TERRORNODE (owner, 25 Oct 2026: every "buys N shots" figure,
  * the coin labels, the receipt banner and LOCK & LOAD must agree). Pure, tested in shots.test.ts.
  *
  * One shot = the BSV round (`feeSats`: its network fee, plus the platform fee when there is one) + 1 $TERRORNODE

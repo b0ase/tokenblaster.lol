@@ -40,8 +40,8 @@ export async function POST(req: Request) {
   } catch {
     return bad('Bad request.');
   }
-  // Play-to-earn coins (no buy, no sell-back): $TERRORNODE is earned by playing Assault on Terrornode.
-  if (NO_TRADE.has(String(body.token ?? ''))) return bad(`$${TERRORNODE_SYM} cannot be bought or sold on BlastPad. Earn it by playing Assault on Terrornode: tokenblaster.lol/arcade/terrornode`, 403);
+  // Play-to-earn coins (no buy, no sell-back): $TERRORNODE is earned by playing Escape from TERRORNODE.
+  if (NO_TRADE.has(String(body.token ?? ''))) return bad(`$${TERRORNODE_SYM} cannot be bought or sold on BlastPad. Earn it by playing Escape from TERRORNODE: tokenblaster.lol/arcade/terrornode`, 403);
   try {
     if (body.step === 'prepare') return await prepare(body);
     if (body.step === 'sign') return await sign(body);

@@ -1,5 +1,5 @@
 /**
- * ASSAULT ON TERRORNODE: the story of the TokenBlaster Shooting Gallery. Pure data and copy (no React, no browser),
+ * ESCAPE FROM TERRORNODE: the story of the TokenBlaster Shooting Gallery. Pure data and copy (no React, no browser),
  * so the loading screen, the loadout ("MISSION BRIEFING"), the stage banners, the game-over screen and the
  * tests all read the same words.
  *
@@ -22,7 +22,7 @@
  * Here he is the hostage on the radio: dry, polite, unflappable pleas and review comments.
  */
 
-export const GAME_TITLE = 'ASSAULT ON TERRORNODE';
+export const GAME_TITLE = 'ESCAPE FROM TERRORNODE';
 export const GAME_KICKER = 'TOKENBLASTER SHOOTING GALLERY';
 export const SETTING = 'NEO-TOKYO · 2048';
 
@@ -265,7 +265,7 @@ export const BANNERS = {
 
 export const BRIEFING = {
   heading: 'MISSION BRIEFING',
-  code: 'ASSAULT ON TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTS',
+  code: 'ESCAPE FROM TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTS',
   from: 'The Ninja Punk Girls',
   objective: 'Storm TERRORNODE HQ. Rescue Dr Kweg. Four stages: the street, the HQ floors, the server core and the roof, where the Liquid Unit waits. You have 100 health: stay alive.',
   rules: [
