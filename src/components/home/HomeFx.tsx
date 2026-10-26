@@ -11,7 +11,8 @@ export function HomeFx() {
   useEffect(() => {
     const root = document.documentElement;
     const els = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'));
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Phones show everything at once (owner, 26 Oct: iPhone showed big black gaps while sections waited to reveal).
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce), (max-width: 767px), (pointer: coarse)').matches;
     let io: IntersectionObserver | undefined;
     if (!reduce && 'IntersectionObserver' in window) {
       const vh = window.innerHeight;
