@@ -13,8 +13,12 @@ export async function GET(req: Request) {
     const [c, u] = (await Promise.all([woc(`/address/${address}/confirmed/unspent`), woc(`/address/${address}/unconfirmed/unspent`)])).map((x) =>
       x === NONE ? {} : x,
     ) as { result?: U[] }[];
-    // 1-sat outputs hold tokens: never treat them as sats.
-    const list = [...(c.result ?? []), ...(u.result ?? [])].filter((x) => !x.isSpentInMempoolTx && x.value > 1).slice(0, 200);
+    // 1-sat outputs hold tokens: never treat them as sats. Largest first: a wide storm leaves thousands of tiny lane
+    // ends at the gun (26 Oct 2026), and the 200 we hand back must be the ones worth spending.
+    const list = [...(c.result ?? []), ...(u.result ?? [])]
+      .filter((x) => !x.isSpentInMempoolTx && x.value > 1)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 200);
     // The browser already holds these txs' bytes: skip them (owner log, 25 Oct: 104 coins took 56 s, one by one).
     const have = new Set((new URL(req.url).searchParams.get('have') ?? '').split(',').filter((t) => /^[0-9a-f]{64}$/.test(t)));
     const need = [...new Set(list.map((x) => x.tx_hash))].filter((t) => !have.has(t));

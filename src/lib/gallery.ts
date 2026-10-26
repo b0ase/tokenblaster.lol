@@ -59,8 +59,12 @@ export const roundsFor = (sats: number, perShotSats: number) => (perShotSats > 0
 export const PACKS = [10_000, 100_000, 1_000_000] as const;
 export type Pack = (typeof PACKS)[number];
 
-/** Lane split + merge overhead the storm needs on top of the shots (src/lib/gun.ts storm()). */
-export const overheadSats = (shots: number) => lanesFor(shots) * 60 + 1000;
+/**
+ * Fan-out + merge overhead the storm needs on top of the shots (src/lib/gun.ts prepareStorm): every lane coin is a
+ * 34-byte output (3.4 sats at 100 sat/kB) plus up to LANE_SLACK sats of change left on it, each fan-out tx ~100.
+ */
+export const LANE_SLACK = 2;
+export const overheadSats = (shots: number) => lanesFor(shots) * (4 + LANE_SLACK) + splitTxsFor(lanesFor(shots)) * 100 + 1000;
 
 export type Quote = { shots: number; network: number; fee: number; total: number };
 /** What a pack costs: network fees at cost, plus the platform fee (rounded up to whole sats). */
@@ -146,23 +150,50 @@ export function blockRounds(p: TxPattern, secs = BLOCK_SECS, margin = 1.1): numb
 export const patternLabel = (p: TxPattern) => (p.kind === 'stream' ? `STREAM · up to ${p.rate.toLocaleString()} tx/s` : `BURST · ${p.n} tx per pull`);
 
 /**
- * The LIVE sender (src/lib/gun.ts storm + src/workers/storm.ts): the paid rounds are split into
- * ceil(rounds / 100) lanes (max 100); each sender round, every lane chains up to STREAM_STEP blasts and every
- * worker (up to 12 cores) posts its lanes to ARC in parallel requests of <= 600, while it signs the next round.
- * So one round carries at most lanes × STREAM_STEP transactions and takes about one ARC answer (signing is
- * overlapped). ROUND_SECS is the ARC answer we plan for (the bench, scripts/storm-bench.ts, measured the sender
- * itself; GorillaPool's real batch latency is the unknown: docs/throughput.md). Real tx/s can be lower on a slow
- * device or a slow ARC, never higher than this.
+ * The LIVE sender (src/lib/gun.ts storm + src/workers/storm.ts), WIDE NOT DEEP since 26 Oct 2026 (GorillaPool:
+ * a child POSTed with its parent is orphaned): the gun fans the paid rounds out into ceil(rounds / LANE_DEPTH)
+ * lane coins (in fan-out txs of at most SPLIT_OUTPUTS outputs each) and waits until the network has them; each
+ * lane then fires at most LANE_DEPTH blasts, one at a time, the next only once the network has the last. Every
+ * worker (up to 12 cores) keeps a few POSTs of <= 600 independent txs in flight. So a send round carries up to
+ * min(lanes, SEND_WINDOW) txs and takes about one ARC answer (ROUND_SECS, with X-WaitFor SEEN_ON_NETWORK). Real
+ * tx/s can be lower on a slow device or a slow network (one GorillaPool node sustains ~1,200 tx/s), never higher.
  */
+/** Legacy: blasts per lane per round in the old deep-chain sender (still passed through, ignored by the core). */
 export const STREAM_STEP = 100;
 export const ROUND_SECS = 1.5;
-export const MAX_LANES = 100;
-export const lanesFor = (rounds: number) => Math.max(1, Math.min(MAX_LANES, Math.ceil(rounds / 100)));
-export const liveCeiling = (rounds: number) => Math.floor((lanesFor(rounds) * STREAM_STEP) / ROUND_SECS);
+/** Deepest unconfirmed chain on one lane coin (= src/lib/stormCore.ts MAX_DEPTH). */
+export const LANE_DEPTH = 2;
+/** Most outputs in one fan-out tx (src/lib/gun.ts prepareStorm). */
+export const SPLIT_OUTPUTS = 2_500;
+/** Most lanes the sender has in flight at once that we plan for (the ceiling's cap). */
+export const SEND_WINDOW = 10_000;
+/** Lane coins for `rounds`: every lane carries at most LANE_DEPTH. */
+export const lanesFor = (rounds: number) => Math.max(1, Math.ceil(rounds / LANE_DEPTH));
+/** Fan-out txs for `lanes`: one, or a root plus ceil(lanes / SPLIT_OUTPUTS) leaves. */
+export const splitTxsFor = (lanes: number) => (lanes <= SPLIT_OUTPUTS ? 1 : 1 + Math.ceil(lanes / SPLIT_OUTPUTS));
+/**
+ * The fan-out for a storm of `total` rounds at `perBlast` sats each (src/lib/gun.ts prepareStorm): `lanes` coins of
+ * `each` sats, each firing at most LANE_DEPTH (`perLane`) blasts; `sizes` = outputs per fan-out tx (one tx, or one leaf
+ * per entry under a root that pays each leaf its outputs plus `leafFee`); `need` = the sats the gun must hold.
+ */
+export type FanoutPlan = { lanes: number; perLane: number; each: number; sizes: number[]; leaves: number; leafFee: number[]; need: number };
+export function fanoutPlan(total: number, perBlast: number): FanoutPlan {
+  const lanes = lanesFor(total);
+  const perLane = Math.min(LANE_DEPTH, Math.ceil(total / lanes));
+  // Its blasts plus LANE_SLACK, so the last change is never below 1 sat; nothing more (lane ends are not worth merging).
+  const each = perLane * perBlast + LANE_SLACK;
+  const leaves = lanes <= SPLIT_OUTPUTS ? 0 : Math.ceil(lanes / SPLIT_OUTPUTS);
+  const sizes = leaves ? Array.from({ length: leaves }, (_, i) => Math.min(SPLIT_OUTPUTS, lanes - i * SPLIT_OUTPUTS)) : [lanes];
+  // A leaf pays its own fee (34 B an output, one input, its change) at 100 sat/kB, with a margin.
+  const leafFee = leaves ? sizes.map((k) => Math.ceil(((k + 1) * 34 + 200) * 0.1) + 20) : [];
+  const need = lanes * each + leafFee.reduce((a, b) => a + b, 0) + Math.ceil((leaves || lanes) * 3.4) + 300; // + the root's outputs
+  return { lanes, perLane, each, sizes, leaves, leafFee, need };
+}
+export const liveCeiling = (rounds: number) => Math.floor(Math.min(lanesFor(rounds), SEND_WINDOW) / ROUND_SECS);
 /** What a gun can really send LIVE with `rounds` loaded: the lower of its rate and the sender's ceiling. */
 export const liveRate = (p: TxPattern, rounds: number) => (p.kind === 'stream' ? Math.min(p.rate, liveCeiling(rounds)) : 0);
 /** Rounds needed for the sender to reach a gun's full rate (enough lanes for `rate` tx/s). */
-export const roundsForFullRate = (rate: number) => Math.min(MAX_LANES, Math.ceil((rate * ROUND_SECS) / STREAM_STEP)) * 100;
+export const roundsForFullRate = (rate: number) => Math.min(SEND_WINDOW, Math.ceil(rate * ROUND_SECS)) * LANE_DEPTH;
 
 /** Sum per-session rows into a per-player board: a session is counted once, at its highest report. */
 export type SessionRow = { name: string; score: number; meta: Record<string, unknown> };

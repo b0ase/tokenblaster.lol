@@ -49,7 +49,7 @@ export const BULK_BURN_FEE = 600;
 export const LOAD_OVERHEAD = 5 * INDEX_FEE + 400;
 /** Most burns chained on one lane (unconfirmed chain depth, see #50). */
 export const MAX_LANE_DEPTH = 1_000;
-/** Most lanes per load (as the sats storm, src/lib/gallery.ts MAX_LANES). */
+/** Most lanes per load (burn lanes still chain deep; the sats storm fans out wide, src/lib/gallery.ts lanesFor). */
 export const MAX_COIN_LANES = 100;
 /** Most rounds one load can carry: every lane at full depth. */
 export const MAX_COIN_ROUNDS = MAX_COIN_LANES * MAX_LANE_DEPTH;
