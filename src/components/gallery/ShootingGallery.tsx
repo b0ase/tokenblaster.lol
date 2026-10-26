@@ -62,7 +62,7 @@ import { PlayerPanel } from './PlayerPanel';
 import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
 import { useReceipts } from './useReceipts';
 import { PER_SHOT_BURN, type AmmoCoin } from '@/lib/launch/ammoCoins';
-import { GunUnload } from '../GunUnload';
+import { GunUnload, UnloadButton } from '../GunUnload';
 import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
@@ -1032,6 +1032,30 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     lockRef.current = lockAndLoad;
   });
   const startCabinet = () => (freePlay || (ammoCoin && !dry) ? void lockRef.current() : cab.payThen(() => void lockRef.current()));
+  // "LOCK & LOAD $0.10" with no credit (owner, 25 Oct): put the minimum in, then pay it once the total has updated.
+  const [quickLoad, setQuickLoad] = useState(false);
+  const onQuickLoad = (usd: number) => {
+    cab.onCoin(usd);
+    setQuickLoad(true);
+  };
+  const startRef = useRef(startCabinet);
+  useEffect(() => {
+    startRef.current = startCabinet;
+  });
+  useEffect(() => {
+    if (!quickLoad || cab.pending <= 0) return;
+    void Promise.resolve().then(() => {
+      setQuickLoad(false);
+      startRef.current();
+    });
+  }, [quickLoad, cab.pending]);
+  // UNLOAD from a live round (pause screen): end the round first, then unload once play has stopped.
+  const unloadAfterRound = useRef(false);
+  useEffect(() => {
+    if (mode !== 'off' || !unloadAfterRound.current) return;
+    unloadAfterRound.current = false;
+    void b.unload();
+  }, [mode, b]);
 
   // ONE shot count for every "buys N shots" (coin labels, TO PAY, the receipt line, CONTINUE) and LOCK & LOAD.
   const buys = (usd: number) => shotsForUsd(usd, cab.bsvUsd ?? null, perShotAll, rc.curve);
@@ -1350,6 +1374,12 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </p>
         )}
 
+        {/* UNLOAD on the attract screen (owner, 25 Oct): nobody playing, the gun holds credit */}
+        {!loadout && !over && mode === 'off' && !dry && !freePlay && cab.creditReady && (
+          <div className="tbx-glass absolute right-3 top-3 z-40 rounded-lg px-2 py-1.5" data-attract-unload>
+            <UnloadButton b={b} creditUsd={cab.creditUsd} />
+          </div>
+        )}
         {/* PAUSE button (works on phones) */}
         {mode === 'live' && !loadout && !over && (
           <button
@@ -1376,16 +1406,29 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
               <button type="button" onClick={togglePause} className="btn btn-on px-4 py-2 font-bold tracking-widest">
                 RESUME
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  togglePause();
-                  setLoadout(true); // ends live fire; the rest stays as credit and UNLOAD is on the loadout
-                }}
-                className="btn px-4 py-2 text-xs font-bold tracking-widest"
-              >
-                END ROUND &amp; UNLOAD
-              </button>
+              {cab.creditUsd > 0 || b.gunTokens.length ? (
+                <UnloadButton
+                  b={b}
+                  creditUsd={cab.creditUsd}
+                  live
+                  endRound={() => {
+                    unloadAfterRound.current = true; // runs once the round has stopped (mode 'off')
+                    togglePause();
+                    setLoadout(true); // ends live fire; the rest stays as credit
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    togglePause();
+                    setLoadout(true);
+                  }}
+                  className="btn px-4 py-2 text-xs font-bold tracking-widest"
+                >
+                  END ROUND
+                </button>
+              )}
               <p className="text-[10px] text-white/50">P or Esc to resume</p>
             </div>
           </div>
@@ -1451,6 +1494,8 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
                 walletLive={cab.walletLive}
                 freePlay={freePlay}
                 walletName={cab.walletName}
+                onQuickLoad={dry || freePlay ? undefined : onQuickLoad}
+                unload={!dry && !freePlay && cab.creditReady ? <UnloadButton b={b} creditUsd={cab.creditUsd} /> : null}
               />
               </>
             }

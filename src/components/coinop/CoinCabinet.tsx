@@ -7,7 +7,8 @@
  * loading-ammo progress, and the caller starts the game by itself once the rounds are ready.
  * Presentational only: CoinOpGate and the Shooting Gallery feed it.
  */
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import { playButton } from '@/lib/coinop/playButton';
 import { GET_NAME_URL } from '@/lib/walletBar';
 import { sfx, unlockAudio } from '@/lib/sfx';
 import { CoinFace, CoinSlot, ControlPanel, SevenSeg } from './hardware';
@@ -72,6 +73,13 @@ export function CoinCabinet(p: {
   walletName?: string | null;
   /** Free play: no coins, no price, no wallet; the button just starts a practice run. */
   freePlay?: boolean;
+  /**
+   * Credit-aware main button (owner, 25 Oct 2026): "PLAY ($x.xx credit)" with credit and no new coins (no payment),
+   * "LOCK & LOAD $x.xx" for new coins, "LOCK & LOAD $0.10" with nothing at all (this callback puts the minimum in and pays).
+   */
+  onQuickLoad?: (usd: number) => void;
+  /** The always-visible UNLOAD, shown next to the CREDIT readout. */
+  unload?: ReactNode;
 }) {
   const total = addCoin(p.creditUsd, p.pendingUsd);
   const busy = p.stage === 'approve' || p.stage === 'loading' || Boolean(p.starting);
@@ -100,12 +108,19 @@ export function CoinCabinet(p: {
     setTimeout(() => setDrops((d) => d.filter((x) => x.id !== id)), 600);
   };
   const [down, setDown] = useState(false);
+  const pb = p.onQuickLoad && !p.freePlay ? playButton(p.creditReady === false ? 0 : p.creditUsd, p.pendingUsd, p.priceUsd) : null;
+  const coinsRef = useRef<HTMLElement>(null);
   /** START is always clickable: say plainly what is missing (owner, 24 Oct 2026: no silent failures). */
   const press = () => {
     if (p.freePlay) {
       sfx(p.blocked ? 'hurt' : 'click');
       if (!p.blocked) p.onStart();
       return;
+    }
+    if (pb?.kind === 'quick' && p.onQuickLoad && !busy && !p.blocked) {
+      sfx('coin');
+      loadMark('lock & load: no credit, putting the minimum in and paying it');
+      return p.onQuickLoad(Math.max(MIN_CREDIT_USD, p.priceUsd));
     }
     const why: Missing | null = !nameOk ? 'coin' : !enough ? 'more' : !p.bsvUsd ? 'price' : p.blocked ? 'wait' : null;
     setMiss(why);
@@ -138,6 +153,7 @@ export function CoinCabinet(p: {
             <div className="flex flex-wrap items-end gap-3">
               {p.pendingUsd > 0 && <SevenSeg text={fmtCredit(p.pendingUsd)} label="TO PAY" colour="#ff5a4a" />}
               {p.creditReady === false ? <SevenSeg text="$-.--" label="CREDIT" /> : <CreditCounter usd={p.creditUsd} />}
+              {p.unload}
             </div>
           )}
         </div>
@@ -148,7 +164,7 @@ export function CoinCabinet(p: {
             Free play: nothing is paid. These are practice rounds and nothing goes on chain.
           </p>
         )}
-        {!p.freePlay && <section aria-label="INSERT $b" className="flex flex-col items-center gap-3">
+        {!p.freePlay && <section ref={coinsRef} aria-label="INSERT $b" className="flex flex-col items-center gap-3">
           <div className="flex w-full items-center gap-3">
             <span className="h-px flex-1 bg-gradient-to-r from-transparent to-[var(--tbx-line-hi)]" />
             <p
@@ -262,10 +278,21 @@ export function CoinCabinet(p: {
               className="tbx-go"
               style={{ opacity: startOk || busy ? undefined : 0.88 }}
             >
-              {busy ? 'Loading…' : (p.startLabel ?? 'Lock & load')}
-              {!busy && paySub && <span className="tbx-go-sub">{paySub}</span>}
+              {busy ? 'Loading…' : pb && p.startLabel !== 'Loading…' ? pb.label : (p.startLabel ?? 'Lock & load')}
+              {!busy && (pb ? pb.sub && <span className="tbx-go-sub">{pb.sub}</span> : paySub && <span className="tbx-go-sub">{paySub}</span>)}
             </button>
           </div>
+          {pb?.kind === 'play' && !busy && (
+            <button
+              type="button"
+              data-fs-skip
+              data-add-credit
+              className="btn mx-auto px-3 py-1 text-xs font-bold tracking-wider"
+              onClick={() => coinsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+            >
+              + Add credit
+            </button>
+          )}
           <p className={`text-center text-sm ${miss ? 'font-semibold' : 'text-[var(--tbx-dim)]'}`} style={miss ? { color: '#ff7a70' } : undefined} data-start-reason>
             {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss ? missText(miss) : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, then press the button. It connects your wallet.'}
           </p>
