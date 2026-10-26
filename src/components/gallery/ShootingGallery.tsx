@@ -86,7 +86,7 @@ import { Flatlined, type FlatStats } from './Flatlined';
 import { DamageFx, type DamageFxHandle } from './DamageFx';
 import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 
-import { loadMark } from '@/lib/gun';
+import { STORM_RELEASED, loadMark } from '@/lib/gun';
 import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo';
 import { useCabinet } from '../coinop/useCabinet';
 import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
@@ -555,6 +555,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       const seenBase = netSeenRef.current;
       // Coin ammo (option A): the rounds carry the coin's token id; every accepted round is owed as a burn.
       const coin = liveCoinRef.current;
+      let released = false;
       void storm(
         rounds,
         (n, last, net) => {
@@ -566,7 +567,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           landed(d, last ?? null);
         },
         () => stop.current,
-        () => undefined,
+        (st) => {
+          if (st === STORM_RELEASED) released = true; // idle: the gun let go of the lock, reload on the next shot
+        },
         { game: GALLERY_GAME, extra: galleryPushes(handle).slice(1) },
         perShot,
         coin ? coin.tokenId : ammo,
@@ -586,6 +589,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           const left = boughtRef.current - sentRef.current;
           // Receipts settle when the session is really over (a reload keeps counting, then settles once).
           if (stop.current || left <= 0 || modeRef.current !== 'live') return settleReceipts();
+          if (released) return void (reloadOnFire.current = true); // not a failure: no try used, no reload until fired
           if (++tries.current > 3) {
             settleReceipts();
             return void (senderDead.current = true);
@@ -594,6 +598,17 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         });
     };
   });
+  /** The session ended because it sat idle (gun lock released): reload when something is queued to fire again. */
+  const reloadOnFire = useRef(false);
+  useEffect(() => {
+    const i = setInterval(() => {
+      if (!reloadOnFire.current || sessionAlive.current || modeRef.current !== 'live') return;
+      if (pausedRef.current || document.visibilityState === 'hidden' || sentRef.current >= firedRef.current) return;
+      reloadOnFire.current = false;
+      void reloadRef.current();
+    }, 250);
+    return () => clearInterval(i);
+  }, []);
   /** RELOAD: re-run the preparation for the rounds not sent yet (no new payment) and start sending again. */
   useEffect(() => {
     reloadRef.current = async () => {

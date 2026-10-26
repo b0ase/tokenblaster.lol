@@ -190,7 +190,7 @@ export async function backupGun(w: Pick<Wallet, 'client' | 'publicKey'>, g: GunL
   return 'backed-up';
 }
 
-const inFlight = new Map<string, Promise<BackupResult | 'error'>>();
+const inFlight = new Map<string, Promise<BackupResult | 'error' | 'deferred'>>();
 const retryAt = new Map<string, ReturnType<typeof setTimeout>>();
 /** Retry a failed backup this long after the failure, at the next idle moment. */
 export const BACKUP_RETRY_MS = 60_000;
@@ -202,14 +202,19 @@ const whenIdle = (f: () => void) => {
 
 /**
  * Fire-and-forget backup after a paid LOCK & LOAD. Never awaited by the play flow; every failure is swallowed (and
- * retried once the page is idle a minute later); one in flight per gun per identity. `canAsk` is checked again before
- * a retry, so it never opens a wallet sheet while a game is holding the wallet. Returns the promise for tests only.
+ * retried once the page is idle a minute later); one in flight per gun per identity.
+ *
+ * No wallet calls during play (26 Oct 2026: a backup sheet nobody saw held the wallet queue, so the next payment
+ * never reached the wallet). With `delayMs` the first try waits that long; every try (first and retries) runs only at
+ * an idle moment when `canAsk()` says no game is holding the wallet, otherwise it waits another `retryMs` and asks
+ * again. Each wallet call it makes is bounded by the wallet queue's deadline (src/lib/wallet.ts callDeadline).
+ * Returns the promise for tests only (it settles 'deferred' when the first try was put off).
  */
 export function scheduleGunBackup(
   w: Pick<Wallet, 'client' | 'publicKey'>,
   g: GunLike,
-  opts: { api?: BackupApi; canAsk?: () => boolean; retryMs?: number; onError?: (e: unknown) => void } = {},
-): Promise<BackupResult | 'error'> {
+  opts: { api?: BackupApi; canAsk?: () => boolean; retryMs?: number; delayMs?: number; onError?: (e: unknown) => void } = {},
+): Promise<BackupResult | 'error' | 'deferred'> {
   const id = `${w.publicKey}:${g.address}`;
   const running = inFlight.get(id);
   if (running) return running;
@@ -218,18 +223,25 @@ export function scheduleGunBackup(
     clearTimeout(t);
     retryAt.delete(id);
   }
+  const later = (ms: number) => {
+    const timer = setTimeout(() => {
+      retryAt.delete(id);
+      whenIdle(() => {
+        if (opts.canAsk && !opts.canAsk()) return later(opts.retryMs ?? BACKUP_RETRY_MS); // a game holds the wallet: not now
+        void scheduleGunBackup(w, g, { ...opts, delayMs: 0 });
+      });
+    }, ms);
+    (timer as { unref?: () => void }).unref?.();
+    retryAt.set(id, timer);
+  };
+  if ((opts.delayMs ?? 0) > 0 || (opts.canAsk && !opts.canAsk())) {
+    later(opts.delayMs || opts.retryMs || BACKUP_RETRY_MS);
+    return Promise.resolve('deferred');
+  }
   const p = backupGun(w, g, opts.api)
     .catch((e: unknown) => {
       opts.onError?.(e);
-      const later = setTimeout(() => {
-        retryAt.delete(id);
-        whenIdle(() => {
-          if (opts.canAsk && !opts.canAsk()) return; // the next paid LOCK & LOAD schedules it again
-          void scheduleGunBackup(w, g, opts);
-        });
-      }, opts.retryMs ?? BACKUP_RETRY_MS);
-      (later as { unref?: () => void }).unref?.();
-      retryAt.set(id, later);
+      later(opts.retryMs ?? BACKUP_RETRY_MS);
       return 'error' as const;
     })
     .finally(() => inFlight.delete(id));

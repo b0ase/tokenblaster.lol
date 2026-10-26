@@ -55,7 +55,24 @@ export type Out =
   | { type: 'why'; text: string }
   | { type: 'stats'; stats: Stats };
 export type Stats = { signed: number; posted: number; accepted: number; signMs: number; postMs: number; posts: number };
-export type Ctl = { stopped: () => boolean; paused: () => boolean; emit: (m: Out) => void; fetch?: typeof fetch; now?: () => number };
+export type Ctl = {
+  stopped: () => boolean;
+  paused: () => boolean;
+  emit: (m: Out) => void;
+  fetch?: typeof fetch;
+  now?: () => number;
+  /** Per-POST deadline (default POST_TIMEOUT_MS) and back-off base between resends (default POST_BACKOFF_MS). Tests shrink them. */
+  postTimeoutMs?: number;
+  postBackoffMs?: number;
+};
+/**
+ * One ARC POST may take at most this long (26 Oct 2026: a stalled POST froze a storm at exactly 5,000 txs and held
+ * the gun lock). On a timeout or network error the SAME bytes are re-POSTed (same txids, so it is idempotent) up to
+ * POST_TRIES times with a growing back-off, and only then are the lanes given up.
+ */
+export const POST_TIMEOUT_MS = 10_000;
+export const POST_TRIES = 3;
+export const POST_BACKOFF_MS = 500;
 
 type Lane = { txidLE: Uint8Array; vout: number; value: number; left: number; n: number; alive: boolean; arc: string; tok?: { txidLE: Uint8Array; vout: number; amt: bigint; lock: Uint8Array } };
 type Part = { lane: Lane; txs: Blast[]; last: string };
@@ -154,13 +171,30 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
     const body = '[' + parts.map((p) => p.txs.map((t) => `{"rawTx":"${toHex(t.ef)}"}`).join(',')).join(',') + ']';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (m.waitFor) headers['X-WaitFor'] = m.waitFor;
-    try {
-      const r = await f(`${arc}/v1/txs`, { method: 'POST', headers, body });
-      const j = await r.json();
-      if (Array.isArray(j)) return j;
-      ctl.emit({ type: 'why', text: `ARC ${r.status}: ${j?.detail ?? j?.title ?? 'error'}` });
-    } catch (err) {
-      ctl.emit({ type: 'why', text: err instanceof Error ? err.message : String(err) });
+    const timeout = ctl.postTimeoutMs ?? POST_TIMEOUT_MS;
+    const backoff = ctl.postBackoffMs ?? POST_BACKOFF_MS;
+    for (let i = 0; i < POST_TRIES; i++) {
+      if (i) await new Promise((r) => setTimeout(r, backoff * i));
+      if (ctl.stopped()) break;
+      const ac = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<never>((_, rej) => {
+        timer = setTimeout(() => {
+          ac.abort();
+          rej(new Error(`ARC POST timed out after ${Math.round(timeout / 1000)} s`));
+        }, timeout);
+      });
+      try {
+        // The race also covers a fetch (or body read) that ignores the abort signal.
+        const j = await Promise.race([f(`${arc}/v1/txs`, { method: 'POST', headers, body, signal: ac.signal }).then(async (r) => ({ r, j: await r.json() })), late]);
+        if (Array.isArray(j.j)) return j.j;
+        ctl.emit({ type: 'why', text: `ARC ${j.r.status}: ${j.j?.detail ?? j.j?.title ?? 'error'}` });
+        if (j.r.status < 500) break; // a real answer (4xx): resending the same bytes will not help
+      } catch (err) {
+        ctl.emit({ type: 'why', text: err instanceof Error ? err.message : String(err) });
+      } finally {
+        clearTimeout(timer);
+      }
     }
     return [];
   }

@@ -154,3 +154,17 @@ test('nothing goes fullscreen by itself: only the player-tapped button', () => {
   const enter = hook.slice(hook.indexOf('const enter = useCallback'), hook.indexOf('const enterNow'));
   assert.ok(!enter.includes('requestFullscreen') && !enter.includes('shellRef.current.enter'));
 });
+
+test('the backup never asks the wallet while a game holds it: it waits, then runs once play is over', async () => {
+  store.clear();
+  const { w, calls } = await countingWallet();
+  const g = new Gun();
+  const { api, puts } = memApi();
+  let playing = true;
+  assert.equal(await scheduleGunBackup(w, g, { api, delayMs: 5, retryMs: 5, canAsk: () => !playing }), 'deferred');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(calls.filter((c) => c.m === 'encrypt').length, 0, 'no wallet call during play');
+  playing = false;
+  for (let i = 0; i < 100 && !puts(); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(puts(), 1);
+});

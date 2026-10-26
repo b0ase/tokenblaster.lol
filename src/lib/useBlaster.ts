@@ -10,14 +10,14 @@ import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSi
 import { WALLET_CANCELLED, WALLET_SENT_PENDING, isRefusal } from './wallet';
 import { useSiteWallet } from './useSiteWallet';
 import { GUN_LOCKED, Gun, GunNeedsSats, TOKEN_FEE, loadMark } from './gun';
-import { restoreGunIfNeeded, scheduleGunBackup } from './gunBackup';
+import { BACKUP_RETRY_MS, restoreGunIfNeeded, scheduleGunBackup } from './gunBackup';
 import { restoreGate } from './gunRestoreGate';
 import { payIntoGun } from './lockLoadPay';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
 import { APPROVE_TIMEOUT_MS, raceApproval, retryDecision, type LatePay } from './approveTimeout';
-import { cancelWalletCalls, fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
+import { cancelWalletCalls, fund, holdWalletForPlay, walletAlive, walletBusy, walletHeld, walletPaying, withTimeout, type Wallet } from './wallet';
 import { chainHandle, needsPaymail } from './gallery';
 import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, patchBarWallet } from './walletBar';
@@ -104,11 +104,18 @@ export function useBlaster() {
       return r;
     });
   }, [wallet, setError]);
-  /** After a paid LOCK & LOAD: back the gun up in the background. Never awaited, never blocks play. */
+  /**
+   * After a paid LOCK & LOAD: back the gun up later, never during play. Never awaited, never blocks play: the first
+   * try waits a minute, then runs only when the page is idle, no game holds the wallet and no storm session is running.
+   */
   const backupLater = useCallback(() => {
     const g = gun.current;
     if (!wallet || !g) return;
-    void scheduleGunBackup(wallet, g, { canAsk: () => !walletHeld(), onError: (e) => loadMark(`gun backup not saved yet: ${e instanceof Error ? e.message : 'error'}`) });
+    void scheduleGunBackup(wallet, g, {
+      delayMs: BACKUP_RETRY_MS,
+      canAsk: () => !walletHeld() && !g.inSession && !walletBusy(wallet.client),
+      onError: (e) => loadMark(`gun backup not saved yet: ${e instanceof Error ? e.message : 'error'}`),
+    });
   }, [wallet]);
   /** The "Back up gun key" button, after the player confirmed: the WIF, never logged. */
   const exportGunKey = useCallback(() => gun.current?.exportWif() ?? null, []);
@@ -152,7 +159,16 @@ export function useBlaster() {
   /** Check the wallet answers right now. Updates `walletLive`. */
   const checkWallet = useCallback(async () => {
     if (!wallet) return false;
-    const ok = await walletAlive(wallet);
+    let alive = await walletAlive(wallet);
+    if (alive === 'busy') {
+      // Something is queued or open in the wallet. An open payment stays (fund() refuses a second one); anything else
+      // (a background read, a backup sheet nobody saw) is dropped so the payment goes straight to the wallet.
+      loadMark(`wallet busy: ${walletPaying() ? 'a payment is open' : 'clearing queued calls'}`);
+      if (walletPaying()) return true;
+      cancelWalletCalls(wallet.client, 'WALLET_BUSY_CLEARED');
+      alive = await walletAlive(wallet);
+    }
+    const ok = alive === true;
     setSiteWalletLive(ok);
     if (!ok) loadMark(`wallet not answering: ${wallet.name}`);
     return ok;

@@ -192,6 +192,30 @@ const keepRaw = () => {
 };
 /** Shown (and thrown) when the stored gun can not be read: never a new key over it (its coins would be orphaned). */
 export const GUN_LOCKED = 'Gun locked: restore from wallet';
+
+/**
+ * Storm sessions hold the shared 'tokenblaster-gun' Web Lock, so a session must not sit on it while nothing is being
+ * fired (26 Oct 2026: a paused storm in one tab blocked every gun action in another). A session that has been paused
+ * (trigger released / nothing queued) for PAUSE_RELEASE_MS, or paused while the tab is hidden for HIDDEN_RELEASE_MS,
+ * ends itself: lanes merge back into one coin, the change is saved, the lock is released. onStatus(STORM_RELEASED)
+ * tells the page, which reloads (no new payment) the next time there is something to fire.
+ */
+export const STORM_RELEASED = 'RELEASED';
+export const PAUSE_RELEASE_MS = 30_000;
+export const HIDDEN_RELEASE_MS = 2_000;
+
+/** A stateful check: true once the session has been idle (paused) long enough to release the gun. */
+export function idleRelease(pauseMs = PAUSE_RELEASE_MS, hiddenMs = HIDDEN_RELEASE_MS) {
+  let since = 0;
+  return (paused: boolean, hidden: boolean, now: number): boolean => {
+    if (!paused) {
+      since = 0;
+      return false;
+    }
+    if (!since) since = now;
+    return now - since >= (hidden ? hiddenMs : pauseMs);
+  };
+}
 /** Thrown by unloadTokens when the gun has tokens but not enough sats to pay the transfer fee. */
 export class GunNeedsSats extends Error {
   constructor(readonly sats: number, readonly id: string) {
@@ -484,6 +508,11 @@ export class Gun {
     }
   }
 
+  /** True while a storm session is running (it holds the gun lock). */
+  get inSession() {
+    return this.session !== null;
+  }
+
   /** End the running storm session (if any): stop its sender, wait for it to merge and save the change. */
   async endSession(timeoutMs = 20_000) {
     const s = this.session;
@@ -733,7 +762,20 @@ export class Gun {
   ): Promise<number> {
     if (!this.ready) await this.prepareStorm(total, perBlast, (pct) => onStatus(`Loading… ${pct}%`));
     const userStop = stop;
-    stop = () => this.halt || userStop();
+    const idle = idleRelease();
+    let released = false;
+    let gone = false; // the page is going away: end at once, never keep the lock past it
+    const onHide = () => (gone = true);
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', onHide);
+    stop = () => {
+      if (this.halt || gone || userStop()) return true;
+      const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+      if (!released && idle(paused(), hidden, Date.now())) {
+        released = true;
+        loadMark(`storm idle${hidden ? ' (tab hidden)' : ''}: ending the session to release the gun`);
+      }
+      return released;
+    };
     const run = this.exclusive(async () => {
       const r = this.ready;
       if (!r) throw new Error('The gun is not loaded.');
@@ -784,6 +826,8 @@ export class Gun {
     } finally {
       if (this.session === run) this.session = null;
       this.halt = false;
+      if (typeof window !== 'undefined') window.removeEventListener('pagehide', onHide);
+      if (released) onStatus(STORM_RELEASED);
     }
   }
 

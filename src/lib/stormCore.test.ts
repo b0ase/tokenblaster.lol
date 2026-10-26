@@ -100,3 +100,58 @@ test('round handle: the wallet paymail wins, survives a not-answering wallet, ke
   assert.ok(needsPaymail('key_0123456789') && !needsPaymail(PAYMAIL));
   assert.ok(isSeen('SEEN_ON_NETWORK') && isSeen('MINED') && !isSeen('SEEN_IN_ORPHAN_MEMPOOL') && !isSeen('STORED'));
 });
+
+test('a stalled ARC POST times out and the same bytes are re-sent; the storm never freezes', async () => {
+  const good = mockArc(() => 'SEEN_ON_NETWORK');
+  let calls = 0;
+  const bodies: string[] = [];
+  const f = (async (url: string, init: RequestInit & { body: string; headers: Record<string, string> }) => {
+    calls++;
+    bodies.push(init.body);
+    if (calls === 1) return new Promise(() => {}); // hangs forever, ignores the abort
+    return good.f(url, init as never);
+  }) as unknown as typeof fetch;
+  const outs: Out[] = [];
+  const t0 = Date.now();
+  await runLanes(
+    {
+      priv,
+      token: PAYMAIL,
+      baseTxid: 'cd'.repeat(32),
+      baseValues: [10 * 500],
+      lanes: [{ vout: 0, count: 10, n: 1 }],
+      step: 100,
+      arcs: ['http://mock-arc.invalid'],
+    },
+    { stopped: () => false, paused: () => false, emit: (o) => outs.push(o), fetch: f, postTimeoutMs: 50, postBackoffMs: 1 },
+  );
+  assert.ok(Date.now() - t0 < 5000);
+  assert.ok(calls >= 2);
+  assert.equal(bodies[0], bodies[1], 'the resend posts the same txs');
+  assert.ok(outs.some((o) => o.type === 'why' && /timed out/.test(o.text)));
+  const sent = outs.filter((o) => o.type === 'sent').reduce((a, o) => a + (o.type === 'sent' ? o.n : 0), 0);
+  assert.equal(sent, 10);
+});
+
+test('an ARC POST that keeps stalling gives up after the bounded tries', async () => {
+  let calls = 0;
+  const f = (async () => {
+    calls++;
+    return new Promise(() => {});
+  }) as unknown as typeof fetch;
+  const outs: Out[] = [];
+  await runLanes(
+    {
+      priv,
+      token: PAYMAIL,
+      baseTxid: 'cd'.repeat(32),
+      baseValues: [10 * 500],
+      lanes: [{ vout: 0, count: 10, n: 1 }],
+      step: 100,
+      arcs: ['http://mock-arc.invalid'],
+    },
+    { stopped: () => false, paused: () => false, emit: (o) => outs.push(o), fetch: f, postTimeoutMs: 30, postBackoffMs: 1 },
+  );
+  assert.equal(calls, 3);
+  assert.ok(!outs.some((o) => o.type === 'sent'));
+});

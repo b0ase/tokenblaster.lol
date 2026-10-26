@@ -87,6 +87,20 @@ export const holdWalletForPlay = (on: boolean, key = 'play') => {
 };
 export const walletHeld = () => playHeld;
 export const walletBusy = (client: object) => (queues.get(client)?.inFlight ?? 0) > 0;
+/** True while a payment (fund) is open in the wallet. */
+export const walletPaying = () => paying !== null;
+/**
+ * Every call through the queue has a deadline, counted from when it is queued (26 Oct 2026: a background gun-backup
+ * encrypt that never settled held the queue, so the payment behind it never reached the wallet). On the deadline the
+ * caller gets WALLET_TIMEOUT and the call leaves the queue: if it had not reached the wallet yet it never will.
+ * Payments get the payment timeout (plus a little, so fund()'s own timeout answers first); everything else a minute.
+ */
+export const CALL_TIMEOUT_MS = 60_000;
+const PAY_METHODS = new Set(['createAction', 'signAction', 'internalizeAction']);
+let callTimeoutMs = CALL_TIMEOUT_MS;
+/** Tests only: shorten the non-payment deadline. */
+export const setWalletCallTimeout = (ms = CALL_TIMEOUT_MS) => void (callTimeoutMs = ms);
+export const callDeadline = (method: string) => (PAY_METHODS.has(method) ? PAY_TIMEOUT_MS + 5_000 : callTimeoutMs);
 export function serialised(client: WalletInterface): WalletInterface {
   const q: Queue = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0, gen: 0, cancels: new Set() };
   queues.set(client, q);
@@ -106,14 +120,21 @@ export function serialised(client: WalletInterface): WalletInterface {
         let cancel!: (e: Error) => void;
         const cancelled = new Promise<never>((_, no) => (cancel = no));
         q.cancels.add(cancel);
+        let expired = false;
+        const deadline = setTimeout(() => {
+          expired = true;
+          cancel(new Error('WALLET_TIMEOUT'));
+        }, callDeadline(String(prop)));
+        (deadline as { unref?: () => void }).unref?.();
         const call = q.tail.then(() => {
-          if (q.gen !== gen) throw new Error(WALLET_CANCELLED);
+          if (q.gen !== gen || expired) throw new Error(expired ? 'WALLET_TIMEOUT' : WALLET_CANCELLED);
           return (v as (...a: unknown[]) => unknown).apply(target, args);
         });
-        // The caller sees the wallet's answer or a cancel, whichever comes first; a cancel frees the queue.
+        // The caller sees the wallet's answer, a cancel or the deadline, whichever comes first; each frees the queue.
         const run = Promise.race([call, cancelled]);
         run.catch(() => undefined);
         const done = run.catch(() => undefined).finally(() => {
+          clearTimeout(deadline);
           q.cancels.delete(cancel);
           if (q.gen === gen) q.inFlight = Math.max(0, q.inFlight - 1);
         });
@@ -209,9 +230,10 @@ export function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<
  * before a payment, never on a timer. Chrome extension wallets sleep their worker (MV3): one retry after a pause.
  * A wallet without isAuthenticated counts as live (the payment itself will say if it is not).
  */
-export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean> {
+export async function walletAlive(w: Wallet, ms = 15_000): Promise<boolean | 'busy'> {
   if (playHeld) return true; // a round is live: never touch the wallet, assume it is still there
-  if (walletBusy(w.client)) return true; // a request is open in the wallet: it is alive, just waiting on the player
+  // Calls are queued or open: NOT proof the wallet is alive (a hung call looks exactly like this). The caller decides.
+  if (walletBusy(w.client)) return 'busy';
   if (typeof (w.client as { isAuthenticated?: unknown }).isAuthenticated !== 'function') return true;
   // Straight to the wallet, NOT through the queue (owner, 25 Oct 2026): a status check that timed out used to stay
   // at the head of the queue, so the payment queued behind it was only sent once the asleep extension woke up.
