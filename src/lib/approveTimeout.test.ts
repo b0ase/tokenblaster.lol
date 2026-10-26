@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { APPROVE_TIMEOUT_MS, raceApproval, retryDecision } from './approveTimeout';
+import { APPROVE_TIMEOUT_MS, isPromptNoResponse, raceApproval, retryDecision } from './approveTimeout';
 
 const later = <T,>() => {
   let ok!: (v: T) => void;
@@ -80,4 +80,33 @@ test('retry: request pays in the instant it is cancelled → paid, no re-send', 
   if (r.kind !== 'timeout') return assert.fail('expected timeout');
   const out = await retryDecision(r.late, { paidOnChain: async () => false, cancelHung: () => req.ok('tx') });
   assert.equal(out, 'paid');
+});
+
+for (const [code, status] of [['ERR_PROMPT_NOT_SHOWN', 503], ['ERR_PROMPT_EXPIRED', 408]] as const) {
+  test(`${code} (${status}) → "didn't respond" at once, Retry checks the chain then re-sends`, async () => {
+    const err = Object.assign(new Error('bWalletX: prompt'), { code, status });
+    const t0 = Date.now();
+    const r = await raceApproval(Promise.reject(err), 10_000);
+    assert.ok(Date.now() - t0 < 1000, 'not after our 20 s timer');
+    assert.equal(r.kind, 'timeout');
+    if (r.kind !== 'timeout') return;
+    assert.equal(r.late.state, 'failed');
+    let checked = 0;
+    const out = await retryDecision(r.late, { paidOnChain: async () => (checked++, false), cancelHung: () => assert.fail('nothing hung') });
+    assert.equal(checked, 1);
+    assert.equal(out, 'resend');
+    // paid on chain anyway → never charged twice
+    assert.equal(await retryDecision(r.late, { paidOnChain: async () => true, cancelHung: () => undefined }), 'paid');
+  });
+  test(`${code} detected from code, status+message or message alone`, () => {
+    assert.ok(isPromptNoResponse({ code }));
+    assert.ok(isPromptNoResponse(new Error(`createAction failed: ${code}`)));
+    assert.ok(isPromptNoResponse({ status, message: 'Prompt not answered' }));
+  });
+}
+
+test('a real refusal is still thrown, not shown as "didn\'t respond"', async () => {
+  assert.equal(isPromptNoResponse(new Error('User denied the request')), false);
+  assert.equal(isPromptNoResponse({ status: 503, message: 'service unavailable' }), false);
+  await assert.rejects(raceApproval(Promise.reject(new Error('User denied')), 50), /denied/);
 });
