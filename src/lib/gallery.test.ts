@@ -11,9 +11,10 @@ test('shot cost: 26 sat anonymous, more for a handle/paymail and long ammo, 33 s
   assert.equal(shotsPerBsv(false), 3_846_153);
 });
 
-test('1M-shot pack ≈ 26M sats at cost, + 5% fee', () => {
+test('1M-shot pack ≈ 29M sats at cost (rounds + the wide fan-out), + 5% fee', () => {
   const q = quote(1_000_000, false, 0.05);
-  assert.equal(q.network, 26_000_000 + 7_000);
+  // 500,000 lane coins x 6 sats + 201 fan-out txs x 100 + 1,000 (26 Oct 2026: wide, not deep)
+  assert.equal(q.network, 26_000_000 + 3_000_000 + 20_100 + 1_000);
   assert.equal(q.fee, Math.ceil(q.network * 0.05));
   assert.equal(quote(1_000_000, false, 0).fee, 0);
 });
@@ -79,13 +80,13 @@ test('assault rack: volume streams only, honest LIVE ceiling', async () => {
     assert.equal(p.kind, 'stream', `${id} streams`);
     assert.ok(p.kind === 'stream' && p.rate >= 2000, `${id} ~2000 tx/s`);
   }
-  assert.equal(liveCeiling(10_000), 6666); // 100 lanes x 100 per 1.5 s round
-  assert.equal(liveCeiling(1_000_000), 6666);
-  assert.equal(liveCeiling(3_000), 2000); // 30 lanes x 100 per 1.5 s
+  assert.equal(liveCeiling(10_000), 3333); // 5,000 lanes, one tx each per 1.5 s round
+  assert.equal(liveCeiling(1_000_000), 6666); // capped at the 10,000-lane send window
+  assert.equal(liveCeiling(3_000), 1000); // 1,500 lanes per 1.5 s
   assert.ok(liveCeiling(10_000) >= 3000, 'a 10k pack has headroom over 3,000 tx/s');
   assert.equal(liveRate({ kind: 'stream', rate: 2000 }, 30_000), 2000);
-  assert.equal(roundsForFullRate(2000), 3_000);
-  assert.equal(roundsForFullRate(3000), 4_500);
+  assert.equal(roundsForFullRate(2000), 6_000);
+  assert.equal(roundsForFullRate(3000), 9_000);
 });
 
 test('block: a full ten-minute block of rounds at the gun rate, with a margin', async () => {

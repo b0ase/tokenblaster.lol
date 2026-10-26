@@ -5,12 +5,50 @@
  * left back to the player. Same transaction shape as blaster/blast.ts.
  */
 import { spendableCoins } from './coinop/ammo';
-import { STREAM_STEP, lanesFor } from './gallery';
-import { runStorm, type StormNet } from './stormRun';
+import { STREAM_STEP, fanoutPlan } from './gallery';
+import { runStorm, type StormBatch, type StormNet } from './stormRun';
+import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
 import { hasPayRef } from './payRef';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
+
+/**
+ * Which service broadcasts the storm (26 Oct 2026): GorillaPool ARC (default) or Arcade, their Teranode-backed
+ * successor (src/lib/stormCore.ts). Build-time NEXT_PUBLIC_TB_BROADCASTER=arcade switches it for everyone; for a
+ * one-browser test, localStorage 'tb.broadcaster' = 'arcade' (or 'arc') overrides it.
+ */
+export function stormBroadcaster(): BroadcasterKind {
+  let v: string | null | undefined = process.env.NEXT_PUBLIC_TB_BROADCASTER;
+  try {
+    if (typeof window !== 'undefined') v = window.localStorage.getItem('tb.broadcaster') || v;
+  } catch {
+    /* storage blocked: the build setting stands */
+  }
+  return v === 'arcade' ? 'arcade' : 'arc';
+}
+/** How long LOCK & LOAD waits for the network to have the fan-out before the lanes go anyway (they wait per lane then). */
+const FANOUT_SEEN_MS = 60_000;
+
+/** One [tb-load] line per POST that held orphans or failures, and a roll-up every 5 s (the orphan rate). */
+function batchLogger() {
+  let at = 0;
+  const sum = { posts: 0, txs: 0, orphans: 0, ms: 0, statuses: {} as Record<string, number> };
+  return (b: StormBatch) => {
+    const orphans = b.statuses[ORPHAN] ?? 0;
+    const odd = Object.keys(b.statuses).filter((k) => !/^(SEEN_ON_NETWORK|SEEN_MULTIPLE_NODES|ACCEPTED_BY_NETWORK|MINED|RECEIVED)$/.test(k));
+    if (odd.length) loadMark(`batch via ${b.via}: ${b.n} txs in ${b.ms} ms ${JSON.stringify(b.statuses)}`);
+    sum.posts++;
+    sum.txs += b.n;
+    sum.orphans += orphans;
+    sum.ms += b.ms;
+    for (const [k, v] of Object.entries(b.statuses)) sum.statuses[k] = (sum.statuses[k] ?? 0) + v;
+    const t = Date.now();
+    if (t - at < 5000) return;
+    at = t;
+    loadMark(`batches: ${sum.posts} POSTs, ${sum.txs} txs, orphans ${sum.orphans} (${((100 * sum.orphans) / Math.max(1, sum.txs)).toFixed(1)} %), avg ${Math.round(sum.ms / Math.max(1, sum.posts))} ms ${JSON.stringify(sum.statuses)}`);
+  };
+}
 const GP_RAW = 'https://ordinals.gorillapool.io/api/tx';
 
 /**
@@ -691,8 +729,8 @@ export class Gun {
     });
   }
 
-  /** Lanes split ahead of time by prepareStorm(), so the first trigger pull fires at once. */
-  private ready: { base: Transaction; lanesN: number; perLane: number } | null = null;
+  /** Lane coins fanned out ahead of time by prepareStorm(), so the first trigger pull fires at once. */
+  private ready: { bases: Transaction[]; lanes: { base: number; vout: number; count: number }[] } | null = null;
 
   /**
    * The gun's coin to fire from. The chain index can lag a freshly paid load by many seconds (a BRC-100
@@ -720,9 +758,14 @@ export class Gun {
   }
 
   /**
-   * Do all the slow work before the game starts (LOCK & LOAD): find the coin, split it into lanes and wait
-   * until the network has the split. `onStep(pct, slowSecs)`: progress 0..100; slowSecs > 0 while waiting.
+   * Do all the slow work before the game starts (LOCK & LOAD): find the coin, fan it out WIDE into lane coins and
+   * wait until the network has the fan-out. `onStep(pct, slowSecs)`: progress 0..100; slowSecs > 0 while waiting.
    * After this, storm() fires on the first trigger pull.
+   *
+   * Wide, not deep (GorillaPool, 26 Oct 2026: a child POSTed with its parent is orphaned, and deep chains never
+   * recover): ceil(total / LANE_DEPTH) lane coins, each carrying at most LANE_DEPTH blasts. Up to SPLIT_OUTPUTS lanes
+   * go in ONE fan-out tx; more go in a root tx paying ceil(lanes / SPLIT_OUTPUTS) leaf fan-outs, broadcast level by
+   * level (the root, then the leaves together once the network has the root), never a parent with its child.
    */
   async prepareStorm(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
     await this.endSession();
@@ -735,36 +778,76 @@ export class Gun {
       await this.startCoin((secs) => onStep(15, secs));
       if (!this.coin) throw new Error('EMPTY');
       onStep(30, 0);
-      const lanesN = lanesFor(total);
-      const perLane = Math.ceil(total / lanesN);
-      const budget = this.sats - 300 - lanesN * 40;
-      if (budget < lanesN * perBlast) throw new Error('SHORT');
-      const split = new Transaction();
-      split.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-      const each = Math.min(Math.floor(budget / lanesN), perLane * (perBlast + 2) + 100);
-      for (let i = 0; i < lanesN; i++) split.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
-      split.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-      await split.fee(new SatoshisPerKilobyte(FEE_RATE));
-      await split.sign();
-      loadMark('split built');
+      const { lanes: lanesN, perLane, each, sizes, leaves, leafFee, need } = fanoutPlan(total, perBlast);
+      if (this.sats < need) throw new Error('SHORT');
+      const root = new Transaction();
+      root.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+      if (leaves) sizes.forEach((k, i) => root.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: k * each + leafFee[i] }));
+      else for (let i = 0; i < lanesN; i++) root.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
+      root.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      await root.fee(new SatoshisPerKilobyte(FEE_RATE));
+      await root.sign();
+      const leafTxs: Transaction[] = [];
+      for (let i = 0; i < leaves; i++) {
+        const leaf = new Transaction();
+        leaf.addInput({ sourceTransaction: root, sourceOutputIndex: i, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+        for (let j = 0; j < sizes[i]; j++) leaf.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
+        leaf.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+        await leaf.fee(new SatoshisPerKilobyte(FEE_RATE));
+        await leaf.sign();
+        leafTxs.push(leaf);
+      }
+      loadMark(`fan-out built: ${lanesN} lanes x ${perLane} deep in ${1 + leaves} tx(s)`);
       onStep(45, 0);
-      await this.send(split);
-      const base = Transaction.fromHex(split.toHex());
-      this.coin = { tx: base, vout: lanesN };
+      // Level 1: the root, through the gun's usual send (retries, a parent the wallet is still propagating).
+      await this.send(root);
+      const base = Transaction.fromHex(root.toHex());
+      this.coin = { tx: base, vout: root.outputs.length - 1 };
       this.save();
-      // ARC took the split: that is enough to chain the first rounds on it (no waiting for an index).
-      loadMark('split accepted');
+      // Wait for the network (not just ARC) to have it: lanes (or leaves) spend it next.
+      const bc = makeBroadcaster('arc', ARC_URL);
+      const t0 = Date.now();
+      const tick = setInterval(() => onStep(leaves ? 55 : 70, Math.round((Date.now() - t0) / 1000)), 1000);
+      try {
+        const rootSeen = await settleTxs(bc, [{ ef: Uint8Array.from(root.toEF()), txid: root.id('hex') }], { deadlineMs: FANOUT_SEEN_MS });
+        loadMark(`fan-out root ${rootSeen.seen.size ? 'seen on network' : `NOT seen yet (${JSON.stringify(rootSeen.statuses)}): lanes will wait per lane`}`);
+        if (leaves) {
+          // Level 2: every leaf in one POST (siblings: none spends another), then wait for the network to have them.
+          onStep(75, 0);
+          const lv = await settleTxs(
+            bc,
+            leafTxs.map((t) => ({ ef: Uint8Array.from(t.toEF()), txid: t.id('hex') })),
+            { deadlineMs: FANOUT_SEEN_MS },
+          );
+          if (lv.bad.length) throw new Error(`ARC refused ${lv.bad.length} fan-out tx(s): ${JSON.stringify(lv.statuses)}`);
+          for (const t of leafTxs) this.markSpent(t);
+          loadMark(`fan-out leaves: ${lv.seen.size}/${leaves} seen on network`);
+        }
+      } finally {
+        clearInterval(tick);
+      }
+      const bases = leaves ? leafTxs.map((t) => Transaction.fromHex(t.toHex())) : [base];
+      const lanes: { base: number; vout: number; count: number }[] = [];
+      let left = total;
+      sizes.forEach((k, bi) => {
+        for (let j = 0; j < k && left > 0; j++) {
+          const c = Math.min(perLane, left);
+          lanes.push({ base: bi, vout: j, count: c });
+          left -= c;
+        }
+      });
       onStep(95, 0);
-      this.ready = { base, lanesN, perLane };
+      this.ready = { bases, lanes };
       loadMark('ready');
       onStep(100, 0);
     });
   }
 
   /**
-   * Storm: fire `total` blasts as fast as ARC will take them. The coin is split into up to 100
-   * lanes in one transaction (or uses the lanes prepareStorm() made), every lane chains its own blasts,
-   * and each round sends a few thousand at once. Lane ends merge back into one coin.
+   * Storm: fire `total` blasts as fast as the network will take them, from the lane coins prepareStorm() fanned out
+   * (it runs first if nothing is ready). Each lane sends at most MAX_DEPTH blasts, one POST at a time, the next only
+   * once the network has the last (src/lib/stormCore.ts): no POST ever holds a parent and its child. The
+   * broadcaster is ARC unless stormBroadcaster() says Arcade. Lane ends merge back into one coin.
    * `onProgress(sent, lastTxid)` after every request; `stop()` returning true ends it; `paused()` returning
    * true holds fire without ending the session (trigger released), so the next pull fires at once.
    */
@@ -802,34 +885,45 @@ export class Gun {
       const r = this.ready;
       if (!r) throw new Error('The gun is not loaded.');
       this.ready = null;
-      const { base, lanesN, perLane } = r;
-      const lanes = Array.from({ length: lanesN }, (_, i) => ({ vout: i, count: perLane, n: i * perLane + 1 }));
-      const cores = Math.max(1, Math.min(lanesN, (navigator.hardwareConcurrency || 4) - 1, 12));
+      let n = 1;
+      const lanes = r.lanes.map((l) => {
+        const lane = { base: l.base, vout: l.vout, count: l.count, n };
+        n += l.count;
+        return lane;
+      });
+      const cores = Math.max(1, Math.min(lanes.length, (navigator.hardwareConcurrency || 4) - 1, 12));
+      const via = stormBroadcaster();
       let failed: string | null = null;
+      loadMark(`storm: ${lanes.length} lanes, ${MAX_DEPTH} deep, via ${via}`);
       // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
       const { sent, lastWhy, net } = await runStorm({
         workerUrl: '/storm-worker.js',
-        baseHex: base.toHex(),
+        baseHex: r.bases[0].toHex(),
+        moreHex: r.bases.slice(1).map((t) => t.toHex()),
         lanes,
         wif: this.key.toWif(),
         token,
         step,
         game: tag.game,
         extra: tag.extra,
+        arcs: [via === 'arcade' ? ARCADE_DEFAULT : ARC_DEFAULT],
+        broadcaster: via,
+        maxDepth: MAX_DEPTH,
         cores,
         stop,
         paused,
         onSent: onProgress,
         onWhy: () => onStatus('STALL'),
+        onBatch: batchLogger(),
       });
-      // What ARC said about each accepted blast: only SEEN_ON_NETWORK-type statuses are on the network now; STORED /
-      // QUEUED / SEEN_IN_ORPHAN_MEMPOOL are held by ARC and relayed later (the owner's "batch long after", 25 Oct).
-      loadMark(`ARC statuses: ${JSON.stringify(net.statuses)} (seen on network: ${net.seen}/${sent})`);
-      if (!sent) failed = `ARC took no blasts: ${lastWhy ?? 'no reason given'}`;
-      // Session end: merge every lane end (and the split's change) back into one coin once the last blasts
-      // settle, and save it. The split's lanes are spent by the workers: never reuse them.
-      await new Promise((r) => setTimeout(r, 6000));
-      if (sent) for (let i = 0; i < lanesN; i++) this.spent.add(`${base.id('hex')}_${i}`);
+      // What the broadcaster said about each accepted blast: only SEEN_ON_NETWORK-type statuses are on the network
+      // now; STORED / QUEUED / SEEN_IN_ORPHAN_MEMPOOL are held and relayed later (the owner's "batch long after", 25 Oct).
+      loadMark(`${via} statuses: ${JSON.stringify(net.statuses)} (seen on network: ${net.seen}/${sent}, orphans ${net.orphans})`);
+      if (!sent) failed = `${via} took no blasts: ${lastWhy ?? 'no reason given'}`;
+      // Session end: merge the lane ends (and the fan-out change) back into one coin once the last blasts settle,
+      // and save it. The fan-out's lanes are spent by the workers: never reuse them.
+      await new Promise((ok) => setTimeout(ok, 6000));
+      if (sent) for (const l of lanes) this.spent.add(`${r.bases[l.base].id('hex')}_${l.vout}`);
       try {
         const coins = await this.candidates();
         if (coins.length > 1) await this.consolidate(coins);
@@ -1050,8 +1144,9 @@ export class Gun {
         burn: { id: r.id, per: r.per.toString(), toLockHex: new P2PKH().lock(BURN_ADDRESS).toHex() },
         onSent: onProgress,
         onWhy: () => onStatus('STALL'),
+        onBatch: batchLogger(),
       });
-      loadMark(`coin ARC statuses: ${JSON.stringify(net.statuses)} (seen on network: ${net.seen}/${sent})`);
+      loadMark(`coin ARC statuses: ${JSON.stringify(net.statuses)} (seen on network: ${net.seen}/${sent}, orphans ${net.orphans})`);
       // Lane coins are spent by the workers: never reuse them. What is left on each lane is found again by the index.
       if (sent)
         for (const l of r.lanes) {
