@@ -32,22 +32,28 @@ self.onmessage = async (e: MessageEvent) => {
   }
   if (m.type !== 'start') return;
   paused = Boolean(m.paused);
-  const base = Transaction.fromHex(m.hex);
-  await runLanes(
-    {
-      priv: Uint8Array.from(PrivateKey.fromWif(m.wif).toArray('be', 32)),
-      token: m.token,
-      baseTxid: base.id('hex'),
-      baseValues: base.outputs.map((o) => o.satoshis ?? 0),
-      lanes: m.lanes,
-      burn: m.burn && typeof m.burn.id === 'string' ? { id: m.burn.id, per: String(m.burn.per), toLockHex: String(m.burn.toLockHex) } : undefined,
-      step: m.step,
-      game: typeof m.game === 'string' && m.game ? m.game : undefined,
-      extra: m.extra,
-      arcs: Array.isArray(m.arcs) ? m.arcs : undefined,
-      waitFor: typeof m.waitFor === 'string' ? m.waitFor : undefined,
-    },
-    { stopped: () => stopped, paused: () => paused, emit: (o) => self.postMessage(o) },
-  );
-  self.postMessage({ type: 'done' });
+  try {
+    const base = Transaction.fromHex(m.hex);
+    await runLanes(
+      {
+        priv: Uint8Array.from(PrivateKey.fromWif(m.wif).toArray('be', 32)),
+        token: m.token,
+        baseTxid: base.id('hex'),
+        baseValues: base.outputs.map((o) => o.satoshis ?? 0),
+        lanes: m.lanes,
+        burn: m.burn && typeof m.burn.id === 'string' ? { id: m.burn.id, per: String(m.burn.per), toLockHex: String(m.burn.toLockHex) } : undefined,
+        step: m.step,
+        game: typeof m.game === 'string' && m.game ? m.game : undefined,
+        extra: m.extra,
+        arcs: Array.isArray(m.arcs) ? m.arcs : undefined,
+        waitFor: typeof m.waitFor === 'string' ? m.waitFor : undefined,
+      },
+      { stopped: () => stopped, paused: () => paused, emit: (o) => self.postMessage(o) },
+    );
+  } catch (err) {
+    self.postMessage({ type: 'why', text: err instanceof Error ? err.message : String(err) });
+  } finally {
+    // Always say done: runStorm (and the gun lock behind it) waits for every worker's done.
+    self.postMessage({ type: 'done' });
+  }
 };

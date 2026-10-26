@@ -142,3 +142,43 @@ test('an error mentioning reload shows the wallet\'s own words', async () => {
   const t = walletErrorText(new Error('Extension context invalidated, please reload the page'), { kind: 'extension', name: 'bWalletX' });
   assert.match(t, /Extension context invalidated/);
 });
+
+// 26 Oct 2026: a background call that never settles must not hold the queue, and must not read as "alive".
+test('every queued call has a deadline: a hung call leaves the queue and the next one reaches the wallet', async () => {
+  const { setWalletCallTimeout } = await import('./wallet');
+  setWalletCallTimeout(30);
+  try {
+    let encrypts = 0;
+    let created = 0;
+    const raw = {
+      encrypt: async () => (encrypts++, never()),
+      createAction: async () => (created++, created === 1 ? never() : { txid: 'x' }),
+    } as unknown as WalletInterface;
+    const c = serialised(raw);
+    const hung = c.encrypt({ plaintext: [1], protocolID: [1, 'x'], keyID: '1' });
+    await assert.rejects(hung, /WALLET_TIMEOUT/);
+    assert.equal(walletBusy(c), false, 'the hung call left the queue');
+    // A call queued behind a payment that is still open expires without ever reaching the wallet.
+    const pay = c.createAction({ description: 'pay', outputs: [] });
+    pay.catch(() => undefined);
+    const behind = c.encrypt({ plaintext: [2], protocolID: [1, 'x'], keyID: '1' });
+    await assert.rejects(behind, /WALLET_TIMEOUT/);
+    assert.equal(encrypts, 1, 'the expired queued call never reached the wallet');
+    cancelWalletCalls(c);
+    await c.createAction({ description: 'pay', outputs: [] });
+    assert.equal(created, 2);
+  } finally {
+    setWalletCallTimeout();
+  }
+});
+
+test('walletAlive reports busy (not alive) while calls are queued', async () => {
+  const { walletAlive } = await import('./wallet');
+  const raw = { encrypt: () => never(), isAuthenticated: async () => ({ authenticated: true }) } as unknown as WalletInterface;
+  const client = serialised(raw);
+  const w = { client, publicKey: KEY, address: '', id: 'shim', name: 'Shim' };
+  void client.encrypt({ plaintext: [1], protocolID: [1, 'x'], keyID: '1' }).catch(() => undefined);
+  assert.equal(await walletAlive(w, 20), 'busy');
+  cancelWalletCalls(client);
+  assert.equal(await walletAlive(w, 20), true);
+});

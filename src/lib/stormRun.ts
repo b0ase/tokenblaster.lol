@@ -33,6 +33,9 @@ export type StormRunOpts = {
 export type StormNet = { seen: number; statuses: Record<string, number> };
 export type WorkerStats = { signed: number; posted: number; accepted: number; signMs: number; postMs: number; posts: number };
 
+/** After stop, a worker gets this long to say done (it covers POST_TRIES x POST_TIMEOUT_MS plus back-off), then it is terminated. */
+export const STOP_KILL_MS = 40_000;
+
 export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy?: string; stats: WorkerStats; net: StormNet }> {
   const cores = Math.max(1, Math.min(o.lanes.length, o.cores));
   let sent = 0;
@@ -45,14 +48,20 @@ export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy
       return new Promise<void>((done) => {
         const wk = new Worker(o.workerUrl, { type: 'module' });
         let wasPaused: boolean | null = null;
+        let kill: ReturnType<typeof setTimeout> | undefined;
         const poll = setInterval(() => {
-          if (o.stop()) return wk.postMessage({ type: 'stop' });
+          if (o.stop()) {
+            // A worker stuck past every POST deadline must not hold the session (and the gun lock) for ever.
+            kill ??= setTimeout(end, STOP_KILL_MS);
+            return wk.postMessage({ type: 'stop' });
+          }
           const p = o.paused();
           if (p !== wasPaused) wk.postMessage({ type: p ? 'pause' : 'resume' });
           wasPaused = p;
         }, 50);
         const end = () => {
           clearInterval(poll);
+          clearTimeout(kill);
           wk.terminate();
           done();
         };
