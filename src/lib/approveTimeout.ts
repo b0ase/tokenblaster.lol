@@ -13,7 +13,8 @@ export const APPROVE_TIMEOUT_MS = 20_000;
  * ~8 s) or the player never answered it (ERR_PROMPT_EXPIRED, 408, 60 s). Both mean "didn't respond", not a refusal:
  * the game shows Retry / Cancel at once instead of a generic failure. The same goes for a wallet that was not ready
  * (ERR_WALLET_NOT_READY, 503), could not fund in time (ERR_FUNDING_TIMEOUT, 504) or stayed locked
- * (ERR_WALLET_LOCKED_TIMEOUT, 408). Retry still checks the first request did not pay before re-sending.
+ * (ERR_WALLET_LOCKED_TIMEOUT, 408), or was still busy with another open sheet (ERR_PROMPT_BUSY, 409, yours-mobile #368).
+ * Retry still checks the first request did not pay before re-sending.
  */
 export const NO_PROMPT_CODES = [
   'ERR_PROMPT_NOT_SHOWN',
@@ -21,6 +22,7 @@ export const NO_PROMPT_CODES = [
   'ERR_WALLET_NOT_READY',
   'ERR_FUNDING_TIMEOUT',
   'ERR_WALLET_LOCKED_TIMEOUT',
+  'ERR_PROMPT_BUSY',
 ] as const;
 export function isPromptNoResponse(e: unknown): boolean {
   if (!e) return false;
@@ -28,7 +30,7 @@ export function isPromptNoResponse(e: unknown): boolean {
   const text = `${String(o.code ?? '')} ${typeof e === 'string' ? e : String(o.message ?? '')}`;
   if (NO_PROMPT_CODES.some((c) => text.includes(c))) return true;
   const status = Number(o.status);
-  return (status === 503 || status === 408) && /prompt/i.test(text);
+  return (status === 503 || status === 408 || status === 409) && /prompt/i.test(text);
 }
 
 /** A wallet request that outlived our timer. `done` settles when the request finally does. */

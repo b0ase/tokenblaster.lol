@@ -337,7 +337,7 @@ export function CabinetModals(p: {
   if (p.modal === 'timeout')
     return (
       <Modal title={`${p.walletName ?? 'bWalletX'} didn't respond.`} tone="bad" action="Retry" onAction={p.retry ?? p.reconnect} pulse secondary="Cancel" onSecondary={p.giveUp ?? (() => p.setModal(null))}>
-        No approval sheet came up. Retry sends the same payment again, after checking the first one didn&apos;t go through, so you are never charged twice. If it shows up late and you approve it, the game starts.
+        No approval sheet came up. Finish or close the open bWalletX window, then Retry. Retry sends the same payment again, after checking the first one didn&apos;t go through, so you are never charged twice. If it shows up late and you approve it, the game starts.
       </Modal>
     );
   if (p.modal === 'failed')

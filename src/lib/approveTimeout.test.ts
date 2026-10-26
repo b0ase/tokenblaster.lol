@@ -82,7 +82,7 @@ test('retry: request pays in the instant it is cancelled → paid, no re-send', 
   assert.equal(out, 'paid');
 });
 
-for (const [code, status] of [['ERR_PROMPT_NOT_SHOWN', 503], ['ERR_PROMPT_EXPIRED', 408]] as const) {
+for (const [code, status] of [['ERR_PROMPT_NOT_SHOWN', 503], ['ERR_PROMPT_EXPIRED', 408], ['ERR_PROMPT_BUSY', 409]] as const) {
   test(`${code} (${status}) → "didn't respond" at once, Retry checks the chain then re-sends`, async () => {
     const err = Object.assign(new Error('bWalletX: prompt'), { code, status });
     const t0 = Date.now();
