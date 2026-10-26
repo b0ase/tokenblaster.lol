@@ -120,7 +120,17 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 /** Option A (coin-ammo swap-on-load + bulk burn) is off in Assault (owner, 25 Oct: receipts replace it). Code kept. */
 const COIN_AMMO_UI = false;
 
-export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {}) {
+export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?: boolean } = {}) {
+  // GUEST / DEMO (owner, 26 Oct: "zero out of ten for onboarding"): PLAY FREE runs the same free-play path as
+  // NEXT_PUBLIC_GALLERY_PAID=0: simulated rounds, no wallet, nothing paid or broadcast. A wallet is only asked for
+  // when the player picks PAID ROUNDS (LOCK & LOAD).
+  const [guest, setGuest] = useState(false);
+  const [coarse, setCoarse] = useState(false); // a touch screen: touch hints and the FIRE button
+  useEffect(() => {
+    void Promise.resolve().then(() => setCoarse(window.matchMedia('(pointer: coarse)').matches));
+  }, []);
+  const [guestPending, setGuestPending] = useState(false);
+  const freePlay = freePlayProp || guest;
   const b = useBlaster();
   const { storm, fireBatch } = b;
   const { name, hasPaymail } = usePlayerName();
@@ -1095,7 +1105,22 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
     cab.onCoin(usd);
     setQuickLoad(true);
   };
+  useEffect(() => {
+    if (!guestPending || !dry || !ready) return;
+    void Promise.resolve().then(() => {
+      setGuestPending(false);
+      void lockRef.current();
+    });
+  }, [guestPending, dry, ready]);
+  const startGuest = () => {
+    unlockAudio();
+    setGuest(true);
+    setGuestPending(true);
+    setLoadout(false);
+  };
   const startRef = useRef(startCabinet);
+  // START on the start card: free practice (guest), or the house free play when production runs it.
+  const startFree = () => (freePlayProp ? (unlockAudio(), ready ? startCabinet() : (setGuestPending(true), setLoadout(false))) : startGuest());
   useEffect(() => {
     startRef.current = startCabinet;
   });
@@ -1164,7 +1189,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
   const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * (perShotAll + (rc.live && rc.q ? rc.q.nextPriceSats : 0)), bsvUsd), practice: simulated } : null;
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
-  const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.`));
+  const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · ${coarse ? 'HOLD FIRE. Left thumb: move · right thumb: aim.' : 'HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.'}`));
   const toBoard = () => {
     setOver(null);
     setLoadout(true);
@@ -1241,12 +1266,18 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </svg>
         </div>
         {/* The city builds quietly behind the loadout; this only shows if play starts before it's ready (owner, 24 Oct). */}
+        {!ready && (
+          // The game art shows at once (no black void) while WebGL and the city load behind it.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src="/hero/assault.jpg" alt="" aria-hidden fetchPriority="high" className="pointer-events-none absolute inset-0 z-[4] h-full w-full object-cover" data-poster />
+        )}
         {!ready && !loadout && (
-          <div className="absolute inset-0 z-[5] grid place-items-center bg-[#03070c]/90">
+          <div className="absolute inset-0 z-[5] grid place-items-center bg-[#03070c]/45">
             <div className="tbx-glass tbx-pop w-[min(300px,80vw)] p-4 text-center">
               <p className="tbx-eyebrow mb-3 flex items-center justify-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
                 <Icon name="chip" size={14} /> Building Neo-Tokyo
               </p>
+              {guestPending && <p className="mb-2 text-xs font-bold tracking-[0.2em] text-[var(--tbx-amber)]">FREE PRACTICE · STARTS BY ITSELF</p>}
               <div className="tbx-bar">
                 <i style={{ transform: `scaleX(${Math.max(0.04, progress)})` }} />
               </div>
@@ -1268,13 +1299,13 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         {!loadout && !over && !simulated && <OnChainPanel accepted={run.sent} tps={run.tps} feed={feed} simulated={false} />}
         {/* INSERT $b is the attract screen (owner, 25 Oct): only while nobody is playing and there is no credit, never over a
             game in progress. In paid play the cabinet's INSERT $b heading does this job, so this overlay is free play only. */}
-        {!loadout && !over && simulated && mode === 'off' && (
+        {!loadout && !over && simulated && mode === 'off' && !guestPending && ready && (
           <div className="pointer-events-none absolute inset-x-0 top-[18%] z-10 flex flex-col items-center px-4 text-center" data-insert-coin>
             {/* the button: no wallet → connect one; with a wallet → back to the cabinet to put a coin in */}
             <style>{`@keyframes tbx-coin-blink{0%,49%{opacity:1}50%,100%{opacity:.12}}@media (prefers-reduced-motion:reduce){[data-insert-coin] button{animation:none!important}}`}</style>
             <button
               type="button"
-              onClick={() => (barWallet ? setLoadout(true) : b.setChooser({ note: 'Connect a wallet to put a coin in.' }))}
+              onClick={() => (guest ? startGuest() : barWallet ? setLoadout(true) : b.setChooser({ note: 'Connect a wallet to put a coin in.' }))}
               className="pointer-events-auto cursor-pointer rounded-md bg-black/70 px-5 py-2 font-black tracking-[0.12em] text-[var(--tbx-red)] ring-2 ring-[var(--tbx-red)]/70 backdrop-blur-sm"
               style={{ fontSize: 'clamp(40px, 9vw, 112px)', lineHeight: 1, textShadow: '0 0 18px rgba(255,59,48,.6), 0 3px 0 #000', animation: 'tbx-coin-blink 1.1s steps(1) infinite' }}
             >
@@ -1286,7 +1317,7 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
           </div>
         )}
         {!loadout && !over && simulated && (
-          <div className="tbx-glass pointer-events-none absolute bottom-[150px] right-1.5 z-10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-[var(--tbx-amber)] sm:bottom-[88px] sm:right-3" data-practice-badge>
+          <div className="tbx-glass pointer-events-none absolute bottom-[150px] right-1.5 z-10 px-3 [@media(pointer:coarse)]:hidden py-1.5 text-[10px] font-bold tracking-[0.2em] text-[var(--tbx-amber)] sm:bottom-[88px] sm:right-3" data-practice-badge>
             {PRACTICE.badge.toUpperCase()}
           </div>
         )}
@@ -1451,12 +1482,36 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
             <UnloadButton b={b} creditUsd={cab.creditUsd} />
           </div>
         )}
+        {/* FIRE (touch): hold to fire. The right half of the screen still drags the view and fires too. */}
+        {mode !== 'off' && !loadout && !over && !paused && !flat && (
+          <button
+            type="button"
+            aria-label="Fire (hold)"
+            className="absolute bottom-[calc(178px+env(safe-area-inset-bottom))] right-4 z-30 grid h-[88px] w-[88px] touch-none select-none place-items-center rounded-full border-2 border-[var(--tbx-red)] bg-[var(--tbx-red)]/35 text-sm font-black tracking-[0.18em] text-white shadow-[0_0_24px_rgba(232,38,29,.55)] backdrop-blur-sm active:bg-[var(--tbx-red)]/70 [@media(pointer:fine)]:hidden"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              try {
+                (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
+              } catch {
+                /* capture is a nicety */
+              }
+              engine.current?.setTrigger(true);
+            }}
+            onPointerUp={(e) => (e.stopPropagation(), engine.current?.setTrigger(false))}
+            onPointerCancel={() => engine.current?.setTrigger(false)}
+            onContextMenu={(e) => e.preventDefault()}
+            data-fire
+          >
+            FIRE
+          </button>
+        )}
         {/* PAUSE button (works on phones) */}
         {mode === 'live' && !loadout && !over && (
           <button
             type="button"
             onClick={togglePause}
-            className="tbx-glass absolute right-3 top-3 z-40 rounded-full px-3 py-1.5 text-xs font-bold tracking-widest text-white"
+            className="tbx-glass absolute right-3 top-3 z-40 rounded-full px-3 py-1.5 text-xs font-bold tracking-widest text-white [@media(pointer:coarse)]:bottom-[calc(278px+env(safe-area-inset-bottom))] [@media(pointer:coarse)]:right-5 [@media(pointer:coarse)]:top-auto [@media(pointer:coarse)]:py-2.5"
             aria-label={paused ? 'Resume' : 'Pause'}
             data-pause
           >
@@ -1508,6 +1563,29 @@ export function ShootingGallery({ freePlay = false }: { freePlay?: boolean } = {
         {/* LOADOUT */}
         {loadout && !over && (
           <Loadout
+            start={
+              <section className="tbx-glass relative overflow-hidden rounded-xl p-0" data-start-card>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/hero/assault.jpg" alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover opacity-70" />
+                <div className="relative flex flex-col gap-3 bg-gradient-to-t from-black/90 via-black/55 to-black/10 p-4 pt-24 sm:flex-row sm:items-end sm:justify-between sm:p-6 sm:pt-32">
+                  <div>
+                    <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">{freePlay ? 'FREE PRACTICE · NO WALLET · NOTHING ON CHAIN' : 'NEW HERE? PLAY FREE FIRST'}</p>
+                    <p className="mt-1 max-w-[440px] text-sm text-white/85">Practice rounds are simulated: nothing is paid, signed or broadcast. Pick PAID ROUNDS later to fire real BSV transactions.</p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:items-end">
+                    <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-10 py-2 text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>
+                      ▶ START <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
+                    </button>
+                    {guest && !freePlayProp && (
+                      <button type="button" onClick={() => setGuest(false)} className="text-xs font-bold tracking-[0.18em] text-[var(--tbx-teal)] underline underline-offset-4" data-go-paid>
+                        PAID ROUNDS INSTEAD (LOCK &amp; LOAD, NEEDS A WALLET)
+                      </button>
+                    )}
+                    {!guest && !freePlayProp && <p className="text-[11px] tracking-[0.14em] text-white/60">PAID ROUNDS: LOCK &amp; LOAD BELOW</p>}
+                  </div>
+                </div>
+              </section>
+            }
             levels={<LevelSelect progress={levels} active={levelId} onPick={(id) => (setLevelClear(null), pickLevel(id))} />}
             weapons={weapons}
             weaponId={weaponId}

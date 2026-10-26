@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadGunModel } from '@/lib/ordnanceModels';
@@ -13,9 +13,15 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
     activeRef.current = active;
   }, [active]);
 
+  // Phones: one WebGL context per card is too many for iOS (memory, context limits), so only the chosen gun turns in 3D.
+  const [coarse, setCoarse] = useState(false);
+  useEffect(() => {
+    void Promise.resolve().then(() => setCoarse(window.matchMedia('(pointer: coarse)').matches));
+  }, []);
+  const live = !coarse || active;
   useEffect(() => {
     const cv = ref.current;
-    if (!cv) return;
+    if (!cv || !live) return;
     const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -79,7 +85,8 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
       ro.disconnect();
       renderer.dispose();
     };
-  }, [url]);
+  }, [url, live]);
 
+  if (!live) return <div className="grid h-28 w-full place-items-center rounded-md bg-gradient-to-br from-white/5 to-transparent text-[10px] font-bold tracking-[0.3em] text-white/35 sm:h-36" aria-hidden>TAP TO EQUIP</div>;
   return <canvas ref={ref} className="h-28 w-full sm:h-36" aria-hidden />;
 }

@@ -90,12 +90,15 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
               title={title}
               tools={
                 <>
-                  <Link href={back} className={roundBtn} aria-label={`Back to ${backLabel.toLowerCase()}`} title={`Back to ${backLabel.toLowerCase()}`}>
-                    <BackIcon size={16} />
-                  </Link>
-                  {liveTicker && <GoLiveButton ticker={liveTicker} root={root} />}
-                  <LeaderboardButton />
-                  <SoundButton />
+                  {/* Phones: the bar only has room for the menu, the mode tabs and Connect (back is in the menu; scores and sound are in the game). */}
+                  <span className="hidden sm:contents">
+                    <Link href={back} className={roundBtn} aria-label={`Back to ${backLabel.toLowerCase()}`} title={`Back to ${backLabel.toLowerCase()}`}>
+                      <BackIcon size={16} />
+                    </Link>
+                    {liveTicker && <GoLiveButton ticker={liveTicker} root={root} />}
+                    <LeaderboardButton />
+                    <SoundButton />
+                  </span>
                   {canFs && <FullscreenButton on={fs} onToggle={() => (fs ? exit() : enter())} />}
                   {/* A game's own mode tabs live in the bar, not above the stage (owner, 25 Oct 2026: TERRORNODE SOLO / TEAM). */}
                   {tabs}
