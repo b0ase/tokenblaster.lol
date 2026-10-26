@@ -347,7 +347,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           </div>
           {!ready && (
             <div className="mx-auto mt-5 w-full max-w-md" data-team-cabinet>
-              <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} cancel={cab.cancel} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
+              <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} cancel={cab.cancel} retry={cab.retry} giveUp={cab.giveUp} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
               <CoinCabinet
                 title="TERRORNODE Team"
                 creditUsd={cab.creditUsd}

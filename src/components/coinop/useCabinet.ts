@@ -74,6 +74,8 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
   const keepPayAfter = useRef(false);
 
   const [landed, setLanded] = useState(0);
+  /** The game to start if a timed-out payment is approved late. */
+  const lateGo = useRef<(() => void) | null>(null);
   const [payAfterConnect, setPayAfterConnect] = useState(false);
   const doPay = useCallback(async () => {
     setErr(null);
@@ -124,6 +126,7 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
       setStageText(null);
       return;
     }
+    if (res === 'timeout') lateGo.current = go; // a late approval still starts the game
     if (res !== 'ok') {
       after.current = null;
       setStage(null);
@@ -180,6 +183,37 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
   }, [site.cancels]);
   const cancel = useCallback(() => cancelSiteWalletWait(), []);
 
+  /** "bWalletX didn't respond." → Retry: the same request; useBlaster checks the first one paid before re-sending. */
+  const retry = useCallback(() => {
+    loadMark('retry pressed');
+    setModal(null);
+    if (lateGo.current) after.current = lateGo.current;
+    lateGo.current = null;
+    void doPay();
+  }, [doPay]);
+  /** "bWalletX didn't respond." → Cancel: close it. A late approval is still honoured as credit. */
+  const giveUp = useCallback(() => {
+    loadMark('approve timeout: cancelled by player');
+    setModal(null);
+    lateGo.current = null;
+  }, []);
+  // The timed-out request paid after all: no new charge, clear the slot and start the game.
+  const lateSeen = useRef(b.latePaid);
+  useEffect(() => {
+    if (b.latePaid === lateSeen.current) return;
+    lateSeen.current = b.latePaid;
+    const go = lateGo.current;
+    lateGo.current = null;
+    void Promise.resolve().then(() => {
+      setPending(0);
+      setModal((m) => (m === 'timeout' ? null : m));
+      setStage('ready');
+      setStageText(null);
+      if (go) after.current = go;
+      setLanded((n) => n + 1);
+    });
+  }, [b.latePaid]);
+
   /** The modal's Reconnect: give up on the open request, ask the wallet afresh, then pay what is pending. */
   const reconnect = useCallback(() => {
     loadMark('reconnect wallet');
@@ -217,5 +251,5 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
   }, [b.error]);
 
-  return { modal, setModal, reconnect, cancel, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
+  return { modal, setModal, reconnect, cancel, retry, giveUp, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
 }
