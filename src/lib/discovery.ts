@@ -4,6 +4,7 @@
  */
 import { HTTPWalletJSON, WalletClient, type WalletInterface } from '@bsv/sdk';
 import { resumePhone } from './pair/site';
+import { CLI_URL, cliFetch } from './cliWallet';
 
 export type WalletKind = 'extension' | 'in-app' | 'web' | 'desktop' | 'phone';
 /** `fresh`: just paired by QR (a new session, maybe another phone): its key is asked for, never reused. */
@@ -159,7 +160,7 @@ async function discoverAll(): Promise<WalletEntry[]> {
   const injected = list.some((w) => w.kind === 'extension' || w.kind === 'in-app') || Boolean(cwi);
   if (!isPhone() && shouldProbeLocal({ seen: localWalletSeen(), query: window.location.search, injected })) {
     try {
-      const desk = new HTTPWalletJSON(window.location.host, 'http://localhost:3321');
+      const desk = new HTTPWalletJSON(window.location.host, CLI_URL, cliFetch());
       await withTimeout(desk.getVersion({}), 1500);
       markLocalWalletSeen();
       list.push({ id: 'metanet.desktop', name: 'BSV Desktop', icon: '/wallets/bsv-desktop.png', kind: 'desktop', wallet: desk });
