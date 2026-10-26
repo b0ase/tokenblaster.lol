@@ -79,7 +79,7 @@ Terrornode", and the bWalletX Exchange hides curve buy/sell when `trading` is fa
 
 ### $TERRORNODE receipts
 
-Every LIVE bullet in Assault on Terrornode buys 1 receipt. Receipt #n costs
+Every LIVE bullet in Escape from TERRORNODE buys 1 receipt. Receipt #n costs
 `1 + (pennySats − 1) × (n − 1) / (1e9 − 1)` sats (1 sat → 1 US penny at the live rate). At session end the gun sends
 ONE settlement tx: an OP_RETURN `tokenblaster.lol terrornode receipts <count> <recipient> <session> <handle>`, the
 receipt money to the creator `1F4J9KkMoqtznXPJuCgb98LRymssc8MFfd` and 300 sats of transfer gas to the pool's token

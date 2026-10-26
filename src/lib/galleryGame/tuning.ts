@@ -1,5 +1,5 @@
 /**
- * Every combat number for ASSAULT ON TERRORNODE, in one place, including ALL the stage tuning (`run`, `stages`,
+ * Every combat number for ESCAPE FROM TERRORNODE, in one place, including ALL the stage tuning (`run`, `stages`,
  * `horde`, `stageFlow`): the ten-minute block, the auto-walk, the Erobot lanes, the monster swarm, the boss.
  *
  * Shape of the difficulty (owner, 24 Oct 2026, for the BSV stress test): a constant swarm the minigun can hold

@@ -12,12 +12,12 @@ const FRAMES = ['/gallery/loading/street-left.webp', '/gallery/loading/tower.web
 /** The home page's Shooting Gallery feature: key art, HUD corners, a filmstrip of the story stills, the prize strip under it. */
 export function GalleryCard() {
   return (
-    <section aria-label="Assault on Terrornode" className={`${tbxFontClass} dr-band flex flex-col gap-3`} data-reveal>
+    <section aria-label="Escape from TERRORNODE" className={`${tbxFontClass} dr-band flex flex-col gap-3`} data-reveal>
       {/* A card, not one big link: the art is a link and INSERT $b is a real, focusable button-styled link (flow test, 25 Oct). */}
       <div className="hp-gal group">
         <div className="hp-gal-main">
           <Link href="/arcade/terrornode" tabIndex={-1} aria-hidden className="absolute inset-0 z-[2]">
-            <span className="sr-only">Assault on Terrornode</span>
+            <span className="sr-only">Escape from TERRORNODE</span>
           </Link>
           <Image src="/gallery/loading/boss-fire.webp" fill sizes="100vw" alt="The Liquid Unit roars in the rain outside the TERRORNODE tower, Neo-Tokyo 2048" />
           <div className="hp-gal-shade" aria-hidden />
@@ -35,13 +35,13 @@ export function GalleryCard() {
           <div className="hp-gal-copy">
             <span className="hp-gal-live">
               <b aria-hidden />
-              Assault on Terrornode · 31 Oct stress test
+              Escape from TERRORNODE · 31 Oct stress test
             </span>
             <p className="hp-gal-title">{GAME_TITLE}</p>
             <p className="max-w-xl text-[clamp(14px,1.5vw,17px)] leading-relaxed text-[var(--tbx-dim)]">
               Neo-Tokyo, 2048. Dr Kweg Wong has turned his Erobots on the city. Join the Ninja Punk Girls, drop a coin in and hold the trigger: in paid play every round is a real transaction.
             </p>
-            <Link href="/arcade/terrornode" role="button" data-insert-b className="tbx-btn tbx-btn-red pointer-events-auto relative z-10 mt-1 self-start !px-7 !text-[15px]" aria-label="Insert $b: play Assault on Terrornode">
+            <Link href="/arcade/terrornode" role="button" data-insert-b className="tbx-btn tbx-btn-red pointer-events-auto relative z-10 mt-1 self-start !px-7 !text-[15px]" aria-label="Insert $b: play Escape from TERRORNODE">
               INSERT <span className="normal-case">$b</span> &raquo;
             </Link>
           </div>

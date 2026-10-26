@@ -655,7 +655,7 @@ const CITY = [
 ];
 /** bRacer: the fastest tracks on the site (180-196 BPM). */
 const BRACER = [ARCADE[2], ARCADE[3], PUNK[2], PUNK[3], CITY[1], CITY[0], ARCADE[1]];
-/** ASSAULT ON TERRORNODE: the hard NPG-X rock only (no Harajuku Chainsaw). The game skips to the next song on every new attempt and stage. */
+/** ESCAPE FROM TERRORNODE: the hard NPG-X rock only (no Harajuku Chainsaw). The game skips to the next song on every new attempt and stage. */
 const TERROR = [PUNK[0], PUNK[1], PUNK[3], CITY[2]];
 export const PLAYLISTS: Record<Track, Song[]> = {
   bracer: BRACER,

@@ -4,7 +4,7 @@
  * cover is drawn where the server blocks shots).
  *
  *  - STREET: the Shooting Gallery's Neo-Tokyo street (every level before MELEE), a 44 x 74 m strip.
- *  - MELEE: the TERRORNODE PLAZA (owner, 26 Oct: "big multiplayer ASSAULT ON TERRORNODE, lots of people on a live
+ *  - MELEE: the TERRORNODE PLAZA (owner, 26 Oct: "big multiplayer ESCAPE FROM TERRORNODE, lots of people on a live
  *    stream all blasting at once"). A round stadium plaza 156 m across around the TERRORNODE tower: the floor, then
  *    three terraces rising outward on ramps, pillars and barricades for cover, wide sightlines to the tower, 32 spawn
  *    points spread round the rim and 8 horde gates. Room for 64 players without crowding (~19,000 m² of floor, about

@@ -15,7 +15,7 @@ const PRESETS: Record<string, { sym: string; name: string; about: string; image:
   terrornode: {
     sym: 'TERRORNODE',
     name: 'Terrornode',
-    about: 'Ammo for Assault on Terrornode. Every round you fire is burned on chain. Load it, hold the trigger.',
+    about: 'Ammo for Escape from TERRORNODE. Every round you fire is burned on chain. Load it, hold the trigger.',
     image: '/brand/terrornode-logo.png',
   },
 };

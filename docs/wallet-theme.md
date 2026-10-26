@@ -8,7 +8,7 @@ branch `bwallet`). tokenblaster.lol serves:
 | `public/.well-known/bwalletx-theme.json` | The site theme: "TokenBlaster", red on ink (the SIGNAL palette in `src/app/globals.css`) |
 | `public/brand/wallet-logo.png` | Logo (the site icon, 13 KB) |
 | `public/brand/wallet-card.jpg` | Card art (the arcade OG image, 140 KB) |
-| `public/.well-known/bwalletx-theme.assault.json` | Proposed sub-theme for ASSAULT ON TERRORNODE (below) |
+| `public/.well-known/bwalletx-theme.assault.json` | Proposed sub-theme for ESCAPE FROM TERRORNODE (below) |
 | `public/brand/assault-logo.svg`, `public/brand/assault-card.jpg` | Its logo and card art |
 
 `next.config.ts` serves both theme files and `/brand/*` with `Access-Control-Allow-Origin: *`.
@@ -18,7 +18,7 @@ text ≥ 4.5:1 on bg and surface, accent ≥ 3:1 on bg.
 | Theme | bg | surface | text | accent | accentHi | text/bg | text/surface | accent/bg |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | TokenBlaster | `#0A0A0C` | `#121317` | `#F2EFE6` | `#FF3B30` | `#FFB800` | 17.20 | 16.15 | 5.58 |
-| Assault on Terrornode | `#05090F` | `#0A121C` | `#E8F1F6` | `#FF3B3B` | `#3FD8E8` | 17.43 | 16.43 | 5.64 |
+| Escape from TERRORNODE | `#05090F` | `#0A121C` | `#E8F1F6` | `#FF3B3B` | `#3FD8E8` | 17.43 | 16.43 | 5.64 |
 
 The Assault colours are the game's TBX tokens (`src/components/coinop/ui.css`): Neo-Tokyo night ink, one red
 accent, teal as the highlight.

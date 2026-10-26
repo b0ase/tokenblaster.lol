@@ -1,7 +1,7 @@
 /**
  * $TERRORNODE receipts (owner-approved, 25 Oct 2026). Pure: shared by the browser, the server and the tests.
  *
- * Every LIVE bullet fired in ASSAULT ON TERRORNODE buys 1 TERRORNODE receipt. Receipt #n has its own price,
+ * Every LIVE bullet fired in ESCAPE FROM TERRORNODE buys 1 TERRORNODE receipt. Receipt #n has its own price,
  * linear from 1 sat (#1) to 1 US penny (#1,000,000,000), the penny at the live BSV/USD rate at sale time:
  *   price(n) = 1 + (pennySats − 1) × (n − 1) / (N − 1),   N = 1e9
  * At session end the gun pays the receipt money for the rounds fired to the creator address in ONE settlement tx

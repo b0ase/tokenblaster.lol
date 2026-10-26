@@ -1,7 +1,7 @@
 import { AssaultInfo } from '@/components/gallery/AssaultInfo';
 
 export const metadata = {
-  title: 'Top blasters · Assault on Terrornode',
+  title: 'Top blasters · Escape from TERRORNODE',
   description: 'The 31 Oct BSV stress test board, the prize and rules, and where to watch the rounds land.',
 };
 

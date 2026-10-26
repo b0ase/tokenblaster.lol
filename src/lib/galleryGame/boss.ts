@@ -1,5 +1,5 @@
 /**
- * The LIQUID UNIT: the FINAL boss of ASSAULT ON TERRORNODE. One of Dr Kweg S Wong's inventions gone mad (it is NOT
+ * The LIQUID UNIT: the FINAL boss of ESCAPE FROM TERRORNODE. One of Dr Kweg S Wong's inventions gone mad (it is NOT
  * Kweg), a seven-metre chrome giant guarding the roof of TERRORNODE HQ, an original faceless design.
  *
  * A properly rigged humanoid (Mixamo's faceless "X Bot" mannequin, `public/arena/models/liquid/xbot.glb`, see

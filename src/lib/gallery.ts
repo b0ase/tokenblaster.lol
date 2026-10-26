@@ -128,7 +128,7 @@ export type TxPattern = { kind: 'stream'; rate: number } | { kind: 'burst'; n: n
  * as this rate) has headroom over 2,000 accepted a second (docs/throughput.md).
  */
 export const STREAM_RATES: Record<string, number> = { minigun: 3000, plasmarifle: 3000, 'big-block': 3000 };
-/** The ASSAULT ON TERRORNODE rack: sustained high-volume streams only, no single shots or bursts. */
+/** The ESCAPE FROM TERRORNODE rack: sustained high-volume streams only, no single shots or bursts. */
 export const ASSAULT_GUNS = ['minigun', 'plasmarifle', 'big-block'] as const;
 export function txPattern(w: { id: string; auto: boolean; fireMs: number; pellets: number }): TxPattern {
   if (w.auto) return { kind: 'stream', rate: STREAM_RATES[w.id] ?? Math.round(Math.min(1500, (1500 * 70) / Math.max(70, w.fireMs)) / 10) * 10 };
