@@ -23,7 +23,23 @@ export type Role = 'site' | 'wallet';
 export type WalletInfo = { name: string; icon?: string; rdns: string };
 
 /** `s` (optional): the site's origin proof, a DER signature (hex) over pairProofMessage by a key in its well-known file. */
-export type PairLink = { v: string; r: string; c: string; k: string; o: string; e: number; s?: string };
+export type PairLink = {
+  v: string;
+  r: string;
+  c: string;
+  k: string;
+  o: string;
+  e: number;
+  s?: string;
+  /** v2 return (bwallet docs/PAIRING-ORIGIN-PROOF.md): where the wallet sends the player back after Allow. */
+  ret?: string;
+  /** v2: one-time request id, 16 random bytes base64url. */
+  rid?: string;
+  /** v2: which browser opened the link. */
+  b?: BrowserHint;
+  /** v2 proof over c, k, o, e, ret, rid, b. */
+  s2?: string;
+};
 
 /** Plaintext messages inside encrypted frames. */
 export type PairMessage =
@@ -65,6 +81,12 @@ export const newChannel = () => b64url(crypto.getRandomValues(new Uint8Array(16)
 export function pairUrl(link: PairLink): string {
   const q = new URLSearchParams({ v: link.v, r: link.r, c: link.c, k: link.k, o: link.o, e: String(link.e) });
   if (link.s) q.set('s', link.s);
+  if (link.ret && link.rid) {
+    q.set('ret', link.ret);
+    q.set('rid', link.rid);
+    if (link.b) q.set('b', link.b);
+    if (link.s2) q.set('s2', link.s2);
+  }
   return `https://${PAIR_HOST}/pair?${q}`;
 }
 
@@ -86,6 +108,14 @@ export function parsePairUrl(text: string, nowS = Math.floor(Date.now() / 1000))
   if (!Number.isFinite(link.e) || link.e < nowS) throw new Error('This code has expired. Ask the site for a new one.');
   const sig = g('s');
   if (sig && /^30[0-9a-f]{10,150}$/i.test(sig)) link.s = sig.toLowerCase();
+  const ret = g('ret');
+  if (ret && ret.length <= RET_MAX_BYTES) link.ret = ret;
+  const rid = g('rid');
+  if (RID_RE.test(rid)) link.rid = rid;
+  const b = g('b').toLowerCase();
+  if ((BROWSER_HINTS as readonly string[]).includes(b)) link.b = b as BrowserHint;
+  const sig2 = g('s2');
+  if (sig2 && /^30[0-9a-f]{10,150}$/i.test(sig2)) link.s2 = sig2.toLowerCase();
   return link;
 }
 
@@ -104,6 +134,58 @@ export const pairProofMessage = (l: Pick<PairLink, 'c' | 'k' | 'o' | 'e'>) =>
 /** Site side (server only): sign a link with the origin's pairing key. */
 export const signPairProof = (l: Pick<PairLink, 'c' | 'k' | 'o' | 'e'>, originKey: PrivateKey) =>
   Utils.toHex(originKey.sign(pairProofMessage(l)).toDER() as number[]);
+
+// ---- v2: return to the site (bwallet branch phone-signin-return, docs/PAIRING-ORIGIN-PROOF.md) ----
+// Ported verbatim from bitcoin-corp/bwallet src/pair/protocol.ts (signPairProofV2 / pairProofMessageV2).
+
+export const PAIR_INFO_V2 = 'bwallet-pair-v2';
+/** The return URL is at most 512 bytes; the request id is 16–64 base64url characters (16 random bytes = 22). */
+export const RET_MAX_BYTES = 512;
+export const RID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+export const BROWSER_HINTS = ['safari', 'chrome', 'firefox', 'samsung', 'edge', 'brave', 'other'] as const;
+export type BrowserHint = (typeof BROWSER_HINTS)[number];
+
+type V2Fields = Pick<PairLink, 'c' | 'k' | 'o' | 'e'> & { ret: string; rid: string; b?: string };
+export const pairProofMessageV2String = (l: V2Fields) =>
+  `${PAIR_INFO_V2}|proof|${l.c}|${l.k.toLowerCase()}|${l.o}|${l.e}|${l.ret}|${l.rid}|${l.b ?? ''}`;
+export const pairProofMessageV2 = (l: V2Fields) => Utils.toArray(pairProofMessageV2String(l), 'utf8');
+/** Site side (server only): the v2 proof (`s2`), sent next to `s` so older wallets still see the v1 proof. */
+export const signPairProofV2 = (l: V2Fields, originKey: PrivateKey) =>
+  Utils.toHex(originKey.sign(pairProofMessageV2(l)).toDER() as number[]);
+
+export const newRequestId = () => b64url(crypto.getRandomValues(new Uint8Array(16)));
+
+/**
+ * A return URL the wallet will accept: https, on the host of `o` or a subdomain of it (never a parent or a
+ * look-alike), no userinfo, no port, no fragment, at most 512 bytes (UTF-8).
+ */
+export function isValidReturnUrl(ret: string, o: string): boolean {
+  if (typeof ret !== 'string' || !ret || new TextEncoder().encode(ret).length > RET_MAX_BYTES) return false;
+  let u: URL, origin: URL;
+  try {
+    u = new URL(ret);
+    origin = new URL(o);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:' || origin.protocol !== 'https:') return false;
+  if (u.username || u.password || u.port || u.hash || ret.includes('#') || ret.includes('@')) return false;
+  if (u.href !== ret) return false; // what we sign is what the wallet parses
+  const h = u.hostname.toLowerCase();
+  const oh = origin.hostname.toLowerCase();
+  return h === oh || h.endsWith(`.${oh}`);
+}
+
+/** The browser that opened the link, from its UA (the wallet can't tell from the app). Brave hides in its UA. */
+export function browserHint(ua: string, isBrave = false): BrowserHint {
+  if (isBrave) return 'brave';
+  if (/SamsungBrowser/i.test(ua)) return 'samsung';
+  if (/Edg(e|A|iOS)?\//i.test(ua)) return 'edge';
+  if (/Firefox|FxiOS/i.test(ua)) return 'firefox';
+  if (/CriOS|Chrome\//i.test(ua)) return 'chrome';
+  if (/Safari\//i.test(ua) && /AppleWebKit/i.test(ua)) return 'safari';
+  return 'other';
+}
 
 export const relaySocketUrl = (relay: string, channel: string, role: Role, expiry?: number) => {
   const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(relay);

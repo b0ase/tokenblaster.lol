@@ -13,7 +13,8 @@
  */
 import { PublicKey } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
-import { PairError, disconnectPhone, getPhoneEnd, getPhoneStatus, subPhoneStatus } from './pair/site';
+import { PairError, disconnectPhone, getPhoneEnd, getPhoneStatus, resumeReturnedPairing, subPhoneStatus } from './pair/site';
+import { parseReturnHash } from './pair/returnStore';
 import { cancelWalletCalls, connect, onWalletHold, serialised, walletHeld, withTimeout, WALLET_CANCELLED, WALLET_HELD, type Wallet } from './wallet';
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
@@ -312,6 +313,17 @@ let resumed = false;
 export function resumeSiteWallet() {
   if (resumed || typeof window === 'undefined') return;
   resumed = true;
+  // Back from bWallet after Allow (v2 return, #bwx=ok&rid=…): finish that pairing, then connect as a fresh phone.
+  if (parseReturnHash(location.hash)) {
+    set({ waiting: { text: 'Finishing the connection with bWallet…', since: Date.now(), kind: 'discover' } });
+    void resumeReturnedPairing()
+      .then((p) => {
+        discoveryDone();
+        if (p) return connectEntry({ id: 'phone', name: `${p.phone} on your phone`, icon: null, kind: 'phone', wallet: p.wallet, fresh: true });
+      })
+      .catch(() => discoveryDone());
+    return;
+  }
   const id = rememberedWallet();
   if (!id || state.wallet) return;
   void discoverWallets()

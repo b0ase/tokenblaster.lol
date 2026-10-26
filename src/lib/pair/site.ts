@@ -3,7 +3,8 @@
  * relay channel, compare the 4-digit code, then hand back a WalletInterface whose calls travel to
  * the phone, end-to-end encrypted. To the rest of the site it is just another wallet in the chooser.
  */
-import { fetchPairProof } from './proof-client';
+import { fetchPairProofs } from './proof-client';
+import { parseReturnHash, savePending, takePending, withoutHash, type PendingPair } from './returnStore';
 import { PrivateKey, type WalletInterface } from '@bsv/sdk';
 import QRCode from 'qrcode';
 import {
@@ -13,7 +14,10 @@ import {
   Sealer,
   deriveSession,
   isSealed,
+  browserHint,
+  isValidReturnUrl,
   newChannel,
+  newRequestId,
   pairUrl,
   relaySocketUrl,
   type HelloFrame,
@@ -132,6 +136,14 @@ class Channel {
       // Reloads and network blips: rejoin the same channel (the relay keeps it for 24 h).
       setTimeout(() => !this.closed && this.open(), 2000);
     };
+  }
+
+  /** iOS suspends background tabs and drops their sockets: reconnect when the page is shown again. */
+  wake() {
+    if (this.closed) return;
+    const st = this.ws?.readyState;
+    if (st === WebSocket.OPEN || st === WebSocket.CONNECTING) return;
+    this.open();
   }
 
   private async receive(raw: string) {
@@ -301,6 +313,69 @@ export function disconnectPhone() {
   resumed = null;
 }
 
+/** Our side of one pairing attempt on a relay channel: the phone's hello, then its encrypted "ready". */
+function pairSession(S: PrivateKey, c: string, r: string, onState: (s: PairState) => void, onError: () => void) {
+  let sealer: Sealer | null = null;
+  let phone = 'bWallet';
+  let phoneKey = '';
+  let done = false;
+  const handle = (sock: WebSocket) => async (ev: { data: unknown }) => {
+    const f = JSON.parse(String(ev.data)) as RelayFrame | HelloFrame | unknown;
+    // 1. The phone's hello (plaintext): derive the key, show the code.
+    if ((f as HelloFrame).t === 'hello' && !sealer) {
+      const h = f as HelloFrame;
+      phone = h.info?.name || 'bWallet';
+      phoneKey = h.k;
+      const { key, code } = await deriveSession(S, h.k, c);
+      sealer = new Sealer(key, 'site');
+      onState({ k: 'code', code, phone });
+      return;
+    }
+    // 2. "ready" (encrypted): the user tapped Connect on the phone.
+    if (!sealer || !isSealed(f) || done) return;
+    const msg = await sealer.open(f);
+    if (msg?.t === 'ready') {
+      done = true;
+      const saved: Saved = { c, r, s: S.toHex(), k: phoneKey, phone, ...sealer.counters };
+      try {
+        sessionStorage.setItem(STORE, JSON.stringify(saved));
+      } catch {
+        /* the session just won't survive a reload */
+      }
+      const ch = new Channel(saved, sealer, () => {});
+      phoneEnd = null;
+      ch.open(sock);
+      current?.close();
+      current = ch;
+      resumed = null;
+      setPhoneStatus('awake');
+      onState({ k: 'ready', wallet: ch.wallet(), phone });
+    } else if (msg?.t === 'res' && msg.error) onState({ k: 'error', message: pairErrorText(msg.error.code, msg.error.message) });
+    else if (msg?.t === 'close') onState({ k: 'error', message: 'Cancelled on the phone.' });
+  };
+  const attach = (sock: WebSocket) => {
+    sock.onmessage = handle(sock);
+    sock.onerror = () => !sealer && onError();
+  };
+  return { attach, started: () => !!sealer, done: () => done };
+}
+
+/** The pairing link on screen now (v2: with its return), saved for the return tab when the player leaves. */
+let pendingNow: PendingPair | null = null;
+/** Save the pairing in progress for bWallet's return (call before navigating to bWallet). */
+export function rememberPairing() {
+  if (pendingNow) savePending({ ...pendingNow, at: Date.now() });
+}
+
+/** v2 link fields for this page: `ret` (this page without its hash, when the wallet would accept it), `rid`, `b`. */
+export function returnFields(href: string, o: string, ua: string, isBrave = false) {
+  const ret = withoutHash(href);
+  if (!isValidReturnUrl(ret, o)) return {};
+  return { ret, rid: newRequestId(), b: browserHint(ua, isBrave) };
+}
+
+const isBraveBrowser = () => typeof navigator !== 'undefined' && !!(navigator as { brave?: unknown }).brave;
+
 /**
  * Show a QR and wait for a phone. Calls `onState` as things happen; returns a stop function
  * (call it when the chooser closes). A fresh QR is made when one expires.
@@ -310,6 +385,7 @@ export function startPairing(onState: (s: PairState) => void): () => void {
   let ws: WebSocket | null = null;
   let refresh: ReturnType<typeof setTimeout> | undefined;
   let handedOver = false;
+  let reopen: (() => void) | null = null;
 
   const round = async () => {
     if (stopped) return;
@@ -318,65 +394,115 @@ export function startPairing(onState: (s: PairState) => void): () => void {
     const e = Math.floor(Date.now() / 1000) + QR_LIFETIME_S;
     const k = S.toPublicKey().toString();
     const o = location.origin;
-    const s = await fetchPairProof({ c, k, o, e });
+    const v2 = returnFields(location.href ?? '', o, typeof navigator === 'undefined' ? '' : navigator.userAgent ?? '', isBraveBrowser());
+    const { s, s2 } = await fetchPairProofs({ c, k, o, e, ...v2 });
     if (stopped) return;
-    const link = pairUrl({ v: PAIR_VERSION, r: RELAY, c, k, o, e, s });
+    // ret/rid/b only travel with their proof: without s2 the wallet would not return anyway.
+    const link = pairUrl({ v: PAIR_VERSION, r: RELAY, c, k, o, e, s, ...(s2 && v2.ret ? { ...v2, s2 } : {}) });
+    pendingNow = s2 && v2.ret && v2.rid ? { c, r: RELAY, s: S.toHex(), e, rid: v2.rid, ret: v2.ret, at: Date.now() } : null;
     const qr = await QRCode.toDataURL(link, { margin: 1, width: 320 });
     if (stopped) return;
-    const sock = new WebSocket(relaySocketUrl(RELAY, c, 'site', e));
-    ws = sock;
-    let sealer: Sealer | null = null;
-    let phone = 'bWallet';
-    let phoneKey = '';
-    sock.onopen = () => onState({ k: 'qr', qr, link, expires: e * 1000 });
-    sock.onerror = () => !sealer && onState({ k: 'error', message: 'Phone pairing is unreachable right now. Try again shortly.' });
-    sock.onmessage = async (ev) => {
-      const f = JSON.parse(String(ev.data)) as RelayFrame | HelloFrame | unknown;
-      // 1. The phone's hello (plaintext): derive the key, show the code.
-      if ((f as HelloFrame).t === 'hello' && !sealer) {
-        const h = f as HelloFrame;
-        clearTimeout(refresh);
-        phone = h.info?.name || 'bWallet';
-        phoneKey = h.k;
-        const { key, code } = await deriveSession(S, h.k, c);
-        sealer = new Sealer(key, 'site');
-        onState({ k: 'code', code, phone });
-        return;
-      }
-      // 2. "ready" (encrypted): the user tapped Connect on the phone.
-      if (!sealer || !isSealed(f)) return;
-      const msg = await sealer.open(f);
-      if (msg?.t === 'ready') {
-        const saved: Saved = { c, r: RELAY, s: S.toHex(), k: phoneKey, phone, ...sealer.counters };
-        try {
-          sessionStorage.setItem(STORE, JSON.stringify(saved));
-        } catch {
-          /* the session just won't survive a reload */
-        }
-        const ch = new Channel(saved, sealer, () => {});
-        phoneEnd = null;
-        ch.open(sock);
-        current?.close();
-        current = ch;
-        resumed = null;
-        setPhoneStatus('awake');
+    const session = pairSession(S, c, RELAY, (st) => {
+      if (st.k === 'code') clearTimeout(refresh);
+      if (st.k === 'ready') {
         handedOver = true;
-        onState({ k: 'ready', wallet: ch.wallet(), phone });
-      } else if (msg?.t === 'res' && msg.error) onState({ k: 'error', message: pairErrorText(msg.error.code, msg.error.message) });
-      else if (msg?.t === 'close') onState({ k: 'error', message: 'Cancelled on the phone.' });
+        pendingNow = null;
+      }
+      onState(st);
+    }, () => onState({ k: 'error', message: 'Phone pairing is unreachable right now. Try again shortly.' }));
+    const connect = (withExpiry: boolean) => {
+      const sock = new WebSocket(relaySocketUrl(RELAY, c, 'site', withExpiry ? e : undefined));
+      ws = sock;
+      session.attach(sock);
+      return sock;
+    };
+    const sock = connect(true);
+    sock.onopen = () => onState({ k: 'qr', qr, link, expires: e * 1000 });
+    // iOS dropped the socket while the player was in bWallet: rejoin the same channel.
+    reopen = () => {
+      if (stopped || handedOver || session.done()) return;
+      const st = ws?.readyState;
+      if (st === WebSocket.OPEN || st === WebSocket.CONNECTING) return;
+      connect(false);
     };
     refresh = setTimeout(() => {
-      if (sealer || stopped) return;
-      sock.close();
+      if (session.started() || stopped) return;
+      ws?.close();
       void round();
     }, QR_LIFETIME_S * 1000 - 5000);
   };
+
+  const onVis = () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') rememberPairing();
+    else reopen?.();
+  };
+  const onHide = () => rememberPairing();
+  const onShow = () => reopen?.();
+  if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pagehide', onHide);
+    window.addEventListener('pageshow', onShow);
+  }
 
   onState({ k: 'starting' });
   void round();
   return () => {
     stopped = true;
     clearTimeout(refresh);
+    pendingNow = null;
     if (!handedOver) ws?.close();
+    if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pagehide', onHide);
+      window.removeEventListener('pageshow', onShow);
+    }
   };
+}
+
+/**
+ * bWallet sent the player back to `<ret>#bwx=ok&rid=<rid>`: if that rid is one we saved (in the last 10 minutes),
+ * rejoin its relay channel and finish the connect there. The hash is cleaned out of the URL either way.
+ * Resolves with the phone wallet when the phone's "ready" arrives, or null (unknown rid, expired, cancelled).
+ */
+export function resumeReturnedPairing(
+  loc: { hash: string; href: string } = location,
+  replace: (url: string) => void = (u) => history.replaceState(history.state, '', u),
+): Promise<{ wallet: WalletInterface; phone: string } | null> {
+  const rid = parseReturnHash(loc.hash);
+  if (!rid) return Promise.resolve(null);
+  try {
+    replace(withoutHash(loc.href));
+  } catch {
+    /* leave the hash: harmless */
+  }
+  const p = takePending(rid);
+  if (!p) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v: { wallet: WalletInterface; phone: string } | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(giveUp);
+      resolve(v);
+    };
+    const session = pairSession(PrivateKey.fromHex(p.s), p.c, p.r, (st) => {
+      if (st.k === 'ready') finish({ wallet: st.wallet, phone: st.phone });
+      else if (st.k === 'error') finish(null);
+    }, () => undefined);
+    const connect = () => {
+      const sock = new WebSocket(relaySocketUrl(p.r, p.c, 'site'));
+      session.attach(sock);
+      sock.onclose = () => !settled && setTimeout(() => !settled && connect(), 2000);
+    };
+    connect();
+    // The relay keeps the channel for a while; give the phone two minutes to (re)send its hello and ready.
+    const giveUp = setTimeout(() => finish(null), 120_000);
+  });
+}
+
+/** iOS tab suspension: reconnect the paired phone's relay socket when the page comes back. */
+if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+  const wake = () => document.visibilityState !== 'hidden' && current?.wake();
+  document.addEventListener('visibilitychange', wake);
+  window.addEventListener('pageshow', wake);
 }
