@@ -23,12 +23,13 @@ export type Track = 'doubleo' | 'arena' | 'gun' | 'hopper' | 'invaders' | 'snake
 
 const LS = 'tb.audio';
 type Prefs = { muted: boolean; music: number; sfx: number };
-let prefs: Prefs = { muted: false, music: 0.5, sfx: 0.8 };
+// Defaults keep the music audible over sustained fire (owner: turning the music up meant the gun deafened you).
+let prefs: Prefs = { muted: false, music: 0.6, sfx: 0.7 };
 const listeners = new Set<() => void>();
 if (typeof window !== 'undefined') loadPrefs();
 
 let ctx: AudioContext | null = null;
-let master: GainNode, sfxBus: GainNode, musicBus: GainNode, streamBus: GainNode, duckGain: GainNode;
+let master: GainNode, sfxBus: GainNode, gunBus: GainNode, musicBus: GainNode, streamBus: GainNode, duckGain: GainNode;
 let noiseBuf: AudioBuffer;
 let installed = false;
 
@@ -82,7 +83,17 @@ function ensureCtx(): AudioContext | null {
   musicBus = ctx.createGain();
   duckGain = ctx.createGain();
   streamBus = ctx.createGain();
-  sfxBus.connect(master);
+  gunBus = ctx.createGain();
+  gunBus.gain.value = MIX.gun;
+  // Gentle glue on the SFX bus so stacked shots can't spike over the music.
+  const sfxComp = ctx.createDynamicsCompressor();
+  sfxComp.threshold.value = MIX.sfxComp.threshold;
+  sfxComp.knee.value = MIX.sfxComp.knee;
+  sfxComp.ratio.value = MIX.sfxComp.ratio;
+  sfxComp.attack.value = MIX.sfxComp.attack;
+  sfxComp.release.value = MIX.sfxComp.release;
+  gunBus.connect(sfxBus);
+  sfxBus.connect(sfxComp).connect(master);
   musicBus.connect(duckGain).connect(master);
   streamBus.connect(duckGain);
   master.connect(comp).connect(ctx.destination);
@@ -200,11 +211,29 @@ export function musicAnalyser(): AnalyserNode | null {
   return tapNode;
 }
 
+/**
+ * Mix constants. Gun/fire sounds go through their own bus ~7.5 dB under the other SFX, with a small
+ * voice cap and per-shot gain scaling so rapid fire doesn't stack into a wall of noise.
+ */
+export const MIX = {
+  gun: 0.42, // ≈ -7.5 dB
+  maxGunVoices: 6,
+  sfxComp: { threshold: -20, knee: 10, ratio: 3, attack: 0.004, release: 0.12 },
+};
+const GUN = new Set<SfxName>(['shot', 'laser', 'shotgun', 'beam', 'plasma', 'rocket', 'grenade']);
+const gunEnds = new Float64Array(MIX.maxGunVoices);
+/** Repeat-shot ducking: each already-ringing gun voice pulls the new shot down. */
+export function gunShotScale(active: number) {
+  return 1 / Math.sqrt(1 + 0.5 * active);
+}
+/** How long a gun shot holds one of the gun voices (the audible body of the shot, not its tail). */
+const GUN_HOLD = 0.1;
+
 // ── Voice limiting ──
 const MAX_VOICES = 28;
 const voiceEnds = new Float64Array(MAX_VOICES);
 const lastAt: Partial<Record<SfxName, number>> = {};
-const MIN_GAP: Partial<Record<SfxName, number>> = { shot: 0.03, laser: 0.035, hit: 0.03, coin: 0.04, token: 0.05, click: 0.02, stomp: 0.05, explosion: 0.08 };
+const MIN_GAP: Partial<Record<SfxName, number>> = { shot: 0.03, laser: 0.035, shotgun: 0.06, rocket: 0.08, grenade: 0.06, hit: 0.03, coin: 0.04, token: 0.05, click: 0.02, stomp: 0.05, explosion: 0.08 };
 
 function claimVoice(now: number, dur: number): boolean {
   for (let i = 0; i < MAX_VOICES; i++) {
@@ -265,14 +294,29 @@ export function sfx(name: SfxName, vol = 1) {
     return;
   }
   const dur = name === 'gameover' ? 1.6 : name === 'level' ? 1 : name === 'explosion' || name === 'rekt' ? 0.8 : 0.3;
+  const gun = GUN.has(name);
+  let v = vol;
+  if (gun) {
+    let active = 0;
+    let free = -1;
+    for (let i = 0; i < gunEnds.length; i++) {
+      if (gunEnds[i] > now) active++;
+      else if (free < 0) free = i;
+    }
+    if (free < 0) {
+      stats.dropped++;
+      return;
+    }
+    gunEnds[free] = now + GUN_HOLD;
+    v *= gunShotScale(active);
+  }
   if (!claimVoice(now, dur)) {
     stats.dropped++;
     return;
   }
   lastAt[name] = now;
   stats.plays++;
-  const o = sfxBus;
-  const v = vol;
+  const o = gun ? gunBus : sfxBus;
   const t = now + 0.005;
   switch (name) {
     case 'shot':
@@ -405,7 +449,7 @@ export function minigun(on: boolean) {
     spinF.Q.value = 2;
     const spinG = c.createGain();
     spinG.gain.value = 0;
-    spin.connect(spinF).connect(spinG).connect(sfxBus);
+    spin.connect(spinF).connect(spinG).connect(gunBus);
     const rat = c.createBufferSource();
     rat.buffer = noiseBuf;
     rat.loop = true;
@@ -423,7 +467,7 @@ export function minigun(on: boolean) {
     const am = c.createGain();
     am.gain.value = 0.5;
     lfo.connect(lfoG).connect(am.gain);
-    rat.connect(ratF).connect(am).connect(ratG).connect(sfxBus);
+    rat.connect(ratF).connect(am).connect(ratG).connect(gunBus);
     spin.start();
     rat.start();
     lfo.start();
@@ -433,9 +477,9 @@ export function minigun(on: boolean) {
   const t = c.currentTime;
   if (on) {
     mg.spin.frequency.setTargetAtTime(220, t, 0.35);
-    mg.spinG.gain.setTargetAtTime(0.12, t, 0.1);
+    mg.spinG.gain.setTargetAtTime(0.08, t, 0.1);
     mg.ratG.gain.setValueAtTime(0, t);
-    mg.ratG.gain.setTargetAtTime(0.55, t + 0.45, 0.05);
+    mg.ratG.gain.setTargetAtTime(0.35, t + 0.45, 0.05);
   } else {
     mg.ratG.gain.setTargetAtTime(0, t, 0.03);
     mg.spin.frequency.setTargetAtTime(40, t, 0.6);
