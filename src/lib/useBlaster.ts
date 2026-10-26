@@ -16,7 +16,8 @@ import { payIntoGun } from './lockLoadPay';
 import type { StormNet } from './stormRun';
 import { strandedCoins, tokenById, walletTokens, type Token } from './tokens';
 import { loadTokens, reNoteTokens, returnTokens } from './tokenLoad';
-import { fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
+import { APPROVE_TIMEOUT_MS, raceApproval, retryDecision, type LatePay } from './approveTimeout';
+import { cancelWalletCalls, fund, holdWalletForPlay, walletAlive, walletHeld, withTimeout, type Wallet } from './wallet';
 import { chainHandle, needsPaymail } from './gallery';
 import { forgetBasketReads } from './basketSession';
 import { lookupPaymail, patchBarWallet } from './walletBar';
@@ -62,6 +63,10 @@ export function useBlaster() {
   const walletLive = site.live;
   /** A payment whose outcome we never heard (timeout / Cancel): checked against the gun balance before any re-pay. */
   const unknownPay = useRef<{ sats: number; before: number } | null>(null);
+  /** A payment whose approval outlived our 20 s wait: still open in the wallet, honoured if it pays late. */
+  const latePay = useRef<{ late: LatePay<unknown>; sats: number; before: number } | null>(null);
+  /** Bumped when a timed-out payment pays after all: the cabinet starts the game, no new charge. */
+  const [latePaid, setLatePaid] = useState(0);
 
   useEffect(() => {
     const g = new Gun();
@@ -172,6 +177,37 @@ export function useBlaster() {
       }
       // An earlier payment's outcome is unknown (timed out / cancelled while its sheet was open): read the gun's own
       // balance first, and if that payment landed, use it instead of charging again (owner, 25 Oct 2026).
+      // Retry after "bWalletX didn't respond" (#95 no-double-pay rules): use the late answer or the gun's chain
+      // balance if the first request paid; re-send the same request only once it provably did not.
+      const lp = latePay.current;
+      if (lp) {
+        loadMark('retry');
+        setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
+        const out = await retryDecision(lp.late, {
+          paidOnChain: async () => {
+            const bal = await g.balance().catch(() => null);
+            if (bal !== null) setAmmo(bal);
+            return bal === null ? null : bal >= lp.before + Math.floor(lp.sats * 0.9);
+          },
+          cancelHung: () => cancelWalletCalls(wallet.client, 'WALLET_TIMEOUT'),
+        });
+        setSiteWalletWaiting(null);
+        if (out === 'paid') {
+          latePay.current = null;
+          unknownPay.current = null;
+          setAmmo(g.sats);
+          void g.balance().then(setAmmo).catch(() => undefined);
+          loadMark('retry: the first request paid, no new charge');
+          return 'ok';
+        }
+        if (out === 'unknown') {
+          setError('Could not confirm whether your last payment went through, so nothing was sent again. Try again in a moment.');
+          return 'refused';
+        }
+        latePay.current = null;
+        unknownPay.current = null; // the chain read just said it did not pay
+        loadMark('retry: first request did not pay, sending it again');
+      }
       const unk = unknownPay.current;
       if (unk) {
         setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
@@ -199,8 +235,8 @@ export function useBlaster() {
       try {
         loadMark('approve start');
         // A real approval can take a while; a wallet that never answers at all counts as disconnected.
-        // No timeout on a payment (bWalletX): the player may take as long as they like to approve.
-        await payIntoGun(wallet, g, sats, label, {
+        // After 20 s with no answer the player gets Retry / Cancel (approveTimeout.ts); a late answer is still honoured.
+        const payP = payIntoGun(wallet, g, sats, label, {
           fund,
           // Paid: the wallet wait is over NOW. Nothing after this (a slow balance read) may leave the waiting card up,
           // where a timeout or Cancel used to reset the cabinet and charge again (owner log, 25 Oct: paid twice).
@@ -210,6 +246,25 @@ export function useBlaster() {
           },
           afterPaid: backupLater, // in the background: never chained to the pay
         });
+        // Our own 20 s wait (the wallet module's is 3 min): on timeout the request stays open and is honoured if it
+        // pays late; Retry checks it (and the chain) before ever sending again.
+        const raced = await raceApproval(payP, APPROVE_TIMEOUT_MS);
+        if (raced.kind === 'timeout') {
+          loadMark('approve timeout');
+          const entry = { late: raced.late as LatePay<unknown>, sats, before };
+          latePay.current = entry;
+          unknownPay.current = { sats, before };
+          void raced.late.done.then(() => {
+            if (raced.late.state !== 'paid' || latePay.current !== entry) return;
+            latePay.current = null;
+            unknownPay.current = null;
+            loadMark('late approval arrived: paid, no new charge');
+            setAmmo(g.sats);
+            void g.balance().then(setAmmo).catch(() => undefined);
+            setLatePaid((n) => n + 1);
+          });
+          return 'timeout';
+        }
         // The coin is in the gun from the wallet's own response: the CREDIT shows it at once, the chain read follows.
         setAmmo(g.sats);
         void g.balance().then(setAmmo).catch(() => undefined);
@@ -625,5 +680,5 @@ export function useBlaster() {
     [],
   );
 
-  return { gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { latePaid, gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

@@ -321,6 +321,10 @@ export function CabinetModals(p: {
   error?: string | null;
   /** Give up on the open wallet request and close this (Cancel, X, Escape, a click outside). */
   cancel?: () => void;
+  /** After "didn't respond": send the same payment again (checked first, never charged twice). */
+  retry?: () => void;
+  /** After "didn't respond": close; a late approval is still honoured. */
+  giveUp?: () => void;
 }) {
   const secs = useWaitSecs(p.approving ? p.approveSince : null);
   const name = p.walletName ?? 'your wallet';
@@ -332,8 +336,8 @@ export function CabinetModals(p: {
     );
   if (p.modal === 'timeout')
     return (
-      <Modal title="Your wallet did not answer" tone="bad" action="Reconnect" onAction={p.reconnect} pulse secondary="Close" onSecondary={() => p.setModal(null)}>
-        {name} gave no answer. If it shows a payment, that money is safe in your gun and LOCK &amp; LOAD will use it without charging again.
+      <Modal title={`${p.walletName ?? 'bWalletX'} didn't respond.`} tone="bad" action="Retry" onAction={p.retry ?? p.reconnect} pulse secondary="Cancel" onSecondary={p.giveUp ?? (() => p.setModal(null))}>
+        No approval sheet came up. Retry sends the same payment again, after checking the first one didn&apos;t go through, so you are never charged twice. If it shows up late and you approve it, the game starts.
       </Modal>
     );
   if (p.modal === 'failed')
