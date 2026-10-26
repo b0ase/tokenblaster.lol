@@ -1,12 +1,12 @@
 # TERRORNODE team mode
 
-`/arcade/terrornode/team` (SOLO / TEAM tabs on `/arcade/terrornode`). Up to 16 players on the Shooting Gallery's
-Neo-Tokyo street (the modern PBR city, not the Arena's pixel maze), rigged cast models in side colours.
+`/arcade/terrornode/team` (SOLO / TEAM tabs on `/arcade/terrornode`). Up to 64 players (co-op) or 32 v 32 (PvP) on
+the Shooting Gallery's Neo-Tokyo street or the TERRORNODE MELEE plaza, rigged cast models in side colours.
 
 | Match type | Sides | Ends |
 |---|---|---|
-| `coop` (PvE) | up to 16, all NPG squads; the server runs the Erobot horde | 10 waves cleared (`squad`) or 10:00 (`horde`) |
-| `pvp` | NPG vs Erobotz, 8 a side, auto-balanced, side pick in the lobby, friendly fire off | first to 50 frags, or most frags at 10:00 (`draw` on a tie) |
+| `coop` (PvE) | up to 64, all NPG squads; the server runs the Erobot horde, sized to the crowd | the level's waves cleared (`squad`) or 10:00 (`horde`) |
+| `pvp` | NPG vs Erobotz, 32 a side, auto-balanced, side pick in the lobby, friendly fire off | first to 50 frags, or most frags at 10:00 (`draw` on a tie) |
 
 Logic: `src/lib/teammode/match.ts` (pure, tested in `src/lib/teammode.test.ts`). Server: `server/terrornode-team/server.ts`
 (Node + `ws`, 20 Hz authoritative tick, clamped movement, server-side hit rays, 60 s reconnect grace with a resume
@@ -41,16 +41,40 @@ original 10 waves) | `market` | `rails` | `datacore` | `heart`). Co-op waves, en
 `src/lib/teammode/levels.ts`; the Heart's last wave brings a boss (one huge Erobot, 4000 HP). The street takes the
 level's palette and its dressing (`src/lib/terrornode/dressing.ts`, lazy-loaded). Solo levels: `src/lib/terrornode/levels.ts`.
 
+## MELEE: the 64-player arena (26 Oct, for the 1 Nov launch)
+
+`level: 'melee'` (TERRORNODE MELEE) is fought on the TERRORNODE PLAZA (`src/lib/teammode/arena.ts`, drawn by
+`src/lib/teammode/meleeScene.ts`): a round plaza 156 m across round the tower, three terraces on ramps, pillars,
+crates and barriers that stop bodies and rounds on the server, 32 spawn points round the rim (PvP: NPG south, Erobotz
+north), 8 horde gates plus the 4 tower doors. The last wave brings the TERRORNODE TOWER CORE out of the tower door.
+From the solo level select it plays as a one-player co-op match (`/arcade/terrornode/team?level=melee&solo=1`).
+
+Crowd scaling (`src/lib/teammode/levels.ts`): 1-4 players play the level as written; past that each wave is
+`× (players/4)^0.85` (64 players ≈ 10.6×), the live cap is `40 + 2 × (players − 4)` up to 160, and the boss HP is
+`× players^0.85`.
+
+Interest management (`match.ts` `snapParts` / `snapFor`, `INTEREST`): past 16 players each socket gets the players
+within 48 m (at most 24, nearest first), the Erobots within 48 m (at most 48), the boss always, at most 20 shot
+events, and the room counters `c: {pc, al, ec, tps, boss}`. Entities are serialised once a tick and joined per socket.
+Spectators get the whole match. Full state goes at 1 Hz past 16 players; joins and drops are coalesced into it.
+
+ROOM TX/SEC: the server sums every player's paid rounds (shots with a txid and the browser's `{t:'tx', n}` ARC
+reports) over 5 s: `c.tps` in every snapshot, `txPerSec` in the public state, the server total in `/health`. Shown
+big on the spectator view and in the in-game HUD. Bots and free play send no transactions, so it reads 0 there.
+
 ## Spectators (livestream)
 
-`/arcade/terrornode/watch?room=CODE`: read-only (`{t:'watch', match}` on the socket: no slot, no wallet), all
-players, the wave / PvP clock and frags, tx/s, a slow broadcast camera. `&hud=only` = transparent overlay only (OBS
+`/arcade/terrornode/watch?room=CODE`: read-only (`{t:'watch', match}` on the socket: no slot, no wallet), the ROOM
+TX/SEC headline, a TOP 10 board, a compact roster that fits 64, the boss bar, the wave / PvP clock and frags, a slow
+broadcast camera (on the plaza: an orbit over the rim). `&hud=only` = transparent overlay only (OBS
 browser source over another scene), `&q=low` for a light machine. Up to 64 spectators a match. Falls back to polling
 `/api/terrornode/team/CODE` if the socket can't connect.
 
-## Load test (16 players)
+## Load test
 
     pnpm team:load -- --url https://team.tokenblaster.lol --n 16 --mode coop --level heart --secs 30
+    pnpm team:load -- --url https://team.tokenblaster.lol --n 64 --level melee --secs 30
+    pnpm team:load -- --n 64 --level melee --matches 4 --secs 30     # 4 x 64 at once (the ceiling)
     # local: pnpm team:server, then pnpm team:load -- --n 16 --pid <server pid>
 
 16 WebSocket bots + 2 spectators: tick rate on the wire, snapshot gaps, ping RTT, kB/s per player, and the

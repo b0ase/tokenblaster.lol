@@ -4,6 +4,12 @@
  * treatment. Players are rigged cast models in their side's colours (NPG cyan, Erobotz red); the PvE horde is the
  * Erobot ranks. Movement is client-predicted and corrected by the server's 20 Hz snapshots; remote bodies are
  * interpolated toward the latest snapshot.
+ *
+ * MELEE (26 Oct): the TERRORNODE plaza (./meleeScene.ts, lazy) replaces the street for the 64-player arena. Bodies
+ * stand on the terraces (arena.ts heightAt), local movement collides with the same cover as the server, bodies that
+ * leave a player's interest set fade out (they did not die), far bodies animate at a quarter rate without name
+ * tags, and past a budget extra Erobots draw as one instanced crowd (the spectator's 64 players + the full horde).
+ * `globalThis.__tnStats` carries fps / bodies / draw calls for the headless FPS check.
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -17,7 +23,10 @@ import { buildCity, EYE, type City } from '../galleryGame/city';
 import { loadLook, makeGradePass, type Look } from '../visuals/look';
 import { loadLibrary, retarget } from '../galleryGame/enemies';
 import { buildWeapon, weaponMaterial } from '../galleryGame/castModels';
-import { ARENA, BOSS_KIND, dirOf, type Snapshot, type Team } from './match';
+import { BOSS_KIND, dirOf, type Snapshot, type Team } from './match';
+import { STREET, arenaById, heightAt, resolve, type Arena } from './arena';
+import { teamLevelOf } from './levels';
+import type { MeleeScene } from './meleeScene';
 import { levelOf, type LevelId } from '../terrornode/levels';
 import type { Dressing } from '../terrornode/dressing';
 
@@ -39,7 +48,12 @@ type Body = {
   lz: number;
   alive: boolean;
   seen: number;
+  tag: THREE.Sprite | null;
+  far: number;
 };
+/** Full skinned bodies past this many Erobots draw as the instanced crowd instead. */
+const ENEMY_BUDGET = { player: 56, spectator: 72 };
+const FAR = 45;
 type Model = { scene: THREE.Object3D; clips: Map<string, THREE.AnimationClip>; scale: number };
 
 export class TeamScene {
@@ -79,6 +93,13 @@ export class TeamScene {
   private dressing: Dressing | null = null;
   private dressReq = 0;
   private camAt = new THREE.Vector3(0, 0, -20);
+  private arena: Arena = STREET;
+  private melee: MeleeScene | null = null;
+  private crowd: THREE.InstancedMesh | null = null;
+  private proxies = new Map<string, { x: number; z: number; tx: number; tz: number; seen: number }>();
+  private frames = 0;
+  private fpsAt = 0;
+  fps = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -96,6 +117,7 @@ export class TeamScene {
     if (!this.city || id === this.level) return;
     this.level = id;
     const L = levelOf(id);
+    this.arena = arenaById(teamLevelOf(id).arena);
     const P = L.palette;
     const fog = this.scene.fog as THREE.FogExp2;
     fog.color.set(P.fog);
@@ -107,11 +129,22 @@ export class TeamScene {
     const req = ++this.dressReq;
     this.dressing?.dispose();
     this.dressing = null;
+    this.melee?.dispose();
+    this.melee = null;
+    this.city.group.visible = this.arena.id === 'street';
+    if (this.arena.id === 'melee') {
+      const { buildMelee } = await import('./meleeScene');
+      if (req !== this.dressReq || this.disposed) return;
+      this.melee = buildMelee({ high: this.high, key: P.key, rim: P.rim });
+      this.scene.add(this.melee.group);
+      this.camAt.set(0, 0, 30);
+      return;
+    }
     if (id === 'assault') return;
     const { buildDressing } = await import('../terrornode/dressing');
     if (req !== this.dressReq || this.disposed) return;
     const halfW = id === 'datacore' ? 16 : 14;
-    const d = buildDressing(id, { high: this.high, palette: P, halfW, z0: ARENA.z1, z1: ARENA.z0 });
+    const d = buildDressing(id, { high: this.high, palette: P, halfW, z0: STREET.z1, z1: STREET.z0 });
     if (!d) return;
     this.scene.add(d.group);
     this.dressing = d;
@@ -124,6 +157,7 @@ export class TeamScene {
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.shadowMap.enabled = high;
+    r.info.autoReset = false; // one frame's draw calls across every composer pass (the FPS check reads them)
     this.look = await loadLook(r, high ? 'high' : 'low', (p) => onProgress(p * 0.5));
     if (this.disposed) return;
     this.city = buildCity({ renderer: r, scene: this.scene, high, look: this.look });
@@ -182,7 +216,8 @@ export class TeamScene {
 
   private async loadModels(onProgress: (p: number) => void) {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-    const dir = this.high ? 'hi' : 'lo';
+    // the spectator's camera is 90 m up: the light bodies look the same from there at a sixth of the triangles
+    const dir = this.high && !this.spectate ? 'hi' : 'lo';
     const ids = [...new Set([...SKINS.npg, ...SKINS.erobotz, ...HORDE])];
     const lib = await loadLibrary();
     let done = 0;
@@ -211,7 +246,7 @@ export class TeamScene {
       model.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh) {
-          mesh.castShadow = this.high;
+          mesh.castShadow = this.high && !(this.spectate && this.arena.id === 'melee');
           mesh.frustumCulled = false;
           const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
           if ('emissive' in mat) {
@@ -242,9 +277,10 @@ export class TeamScene {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.03;
     g.add(ring);
-    if (label) g.add(nameTag(label, colour));
+    const tag = label ? nameTag(label, colour) : null;
+    if (tag) g.add(tag);
     this.scene.add(g);
-    return { g, mixer, run, idle, die, tx: 0, tz: 0, tyaw: 0, lx: 0, lz: 0, alive: true, seen: 0 };
+    return { g, mixer, run, idle, die, tx: 0, tz: 0, tyaw: 0, lx: 0, lz: 0, alive: true, seen: 0, tag, far: 0 };
   }
 
   /** Apply a server snapshot: correct the local player, move everyone else, draw shots and hits. */
@@ -265,25 +301,48 @@ export class TeamScene {
       if (!b) {
         const skin = SKINS[team][hash(id) % SKINS[team].length];
         b = this.makeBody(skin, TEAM_COLOUR[team], names.get(id) ?? 'Player');
-        b.g.position.set(x, 0, z);
+        b.g.position.set(x, heightAt(this.arena, x, z), z);
         this.bodies.set(id, b);
       }
       this.retarget(b, x, z, yaw, Boolean(alive), now);
     }
+    let full = 0;
+    for (const b of this.bodies.keys()) if (b[0] === 'e') full++;
+    const budget = this.spectate ? ENEMY_BUDGET.spectator : ENEMY_BUDGET.player;
+    let boss = false;
     for (const [id, x, z, yaw, , kind] of s.e) {
       const key = `e${id}`;
       let b = this.bodies.get(key);
+      if (kind === BOSS_KIND) boss = true;
+      if (!b && kind !== BOSS_KIND && full >= budget) {
+        // over the budget: one instance in the crowd (no skeleton, no mixer)
+        const px = this.proxies.get(key);
+        if (px) [px.tx, px.tz, px.seen] = [x, z, now];
+        else this.proxies.set(key, { x, z, tx: x, tz: z, seen: now });
+        continue;
+      }
       if (!b) {
-        b = this.makeBody(HORDE[kind % HORDE.length], TEAM_COLOUR.erobotz, kind === BOSS_KIND ? 'TERRORNODE HEART' : null);
-        if (kind === BOSS_KIND) b.g.scale.setScalar(2.8);
-        b.g.position.set(x, 0, z);
+        full++;
+        this.proxies.delete(key);
+        b = this.makeBody(HORDE[kind % HORDE.length], TEAM_COLOUR.erobotz, kind === BOSS_KIND ? (teamLevelOf(this.level).bossName ?? 'TERRORNODE HEART') : null);
+        if (kind === BOSS_KIND) b.g.scale.setScalar(this.arena.id === 'melee' ? 3.6 : 2.8);
+        b.g.position.set(x, heightAt(this.arena, x, z), z);
         this.bodies.set(key, b);
       }
       this.retarget(b, x, z, yaw, true, now);
     }
-    // bodies not in this snapshot: enemies are dead (play the fall, then remove), players left
+    this.melee?.setBoss(boss);
+    for (const [k, p] of this.proxies) if (p.seen !== now) this.proxies.delete(k);
+    // bodies not in this snapshot: enemies are dead (play the fall, then remove), players left. In a player's
+    // interest set (s.ip) a body can also just be out of range: only a kill event means it died.
+    const killed = new Set<string>();
+    for (const e of s.ev) if (e.k === 'kill') killed.add(e.on);
     for (const [k, b] of this.bodies) {
       if (b.seen === now) continue;
+      if (s.ip && !killed.has(k)) {
+        this.drop(k, true);
+        continue;
+      }
       if (b.alive) {
         b.alive = false;
         if (b.die && b.mixer) {
@@ -312,14 +371,14 @@ export class TeamScene {
       } else if (alive) {
         b.die?.stop();
         b.idle?.play();
-        b.g.position.set(x, 0, z);
+        b.g.position.set(x, heightAt(this.arena, x, z), z);
       }
     }
   }
 
-  private drop(k: string) {
+  private drop(k: string, force = false) {
     const b = this.bodies.get(k);
-    if (!b || b.alive) return;
+    if (!b || (b.alive && !force)) return;
     this.scene.remove(b.g);
     this.bodies.delete(k);
   }
@@ -328,7 +387,8 @@ export class TeamScene {
     // 16 players fire ~200 rounds a second: cap the lines on screen (the spectator's wide shot sees them all)
     if (this.tracers.length >= (this.spectate ? 36 : 90)) return;
     const { dx, dz } = dirOf(yaw);
-    const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, 1.35, z), new THREE.Vector3(x + dx * len, 1.35, z + dz * len)]);
+    const y = heightAt(this.arena, x, z) + 1.35;
+    const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, y, z), new THREE.Vector3(x + dx * len, heightAt(this.arena, x + dx * len, z + dz * len) + 1.35, z + dz * len)]);
     const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: new THREE.Color(TEAM_COLOUR[team]).multiplyScalar(3), toneMapped: false, transparent: true }));
     this.scene.add(line);
     this.tracers.push({ line, t: 0 });
@@ -336,7 +396,7 @@ export class TeamScene {
 
   private spark(x: number, z: number, c: string) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ color: new THREE.Color(c).multiplyScalar(3), toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-    s.position.set(x, 1.3, z);
+    s.position.set(x, heightAt(this.arena, x, z) + 1.3, z);
     s.scale.setScalar(0.7);
     this.scene.add(s);
     this.sparks.push({ s, t: 0 });
@@ -436,8 +496,9 @@ export class TeamScene {
       if (this.touchMove) [s, f] = [Math.max(-1, Math.min(1, this.touchMove.x)), Math.max(-1, Math.min(1, -this.touchMove.y))];
       const { dx, dz } = dirOf(me.yaw);
       const n = Math.hypot(f, s) || 1;
-      me.x = Math.max(ARENA.x0, Math.min(ARENA.x1, me.x + ((dx * f - dz * s) / n) * SPEED * dt * (f || s ? 1 : 0)));
-      me.z = Math.max(ARENA.z0, Math.min(ARENA.z1, me.z + ((dz * f + dx * s) / n) * SPEED * dt * (f || s ? 1 : 0)));
+      const go = f || s ? SPEED * dt : 0;
+      const c = resolve(this.arena, me.x + ((dx * f - dz * s) / n) * go, me.z + ((dz * f + dx * s) / n) * go);
+      [me.x, me.z] = [c.x, c.z];
       if (this.t - this.lastSend > 0.05) {
         this.lastSend = this.t;
         this.onMove(me.x, me.z, me.yaw);
@@ -452,19 +513,24 @@ export class TeamScene {
     }
     if (this.spectate) this.broadcastCam(dt);
     else {
-      this.camera.position.set(me.x, me.alive ? EYE : 0.5, me.z);
+      this.camera.position.set(me.x, heightAt(this.arena, me.x, me.z) + (me.alive ? EYE : 0.5), me.z);
       this.camera.rotation.set(me.pitch, me.yaw, 0, 'YXZ');
     }
     this.dressing?.update(dt, this.t);
+    this.melee?.update(dt, this.t);
     this.kick *= Math.pow(0.001, dt);
     this.gun.position.z = -0.62 + this.kick * 0.06;
     this.gun.rotation.x = this.kick * 0.08;
     this.flash.intensity *= Math.pow(0.0005, dt);
-    // remote bodies: ease toward the server's positions
+    // remote bodies: ease toward the server's positions; far ones animate at a quarter rate, no name tag
+    const cam = this.camera.position;
+    const k = 1 - Math.pow(0.0001, dt);
     for (const b of this.bodies.values()) {
-      const k = 1 - Math.pow(0.0001, dt);
       b.g.position.x += (b.tx - b.g.position.x) * k;
       b.g.position.z += (b.tz - b.g.position.z) * k;
+      b.g.position.y = heightAt(this.arena, b.g.position.x, b.g.position.z);
+      const far = Math.hypot(b.g.position.x - cam.x, b.g.position.z - cam.z) > (this.spectate ? FAR * 2 : FAR);
+      if (b.tag) b.tag.visible = !far;
       let dy = b.tyaw + Math.PI - b.g.rotation.y;
       dy = Math.atan2(Math.sin(dy), Math.cos(dy));
       b.g.rotation.y += dy * k;
@@ -481,8 +547,13 @@ export class TeamScene {
           b.run.fadeOut(0.2);
         }
       }
-      b.mixer?.update(dt);
+      if (!far) b.mixer?.update(dt);
+      else if ((b.far += dt) > 0.066) {
+        b.mixer?.update(b.far);
+        b.far = 0;
+      }
     }
+    this.drawCrowd(k);
     for (const tr of this.tracers) {
       tr.t += dt;
       (tr.line.material as THREE.LineBasicMaterial).opacity = Math.max(0, 1 - tr.t / 0.12);
@@ -503,14 +574,50 @@ export class TeamScene {
       sp.s.material.dispose();
     }
     this.sparks = this.sparks.filter((x) => x.t <= 0.25);
-    this.city.update(dt, this.t, this.camera);
+    if (!this.melee) this.city.update(dt, this.t, this.camera);
     this.grade.tick(this.t, me.alive ? 0 : 0.6);
-    this.city.beforeRender(this.renderer, this.scene, this.camera);
+    // the street's planar reflection pass is the city's; the plaza is lit by the environment map alone
+    if (!this.melee) this.city.beforeRender(this.renderer, this.scene, this.camera);
+    this.renderer.info.reset();
     this.composer.render();
+    // frame rate on the wall clock (the game clock is capped at 50 ms a frame)
+    this.frames++;
+    const wall = performance.now() / 1000;
+    if (!this.fpsAt) this.fpsAt = wall;
+    if (wall - this.fpsAt >= 1) {
+      this.fps = Math.round((this.frames / (wall - this.fpsAt)) * 10) / 10;
+      [this.frames, this.fpsAt] = [0, wall];
+      (globalThis as { __tnStats?: unknown }).__tnStats = { fps: this.fps, bodies: this.bodies.size, crowd: this.proxies.size, calls: this.renderer.info.render.calls, tris: this.renderer.info.render.triangles, arena: this.arena.id, melee: this.melee?.stats() ?? null };
+    }
   };
+
+  /** Erobots over the body budget: one InstancedMesh (a dark armoured capsule with a red visor glow). */
+  private drawCrowd(k: number) {
+    if (!this.proxies.size && !this.crowd) return;
+    if (!this.crowd) {
+      const geo = new THREE.CapsuleGeometry(0.42, 1.05, 4, 10);
+      geo.translate(0, 0.95, 0);
+      const mat = new THREE.MeshStandardMaterial({ color: '#1a1c24', metalness: 0.8, roughness: 0.3, emissive: TEAM_COLOUR.erobotz, emissiveIntensity: 0.35 });
+      this.crowd = new THREE.InstancedMesh(geo, mat, 256);
+      this.crowd.frustumCulled = false;
+      this.scene.add(this.crowd);
+    }
+    const m4 = new THREE.Matrix4();
+    let i = 0;
+    for (const p of this.proxies.values()) {
+      if (i >= 256) break;
+      p.x += (p.tx - p.x) * k;
+      p.z += (p.tz - p.z) * k;
+      m4.makeTranslation(p.x, heightAt(this.arena, p.x, p.z), p.z);
+      this.crowd.setMatrixAt(i++, m4);
+    }
+    this.crowd.count = i;
+    this.crowd.instanceMatrix.needsUpdate = true;
+  }
 
   /** The spectator's camera: high and wide behind the NPG line, easing toward the middle of the action, slow sway. */
   private broadcastCam(dt: number) {
+    if (this.arena.id === 'melee') return this.plazaCam(dt);
     let n = 0;
     const c = new THREE.Vector3();
     for (const b of this.bodies.values())
@@ -522,11 +629,29 @@ export class TeamScene {
     else c.set(0, 0, -20);
     this.camAt.lerp(c, 1 - Math.pow(0.2, dt));
     const sway = Math.sin(this.t * 0.07) * 10;
-    this.camera.position.set(this.camAt.x * 0.5 + sway, 15, Math.min(ARENA.z1 + 16, this.camAt.z + 26));
+    this.camera.position.set(this.camAt.x * 0.5 + sway, 15, Math.min(STREET.z1 + 16, this.camAt.z + 26));
     this.camera.lookAt(this.camAt.x, 1, this.camAt.z - 6);
   }
 
+  /** The plaza's broadcast camera: a slow orbit high over the rim, looking at the middle of the fight and the tower. */
+  private plazaCam(dt: number) {
+    let n = 0;
+    const c = new THREE.Vector3();
+    for (const b of this.bodies.values())
+      if (b.alive) {
+        c.add(b.g.position);
+        n++;
+      }
+    if (n) c.divideScalar(n);
+    else c.set(0, 0, 0);
+    this.camAt.lerp(c, 1 - Math.pow(0.3, dt));
+    const a = this.t * 0.045;
+    this.camera.position.set(Math.sin(a) * 92, 46 + Math.sin(this.t * 0.11) * 6, Math.cos(a) * 92);
+    this.camera.lookAt(this.camAt.x * 0.6, 8, this.camAt.z * 0.6);
+  }
+
   dispose() {
+    this.melee?.dispose();
     this.dressing?.dispose();
     this.disposed = true;
     cancelAnimationFrame(this.raf);

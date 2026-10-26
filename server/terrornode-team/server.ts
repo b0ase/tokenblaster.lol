@@ -18,6 +18,9 @@
  * full state goes out at most STATE_HZ a second (kills no longer push it every tick), lobbies and finished matches
  * get snapshots at 5 Hz, and the 20 Hz loop corrects its own drift. /health reports the measured tick rate,
  * tick cost and process CPU.
+ * Big matches (26 Oct, launch 1 Nov): 64 a room (co-op) or 32 v 32. Past 16 players every socket gets its own
+ * interest-managed snapshot (match.ts snapParts/snapFor: nearby players and Erobots, the boss, room counters
+ * including ROOM TX/SEC), built from pieces serialised once a tick; spectators get the whole match.
  * Env: PORT (8787), PUBLIC_SITE (https://tokenblaster.lol, for invite links), ALLOW_ORIGINS (comma list; empty = any).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -35,8 +38,13 @@ import {
   publicState,
   setStream,
   shoot,
-  snapshot,
+  snapFor,
+  snapParts,
   start,
+  txPerSec,
+  INTEREST,
+  MAX_PLAYERS,
+  MAX_PER_SIDE,
   tick,
   validCode,
   type Match,
@@ -54,6 +62,9 @@ const IDLE_MS = 15 * 60_000;
 const MAX_WATCHERS = 64;
 /** Full public state at most this often per match (snapshots stay at TICK_HZ). */
 const STATE_HZ = 4;
+/** A crowd's full state is big (64 players), so past 16 it goes at 1 Hz; the snapshots carry the live counters. */
+const BIG_STATE_HZ = 1;
+const stateHz = (m: Match) => (m.players.size > INTEREST.fullBelow ? BIG_STATE_HZ : STATE_HZ);
 
 const rand = () => randomInt(0, 1 << 30) / (1 << 30);
 const matches = new Map<string, Match>();
@@ -86,12 +97,14 @@ export function newMatch(mode: Mode, tournamentId: string | null, now = Date.now
 }
 
 // ── measured load (for /health and the 16-player load script) ──
-const perf = { ticks: 0, since: Date.now(), hz: 0, ms: 0, maxMs: 0, sumMs: 0, cpu: 0, lastCpu: process.cpuUsage(), lastAt: Date.now() };
+const perf = { split: { logic: 0, snap: 0 }, logicMs: 0, partsMs: 0, ticks: 0, since: Date.now(), hz: 0, ms: 0, maxMs: 0, sumMs: 0, cpu: 0, lastCpu: process.cpuUsage(), lastAt: Date.now() };
 setInterval(() => {
   const now = Date.now();
   const secs = (now - perf.since) / 1000;
   perf.hz = perf.ticks / Math.max(0.001, secs);
   perf.ms = perf.ticks ? perf.sumMs / perf.ticks : 0;
+  perf.split = { logic: perf.ticks ? perf.logicMs / perf.ticks : 0, snap: perf.ticks ? perf.partsMs / perf.ticks : 0 };
+  perf.logicMs = perf.partsMs = 0;
   const u = process.cpuUsage(perf.lastCpu);
   perf.cpu = ((u.user + u.system) / 1000 / Math.max(1, now - perf.lastAt)) * 100;
   perf.lastCpu = process.cpuUsage();
@@ -135,13 +148,17 @@ const http = createServer(async (req, res) => {
   if (url.pathname === '/health') {
     let spectators = 0;
     for (const c of conns) if (c.watch) spectators++;
+    let tps = 0;
+    for (const m of matches.values()) tps += txPerSec(m, now);
     return json(res, 200, {
       ok: true,
+      limits: { players: MAX_PLAYERS, perSide: MAX_PER_SIDE },
+      txPerSec: Math.round(tps * 10) / 10,
       matches: matches.size,
       players: [...matches.values()].reduce((s, m) => s + m.players.size, 0),
       conns: conns.size,
       spectators,
-      tick: { target: TICK_HZ, hz: Math.round(perf.hz * 10) / 10, ms: Math.round(perf.ms * 1000) / 1000, maxMs: Math.round(perf.maxMs * 1000) / 1000 },
+      tick: { target: TICK_HZ, hz: Math.round(perf.hz * 10) / 10, ms: Math.round(perf.ms * 1000) / 1000, maxMs: Math.round(perf.maxMs * 1000) / 1000, logicMs: Math.round(perf.split.logic * 1000) / 1000, snapMs: Math.round(perf.split.snap * 1000) / 1000 },
       cpu: Math.round(perf.cpu * 10) / 10,
       rssMb: Math.round(process.memoryUsage().rss / 1e6),
     });
@@ -189,6 +206,8 @@ const broadcastState = (m: Match) => {
 };
 /** Full state soon: coalesced to STATE_HZ (kills, waves, tx counts). */
 const markState = (m: Match) => dirty.add(m);
+/** Joins and drops: a small room hears at once; a crowd's state is coalesced (64 joins = 64 full states otherwise). */
+const roster = (m: Match) => (m.players.size > INTEREST.fullBelow ? markState(m) : broadcastState(m));
 
 wss.on('connection', (ws) => {
   const c: Conn = { ws, match: null, player: null, watch: false, msgs: 0, window: Date.now() };
@@ -236,7 +255,7 @@ wss.on('connection', (ws) => {
         enter(c, target);
         c.player = r.player.id;
         send(ws, { t: 'welcome', you: r.player.id, resume: r.player.resume, resumed: r.resumed, state: publicState(target, now, { inviteBase: SITE }) });
-        return broadcastState(target);
+        return roster(target);
       }
     }
     if (msg.t === 'watch') {
@@ -270,7 +289,7 @@ wss.on('connection', (ws) => {
         shoot(m, c.player, msg.yaw, msg.txid, now);
         return;
       case 'tx':
-        confirmTx(m, c.player, msg.n);
+        confirmTx(m, c.player, msg.n, now);
         return markState(m);
       case 'live':
         setStream(m, c.player, msg.slot);
@@ -284,7 +303,7 @@ wss.on('connection', (ws) => {
     exit(c);
     if (m && p) {
       leave(m, p, Date.now());
-      broadcastState(m);
+      roster(m);
     }
   });
 });
@@ -297,15 +316,29 @@ function step() {
   const t0 = performance.now();
   const now = Date.now();
   for (const [code, m] of matches) {
+    const tt = performance.now();
     const ev = tick(m, now);
+    perf.logicMs += performance.now() - tt;
     const room = rooms.get(m);
     const live = m.phase === 'live';
     // lobbies and finished matches: 5 Hz is plenty; nobody watching: nothing to serialise
-    if (room?.size && (live || m.tick % 4 === 0)) fanout(m, JSON.stringify(snapshot(m, ev)));
+    if (room?.size && (live || m.tick % 4 === 0)) {
+      const tp = performance.now();
+      const parts = snapParts(m, ev, now);
+      perf.partsMs += performance.now() - tp;
+      if (m.players.size <= INTEREST.fullBelow) fanout(m, parts.full);
+      else
+        for (const c of room) {
+          if (c.ws.readyState !== WebSocket.OPEN) continue;
+          // a socket already this far behind skips a frame rather than queueing more (the next one supersedes it)
+          if (c.ws.bufferedAmount > 256 * 1024) continue;
+          c.ws.send(c.watch || !c.player ? parts.spectator : snapFor(parts, c.player));
+        }
+    }
     const phaseChanged = lastPhase.get(code) !== m.phase;
     if (phaseChanged) broadcastState(m);
     else if (ev.some((e) => e.k === 'kill' || e.k === 'wave' || e.k === 'spawn')) markState(m);
-    if (dirty.has(m) && now - (lastState.get(m) ?? 0) >= 1000 / STATE_HZ) broadcastState(m);
+    if (dirty.has(m) && now - (lastState.get(m) ?? 0) >= 1000 / stateHz(m)) broadcastState(m);
     lastPhase.set(code, m.phase);
     const idle = m.players.size === 0 && now - (m.endedAt ?? m.createdAt) > IDLE_MS;
     const stale = m.phase === 'over' && now - (m.endedAt ?? now) > IDLE_MS;

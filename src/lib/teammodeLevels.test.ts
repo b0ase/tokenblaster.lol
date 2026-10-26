@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BOSS_KIND, RULES, createMatch, join, publicState, shoot, snapshot, start, tick, wavesOf, type Match } from './teammode/match';
 import { levelOf } from './terrornode/levels';
+import { teamWaveFor } from './teammode/levels';
 
 let seed = 7;
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -24,7 +25,9 @@ test('co-op waves follow the level: size, enemy kinds, wave count', () => {
   fill(m, 16);
   assert.ok(start(m, 'id0', 0).ok);
   assert.equal(m.wave, 1);
-  assert.equal(m.waveLeft, levelOf('datacore').team.base + levelOf('datacore').team.perWave);
+  // 16 players: the wave is the level's wave 1 scaled to the crowd (levels.ts teamWaveFor)
+  assert.equal(m.waveLeft, teamWaveFor(levelOf('datacore').team, 1, 16));
+  assert.ok(m.waveLeft > levelOf('datacore').team.base + levelOf('datacore').team.perWave);
   for (let t = 1; t < 40; t++) tick(m, t * 50);
   const kinds = new Set(m.enemies.map((e) => e.kind));
   for (const k of kinds) assert.ok(levelOf('datacore').team.kinds.includes(k));

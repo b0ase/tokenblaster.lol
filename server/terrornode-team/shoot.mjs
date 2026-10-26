@@ -1,4 +1,5 @@
 // Headless screenshots (dev only): node server/terrornode-team/shoot.mjs <url> <out.png> [waitMs] [clickText]
+// FPS=1 also prints the scene's measured frame rate (SwiftShader: compare levels against each other, not absolute).
 // Launches Chrome headless (never a visible window) with SwiftShader WebGL and drives it over CDP.
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';
@@ -29,6 +30,17 @@ await sleep(Number(wait));
 if (click) {
   await cmd('Runtime.evaluate', { expression: `[...document.querySelectorAll('button')].find(b => b.textContent.trim().toLowerCase().includes(${JSON.stringify(click.toLowerCase())}))?.click()` });
   await sleep(Number(process.env.AFTER || 6000));
+}
+// FPS=1: sample the team scene's own counters (globalThis.__tnStats: fps, bodies, draw calls) for 5 s first
+if (process.env.FPS) {
+  const fps = [];
+  for (let i = 0; i < 5; i++) {
+    await sleep(1000);
+    const r = await cmd('Runtime.evaluate', { expression: 'JSON.stringify(globalThis.__tnStats ?? null)', returnByValue: true });
+    const v = JSON.parse(r?.result?.value ?? 'null');
+    if (v) fps.push(v);
+  }
+  console.log('stats', JSON.stringify({ fps: fps.map((x) => x.fps), last: fps.at(-1) ?? null }));
 }
 const shot = await cmd('Page.captureScreenshot', { format: 'png' });
 writeFileSync(out, Buffer.from(shot.data, 'base64'));

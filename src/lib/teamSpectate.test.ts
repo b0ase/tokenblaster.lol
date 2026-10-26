@@ -91,3 +91,17 @@ test('16-bot load script: a 16-player session holds 20 Hz with spectators', asyn
   assert.ok(r.shots > 500);
   assert.ok(r.ok);
 });
+
+test('64-bot MELEE: one room of 64 joins, holds 20 Hz, interest-managed snapshots, reconnect keeps the slot', async () => {
+  const { stdout } = await promisify(execFile)(TSX, ['server/terrornode-team/load.mts', '--url', BASE, '--n', '64', '--mode', 'coop', '--level', 'melee', '--secs', '6', '--watchers', '1', '--json'], { timeout: 90_000 });
+  const r = JSON.parse(stdout.trim().split('\n').at(-1)!) as { ok: boolean; players: number; level: string; tickHz: { min: number }; reconnect: string; seen: { players: number; enemies: number }; snapBytes: { player: number; spectator: number }; roomTxPerSec: number; server: { txPerSec: number } };
+  console.log('melee 64 result', JSON.stringify(r));
+  assert.equal(r.players, 64);
+  assert.equal(r.level, 'melee');
+  assert.ok(r.tickHz.min >= 18, `tick ${r.tickHz.min} Hz`);
+  assert.equal(r.reconnect, 'kept');
+  assert.ok(r.seen.players <= 24, `a bot saw at most 24 players (${r.seen.players})`);
+  assert.ok(r.snapBytes.player < r.snapBytes.spectator, 'players get the interest cut, spectators the whole room');
+  assert.equal(r.roomTxPerSec, 0, 'bots send no txids: ROOM TX/SEC stays 0');
+  assert.ok(r.ok);
+});
