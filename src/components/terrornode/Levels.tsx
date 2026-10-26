@@ -3,7 +3,7 @@
  * TERRORNODE level select and LEVEL CLEAR card. Presentational: the solo page and team mode own the state.
  * Levels you have reached are stored in this browser (src/lib/terrornode/levels.ts `loadProgress`).
  */
-import { LEVELS, isReached, levelOf, nextLevel, type LevelId, type Progress } from '@/lib/terrornode/levels';
+import { LEVELS, isArenaLevel, isReached, levelOf, nextLevel, soloArenaHref, type LevelId, type Progress } from '@/lib/terrornode/levels';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -14,17 +14,21 @@ export function LevelSelect({ progress, active, onPick, compact = false, all = f
         <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>Levels</p>
         <p className="text-[11px] text-[var(--tbx-mute)]">Clear a level to open the next. Saved in this browser.</p>
       </div>
-      <ol className={`grid gap-2 ${compact ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-5'}`}>
+      <ol className={`grid gap-2 ${compact ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6' : 'grid-cols-1 sm:grid-cols-3 xl:grid-cols-6'}`}>
         {LEVELS.map((l) => {
-          const open = all || isReached(progress, l.id);
+          const arena = isArenaLevel(l.id);
+          const open = all || arena || isReached(progress, l.id);
           const best = progress.best[l.id];
           const on = l.id === active;
+          // the solo page: an arena level (MELEE) is team mode's, played there as a one-player co-op match
+          const toTeam = arena && !all;
           return (
             <li key={l.id}>
               <button
                 type="button"
                 disabled={!open}
-                onClick={() => onPick(l.id)}
+                onClick={() => (toTeam ? location.assign(soloArenaHref(l.id)) : onPick(l.id))}
+                data-arena={arena ? '1' : undefined}
                 aria-pressed={on}
                 data-level={l.id}
                 data-locked={open ? undefined : '1'}
@@ -36,13 +40,13 @@ export function LevelSelect({ progress, active, onPick, compact = false, all = f
                 }}
               >
                 <span className="text-[10px] font-semibold uppercase tracking-[0.24em]" style={{ color: l.palette.key }}>
-                  {l.n === 0 ? 'The block' : `Level ${l.n}`}
+                  {l.n === 0 ? 'The block' : arena ? 'Arena · 64 players' : `Level ${l.n}`}
                   {l.boss ? ' · Boss' : ''}
                 </span>
                 <span className="tbx-display text-lg leading-tight text-white">{l.name}</span>
                 {!compact && <span className="text-[12px] leading-snug text-white/70">{open ? l.blurb : 'Locked: clear the level before it.'}</span>}
                 <span className="mt-auto pt-1 text-[11px] tabular-nums text-white/60" data-level-best>
-                  {best ? `Best ${fmt(best.score)} · ${fmt(best.rounds)} rounds · ${best.clears}× clear` : open ? 'Not cleared yet' : ''}
+                  {toTeam ? 'Play solo on the plaza →' : best ? `Best ${fmt(best.score)} · ${fmt(best.rounds)} rounds · ${best.clears}× clear` : open ? 'Not cleared yet' : ''}
                 </span>
               </button>
             </li>

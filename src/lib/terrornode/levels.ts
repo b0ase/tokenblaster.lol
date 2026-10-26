@@ -156,7 +156,25 @@ export const LEVELS: readonly Level[] = [
     team: TEAM_LEVELS.heart,
     boss: true,
   },
+  {
+    // MELEE (26 Oct): the TERRORNODE PLAZA, team mode's 64-player arena round the tower (src/lib/teammode/arena.ts).
+    // Always open; from the solo page it plays as a one-player co-op match on the plaza (team mode's engine).
+    id: 'melee',
+    n: 5,
+    name: 'TERRORNODE MELEE',
+    blurb: 'The plaza round the tower: three terraces, 64 players, a horde sized to the crowd, then the Tower Core.',
+    kweg: 'Sixty-four of you. On my plaza. I am calling the council about this.',
+    palette: { fog: '#0a1026', density: 0.0042, bg: '#04050f', exposure: 0.06, bloom: 0.1, key: '#27e6ff', rim: '#ff2a6a' },
+    solo: { from: 455, to: 600, roles: { shooter: 0.38, rusher: 0.34, flanker: 0.28 }, horde: {}, wave: { kind: 'surge', k: 1.1, amp: 0.5 }, levelUp: 1 },
+    team: TEAM_LEVELS.melee,
+    boss: true,
+  },
 ];
+
+/** Team-mode arenas that are not windows of the solo block (MELEE): open to everyone, played by team mode's engine. */
+export const isArenaLevel = (id: LevelId) => levelOf(id).team.arena === 'melee';
+/** The solo route into an arena level: a one-player co-op match on it. */
+export const soloArenaHref = (id: LevelId) => `/arcade/terrornode/team?level=${id}&solo=1`;
 
 export const LEVEL_IDS = LEVELS.map((l) => l.id);
 /** The campaign track (ASSAULT, the block, is open on its own and not part of it). */

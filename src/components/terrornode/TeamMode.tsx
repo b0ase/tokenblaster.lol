@@ -1,9 +1,13 @@
 'use client';
 
 /**
- * TERRORNODE TEAM MODE (/arcade/terrornode/team): up to 16 players in one match on the Neo-Tokyo street.
- *  - CO-OP SQUADS: everyone is NPG, the server runs the Erobot horde (10 waves).
- *  - NPG vs EROBOTZ: 8 v 8 team PvP, friendly fire off, first to 50 frags or most frags at 10:00.
+ * TERRORNODE TEAM MODE (/arcade/terrornode/team): up to 64 players in one match, on the Neo-Tokyo street or the
+ * TERRORNODE MELEE plaza (the 64-player arena round the tower).
+ *  - CO-OP SQUADS: everyone is NPG, the server runs the Erobot horde (sized to the crowd).
+ *  - NPG vs EROBOTZ: up to 32 v 32 team PvP, friendly fire off, first to 50 frags or most frags at 10:00.
+ *  - SOLO on an arena level (?level=melee&solo=1, from the solo level select): a one-player co-op match that starts
+ *    itself once you are loaded.
+ * The HUD's ROOM TX/SEC is the server's sum of every player's reported paid rounds (0 in free play / for bots).
  * The lobby makes a match code and an invite link (?match=CODE) that the bChatX TERRORNODE room can generate too
  * (POST /api/terrornode/team). Server: server/terrornode-team (authoritative, 20 Hz).
  *
@@ -23,10 +27,10 @@ import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { GO_LIVE_EVENT } from '@/components/GoLiveButton';
 import { DEFAULT_AMMO } from '@/lib/gallery';
 import { TeamClient, createTeamMatch, type TeamStatus } from '@/lib/teammode/client';
-import { RULES, TEAM_NAME, teamShotPushes, type Mode, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
+import { MAX_PER_SIDE, MAX_PLAYERS, RULES, TEAM_NAME, teamShotPushes, type Counters, type Mode, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
 import type { TeamScene } from '@/lib/teammode/scene';
 import dynamic from 'next/dynamic';
-import { teamLevelOf, type LevelId } from '@/lib/teammode/levels';
+import { isLevelId, teamLevelOf, type LevelId } from '@/lib/teammode/levels';
 import type { Progress } from '@/lib/terrornode/levels';
 // the level select (and the full level table) is its own chunk
 const LevelSelect = dynamic(() => import('./Levels').then((m) => m.LevelSelect), { ssr: false });
@@ -53,7 +57,8 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
   const [copied, setCopied] = useState(false);
   const [rounds, setRounds] = useState<number | null>(null); // loaded rounds left (null: not loaded yet)
   const [hp, setHp] = useState(100);
-  const [snapInfo, setSnapInfo] = useState<{ frags: Record<Team, number>; wave: number; endsAt: number | null } | null>(null);
+  const [snapInfo, setSnapInfo] = useState<{ frags: Record<Team, number>; wave: number; endsAt: number | null; c: Counters | null } | null>(null);
+  const [solo, setSolo] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const client = useRef<TeamClient | null>(null);
   const scene = useRef<TeamScene | null>(null);
@@ -84,6 +89,9 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- read once from the URL on mount
     if (m && /^[A-Za-z0-9]{5}$/.test(m)) setCode(m.toUpperCase());
     setDry(q.get('dryrun') === '1');
+    const lv = q.get('level');
+    if (isLevelId(lv)) setLevel(lv);
+    setSolo(q.get('solo') === '1');
   }, []);
 
   // connect when there is a code
@@ -101,7 +109,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           scene.current?.apply(s, namesRef.current);
           const me = s.p.find((p) => p[0] === c.you);
           if (me) setHp(me[4]);
-          setSnapInfo({ frags: s.frags, wave: s.wave, endsAt: s.endsAt });
+          setSnapInfo({ frags: s.frags, wave: s.wave, endsAt: s.endsAt, c: s.c ?? null });
         },
         onWelcome: (id) => {
           setYou(id);
@@ -236,6 +244,18 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
     history.replaceState(null, '', `?match=${c}${dry ? '&dryrun=1' : ''}`);
     setCode(c);
   };
+  // SOLO on an arena level: make the one-player co-op match straight away, and start it once the gun is loaded
+  const soloMade = useRef(false);
+  useEffect(() => {
+    if (!solo || code || soloMade.current) return;
+    soloMade.current = true;
+    void create('coop');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solo, code]);
+  useEffect(() => {
+    if (solo && phase === 'lobby' && meP?.host && ready && state?.players.length === 1) client.current?.start();
+  }, [solo, phase, meP?.host, ready, state?.players.length]);
+
   const invite = useMemo(() => (code && typeof location !== 'undefined' ? `${location.origin}/arcade/terrornode/team?match=${code}` : ''), [code]);
   const watchUrl = code ? `/arcade/terrornode/watch?room=${code}` : '';
   const copy = () => {
@@ -270,15 +290,20 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
       {!code && (
         <div className="relative z-10 mx-auto flex max-w-4xl flex-col items-center px-4 py-10">
           <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#ff2a46]">Assault on Terrornode · Team mode</p>
-          <h1 className="mt-2 text-center text-3xl font-black tracking-tight sm:text-5xl">Squad up. Up to 16 players.</h1>
+          <h1 className="mt-2 text-center text-3xl font-black tracking-tight sm:text-5xl">Squad up. Up to {MAX_PLAYERS} players.</h1>
           <p className="mt-3 max-w-xl text-center text-sm text-white/70">Neo-Tokyo, 2048. Make a match, send the invite link to your crew or the bChatX TERRORNODE room, and fight on the same street. Every bullet is a real BSV transaction from your own wallet.</p>
           <div className="mt-6 w-full">
             <LevelSelect progress={progress} active={level} onPick={setLevel} compact all />
           </div>
           <div className="mt-4 grid w-full gap-4 sm:grid-cols-2">
-            <ModeCard title="Co-op squads" kicker="PvE · up to 16" colour={COLOUR.npg} body={`Everyone fights for NPG against Dr Kweg Wong's Erobot horde on ${teamLevelOf(level).name}. ${teamLevelOf(level).waves} waves, each one bigger${teamLevelOf(level).bossHp ? ', and the Heart itself on the last' : ''}. Clear them all to take TERRORNODE HQ.`} onClick={() => void create('coop')} disabled={busy} cta="Make co-op match" />
-            <ModeCard title="NPG vs Erobotz" kicker="PvP · 8 v 8" colour={COLOUR.erobotz} body="Two teams of up to eight. Pick a side in the lobby, friendly fire off. First team to 50 frags, or the most frags when the 10-minute clock runs out." onClick={() => void create('pvp')} disabled={busy} cta="Make PvP match" />
+            <ModeCard title="Co-op squads" kicker={`PvE · up to ${MAX_PLAYERS}`} colour={COLOUR.npg} body={`Everyone fights for NPG against Dr Kweg Wong's Erobot horde on ${teamLevelOf(level).name}. ${teamLevelOf(level).waves} waves, each one bigger${teamLevelOf(level).bossHp ? ', and the Heart itself on the last' : ''}. Clear them all to take TERRORNODE HQ.`} onClick={() => void create('coop')} disabled={busy} cta="Make co-op match" />
+            <ModeCard title="NPG vs Erobotz" kicker={`PvP · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}`} colour={COLOUR.erobotz} body={`Two teams of up to ${MAX_PER_SIDE}. Pick a side in the lobby, friendly fire off. First team to 50 frags, or the most frags when the 10-minute clock runs out.`} onClick={() => void create('pvp')} disabled={busy} cta="Make PvP match" />
           </div>
+          {teamLevelOf(level).arena === 'melee' && (
+            <button type="button" disabled={busy} onClick={() => { soloMade.current = true; setSolo(true); void create('coop'); }} className="mt-3 text-xs font-bold uppercase tracking-[0.25em] text-[#2ec8e0] hover:text-white" data-melee-solo>
+              Or play the plaza solo →
+            </button>
+          )}
           <div className="mt-6 flex w-full max-w-sm items-center gap-2">
             <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="MATCH CODE" maxLength={5} className="h-11 flex-1 rounded-lg border border-white/15 bg-white/5 px-3 font-mono text-lg tracking-[0.3em] outline-none focus:border-[#2ec8e0]" />
             <button type="button" onClick={join} className="h-11 rounded-lg bg-white px-5 text-sm font-bold uppercase text-black">Join</button>
@@ -294,7 +319,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           <div className="tbx-glass w-full rounded-2xl border border-white/10 bg-black/60 p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? 'NPG vs Erobotz · 8 v 8' : 'Co-op squads vs the horde'}{state?.level ? ` · ${teamLevelOf(state.level).name}` : ''}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? `NPG vs Erobotz · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}` : 'Co-op squads vs the horde'}{state?.level ? ` · ${teamLevelOf(state.level).name}` : ''}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
                 <p className="font-mono text-3xl font-black tracking-[0.25em]" data-match-code>{code}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -376,8 +401,20 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           <div className="absolute inset-x-0 top-3 flex justify-center gap-3">
             <ScorePill label={state?.mode === 'pvp' ? 'NPG' : 'Squad'} value={snapInfo?.frags.npg ?? 0} colour={COLOUR.npg} />
             <div className="rounded-full bg-black/60 px-4 py-2 font-mono text-lg font-bold">{snapInfo?.endsAt ? fmtClock(snapInfo.endsAt - now) : '--:--'}</div>
-            {state?.mode === 'pvp' ? <ScorePill label="Erobotz" value={snapInfo?.frags.erobotz ?? 0} colour={COLOUR.erobotz} /> : <ScorePill label={`Wave ${snapInfo?.wave ?? 1}/${state?.waves ?? RULES.waves}`} value={state?.enemiesLive ?? 0} colour={COLOUR.erobotz} />}
+            {state?.mode === 'pvp' ? <ScorePill label="Erobotz" value={snapInfo?.frags.erobotz ?? 0} colour={COLOUR.erobotz} /> : <ScorePill label={`Wave ${snapInfo?.wave ?? 1}/${state?.waves ?? RULES.waves}`} value={snapInfo?.c?.ec ?? state?.enemiesLive ?? 0} colour={COLOUR.erobotz} />}
           </div>
+          {/* ROOM TX/SEC: the stream's headline, every player's paid rounds a second (server-summed) */}
+          <div className="absolute right-4 top-3 rounded-xl border border-[#ffd21a55] bg-black/60 px-4 py-1.5 text-right" data-room-tps>
+            <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-white/60">Room tx/sec</p>
+            <p className="font-mono text-3xl font-black leading-none tabular-nums text-[#ffd21a]">{(snapInfo?.c?.tps ?? state?.txPerSec ?? 0).toLocaleString('en-US', { maximumFractionDigits: 1 })}</p>
+            <p className="text-[10px] tabular-nums text-white/55">{snapInfo?.c?.pc ?? state?.players.length ?? 0} in the room</p>
+          </div>
+          {snapInfo?.c?.boss && (
+            <div className="absolute inset-x-0 top-16 mx-auto w-[min(560px,80vw)]" data-boss-bar>
+              <p className="text-center text-[11px] font-black uppercase tracking-[0.3em] text-[#ff2a46]">{teamLevelOf(state?.level).bossName ?? 'Boss'}</p>
+              <div className="mt-1 h-2.5 rounded bg-white/10"><div className="h-2.5 rounded bg-gradient-to-r from-[#ff2a46] to-[#ffb21a]" style={{ width: `${(100 * snapInfo.c.boss[0]) / Math.max(1, snapInfo.c.boss[1])}%` }} /></div>
+            </div>
+          )}
           <div className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2" style={{ borderColor: COLOUR[myTeam] }} />
           <div className="absolute bottom-4 left-4 rounded-xl bg-black/60 px-4 py-2">
             <p className="text-[10px] uppercase tracking-widest text-white/60">Health</p>

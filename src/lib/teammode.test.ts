@@ -19,9 +19,9 @@ test('codes are 5 unambiguous chars', () => {
   assert.equal(validCode('ABC0O'), false);
 });
 
-test('pvp balances 8 v 8 and refuses the 17th', () => {
+test('pvp balances 32 v 32 and refuses the 65th', () => {
   const m = mk('pvp');
-  for (let i = 0; i < 16; i++) add(m, 'npg');
+  for (let i = 0; i < 64; i++) add(m, 'npg');
   const s = publicState(m, 0);
   assert.equal(s.teams[0].size, MAX_PER_SIDE);
   assert.equal(s.teams[1].size, MAX_PER_SIDE);
@@ -40,9 +40,9 @@ test('side switch keeps teams balanced', () => {
   assert.equal(pickSide(m, a.id, 'erobotz').ok, true); // 1 v 2 is fine
 });
 
-test('coop takes 16 on one squad', () => {
+test('coop takes 64 on one squad', () => {
   const m = mk('coop');
-  for (let i = 0; i < 16; i++) assert.equal(add(m).team, 'npg');
+  for (let i = 0; i < 64; i++) assert.equal(add(m).team, 'npg');
   assert.equal(join(m, { name: 'x', now: 0, id: 'y', resumeToken: 'y' }).ok, false);
 });
 

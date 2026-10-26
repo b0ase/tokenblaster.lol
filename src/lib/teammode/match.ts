@@ -4,26 +4,39 @@
  * sends intents (move, shot) and draws the snapshots it gets back.
  *
  * Two match types:
- *  - 'coop' (PvE): up to 16 players in NPG squads against the Erobot horde, wave after wave.
- *  - 'pvp' (team vs team): NPG (Ninja Punk Girls) vs Erobotz, up to 8 a side, friendly fire off, first to the frag
+ *  - 'coop' (PvE): up to 64 players in NPG squads against the Erobot horde, wave after wave (the horde, its live cap
+ *    and the boss scale with the head count: ./levels.ts crowdK).
+ *  - 'pvp' (team vs team): NPG (Ninja Punk Girls) vs Erobotz, up to 32 a side, friendly fire off, first to the frag
  *    limit or the most frags when the clock runs out.
+ *
+ * Big matches (26 Oct): snapshots for a crowd are interest-managed (`snapParts` + `snapFor`): each player gets the
+ * players and Erobots near them, the boss, and counters for the rest; spectators get everything.
  *
  * Positions are client-predicted but clamped here (max speed, arena bounds); hits are decided here by a ray cast
  * from the shooter's server position. A shot only counts when the browser also sent it as a real BSV transaction
  * (the client fires the tx, the server just counts what it is told: `txid` is recorded for the board).
  */
 
-import { isLevelId, teamLevelOf, teamWaveSize, type LevelId } from './levels';
+import { bossHpFor, enemyCapFor, isLevelId, teamLevelOf, teamWaveFor, type LevelId } from './levels';
+import { STREET, arenaById, coverHit, resolve, type Arena } from './arena';
 
 export type Team = 'npg' | 'erobotz';
 export type Mode = 'coop' | 'pvp';
 export type Phase = 'lobby' | 'live' | 'over';
 
 export const TICK_HZ = 20;
-export const MAX_PLAYERS = 16;
-export const MAX_PER_SIDE = 8;
-export const ARENA = { x0: -22, x1: 22, z0: -62, z1: 12 };
-export const SPAWN: Record<Team, { z: number; yaw: number }> = { npg: { z: 8, yaw: 0 }, erobotz: { z: -56, yaw: Math.PI } };
+export const MAX_PLAYERS = 64;
+export const MAX_PER_SIDE = 32;
+/** The street's bounds (every level but MELEE); `arenaOf(m)` for the match's own. */
+export const ARENA = { x0: STREET.x0, x1: STREET.x1, z0: STREET.z0, z1: STREET.z1 };
+/**
+ * Interest management: past `fullBelow` players each socket gets the players within `radius` m (at most `players`,
+ * nearest first), the Erobots within it (at most `enemies`), the boss always, at most `shots` shot events, and the
+ * room's counters. Small matches keep the one shared snapshot.
+ */
+export const INTEREST = { fullBelow: 16, radius: 48, players: 24, enemies: 48, shots: 20, spectatorShots: 36 } as const;
+/** Paid rounds a second, averaged over this window (the ROOM TX/SEC headline). */
+export const TX_WINDOW_MS = 5000;
 export const RULES = {
   speed: 7.5, // m/s, with slack for latency
   hp: 100,
@@ -42,6 +55,7 @@ export const RULES = {
   waves: 10,
   timeLimitMs: 10 * 60_000,
   graceMs: 60_000, // a dropped player keeps their slot this long (reconnect)
+  /** The live cap for a squad; big matches raise it (levels.ts enemyCapFor). */
   enemyCap: 40,
 } as const;
 
@@ -106,6 +120,14 @@ export type Match = {
   events: GameEvent[];
   tick: number;
   rand: () => number;
+  /** The level's arena (bounds, cover, spawns). */
+  arena: Arena;
+  /** The boss's full HP this match (scaled to the crowd when it walked in), 0 before. */
+  bossMax: number;
+  /** Paid rounds the players reported: [at, n], the last TX_WINDOW_MS (the room's tx/s). */
+  txLog: [number, number][];
+  /** Spawn-point round robin. */
+  spawnI: number;
 };
 
 const CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -115,7 +137,6 @@ export function makeCode(rand: () => number, n = 5) {
   return s;
 }
 export const validCode = (c: string) => /^[A-HJ-NP-Z2-9]{5}$/.test(c);
-const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const fin = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const cleanName = (s: unknown) => String(s ?? '').replace(/[^\w .@$-]/g, '').trim().slice(0, 24) || 'Player';
 
@@ -126,6 +147,10 @@ export function createMatch(o: { code: string; mode: Mode; level?: unknown; tour
     tournamentId: o.tournamentId ? String(o.tournamentId).replace(/[^\w-]/g, '').slice(0, 48) || null : null,
     mode: o.mode,
     level: isLevelId(o.level) ? o.level : 'assault',
+    arena: arenaById(teamLevelOf(o.level).arena),
+    bossMax: 0,
+    txLog: [],
+    spawnI: 0,
     phase: 'lobby',
     createdAt: o.now,
     startedAt: null,
@@ -141,7 +166,7 @@ export function createMatch(o: { code: string; mode: Mode; level?: unknown; tour
     events: [],
     tick: 0,
     rand: o.rand ?? Math.random,
-  };
+  } as Match;
 }
 
 export const sideCount = (m: Match, t: Team) => [...m.players.values()].filter((p) => p.team === t).length;
@@ -169,9 +194,9 @@ export function join(m: Match, o: { name: string; identityKey?: string | null; s
     }
   }
   if (m.phase === 'over') return { ok: false, error: 'This match is over.' };
-  if (m.players.size >= MAX_PLAYERS) return { ok: false, error: 'The match is full (16 players).' };
+  if (m.players.size >= MAX_PLAYERS) return { ok: false, error: `The match is full (${MAX_PLAYERS} players).` };
   const team = autoSide(m, o.side ?? null);
-  if (!team) return { ok: false, error: 'Both sides are full (8 v 8).' };
+  if (!team) return { ok: false, error: `Both sides are full (${MAX_PER_SIDE} v ${MAX_PER_SIDE}).` };
   const p: Player = {
     id: o.id,
     name: cleanName(o.name),
@@ -211,18 +236,22 @@ export function pickSide(m: Match, id: string, side: Team): { ok: boolean; error
   if (p.team === side) return { ok: true };
   const there = sideCount(m, side);
   const here = sideCount(m, p.team);
-  if (there >= MAX_PER_SIDE) return { ok: false, error: `${TEAM_NAME[side]} is full (8).` };
+  if (there >= MAX_PER_SIDE) return { ok: false, error: `${TEAM_NAME[side]} is full (${MAX_PER_SIDE}).` };
   if (there + 1 - (here - 1) > 1) return { ok: false, error: `Teams must stay balanced: ${TEAM_NAME[side]} already has more players.` };
   p.team = side;
   place(m, p);
   return { ok: true };
 }
 
+export const arenaOf = (m: Match): Arena => m.arena ?? STREET;
+
+/** A spawn point (round robin over the side's points, so a crowd spreads out) plus a little jitter. */
 function place(m: Match, p: Player) {
-  const s = SPAWN[p.team];
-  p.x = clamp((m.rand() - 0.5) * 24, ARENA.x0 + 1, ARENA.x1 - 1);
-  p.z = s.z + (m.rand() - 0.5) * 4;
-  p.yaw = s.yaw;
+  const a = arenaOf(m);
+  const pts = m.mode === 'coop' ? a.coop : a.spawns[p.team];
+  const s = pts[m.spawnI++ % pts.length];
+  const c = resolve(a, s.x + (m.rand() - 0.5) * 3, s.z + (m.rand() - 0.5) * 3);
+  [p.x, p.z, p.yaw] = [c.x, c.z, s.yaw];
 }
 
 export function leave(m: Match, id: string, now: number) {
@@ -272,8 +301,8 @@ export function move(m: Match, id: string, x: unknown, z: unknown, yaw: unknown,
     dx *= max / d;
     dz *= max / d;
   }
-  p.x = clamp(p.x + dx, ARENA.x0, ARENA.x1);
-  p.z = clamp(p.z + dz, ARENA.z0, ARENA.z1);
+  const c = resolve(arenaOf(m), p.x + dx, p.z + dz, RULES.playerRadius);
+  [p.x, p.z] = [c.x, c.z];
   p.yaw = fin(yaw, p.yaw);
   p.lastMove = now;
 }
@@ -301,10 +330,14 @@ export function shoot(m: Match, id: string, yaw: unknown, txid: unknown, now: nu
   if (now - p.lastShot < RULES.shotGapMs) return { ok: false, error: 'too fast' };
   p.lastShot = now;
   p.shots++;
-  if (typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid)) p.txShots++;
+  if (typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid)) {
+    p.txShots++;
+    logTx(m, 1, now);
+  }
   const a = fin(yaw, p.yaw);
   const { dx, dz } = dirOf(a);
-  let best: number = RULES.headRange;
+  // cover (pillars, crates, the tower) stops the round
+  let best: number = coverHit(arenaOf(m), p.x, p.z, dx, dz, RULES.headRange);
   let hit: { kind: 'player' | 'enemy'; ref: Player | Enemy } | null = null;
   if (m.mode === 'pvp') {
     for (const q of m.players.values()) {
@@ -360,23 +393,32 @@ function kill(m: Match, p: Player, now: number) {
 /** How many co-op waves this match's level runs. */
 export const wavesOf = (m: Match) => teamLevelOf(m.level).waves;
 
+/** Players the horde is sized for: everyone still in the match (connected or inside the reconnect grace). */
+export const headCount = (m: Match) => m.players.size;
+
 function nextWave(m: Match) {
   m.wave++;
   const L = teamLevelOf(m.level);
-  m.waveLeft = teamWaveSize(L, m.wave);
+  const n = headCount(m);
+  m.waveLeft = teamWaveFor(L, m.wave, n);
   m.events.push({ k: 'wave', n: m.wave });
-  // the level's boss walks in with the last wave
+  // the level's boss walks in with the last wave (the plaza: out of the tower door), HP scaled to the crowd
   if (L.bossHp && m.wave === L.waves) {
-    m.enemies.push({ id: m.nextEnemy++, x: 0, z: ARENA.z0 + 3, yaw: 0, hp: L.bossHp, kind: BOSS_KIND });
+    const at = arenaOf(m).bossAt;
+    m.bossMax = bossHpFor(L, n);
+    m.enemies.push({ id: m.nextEnemy++, x: at.x, z: at.z, yaw: 0, hp: m.bossMax, kind: BOSS_KIND });
   }
 }
 
 function spawnEnemy(m: Match) {
   const L = teamLevelOf(m.level);
+  const a = arenaOf(m);
+  const g = a.gates[Math.floor(m.rand() * a.gates.length)] ?? { x: 0, z: a.z0 + 3 };
+  const c = a.id === 'street' ? { x: (m.rand() - 0.5) * 36, z: a.z0 + 2 + m.rand() * 6 } : resolve(a, g.x + (m.rand() - 0.5) * 6, g.z + (m.rand() - 0.5) * 6, RULES.enemyRadius);
   const e: Enemy = {
     id: m.nextEnemy++,
-    x: (m.rand() - 0.5) * 36,
-    z: ARENA.z0 + 2 + m.rand() * 6,
+    x: c.x,
+    z: c.z,
     yaw: 0,
     hp: Math.round((RULES.enemyHp + m.wave * 4) * L.hpK),
     kind: L.kinds[Math.floor(m.rand() * L.kinds.length)] ?? 0,
@@ -417,7 +459,9 @@ export function tick(m: Match, now: number, dt = 1 / TICK_HZ): GameEvent[] {
 
 function stepHorde(m: Match, now: number, dt: number) {
   // spawn a few per tick until the wave is out (capped live count)
-  for (let i = 0; i < 2 && m.waveLeft > 0 && m.enemies.length < RULES.enemyCap; i++) {
+  const cap = enemyCapFor(headCount(m));
+  const perTick = cap > RULES.enemyCap ? 4 : 2;
+  for (let i = 0; i < perTick && m.waveLeft > 0 && m.enemies.length < cap; i++) {
     spawnEnemy(m);
     m.waveLeft--;
   }
@@ -447,6 +491,13 @@ function stepHorde(m: Match, now: number, dt: number) {
       }
     }
   }
+  // round the tower and the cover, not through it
+  const ar = arenaOf(m);
+  if (ar.cover.length)
+    for (const e of m.enemies) {
+      const c = resolve(ar, e.x, e.z, e.kind === BOSS_KIND ? BOSS_RADIUS : RULES.enemyRadius * 0.8);
+      [e.x, e.z] = [c.x, c.z];
+    }
   // keep bodies apart a little
   for (let i = 0; i < m.enemies.length; i++)
     for (let j = i + 1; j < m.enemies.length; j++) {
@@ -482,8 +533,42 @@ const roundEvent = (e: GameEvent): GameEvent => {
   return e;
 };
 
-/** 20 Hz snapshot for the players in the match (compact arrays). */
-export function snapshot(m: Match, events: GameEvent[]) {
+/** Paid rounds reported now (a shot with a txid, or the browser's ARC count). */
+function logTx(m: Match, n: number, now: number) {
+  if (n <= 0) return;
+  m.txLog.push([now, n]);
+  if (m.txLog.length > 4096) m.txLog.splice(0, m.txLog.length - 4096);
+}
+
+/** ROOM TX/SEC: every player's paid rounds, summed by the server over the last TX_WINDOW_MS. 0 with no reports. */
+export function txPerSec(m: Match, now: number): number {
+  const from = now - TX_WINDOW_MS;
+  let i = 0;
+  while (i < m.txLog.length && m.txLog[i][0] < from) i++;
+  if (i) m.txLog.splice(0, i);
+  let n = 0;
+  for (const [, k] of m.txLog) n += k;
+  // a match younger than the window averages over its own life (no slow ramp at the start)
+  const span = Math.min(TX_WINDOW_MS, Math.max(1000, now - (m.startedAt ?? now)));
+  return Math.round((n / span) * 1000 * 10) / 10;
+}
+
+type PTuple = readonly [string, number, number, number, number, 0 | 1, Team, 0 | 1];
+type ETuple = readonly [number, number, number, number, number, number];
+const pTuple = (p: Player): PTuple => [p.id, r2(p.x), r2(p.z), r2(p.yaw), Math.max(0, Math.round(p.hp)), p.alive ? 1 : 0, p.team, p.connected ? 1 : 0];
+const eTuple = (e: Enemy): ETuple => [e.id, r2(e.x), r2(e.z), r2(e.yaw), Math.round(e.hp), e.kind];
+
+/** The room's counters in every snapshot: what a player cannot see is still on the HUD. */
+export type Counters = { pc: number; al: number; ec: number; tps: number; boss: [number, number] | null };
+export function counters(m: Match, now: number): Counters {
+  let al = 0;
+  for (const p of m.players.values()) if (p.alive && p.connected) al++;
+  const b = m.enemies.find((e) => e.kind === BOSS_KIND);
+  return { pc: m.players.size, al, ec: m.enemies.length + m.waveLeft, tps: txPerSec(m, now), boss: b ? [Math.max(0, Math.round(b.hp)), m.bossMax || Math.round(b.hp)] : null };
+}
+
+/** 20 Hz snapshot of the whole match (compact arrays): small matches and spectators. */
+export function snapshot(m: Match, events: GameEvent[], now = Date.now()) {
   return {
     t: 'snap' as const,
     tick: m.tick,
@@ -491,13 +576,106 @@ export function snapshot(m: Match, events: GameEvent[]) {
     wave: m.wave,
     frags: m.frags,
     endsAt: m.endsAt,
-    p: [...m.players.values()].map((p) => [p.id, r2(p.x), r2(p.z), r2(p.yaw), Math.max(0, Math.round(p.hp)), p.alive ? 1 : 0, p.team, p.connected ? 1 : 0] as const),
-    e: m.enemies.map((e) => [e.id, r2(e.x), r2(e.z), r2(e.yaw), Math.round(e.hp), e.kind] as const),
+    c: counters(m, now),
+    /** 1 when this is one player's interest set (bodies that drop out of it left the area, not died). */
+    ip: 0 as 0 | 1,
+    p: [...m.players.values()].map(pTuple),
+    e: m.enemies.map(eTuple),
     // positions to the centimetre: the same events at about half the bytes (16 players fire ~200 shots a second)
     ev: events.map(roundEvent),
   };
 }
 export type Snapshot = ReturnType<typeof snapshot>;
+
+/**
+ * One tick's snapshot, cut up once for every socket in the room: each entity and event serialised ONCE, then each
+ * player's own snapshot is a join of the pieces near them (`snapFor`). The work per extra socket is a distance test
+ * per entity and a string join, not a JSON.stringify of the match.
+ */
+export type SnapParts = {
+  head: string;
+  px: Float64Array;
+  pz: Float64Array;
+  pid: string[];
+  pj: string[];
+  ex: Float64Array;
+  ez: Float64Array;
+  ej: string[];
+  boss: number;
+  ev: { j: string; x: number; z: number; by: string; on: string | null; always: boolean; shot: boolean }[];
+  full: string;
+  spectator: string;
+};
+
+export function snapParts(m: Match, events: GameEvent[], now = Date.now()): SnapParts {
+  const players = [...m.players.values()];
+  const base = { t: 'snap', tick: m.tick, phase: m.phase, wave: m.wave, frags: m.frags, endsAt: m.endsAt, c: counters(m, now) };
+  const head = JSON.stringify(base).slice(0, -1);
+  const pj = players.map((p) => JSON.stringify(pTuple(p)));
+  const ej = m.enemies.map((e) => JSON.stringify(eTuple(e)));
+  const ev = events.map((e) => {
+    const r = roundEvent(e);
+    const j = JSON.stringify(r);
+    if (r.k === 'shot' || r.k === 'hit' || r.k === 'kill') return { j, x: r.x, z: r.z, by: r.by, on: r.k === 'shot' ? null : r.on, always: false, shot: r.k === 'shot' };
+    return { j, x: 0, z: 0, by: '', on: null, always: r.k === 'wave', shot: false };
+  });
+  const allEv = (cap: number) => {
+    let shots = 0;
+    return ev.filter((e) => (e.shot ? shots++ < cap : true)).map((e) => e.j).join(',');
+  };
+  const body = (evs: string) => `${head},"ip":0,"p":[${pj.join(',')}],"e":[${ej.join(',')}],"ev":[${evs}]}`;
+  return {
+    head,
+    px: Float64Array.from(players, (p) => p.x),
+    pz: Float64Array.from(players, (p) => p.z),
+    pid: players.map((p) => p.id),
+    pj,
+    ex: Float64Array.from(m.enemies, (e) => e.x),
+    ez: Float64Array.from(m.enemies, (e) => e.z),
+    ej,
+    boss: m.enemies.findIndex((e) => e.kind === BOSS_KIND),
+    ev,
+    full: body(allEv(Infinity)),
+    spectator: body(allEv(INTEREST.spectatorShots)),
+  };
+}
+
+/** Nearest-first indices within `r2max` (squared), at most `k`; `force` is always in. */
+function nearest(xs: Float64Array, zs: Float64Array, x: number, z: number, r2max: number, k: number, force = -1): number[] {
+  const hits: [number, number][] = [];
+  for (let i = 0; i < xs.length; i++) {
+    const dx = xs[i] - x;
+    const dz = zs[i] - z;
+    const d = dx * dx + dz * dz;
+    if (d <= r2max || i === force) hits.push([i === force ? -1 : d, i]);
+  }
+  if (hits.length > k) {
+    hits.sort((a, b) => a[0] - b[0]);
+    hits.length = k;
+  }
+  return hits.map((h) => h[1]);
+}
+
+/** The snapshot string for one player: themself, what is near them, the boss, the counters. */
+export function snapFor(parts: SnapParts, viewer: string): string {
+  const me = parts.pid.indexOf(viewer);
+  if (me < 0) return parts.spectator;
+  const [x, z] = [parts.px[me], parts.pz[me]];
+  const R2 = INTEREST.radius * INTEREST.radius;
+  const pi = nearest(parts.px, parts.pz, x, z, R2, INTEREST.players, me);
+  const ei = nearest(parts.ex, parts.ez, x, z, R2, INTEREST.enemies, parts.boss);
+  const near = new Set(pi.map((i) => parts.pid[i]));
+  let shots = 0;
+  const ev: string[] = [];
+  for (const e of parts.ev) {
+    const mine = e.by === viewer || e.on === viewer;
+    const close = (e.x - x) * (e.x - x) + (e.z - z) * (e.z - z) <= R2 || near.has(e.by);
+    if (!(e.always || mine || close)) continue;
+    if (e.shot && !mine && shots++ >= INTEREST.shots) continue;
+    ev.push(e.j);
+  }
+  return `${parts.head},"ip":1,"p":[${pi.map((i) => parts.pj[i]).join(',')}],"e":[${ei.map((i) => parts.ej[i]).join(',')}],"ev":[${ev.join(',')}]}`;
+}
 
 /**
  * The public match state the bChatX TERRORNODE room polls (GET /matches/:code on the game server, mirrored at
@@ -536,6 +714,11 @@ export function publicState(m: Match, now: number, opts: { inviteBase?: string }
     level: m.level,
     phase: m.phase,
     maxPlayers: MAX_PLAYERS,
+    maxPerSide: m.mode === 'pvp' ? MAX_PER_SIDE : MAX_PLAYERS,
+    arena: arenaOf(m).id,
+    /** ROOM TX/SEC: all players' paid rounds a second (server-summed from their reports; 0 for bots and free play). */
+    txPerSec: txPerSec(m, now),
+    boss: counters(m, now).boss,
     createdAt: m.createdAt,
     startedAt: m.startedAt,
     endsAt: m.endsAt,
@@ -559,11 +742,13 @@ export function publicState(m: Match, now: number, opts: { inviteBase?: string }
 export type PublicState = ReturnType<typeof publicState>;
 
 /** The browser reports how many of its shots ARC accepted as real transactions (never more than it fired). */
-export function confirmTx(m: Match, id: string, n: unknown) {
+export function confirmTx(m: Match, id: string, n: unknown, now = Date.now()) {
   const p = m.players.get(id);
   const k = Math.floor(fin(n));
   if (!p || k <= 0) return;
+  const before = p.txShots;
   p.txShots = Math.min(p.shots, p.txShots + Math.min(k, 1000));
+  logTx(m, p.txShots - before, now);
 }
 
 export function setStream(m: Match, id: string, slot: unknown) {
