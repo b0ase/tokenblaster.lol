@@ -8,6 +8,8 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useBlaster } from '@/lib/useBlaster';
+import { loadMark } from '@/lib/gun';
+import { startPlay } from '@/lib/coinop/startPlay';
 import { HOUSE } from '@/lib/usePaidPlay';
 import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } from '@/lib/coinop/credit';
 import { SiteWalletChooser } from '@/components/SiteWalletChooser';
@@ -48,8 +50,14 @@ export function CoinOpGate({ game, title, children }: { game: string; title: str
     cab.setErr(null);
     setStarting(true);
     try {
-      coinStore.addPrepaid(await payPlay());
-      setOpen(true);
+      await startPlay({
+        pay: payPlay,
+        open: (txid) => {
+          coinStore.addPrepaid(txid);
+          setOpen(true);
+        },
+        mark: loadMark,
+      });
     } catch (e) {
       cab.setErr(e instanceof Error ? e.message : String(e));
     } finally {
