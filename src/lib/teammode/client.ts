@@ -3,6 +3,7 @@
  * back-off and the resume token (kept per match code in sessionStorage, so a reload keeps your slot).
  */
 import type { PublicState, Snapshot, Team } from './match';
+import type { LevelId } from '../terrornode/levels';
 
 export const TEAM_WS = (process.env.NEXT_PUBLIC_TERRORNODE_TEAM_WS || 'ws://localhost:8787/ws').replace(/\/$/, '');
 
@@ -42,6 +43,8 @@ export class TeamClient {
     readonly code: string,
     private me: { name: string; identityKey?: string | null; side?: Team | null },
     private h: Handlers,
+    /** Spectator: joins read-only ({t:'watch'}), no slot, no wallet, nothing sent but pings. */
+    readonly watch = false,
   ) {
     this.open();
   }
@@ -52,12 +55,18 @@ export class TeamClient {
     const ws = new WebSocket(TEAM_WS);
     this.ws = ws;
     ws.onopen = () => {
+      if (this.watch) return ws.send(JSON.stringify({ t: 'watch', match: this.code }));
       ws.send(JSON.stringify({ t: 'join', match: this.code, name: this.me.name, identityKey: this.me.identityKey ?? null, side: this.me.side ?? null, resume: read(KEY(this.code)) }));
     };
     ws.onmessage = (ev) => {
       const m = JSON.parse(String(ev.data));
       if (m.t === 'snap') return this.h.onSnap(m);
       if (m.t === 'state') return this.h.onState(m.state);
+      if (m.t === 'watching') {
+        this.tries = 0;
+        this.h.onStatus('live');
+        return this.h.onState(m.state);
+      }
       if (m.t === 'welcome') {
         this.tries = 0;
         this.you = m.you;
@@ -107,8 +116,8 @@ export class TeamClient {
 }
 
 /** Create a match through the site (same origin; proxied to the game server). */
-export async function createTeamMatch(mode: 'coop' | 'pvp', tournamentId?: string | null): Promise<{ code: string; id: string; inviteUrl: string | null }> {
-  const r = await fetch('/api/terrornode/team', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, tournamentId: tournamentId ?? null }) });
+export async function createTeamMatch(mode: 'coop' | 'pvp', tournamentId?: string | null, level?: LevelId): Promise<{ code: string; id: string; inviteUrl: string | null }> {
+  const r = await fetch('/api/terrornode/team', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, level: level ?? 'assault', tournamentId: tournamentId ?? null }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'The team server did not answer.');
   return j;

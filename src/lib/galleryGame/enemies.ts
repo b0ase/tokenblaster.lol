@@ -220,6 +220,8 @@ export class ErobotWave {
   playerAlive = true;
   /** Dev only: false stops new spawns. */
   spawning = true;
+  /** A level's role mix (shooter / rusher / flanker) in place of the per-wave blend, or null for the stock blend. */
+  roleMix: { shooter: number; rusher: number; flanker: number } | null = null;
   /** True while the gun is still loading real rounds: no spawns (the engine sets it). */
   paused = false;
 
@@ -416,7 +418,7 @@ export class ErobotWave {
   private spawn(s: Slot) {
     const T = TUNING.erobots;
     const w = this.wave;
-    const rw = roleWeights(w);
+    const rw = this.roleMix ?? roleWeights(w);
     const r = Math.random();
     // the weapon decides the job: guns hang back (a few flank), blades and fists close in
     if (s.cast.weapon === 'palm') s.role = r < rw.shooter ? 'shooter' : r < rw.shooter + rw.rusher ? 'rusher' : 'flanker';

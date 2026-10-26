@@ -36,6 +36,8 @@ import { ErobotWave } from './enemies';
 import { Horde } from './horde';
 import { Bolts, type HurtKind } from './combat';
 import { TUNING } from './tuning';
+import type { Level, LevelId, WavePattern } from '../terrornode/levels';
+import type { Dressing } from '../terrornode/dressing';
 
 export type Quality = 'low' | 'high';
 export type Stats = {
@@ -67,7 +69,7 @@ export type Stats = {
   bossOn: boolean;
 };
 /** Stage flow events for the page: the lift closes (`leave`), a stage opens (`enter`), the boss is down, the hostage is free. */
-export type StageEvent = { kind: 'enter'; stage: number; line: string } | { kind: 'boss' } | { kind: 'down' } | { kind: 'rescued' };
+export type StageEvent = { kind: 'enter'; stage: number; line: string } | { kind: 'boss' } | { kind: 'down' } | { kind: 'rescued' } | { kind: 'clear'; level: LevelId; score: number; rounds: number };
 /** The player was hurt. `angle`: where it came from relative to the view (0 ahead, + right, +-PI behind). */
 export type Hurt = { angle: number; dmg: number; kind: HurtKind; hp: number; hpMax: number };
 export type Hooks = {
@@ -124,6 +126,18 @@ const showKit = (k: Kit, on: boolean) => {
 /** Tell the page a new stage has opened (with Dr Wong's line for the stage just cleared). */
 const skipLine = (hooks: Hooks, to: number) => hooks.stage({ kind: 'enter', stage: to + 1, line: KWEG.clear[Math.max(0, to - 1)] ?? '' });
 const BASE_FOV = 60;
+/** The ten-minute block as a level (the default until a level is picked; the full table is lazy-loaded). */
+const BLOCK = {
+  id: 'assault',
+  n: 0,
+  name: 'ASSAULT ON TERRORNODE',
+  blurb: '',
+  kweg: '',
+  boss: true,
+  palette: { fog: '#071420', density: 0.0066, bg: '#05060f', exposure: 0, bloom: 0, key: '#27e6ff', rim: '#ff2bd6' },
+  solo: { from: 0, to: 600, roles: { shooter: 0.42, rusher: 0.32, flanker: 0.26 }, horde: {}, wave: { kind: 'steady', k: 1 }, levelUp: 0 },
+  team: { name: 'ASSAULT ON TERRORNODE', waves: 10, base: 4, perWave: 3, speed: 2.4, speedPerWave: 0.25, hpK: 1, kinds: [0, 1, 2, 3, 4] },
+} satisfies Level;
 
 export class GalleryEngine {
   private renderer!: THREE.WebGLRenderer;
@@ -143,6 +157,17 @@ export class GalleryEngine {
   private setMood = { fog: '#071420', density: 0.0066, bg: '#05060f' };
   /** 0..3 = street, floors, core, roof. */
   stageIdx = 0;
+  /** The level being played (src/lib/terrornode/levels.ts): a window of the block with its own palette, mix and dressing. */
+  level: Level = BLOCK;
+  /** The level module's wave-pattern function, once it has loaded (the block's own swarm until then). */
+  private waveK: (w: WavePattern, t: number, len: number) => number = () => 1;
+  private dressing: Dressing | null = null;
+  private dressReq = 0;
+  /** A non-boss level reached its end: the swarm is dismissed and the page shows LEVEL CLEAR. */
+  private cleared = false;
+  /** This run's rounds landed and the score when it began (per-level score and round count). */
+  private runRounds = 0;
+  private scoreAt = 0;
   private jamRounds = 0;
   /** Seconds into the ten-minute block (runs while in combat, until the rescue). */
   runT = 0;
@@ -658,6 +683,7 @@ export class GalleryEngine {
   accept(n: number) {
     const w = this.weapon;
     if (!w || n <= 0 || !this.city) return;
+    if (this.combat) this.runRounds += n;
     const org = this.tA;
     const dir = this.tB;
     this.aimRay(org, dir);
@@ -984,6 +1010,7 @@ export class GalleryEngine {
     const pieces = [this.city, this.sets.floors, this.sets.core, this.sets.roof];
     for (let i = 0; i < pieces.length; i++) if (this.kitOn[i]) pieces[i]?.update(dt, this.t, this.camera);
     this.setNow()?.core?.set(this.jamRounds / this.jamGoal(), this.coreHit, this.t);
+    this.dressing?.update(dt, this.t);
     this.walk(dt);
     this.fx.update(sd, this.camera);
     this.updateCamera(dt);
@@ -1208,7 +1235,7 @@ export class GalleryEngine {
     }
     this.jamRounds = i === 2 ? 0 : this.jamRounds;
     const T = TUNING.stages[i];
-    this.erobots.setStage(T.lane, T.level);
+    this.erobots.setStage(T.lane, T.level + this.level.solo.levelUp);
     this.erobots.spawning = true;
     this.horde.lane = T.lane;
     this.horde.spawning = true;
@@ -1221,7 +1248,7 @@ export class GalleryEngine {
     this.bossOn = true;
     showKit(this.bossKit, true);
     this.boss.final = false;
-    this.boss.setLevel(T.bossLevel);
+    this.boss.setLevel(this.level.solo.bossLevel ?? T.bossLevel);
     this.boss.reset(-36);
     this.hooks.current.stage({ kind: 'boss' });
   }
@@ -1229,7 +1256,10 @@ export class GalleryEngine {
   /** A fresh run: back to the street, everything reset, the hostage tied up again, the block clock at 0:00. */
   startRun() {
     this.rescue = null;
-    this.runT = 0;
+    this.cleared = false;
+    this.runRounds = 0;
+    this.scoreAt = this.score;
+    this.runT = this.level.solo.from;
     this.routeD = 0;
     this.jamRounds = 0;
     this.sinceCoreHit = 99;
@@ -1240,7 +1270,11 @@ export class GalleryEngine {
     this.erobots.clearAll();
     this.horde.clearAll();
     this.bolts.clear();
-    this.applyStage(0);
+    if (this.bossOn) {
+      this.bossOn = false;
+      showKit(this.bossKit, false);
+    }
+    this.applyStage(this.stageAt(this.runT));
     this.walk(0);
     this.px = 0;
     this.pz = 0;
@@ -1316,6 +1350,13 @@ export class GalleryEngine {
     fg.color.copy(M.a.set(a.fog)).lerp(M.b.set(b.fog), k);
     fg.density = a.density + (b.density - a.density) * k;
     (this.scene.background as THREE.Color).copy(M.a.set(a.bg)).lerp(M.b.set(b.bg), k);
+    // a level's palette rides over the route's mood
+    if (this.level.id !== 'assault') {
+      const P = this.level.palette;
+      fg.color.lerp(M.a.set(P.fog), 0.8);
+      fg.density += (P.density - fg.density) * 0.7;
+      (this.scene.background as THREE.Color).lerp(M.a.set(P.bg), 0.8);
+    }
     this.erHit.intensity *= Math.pow(0.002, dt);
     this.assignLights();
   }
@@ -1365,8 +1406,14 @@ export class GalleryEngine {
       }
       return;
     }
-    if (!this.combat) return;
+    if (!this.combat || this.cleared) return;
     this.runT += dt;
+    const L = this.level.solo;
+    // a level without a boss clears when its window of the block is walked
+    if (!this.level.boss && this.runT >= L.to) {
+      this.clearLevel();
+      return;
+    }
     // the clock moves the player on: one seamless walk (the stage is just which leg of the route you are on)
     const want = this.stageAt(this.runT);
     if (want !== this.stageIdx) {
@@ -1379,9 +1426,10 @@ export class GalleryEngine {
     const end = this.stageIdx < 3 ? TUNING.stages[this.stageIdx + 1].at : R.secs;
     const k = THREE.MathUtils.clamp((this.runT - S.at) / Math.max(1, end - S.at), 0, 1);
     const live = S.horde + (S.hordeEnd - S.horde) * k;
-    this.horde.want = Math.round(live * (this.high ? 1 : TUNING.horde.lowLive));
+    const wk = this.waveK(L.wave, this.runT - L.from, L.to - L.from);
+    this.horde.want = Math.round(live * wk * (this.high ? 1 : TUNING.horde.lowLive));
     // the boss: in at bossAt, final for the last seconds, and the block lands on him at 10:00
-    if (this.stageIdx === 3 && this.runT >= R.bossAt) this.bossIn();
+    if (this.stageIdx === 3 && this.level.boss && this.runT >= (L.bossAt ?? R.bossAt)) this.bossIn();
     if (this.bossOn && this.runT >= R.secs - 25) this.boss.final = true;
     if (this.bossOn && this.runT >= R.secs && this.boss.alive) {
       if (this.boss.hit(this.boss.hp + 1, this.boss.chest(this.tA))) this.bossMelted();
@@ -1407,6 +1455,52 @@ export class GalleryEngine {
         this.jamRounds = 0;
       }
     }
+  }
+
+  /** LEVEL CLEAR (a level without a boss): the swarm is called off, nothing more can hurt, the page moves on. */
+  private clearLevel() {
+    this.cleared = true;
+    this.invuln = 999;
+    this.erobots.clearAll();
+    this.erobots.spawning = false;
+    this.horde.dismiss();
+    this.bolts.clear();
+    sfx('level', 1);
+    this.hooks.current.stage({ kind: 'clear', level: this.level.id, ...this.levelRun() });
+  }
+
+  /** This run's score and rounds landed (for the level's best). */
+  levelRun() {
+    return { score: Math.max(0, this.score - this.scoreAt), rounds: this.runRounds };
+  }
+
+  /**
+   * Pick the level the next `startRun()` plays. Its mix applies at once; its dressing (new geometry) is fetched
+   * with a dynamic import the first time, so the first load never carries it. Call `startRun()` after.
+   */
+  async setLevel(id: LevelId) {
+    // the level table and its dressing are their own chunks: the first load never carries them
+    const lv = await import('../terrornode/levels');
+    if (this.disposed) return;
+    this.waveK = lv.waveK;
+    const L = (this.level = lv.levelOf(id));
+    this.erobots.roleMix = L.id === 'assault' ? null : L.solo.roles;
+    this.horde.weights = L.id === 'assault' ? null : L.solo.horde;
+    const req = ++this.dressReq;
+    this.dressing?.dispose();
+    this.dressing = null;
+    if (L.id === 'assault' || this.disposed) return;
+    const { buildDressing } = await import('../terrornode/dressing');
+    if (req !== this.dressReq || this.disposed) return;
+    const host = L.id === 'market' ? this.city.group : L.id === 'datacore' ? this.sets.core?.group : this.sets.roof?.group;
+    const at = L.id === 'market' ? { halfW: 12, z0: 0, z1: -62 } : L.id === 'datacore' ? { halfW: 11, z0: 4, z1: -40 } : { halfW: 8, z0: 8, z1: -40 };
+    const d = buildDressing(L.id, { high: this.high, palette: L.palette, ...at });
+    if (!d || !host) return;
+    // the inside sets draw on layer 2 (see buildRoute); the street on layer 0
+    if (host !== this.city.group) d.group.traverse((o) => o.layers.set(2));
+    host.add(d.group);
+    this.dressing = d;
+    this.warmTextures();
   }
 
   /** The Liquid Unit has just gone down (its melt begins): the street is cleared, nothing more can hurt. */
@@ -1486,8 +1580,8 @@ export class GalleryEngine {
       this.kick = Math.min(this.kick, TUNING.run.fireKickCap);
       this.flashK = Math.min(this.flashK, 0.25);
     }
-    this.renderer.toneMappingExposure = 1.0 + this.kick;
-    this.bloom.strength = (this.high ? 0.3 : 0.26) + this.kick * 0.7;
+    this.renderer.toneMappingExposure = 1.0 + this.level.palette.exposure + this.kick;
+    this.bloom.strength = (this.high ? 0.3 : 0.26) + this.level.palette.bloom + this.kick * 0.7;
     const u = this.grade.pass.uniforms as { uAberr: { value: number } };
     u.uAberr.value = 0.0012 + this.flashK * 0.003;
   }
@@ -1797,6 +1891,7 @@ export class GalleryEngine {
     if (this.mgOn) minigun(false);
     this.cleanup.forEach((f) => f());
     this.ro?.disconnect();
+    this.dressing?.dispose();
     this.city?.dispose();
     for (const k of ['floors', 'core', 'roof'] as const) this.sets[k]?.dispose();
     this.boss?.dispose();
