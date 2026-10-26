@@ -114,6 +114,26 @@ export function buildMelee(o: { high: boolean; key: string; rim: string }): Mele
   // ── the stands: a second lathe rising behind the rim, with seat lights (instanced) ──
   const standProf = [new THREE.Vector2(MELEE_R + 1.2, 6.2), new THREE.Vector2(MELEE_R + 4, 8), new THREE.Vector2(MELEE_R + 34, 30), new THREE.Vector2(MELEE_R + 36, 34), new THREE.Vector2(MELEE_R + 40, 34), new THREE.Vector2(MELEE_R + 40, 0)];
   add(new THREE.Mesh(keep(new THREE.LatheGeometry(standProf, o.high ? 128 : 72)), bowlMat));
+  // the stands read as a stadium: neon tread lines up the rake, a canopy ring with a lit underside
+  for (let i = 1; i <= 9; i++) {
+    const k = i / 10;
+    const r = MELEE_R + 4 + k * 30;
+    const y = 8 + k * 22;
+    const m = new THREE.Mesh(keep(new THREE.TorusGeometry(r, i % 3 === 0 ? 0.09 : 0.05, 4, o.high ? 160 : 96)), i % 3 === 0 ? neonKey : neonRim);
+    m.rotation.x = Math.PI / 2;
+    m.position.y = y + 0.05;
+    add(m);
+  }
+  {
+    const canopy = new THREE.Mesh(keep(new THREE.RingGeometry(MELEE_R + 18, MELEE_R + 40, o.high ? 128 : 72, 1)), bowlMat);
+    canopy.rotation.x = Math.PI / 2;
+    canopy.position.y = 44;
+    add(canopy);
+    const lip = new THREE.Mesh(keep(new THREE.TorusGeometry(MELEE_R + 18, 0.25, 6, o.high ? 160 : 96)), neonKey);
+    lip.rotation.x = Math.PI / 2;
+    lip.position.y = 43.8;
+    add(lip);
+  }
 
   // instanced props, one InstancedMesh per sector so the frustum culls them sector by sector
   const scatter = (geo: THREE.BufferGeometry, mat: THREE.Material, pts: { x: number; y: number; z: number; ry?: number; s?: THREE.Vector3 }[], shadow = false) => {
@@ -139,21 +159,21 @@ export function buildMelee(o: { high: boolean; key: string; rim: string }): Mele
   };
   {
     const pts: { x: number; y: number; z: number; s: THREE.Vector3 }[] = [];
-    const rows = o.high ? 14 : 8;
-    const per = o.high ? 220 : 120;
+    const rows = o.high ? 10 : 6;
+    const per = o.high ? 160 : 90;
     for (let r = 0; r < rows; r++) {
       const k = r / rows;
       const rad = MELEE_R + 6 + k * 27;
       const y = 9.5 + k * 20;
       for (let i = 0; i < per; i++) {
-        if (Math.random() < 0.35) continue; // empty seats: no grid look
+        if (Math.random() < 0.6) continue; // a scattered crowd of phone lights, not a grid
         const a = ((i + (r % 2) * 0.5) / per) * Math.PI * 2;
         pts.push({ x: Math.sin(a) * rad, y, z: Math.cos(a) * rad, s: new THREE.Vector3(1, 1, 1) });
       }
     }
-    const seatA = neon(key, 1.6);
-    const seatB = neon(rim, 1.4);
-    const g = keep(new THREE.BoxGeometry(0.35, 0.16, 0.35));
+    const seatA = neon(key, 0.9);
+    const seatB = neon(rim, 0.8);
+    const g = keep(new THREE.BoxGeometry(0.16, 0.1, 0.16));
     scatter(g, seatA, pts.filter((_, i) => i % 3 !== 0));
     scatter(g, seatB, pts.filter((_, i) => i % 3 === 0));
   }

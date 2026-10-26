@@ -94,6 +94,7 @@ export class TeamScene {
   private dressReq = 0;
   private camAt = new THREE.Vector3(0, 0, -20);
   private arena: Arena = STREET;
+  private placed = false;
   private melee: MeleeScene | null = null;
   private crowd: THREE.InstancedMesh | null = null;
   private proxies = new Map<string, { x: number; z: number; tx: number; tz: number; seen: number }>();
@@ -293,7 +294,8 @@ export class TeamScene {
         const wasAlive = this.me.alive;
         this.me.alive = Boolean(alive);
         // respawn or a big correction: snap; small drift: ease toward the server
-        if (!wasAlive && alive) [this.me.x, this.me.z, this.me.yaw] = [x, z, yaw];
+        // (the first snapshot too: face the way the spawn point faces, on the plaza the tower)
+        if ((!wasAlive && alive) || !this.placed) [this.me.x, this.me.z, this.me.yaw, this.placed] = [x, z, yaw, true];
         else if (Math.hypot(x - this.me.x, z - this.me.z) > 2.5) [this.me.x, this.me.z] = [x, z];
         continue;
       }
@@ -646,7 +648,7 @@ export class TeamScene {
     else c.set(0, 0, 0);
     this.camAt.lerp(c, 1 - Math.pow(0.3, dt));
     const a = this.t * 0.045;
-    this.camera.position.set(Math.sin(a) * 92, 46 + Math.sin(this.t * 0.11) * 6, Math.cos(a) * 92);
+    this.camera.position.set(Math.sin(a) * 70, 32 + Math.sin(this.t * 0.11) * 5, Math.cos(a) * 70);
     this.camera.lookAt(this.camAt.x * 0.6, 8, this.camAt.z * 0.6);
   }
 
