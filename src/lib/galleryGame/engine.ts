@@ -281,6 +281,11 @@ export class GalleryEngine {
   private hover = '';
 
   // the player's body
+  /** The chosen NPG girl's stat modifiers (src/lib/npgLoadout.ts modsFor); neutral until set. */
+  mods = { damage: 1, speed: 1, spread: 1, hp: 1, incoming: 1, score: 1 };
+  get hpMax() {
+    return Math.round(TUNING.player.hp * this.mods.hp);
+  }
   hp: number = TUNING.player.hp;
   private sinceHurt = 99;
   private hitCd = 0;
@@ -724,11 +729,11 @@ export class GalleryEngine {
     let tracers = 0;
     for (let i = 0; i < rays; i++) {
       jd.copy(dir);
-      const spread = Math.max(0.006, w.spread);
+      const spread = Math.max(0.006, w.spread * this.mods.spread);
       const a = Math.random() * Math.PI * 2;
       const rr = spread * Math.sqrt(Math.random());
       jd.addScaledVector(u, Math.cos(a) * rr).addScaledVector(vv, Math.sin(a) * rr).normalize();
-      const end = this.landRound(org, jd, per * w.damage, w, per);
+      const end = this.landRound(org, jd, per * w.damage * this.mods.damage, w, per);
       if (tracers === 0) this.flash(this.tC.copy(mz).lerp(end, 0.35), w.bolt, 10, 90); // the round lights the wet street as it passes
       if (tracers++ < (w.auto ? 3 : 9)) this.fx.tracer(mz, end, w.bolt, w.ammo === 'laser' ? 0.09 : w.ammo === 'pellet' ? 0.035 : 0.05, w.ammo === 'laser' ? 0.15 : 0.08);
     }
@@ -808,7 +813,7 @@ export class GalleryEngine {
         this.flash(end, '#cfe4ff', 150, 600); // he melts: a big flash, then a cold glow as he pools
         this.flash(this.tA.set(end.x, 0.8, end.z), '#27c8e0', 60, 2200);
         this.shake = 1;
-        this.heal(TUNING.player.healOnBossMelt * TUNING.player.hp);
+        this.heal(TUNING.player.healOnBossMelt * this.hpMax);
         sfx('explosion', 0.8);
       } else this.score += Math.round(dmg);
       if (Math.random() < 0.3) this.fx.sparks(end, '#eef4ff', 1, 4);
@@ -1016,7 +1021,7 @@ export class GalleryEngine {
     this.sinceHurt += dt;
     this.hitCd -= dt;
     this.invuln -= dt;
-    if (!this.dead && this.sinceHurt > TUNING.player.regenDelay && this.hp < TUNING.player.hp) this.hp = Math.min(TUNING.player.hp, this.hp + TUNING.player.regenPerSec * dt);
+    if (!this.dead && this.sinceHurt > TUNING.player.regenDelay && this.hp < this.hpMax) this.hp = Math.min(this.hpMax, this.hp + TUNING.player.regenPerSec * dt);
     if (this.bossOn) this.boss.update(sd);
     // LOADING YOUR AMMO (owner, 25 Oct): until real rounds are live nothing spawns and nothing attacks; the
     // opening grace starts again at GO
@@ -1077,7 +1082,7 @@ export class GalleryEngine {
       ? { kind: 'boss', label: 'THE LIQUID UNIT', now: Math.ceil(this.boss.hp), max: Math.ceil(this.boss.max) }
       : { kind: 'block', label: 'BLOCK', now: Math.max(0, Math.ceil(R.secs - this.runT)), max: R.secs };
     return {
-      score: this.score,
+      score: Math.round(this.score * this.mods.score),
       bossHp: Math.ceil(this.boss.hp),
       bossMax: Math.ceil(this.boss.max),
       wave: this.stageIdx + 1,
@@ -1094,7 +1099,7 @@ export class GalleryEngine {
       kills: this.kills,
       hover: this.hover,
       hp: Math.ceil(this.hp),
-      hpMax: TUNING.player.hp,
+      hpMax: this.hpMax,
       bossPush: this.bossOn ? this.boss.pushNorm : 0,
       bossDist: this.bossOn && this.boss.alive ? this.boss.dist : 99,
       bossOn: this.bossOn,
@@ -1308,7 +1313,7 @@ export class GalleryEngine {
     this.pz = 0;
     this.lookYaw = 0;
     this.lookPitch = 0.08;
-    this.hp = TUNING.player.hp;
+    this.hp = this.hpMax;
     this.dead = false;
     this.invuln = 0;
     this.erobots.grace = TUNING.player.openingGrace;
@@ -1499,7 +1504,7 @@ export class GalleryEngine {
 
   /** This run's score and rounds landed (for the level's best). */
   levelRun() {
-    return { score: Math.max(0, this.score - this.scoreAt), rounds: this.runRounds };
+    return { score: Math.max(0, Math.round((this.score - this.scoreAt) * this.mods.score)), rounds: this.runRounds };
   }
 
   /**
@@ -1673,7 +1678,7 @@ export class GalleryEngine {
     if (!this.combat || this.dead || this.invuln > 0 || dmg <= 0) return;
     if (kind === 'bolt' && this.hitCd > 0) return;
     this.hitCd = TUNING.player.hitCooldown;
-    this.hp = Math.max(0, this.hp - dmg);
+    this.hp = Math.max(0, this.hp - dmg * this.mods.incoming);
     this.sinceHurt = 0;
     // where did it come from? local position relative to the view
     this.camera.updateMatrixWorld();
@@ -1689,12 +1694,12 @@ export class GalleryEngine {
     this.kick = Math.min(0.2, this.kick + 0.04);
     this.flashK = Math.min(1, this.flashK + 0.4);
     sfx('hurt', 0.9);
-    this.hooks.current.hurt({ angle, dmg, kind, hp: this.hp, hpMax: TUNING.player.hp });
+    this.hooks.current.hurt({ angle, dmg, kind, hp: this.hp, hpMax: this.hpMax });
     if (this.hp <= 0) this.die();
   }
 
   private heal(n: number) {
-    if (!this.dead) this.hp = Math.min(TUNING.player.hp, this.hp + n);
+    if (!this.dead) this.hp = Math.min(this.hpMax, this.hp + n);
   }
 
   /**
@@ -1715,7 +1720,7 @@ export class GalleryEngine {
   /** Continue: back on your feet with full health and a few seconds of grace; the close attackers are cleared. */
   revive() {
     this.dead = false;
-    this.hp = TUNING.player.hp;
+    this.hp = this.hpMax;
     this.invuln = TUNING.player.reviveGrace;
     this.hitCd = 0;
     this.sinceHurt = 99;
@@ -1725,7 +1730,7 @@ export class GalleryEngine {
     this.erobots.grace = this.horde.grace = TUNING.player.reviveGrace + 0.5;
     this.flash(this.camera.position.clone().add(new THREE.Vector3(0, 0.5, -3)), '#7cf9ff', 100, 500);
     this.fx.ring(this.tA.set(this.px, 0.3, -2), '#7cf9ff', 6, 0.6);
-    this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: TUNING.player.hp });
+    this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: this.hpMax });
   }
 
   /** Dev only (dry run): poke the combat from the console / screenshot scripts. */
@@ -1882,8 +1887,8 @@ export class GalleryEngine {
       return d * THREE.MathUtils.clamp(room / P.edgeSoft, 0, 1);
     };
     if (!frozen) {
-      this.px += soft(this.px, mx * P.strafeSpeed * dt, -lim, lim);
-      this.pz += soft(this.pz, mz * P.strafeSpeed * dt, P.freeZ[0], P.freeZ[1]);
+      this.px += soft(this.px, mx * P.strafeSpeed * this.mods.speed * dt, -lim, lim);
+      this.pz += soft(this.pz, mz * P.strafeSpeed * this.mods.speed * dt, P.freeZ[0], P.freeZ[1]);
     }
     if (Math.abs(this.px) > lim) this.px += (Math.sign(this.px) * lim - this.px) * Math.min(1, dt * 6);
     this.pz = THREE.MathUtils.clamp(this.pz, P.freeZ[0], P.freeZ[1]);
