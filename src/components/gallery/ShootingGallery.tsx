@@ -74,6 +74,7 @@ import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { RotatePrompt } from './RotatePrompt';
 import { isMobileLite, isPhone } from '@/lib/mobileLite';
+import { PlayInBwalletButton, usePlayInBwallet } from './PlayInBwallet';
 import type { RunSummary } from './Results';
 import dynamic from 'next/dynamic';
 import type { LevelId, Progress } from '@/lib/terrornode/levels';
@@ -1295,6 +1296,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   // (the loadout scrolls inside the stage, so team, wallet and LOCK & LOAD stay reachable). The stage is
   // fixed over the whole viewport and every bit of page chrome is hidden (globals.css, html[data-phone-game]).
   // Turning the phone upright mid-round pauses (the rotate prompt covers it); back on its side resumes.
+  // Phones outside bWallet: "Play in bWallet (full screen)" leads; "Play here anyway" reveals START (owner, 27 Oct).
+  const playInBwallet = usePlayInBwallet();
+  const [playHere, setPlayHere] = useState(false);
   const [phoneLand, setPhoneLand] = useState(false);
   const [phoneUp, setPhoneUp] = useState(false);
   useEffect(() => {
@@ -1661,9 +1665,18 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                     <p className="mt-1 max-w-[440px] text-sm text-white/85" data-start-copy>Practice rounds are simulated: nothing is paid, signed or broadcast. Pick PAID ROUNDS later to fire real BSV transactions.</p>
                   </div>
                   <div className="flex flex-col gap-2 sm:items-end">
-                    <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-10 py-2 text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>
-                      ▶ START <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
-                    </button>
+                    {playInBwallet && !playHere ? (
+                      <>
+                        <PlayInBwalletButton />
+                        <button type="button" onClick={() => setPlayHere(true)} className="text-xs font-bold tracking-[0.18em] text-white/70 underline underline-offset-4" data-play-here>
+                          Play here anyway
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-10 py-2 text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>
+                        ▶ START <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
+                      </button>
+                    )}
                     {guest && !freePlayProp && (
                       <button type="button" onClick={() => setGuest(false)} className="text-xs font-bold tracking-[0.18em] text-[var(--tbx-teal)] underline underline-offset-4" data-go-paid>
                         PAID ROUNDS INSTEAD (LOCK &amp; LOAD, NEEDS A WALLET)

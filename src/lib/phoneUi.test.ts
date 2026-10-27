@@ -32,3 +32,15 @@ test('dapp-browser link carries the page URL', () => {
   const u = openInBwalletBrowserUrl('https://www.tokenblaster.lol/arcade?x=1');
   assert.equal(u, 'https://www.bwallet.space/browse?url=https%3A%2F%2Fwww.tokenblaster.lol%2Farcade%3Fx%3D1');
 });
+
+test('Play in bWallet: phone browsers only, never inside bWallet or on desktop', async () => {
+  const { showPlayInBwallet, isBwalletInAppUa } = await import('./pair/phoneUi');
+  const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
+  const inApp = `${safari} bWallet/5.1.0`;
+  assert.equal(showPlayInBwallet(safari, true, true), true);
+  assert.equal(isBwalletInAppUa(inApp), true);
+  assert.equal(showPlayInBwallet(inApp, true, true), false);
+  assert.equal(showPlayInBwallet(`${safari} YoursWalletMobile/1.0`, true, true), false);
+  assert.equal(showPlayInBwallet('Mozilla/5.0 (Macintosh)', false, true), false);
+  assert.equal(showPlayInBwallet(safari, true, false), false);
+});
