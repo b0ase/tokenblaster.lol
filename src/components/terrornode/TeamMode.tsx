@@ -17,6 +17,7 @@
  * (free play) skip the wallet: nothing is paid or broadcast.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Brand } from '@/components/Brand';
 import Link from 'next/link';
 import { useBlaster } from '@/lib/useBlaster';
 import { useCabinet } from '../coinop/useCabinet';
@@ -340,7 +341,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           <div className="tbx-glass w-full rounded-2xl border border-white/10 bg-black/60 p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? `NPG vs EROBOTZ · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}` : 'Co-op squads vs the horde'}{state?.level ? ` · ${teamLevelOf(state.level).name}` : ''}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? `NPG vs EROBOTZ · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}` : 'Co-op squads vs the horde'}{state?.level ? <> · <Brand>{teamLevelOf(state.level).name}</Brand></> : ''}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
                 <p className="font-mono text-3xl font-black tracking-[0.25em]" data-match-code>{code}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -505,8 +506,8 @@ function SideBlurb({ team }: { team: Team }) {
 function ModeCard(p: { title: string; kicker: string; body: string; colour: string; cta: string; disabled?: boolean; onClick: () => void }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-b from-white/[0.06] to-transparent p-5" style={{ borderColor: `${p.colour}55`, boxShadow: `0 0 40px -12px ${p.colour}66` }}>
-      <p className="text-[11px] font-bold uppercase tracking-[0.3em]" style={{ color: p.colour }}>{p.kicker}</p>
-      <h2 className="mt-1 text-2xl font-black uppercase">{p.title}</h2>
+      <p className="text-[11px] font-bold uppercase tracking-[0.3em]" style={{ color: p.colour }}><Brand>{p.kicker}</Brand></p>
+      <h2 className="mt-1 text-2xl font-black uppercase"><Brand>{p.title}</Brand></h2>
       <p className="mt-2 text-sm text-white/70">{p.body}</p>
       <button type="button" disabled={p.disabled} onClick={p.onClick} className="mt-4 h-11 w-full rounded-xl text-sm font-black uppercase tracking-wider text-black disabled:opacity-50" style={{ background: p.colour }}>{p.cta}</button>
     </div>

@@ -5,6 +5,7 @@
  * from KWEG). Pointer events are off; the gun keeps firing underneath.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Brand } from '@/components/Brand';
 import { ACTS, BANNERS, FREED, KWEG, PRACTICE, stageBrief } from '@/lib/gallery/story';
 import { Icon } from '../coinop/ui';
 
@@ -77,10 +78,10 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
       <div key={item.id} className={base} role="status" style={dur} data-act={item.n}>
         <p className="tbx-banner-sub text-xs font-bold uppercase tracking-[0.5em] text-[var(--tbx-red)]">{a.code}</p>
         <p className="tbx-banner-main tbx-display max-w-[94vw] text-[clamp(34px,7.4vw,108px)] leading-[0.95]" style={{ textShadow: '0 0 60px rgba(255,59,59,.55), 0 8px 50px rgba(0,0,0,.9)' }}>
-          {a.title}
+          <Brand>{a.title}</Brand>
         </p>
         <span className="tbx-banner-line mt-2 h-[2px] w-[min(560px,76vw)] bg-gradient-to-r from-transparent via-[var(--tbx-red)] to-transparent" />
-        <p className="tbx-banner-sub mt-3 text-[clamp(12px,1.4vw,17px)] font-semibold uppercase tracking-[0.28em] text-white/85">{a.line}</p>
+        <p className="tbx-banner-sub mt-3 text-[clamp(12px,1.4vw,17px)] font-semibold uppercase tracking-[0.28em] text-white/85"><Brand>{a.line}</Brand></p>
       </div>
     );
   }
@@ -121,8 +122,8 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
         STAGE <span className="text-[var(--tbx-red)]">{item.n}</span>
       </p>
       <span className="tbx-banner-line h-[2px] w-[min(520px,70vw)] bg-gradient-to-r from-transparent via-[var(--tbx-teal)] to-transparent" />
-      <p className="tbx-banner-sub tbx-display mt-3 text-[clamp(20px,3vw,36px)]">{w.title}</p>
-      <p className="tbx-banner-sub mt-2 max-w-[560px] text-[clamp(13px,1.3vw,16px)] font-medium text-white/85" style={{ textShadow: '0 2px 16px #000' }}>{w.brief}</p>
+      <p className="tbx-banner-sub tbx-display mt-3 text-[clamp(20px,3vw,36px)]"><Brand>{w.title}</Brand></p>
+      <p className="tbx-banner-sub mt-2 max-w-[560px] text-[clamp(13px,1.3vw,16px)] font-medium text-white/85" style={{ textShadow: '0 2px 16px #000' }}><Brand>{w.brief}</Brand></p>
       <p className="tbx-banner-sub mt-2 hidden max-w-[560px] text-[clamp(11px,1.1vw,14px)] italic text-white/60 sm:block">“{w.kweg}” <span className="not-italic">· {KWEG.name}</span></p>
     </div>
   );

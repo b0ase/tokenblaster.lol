@@ -5,6 +5,7 @@
  * src/lib/gallery/story.ts.
  */
 import Link from 'next/link';
+import { Brand } from '@/components/Brand';
 import { useState, type ReactNode } from 'react';
 import { liveCeiling, liveRate, patternLabel, roundsForFullRate, txPattern, type TxPattern } from '@/lib/gallery';
 import type { RangeWeapon } from '@/lib/bsvgun/weapons';
@@ -50,8 +51,8 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
             <p className="text-[15px] font-medium leading-snug text-white/92">{BRIEFING.objective}</p>
             <div className="rounded-lg border border-[var(--tbx-line)] bg-black/25 p-3">
               <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{w1.code}</p>
-              <p className="tbx-display mt-1 text-2xl">{w1.title}</p>
-              <p className="mt-1.5 text-[13px] leading-snug text-[var(--tbx-dim)]">{w1.brief}</p>
+              <p className="tbx-display mt-1 text-2xl"><Brand>{w1.title}</Brand></p>
+              <p className="mt-1.5 text-[13px] leading-snug text-[var(--tbx-dim)]"><Brand>{w1.brief}</Brand></p>
             </div>
             <ul className="flex flex-col gap-1.5 text-[13px] text-[var(--tbx-dim)]">
               {BRIEFING.rules.map((r0) => {
