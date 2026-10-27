@@ -127,6 +127,8 @@ const fakeTxid = () => Array.from({ length: 64 }, () => '0123456789abcdef'[Math.
 /** Option A (coin-ammo swap-on-load + bulk burn) is off in Assault (owner, 25 Oct: receipts replace it). Code kept. */
 const COIN_AMMO_UI = false;
 
+const noSub = () => () => undefined;
+
 export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?: boolean } = {}) {
   // GUEST / DEMO (owner, 26 Oct: "zero out of ten for onboarding"): PLAY FREE runs the same free-play path as
   // NEXT_PUBLIC_GALLERY_PAID=0: simulated rounds, no wallet, nothing paid or broadcast. A wallet is only asked for
@@ -1361,17 +1363,25 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
   }, []);
+  // EMBED MODE (?embed=1, owner 27 Oct 2026): framed by the bChatX room's floating player. Same full-stage layout as the
+  // phone game mode, by an explicit flag instead of orientation; the frame is the screen.
+  const embedded = useSyncExternalStore(
+    noSub,
+    () => new URLSearchParams(window.location.search).get('embed') === '1',
+    () => false,
+  );
   const inPlay = !loadout && !over;
-  const gameMode = phoneLand;
+  const gameMode = phoneLand || embedded;
   useEffect(() => {
     const h = document.documentElement;
+    if (embedded) h.dataset.embed = '1';
     if (gameMode) {
       h.dataset.phoneGame = '1';
       window.scrollTo(0, 0);
     }
     else delete h.dataset.phoneGame;
-    return () => void delete h.dataset.phoneGame;
-  }, [gameMode]);
+    return () => void (delete h.dataset.phoneGame, delete h.dataset.embed);
+  }, [gameMode, embedded]);
   const npgCardsProp = npgCards.enabled ? { checking: npgCards.checking, checked: npgCards.checked, check: () => void npgCards.checkWallet(), error: npgCards.error } : null;
   const charSelect = <CharacterSelect pick={girlPick} setPick={setGirlPick} owned={npgCards.owned} cards={npgCardsProp} />;
   const charStrip = <CharacterSelect compact pick={girlPick} setPick={setGirlPick} owned={npgCards.owned} cards={npgCardsProp} />;
@@ -1787,7 +1797,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                         ▶ {CTA} <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
                       </button>
                     )}
-                    {guest && !freePlayProp && (
+                    {/* Framed (bChatX floating player): the bWalletX extension only injects into the top page, so paid rounds
+                        open the full game in a new tab, where LOCK & LOAD connects the wallet as usual. */}
+                    {embedded && !freePlayProp && !b.wallet && (
+                      <a href="/arcade/terrornode" target="_blank" rel="noopener" className="text-xs font-bold tracking-[0.18em] text-[var(--tbx-teal)] underline underline-offset-4" data-embed-paid>
+                        PAID ROUNDS: CONNECT WALLET IN A NEW TAB ↗
+                      </a>
+                    )}
+                    {guest && !freePlayProp && !(embedded && !b.wallet) && (
                       <button type="button" onClick={() => setGuest(false)} className="text-xs font-bold tracking-[0.18em] text-[var(--tbx-teal)] underline underline-offset-4" data-go-paid>
                         PAID ROUNDS INSTEAD (LOCK &amp; LOAD, NEEDS A WALLET)
                       </button>
