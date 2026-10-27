@@ -36,7 +36,8 @@ export type Mate = {
 export type Foe = { id: string; x: number; z: number; onKweg?: boolean };
 
 export type SquadWorld = {
-  player: { x: number; z: number };
+  /** `fwd`: the camera's flat view direction (unit, defaults to -z). The formation turns with it. */
+  player: { x: number; z: number; fwd?: { x: number; z: number } };
   foes: Foe[];
   /** Dr Kweg Wong while he is being escorted (Act 2), else null. */
   kweg: { x: number; z: number } | null;
@@ -48,13 +49,22 @@ export type SquadWorld = {
 export type SquadShot = { mate: string; foe: string; dmg: number };
 
 export const SQUAD = {
-  /** Formation around the player (x right, z back; -z is ahead), one per AI slot: a little ahead and wide, so in first person they are in view. */
+  /**
+   * Formation in the player's VIEW frame (x right, z back; -z is ahead), one per AI slot (owner, 27 Oct: they
+   * stood in front of the camera, backs of heads blocking the shot). Two flank at ~6.8 m / ~30 deg off the
+   * view axis, two further ahead and out wide (~11.8 m / ~28 deg): inside the 60 deg FOV at 16:10 and phone
+   * landscape, feet included even with the camera tilted ~13 deg up at the tower (nearer than ~5.9 m ahead the
+   * feet drop out of frame), and well clear of the crosshair.
+   */
   formation: [
-    { x: -2.4, z: -4.5 },
-    { x: 2.4, z: -4.5 },
-    { x: -4.6, z: -7.5 },
-    { x: 4.6, z: -7.5 },
+    { x: -3.4, z: -5.9 },
+    { x: 3.4, z: -5.9 },
+    { x: -5.6, z: -10.4 },
+    { x: 5.6, z: -10.4 },
   ] as const,
+  /** Never inside this half-angle (rad, ~12 deg) round the crosshair, nor closer than `minR` m to the camera. */
+  clearCone: (12 * Math.PI) / 180,
+  minR: 2,
   hp: 100,
   speed: 4.2,
   sway: 0.7,
@@ -95,6 +105,24 @@ export function makeSquad(roster: readonly { id: string; name: string }[], playe
 
 /** One AI round: the girls share SQUAD.dmgK of the player's DPS between them. */
 export const shotDmg = (playerDps: number, n: number) => (Math.max(SQUAD.minDps, playerDps) * SQUAD.dmgK * (SQUAD.fireGap + SQUAD.jitter / 2)) / Math.max(1, n);
+
+/** Push a point (world x,z) out of the aim cone and the camera's personal space. Pure; tested. */
+export function keepClear(px: number, pz: number, fwd: { x: number; z: number }, x: number, z: number, side: number): { x: number; z: number } {
+  const rx = -fwd.z;
+  const rz = fwd.x;
+  let lx = (x - px) * rx + (z - pz) * rz; // right
+  let lf = (x - px) * fwd.x + (z - pz) * fwd.z; // ahead
+  const r = Math.hypot(lx, lf);
+  if (r < SQUAD.minR) {
+    const k = r > 1e-6 ? SQUAD.minR / r : 0;
+    if (k) {
+      lx *= k;
+      lf *= k;
+    } else lx = SQUAD.minR * (side || 1);
+  }
+  if (lf > 0 && Math.abs(lx) < lf * Math.tan(SQUAD.clearCone)) lx = (Math.sign(lx) || side || 1) * lf * Math.tan(SQUAD.clearCone) * 1.02;
+  return { x: px + lx * rx + lf * fwd.x, z: pz + lx * rz + lf * fwd.z };
+}
 
 const d2 = (ax: number, az: number, bx: number, bz: number) => (ax - bx) ** 2 + (az - bz) ** 2;
 
@@ -162,8 +190,12 @@ export function stepSquad(mates: Mate[], w: SquadWorld, dt: number, rnd: () => n
     // follow loosely: home = the player's spot + this girl's formation slot, with a slow personal sway
     m.phase += dt;
     const f = SQUAD.formation[m.slot % SQUAD.formation.length];
-    const hx = w.player.x + f.x + Math.sin(m.phase * 0.6) * SQUAD.sway;
-    const hz = w.player.z + f.z + Math.cos(m.phase * 0.45) * SQUAD.sway * 0.6;
+    const fw = w.player.fwd ?? { x: 0, z: -1 };
+    const ox = f.x + Math.sin(m.phase * 0.6) * SQUAD.sway;
+    const oz = f.z + Math.cos(m.phase * 0.45) * SQUAD.sway * 0.6;
+    // view frame -> world: right = (-fwd.z, fwd.x), back = -fwd
+    const hx = w.player.x + ox * -fw.z - oz * fw.x;
+    const hz = w.player.z + ox * fw.x - oz * fw.z;
     const dx = hx - m.x;
     const dz = hz - m.z;
     const dist = Math.hypot(dx, dz);
@@ -172,6 +204,10 @@ export function stepSquad(mates: Mate[], w: SquadWorld, dt: number, rnd: () => n
       m.x += (dx / dist) * step;
       m.z += (dz / dist) * step;
     }
+    const side = Math.sign(f.x) || 1;
+    const c = keepClear(w.player.x, w.player.z, fw, m.x, m.z, side);
+    m.x = c.x;
+    m.z = c.z;
     // bites from anything on top of her
     let bites = 0;
     for (const fo of w.foes) if (d2(fo.x, fo.z, m.x, m.z) < SQUAD.biteR * SQUAD.biteR) bites++;
@@ -182,7 +218,8 @@ export function stepSquad(mates: Mate[], w: SquadWorld, dt: number, rnd: () => n
     if (!foe) {
       m.state = 'follow';
       m.target = null;
-      m.yaw = 0;
+      // idle: turned in across the street (~70 deg), so the camera sees her profile, not the back of her head
+      m.yaw = Math.atan2(fw.x, -fw.z) - side * 1.2;
       continue;
     }
     m.state = protect ? 'protect' : 'engage';
