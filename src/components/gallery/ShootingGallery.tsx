@@ -32,6 +32,9 @@ import { LiveTxBadge } from './LiveTxBadge';
 import { cachedProof } from '@/lib/xproof';
 import { minigun, sfx, skipTrack, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
+import { useNpgCards } from '@/lib/useNpgCards';
+import { GIRLS, girlImg, loadPick, modsFor, normalizePick, savePick, statsFor, type Pick } from '@/lib/npgLoadout';
+import { CharacterSelect } from './CharacterSelect';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
 import { GalleryEngine, type Hooks, type Quality, type StageEvent, type Stats } from '@/lib/galleryGame/engine';
 import {
@@ -146,6 +149,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   }, []);
   const ordnance = useOrdnance(b.wallet); // wallet baskets only on the loadout's explicit tap
   const { owned } = ordnance;
+  // NPG character select (src/lib/npgLoadout.ts): the girl + a weapon per hand; her stats drive small game modifiers.
+  const npgCards = useNpgCards(b.wallet); // address index on connect; wallet baskets only on the explicit tap
+  const [girlPick, setGirlPickRaw] = useState<Pick>(() => normalizePick(null));
+  useEffect(() => void Promise.resolve().then(() => setGirlPickRaw(loadPick())), []);
+  const setGirlPick = useCallback((p: Pick) => (setGirlPickRaw(p), savePick(p)), []);
+  const girlMods = useMemo(() => modsFor(statsFor(girlPick)), [girlPick]);
+  const girlName = GIRLS.find((g) => g.id === girlPick.girl)?.name ?? '';
   const [dry, setDry] = useState(false);
   const [autofire, setAutofire] = useState(false);
   const [weaponId, setWeaponId] = useState('minigun');
@@ -198,6 +208,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   const live = true; // coin-op: every round is paid
   const simulated = dry;
   const weapon = weapons.find((w) => w.id === weaponId) ?? weapons[0];
+  const girlModsRef = useRef(girlMods);
+  useEffect(() => {
+    girlModsRef.current = girlMods;
+    if (engine.current) engine.current.mods = girlMods;
+  }, [girlMods]);
   const pattern = txPattern(weapon);
   const unlocked = useMemo(() => new Set([...STOCK_IDS, ...owned]), [owned]);
   // Dry runs let you try any gun; LIVE fires the stock guns plus the 1Sat Ordnance you own.
@@ -294,6 +309,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     eng.stickEl = stickRef.current;
     eng.knobEl = knobRef.current;
     engine.current = eng;
+    eng.mods = girlModsRef.current;
     if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = eng; // dev only: screenshot scripts poke the combat
     let alive = true;
     void eng.init((p) => alive && setProgress(p)).then(() => alive && setReady(true));
@@ -1496,7 +1512,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} cancel={cab.cancel} retry={cab.retry} giveUp={cab.giveUp} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
 
         {!loadout && !over && mode === 'live' && !dry && <LiveTxBadge last={run.last} sent={run.sent} seen={netSeen} />}
-        {!loadout && !over && <DamageFx ref={dmgFx} hp={hud?.hp ?? TUNING.player.hp} hpMax={TUNING.player.hp} />}
+        {!loadout && !over && <DamageFx ref={dmgFx} hp={hud?.hp ?? TUNING.player.hp} hpMax={hud?.hpMax ?? TUNING.player.hp} />}
         {!loadout && !over && (
           <Hud
             dry={dry}
@@ -1517,6 +1533,10 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
             bossNote="Fire to push it back; stop and it closes in."
             stageNote={stageBrief(hud?.stage ?? 1).goal}
           />
+        )}
+        {!loadout && !over && girlName && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={girlImg(girlPick.girl)} alt={girlName} title={girlName} className="pointer-events-none absolute bottom-2 left-2 z-20 h-16 w-auto opacity-90 drop-shadow sm:h-24" data-hud-girl={girlPick.girl} />
         )}
         {!loadout && !over && (
           <HudControls
@@ -1665,6 +1685,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         {loadout && !over && (
           <Loadout
             start={
+              <>
+              <CharacterSelect
+                pick={girlPick}
+                setPick={setGirlPick}
+                owned={npgCards.owned}
+                cards={npgCards.enabled ? { checking: npgCards.checking, checked: npgCards.checked, check: () => void npgCards.checkWallet(), error: npgCards.error } : null}
+              />
               <section className="tbx-glass relative overflow-hidden rounded-xl p-0" data-start-card>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/hero/assault.jpg" alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover opacity-70" />
@@ -1695,6 +1722,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                   </div>
                 </div>
               </section>
+              </>
             }
             levels={<LevelSelect progress={levels} active={levelId} onPick={(id) => (setLevelClear(null), pickLevel(id))} />}
             weapons={weapons}
