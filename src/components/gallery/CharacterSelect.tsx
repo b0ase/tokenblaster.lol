@@ -1,9 +1,16 @@
 'use client';
 
 /** "Choose your girl": NPG girl + a weapon per hand, six stats → game modifiers (src/lib/npgLoadout.ts). One compact card. */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import dynamic from 'next/dynamic';
+import { isMobileLite } from '@/lib/mobileLite';
 import { DEFAULT_ROSTER, STATS, STAT_ABBR, allowedWeapons, girlImg, modsFor, normalizePick, statsFor, weaponById, weaponImg, type Mods, type Pick } from '@/lib/npgLoadout';
 import type { NpgOwned } from '@/lib/npgLoadout';
+
+// Live 3D girls in the full card (not the phone strip, not the mobile-lite tier): three.js loads only when used.
+const Girls3D = dynamic(() => import('./Girls3D').then((m) => m.Girls3D), { ssr: false });
+const noSub = () => () => {};
+const want3d = () => !isMobileLite() && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const MOD_OF: Record<(typeof STATS)[number], { key: keyof Mods; label: string; invert?: boolean }> = {
   strength: { key: 'damage', label: 'dmg' },
@@ -32,6 +39,11 @@ export function CharacterSelect({
   const stats = useMemo(() => statsFor(pick), [pick]);
   const mods = modsFor(stats);
   const [sheet, setSheet] = useState(false);
+  const row = useRef<HTMLDivElement>(null);
+  const [ready3d, setReady3d] = useState(false);
+  const ids = useMemo(() => DEFAULT_ROSTER.map((g) => g.id), []);
+  const can3d = useSyncExternalStore(noSub, want3d, () => false);
+  const three = !compact && can3d;
   const hand = (h: 'right' | 'left') => {
     const list = allowedWeapons(girl, h, owned.elements);
     const cur = weaponById(pick[h]);
@@ -107,7 +119,7 @@ export function CharacterSelect({
         )}
       </div>
       <div className="mt-2 flex gap-2 sm:gap-3">
-        <div className="flex shrink-0 gap-1" role="radiogroup" aria-label="Girl">
+        <div ref={row} className="relative flex shrink-0 gap-1" role="radiogroup" aria-label="Girl">
           {DEFAULT_ROSTER.map((g) => (
             <button
               key={g.id}
@@ -119,13 +131,14 @@ export function CharacterSelect({
               data-npg-girl={g.id}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={girlImg(g.id)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain object-top" />
-              <span className="absolute inset-x-0 bottom-0 bg-black/70 text-[8px] font-bold tracking-[0.1em] text-white sm:text-[9px]">
+              <img src={girlImg(g.id)} alt="" loading="lazy" className={`absolute inset-0 h-full w-full object-contain object-top transition-opacity ${ready3d ? 'opacity-0' : ''}`} />
+              <span className="absolute inset-x-0 bottom-0 z-[3] bg-black/70 text-[8px] font-bold tracking-[0.1em] text-white sm:text-[9px]">
                 {g.name.toUpperCase()}
                 {owned.girls.has(g.id) ? ' ✓' : ''}
               </span>
             </button>
           ))}
+          {three && <Girls3D container={row} ids={ids} selected={girl.id} onReady={setReady3d} />}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {hand('right')}

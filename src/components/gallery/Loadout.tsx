@@ -13,6 +13,7 @@ import { BRIEFING, CHARACTERS, GAME_TITLE, SETTING, PRACTICE, TAGLINE, forPracti
 import { Icon, useExisting } from '../coinop/ui';
 import { CharacterCard } from '../coinop/LoadingScreen';
 import { GunPreview } from './GunPreview';
+import { NpgBackdrop } from '../terrornode/NpgBackdrop';
 
 export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, levels, practice = false, rounds = 0 }: { start?: ReactNode; player?: ReactNode; levels?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
@@ -20,6 +21,8 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
   const c = CHARACTERS.find((x) => x.id === who) ?? CHARACTERS[0];
   const w1 = stageBrief(1);
   return (
+    <>
+    <NpgBackdrop />
     <div className="tbx-screen absolute inset-0 z-[6] overflow-y-auto bg-[radial-gradient(ellipse_at_50%_-10%,rgba(14,52,66,.82),rgba(4,9,14,.93)_62%)]" data-loadout>
       <div className="mx-auto flex max-w-[1440px] flex-col gap-4 p-3 sm:gap-5 sm:p-6">
         <header className="tbx-in-d flex flex-wrap items-end justify-between gap-3">
@@ -125,6 +128,7 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
         </div>
       </div>
     </div>
+    </>
   );
 }
 
