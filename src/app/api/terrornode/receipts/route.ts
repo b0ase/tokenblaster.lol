@@ -1,6 +1,7 @@
 /**
  * $TERRORNODE receipts (src/lib/launch/receipts.ts, receiptsFlow.ts, db/022_terrornode_receipts.sql).
- *   GET                 → { issued, pennySats, bsvUsd, nextPriceSats, creator, gasAddress, gasSats, live }
+ *   GET                 → { issued, topSats, pennySats (= topSats, kept for old clients), nextPriceSats, graduateAt,
+ *                           graduated, soldOut, creator, gasAddress, gasSats, live }
  *   POST { txid }       → verify the session's settlement tx on chain, reserve its receipt range (idempotent per
  *                         txid), send that many TERRORNODE from the pool to the recipient in ONE transfer.
  * Off until RECEIPTS_LIVE=1 and the launchpad is configured (LAUNCH_SECRET, LAUNCH_POOL_WIF, Supabase). The pool key
@@ -8,10 +9,9 @@
  */
 import { NextResponse } from 'next/server';
 import { Beef, Transaction } from '@bsv/sdk';
-import { RECEIPT_CREATOR, RECEIPT_GAS, TERRORNODE_ID, pennySatsAt, priceSats } from '@/lib/launch/receipts';
+import { GRADUATE_AT, RECEIPT_CREATOR, RECEIPT_GAS, RECEIPT_SUPPLY, RECEIPT_TOP_SATS, TERRORNODE_ID, priceSats, soldOut } from '@/lib/launch/receipts';
 import { settleReceipts, type PoolRow, type ReceiptRow } from '@/lib/launch/receiptsFlow';
 import { broadcast, configured, poolKey, rpc, spentBy } from '@/lib/launch/server';
-import { bsvUsd } from '@/lib/price';
 
 export const dynamic = 'force-dynamic';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
@@ -26,15 +26,15 @@ async function pool() {
 
 export async function GET() {
   try {
-    const [issued, rate, p] = await Promise.all([
+    const [issued, p] = await Promise.all([
       rpc<number>('tokenblaster_receipts_issued', { p_token: TERRORNODE_ID }, false).catch(() => 0),
-      bsvUsd(),
       pool().catch(() => null),
     ]);
-    const penny = pennySatsAt(rate);
     const n = BigInt(issued ?? 0);
+    const out = soldOut(n);
+    const top = Number(RECEIPT_TOP_SATS);
     return NextResponse.json(
-      { live: live() && !!p, issued: Number(n), bsvUsd: rate, pennySats: Number(penny), nextPriceSats: Number(priceSats(n + BigInt(1), penny)), creator: RECEIPT_CREATOR, gasAddress: p?.token_address ?? null, gasSats: RECEIPT_GAS },
+      { live: live() && !!p && !out, issued: Number(n), supply: Number(RECEIPT_SUPPLY), topSats: top, pennySats: top, nextPriceSats: out ? null : Number(priceSats(n + BigInt(1))), graduateAt: GRADUATE_AT, graduated: Number(n) >= GRADUATE_AT, soldOut: out, creator: RECEIPT_CREATOR, gasAddress: p?.token_address ?? null, gasSats: RECEIPT_GAS },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (e) {
@@ -55,7 +55,6 @@ export async function POST(req: Request) {
   const r = await settleReceipts(txid, p.token_address, {
     toleranceBps: TOL,
     txHex: (id) => fetch(`${WOC}/tx/${id}/hex`, { cache: 'no-store' }).then((x) => (x.ok ? x.text() : null)).catch(() => null),
-    bsvUsd,
     get: async (id) => (await rpc<ReceiptRow[]>('tokenblaster_receipts_get', { p_txid: id }))[0] ?? null,
     reserve: async (a) =>
       (await rpc<ReceiptRow[]>('tokenblaster_receipts_reserve', { p_txid: a.txid, p_token: TERRORNODE_ID, p_recipient: a.recipient, p_handle: a.handle, p_count: a.count, p_paid: Number(a.paid), p_penny: Number(a.penny), p_tol_bps: a.tol }))[0],

@@ -6,11 +6,12 @@
  *    logo ≤ 64 KB, cardArt ≤ 256 KB; text on bg/surface ≥ 4.5:1, accent on bg ≥ 3:1.
  *  - room: a bChatX room ticker, ^[A-Z0-9]{1,20}$.
  *  - merch_url: an https URL.
- * Every coin also gets `trading` (false for play-to-earn coins such as $TERRORNODE: no curve buy/sell) and, when
- * not trading, `earn_url` (where to earn it) and `category: 'reward'` (bWalletX lists these under Rewards).
+ * Every coin also gets `trading` (false for play-to-earn coins such as $TERRORNODE until they graduate at
+ * GRADUATE_AT receipts issued: then true, curve buy/sell). A play-to-earn coin also gets `earn_url` (earning carries
+ * on after graduation), `receipts_issued` and `graduate_at`, and while not trading `category: 'reward'` (bWalletX Rewards).
  */
 import { price } from './curve';
-import { EARN_URL, tradingOf } from './receipts';
+import { EARN_URL, GRADUATE_AT, NO_TRADE, tradingOf } from './receipts';
 
 export type CoinTheme = {
   v: 2;
@@ -46,18 +47,23 @@ export const COIN_META: Record<string, CoinMeta> = {
   '79d84d2f194ef324837b6dc69e39afc404d1a1dc3cbadb0215d5fa06c2269a0f_1': { theme: { ...TOKENBLASTER, name: 'Arena' }, room: 'ARENA' },
 };
 
-/** The API fields for one coin: price_sats from the curve, plus any checked-in extras (images as absolute URLs). */
-export function coinExtras(row: { token_id?: string; sold?: number | string | null }) {
+/**
+ * The API fields for one coin: price_sats from the curve, plus any checked-in extras (images as absolute URLs).
+ * `issued` = $TERRORNODE receipts issued (src/lib/launch/receiptsIssued.ts); null: unknown (not graduated).
+ */
+export function coinExtras(row: { token_id?: string; sold?: number | string | null }, issued: number | null = null) {
   const sold = BigInt(row.sold ?? 0);
   const m = COIN_META[row.token_id ?? ''] ?? {};
   const theme = m.theme ? { ...m.theme, logo: SITE + m.theme.logo, cardArt: SITE + m.theme.cardArt } : undefined;
-  const trading = tradingOf(row.token_id);
+  const earned = NO_TRADE.has(row.token_id ?? '');
+  const trading = tradingOf(row.token_id, issued);
   // A play-to-earn coin has no curve price (receipts are priced per token at /api/terrornode/receipts): no stale number.
   return {
     price_sats: trading ? price(sold) : null,
     trading,
-    ...(!trading && { earn_url: EARN_URL, earn_label: 'Play Escape from TERRORNODE', receipts_url: `${SITE}/api/terrornode/receipts`, category: 'reward' as const }), ...(theme && { theme }), ...(m.room && { room: m.room }), ...(m.merch_url && { merch_url: m.merch_url }),
+    ...(earned && { earn_url: EARN_URL, earn_label: 'Play Escape from TERRORNODE', receipts_url: `${SITE}/api/terrornode/receipts`, receipts_issued: issued, graduate_at: GRADUATE_AT }),
+    ...(!trading && { category: 'reward' as const }), ...(theme && { theme }), ...(m.room && { room: m.room }), ...(m.merch_url && { merch_url: m.merch_url }),
   };
 }
 
-export const withExtras = <T extends { token_id?: string; sold?: number | string | null }>(row: T) => ({ ...row, ...coinExtras(row) });
+export const withExtras = <T extends { token_id?: string; sold?: number | string | null }>(row: T, issued: number | null = null) => ({ ...row, ...coinExtras(row, issued) });

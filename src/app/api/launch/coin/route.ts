@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { SUPPLY, poolSats } from '@/lib/launch/curve';
 import { rpc } from '@/lib/launch/server';
 import { withExtras } from '@/lib/launch/coinMeta';
+import { receiptsIssued } from '@/lib/launch/receiptsIssued';
 import { withLaunchedBy } from '@/lib/launch/launchedBy';
 
 export const dynamic = 'force-dynamic';
@@ -48,8 +49,8 @@ export async function GET(req: Request) {
     const sold = BigInt(row.sold);
     const expected = { bsv: Number(poolSats(sold)), tokens: Number(SUPPLY - sold) };
     const ledger = { bsv: Number(row.reserve_sats), tokens: Number(row.token_amt) };
-    const [chain, isIndexed] = await Promise.all([onChain(row), indexed(token)]);
-    return NextResponse.json({ coin: withLaunchedBy(withExtras(row)), indexed: isIndexed, reserves: { expected, ledger, chain } }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
+    const [chain, isIndexed, issued] = await Promise.all([onChain(row), indexed(token), receiptsIssued()]);
+    return NextResponse.json({ coin: withLaunchedBy(withExtras(row, issued)), indexed: isIndexed, reserves: { expected, ledger, chain } }, { headers: { 'Cache-Control': 'public, s-maxage=3, stale-while-revalidate=10' } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }

@@ -1225,7 +1225,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   // CREDIT COUNTDOWN (owner, 25 Oct): while live the credit ticks down round by round, to the micro-dollar. Paid:
   // the rounds not yet sent are what is left (real spend is rounds sent x cost). Practice: rounds not yet fired,
   // at the same cost, so it looks the same and still claims nothing on chain. It agrees with "rounds left".
-  const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * (perShotAll + (rc.live && rc.q ? rc.q.nextPriceSats : 0)), bsvUsd), practice: simulated } : null;
+  const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * (perShotAll + (rc.live && rc.q ? (rc.q.nextPriceSats ?? 0) : 0)), bsvUsd), practice: simulated } : null;
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
   const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · ${coarse ? 'HOLD FIRE. Left thumb: move · right thumb: aim.' : 'HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.'}`));
@@ -1497,7 +1497,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
             ammo={ammo ?? DEFAULT_AMMO}
             creditUsd={cab.creditUsd}
             live={creditLive}
-            receipts={rc.live && rc.q ? { earned: rc.earned, priceSats: rc.q.nextPriceSats } : null}
+            receipts={rc.live && rc.q ? { earned: rc.earned, priceSats: rc.q.nextPriceSats ?? 0 } : null}
             tps={run.tps}
             spent={simulated ? '$0.00' : fmtUsd(usdOf(spent, bsvUsd))}
             stats={hud}
@@ -1714,10 +1714,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
               {COIN_AMMO_UI && <AmmoCoinPick chosen={ammoCoin} setChosen={setAmmoCoin} payUsd={cab.pending} quote={coinQ.quote} quoteErr={coinQ.err} slippageBps={slipBps} setSlippageBps={setSlipBps} status={coinStatus} disabled={locking} />}
               {rc.live && rc.q && (
                 <p className="tbx-glass mb-2 rounded px-3 py-2 text-xs text-white/85" data-receipt-line>
-                  Each shot: {satsWord(Math.ceil(perShotAll))} fee + {satsWord(rc.q.nextPriceSats)} for 1 $TERRORNODE receipt (price rises as receipts sell).
+                  Each shot: {satsWord(Math.ceil(perShotAll))} fee + {satsWord(rc.q.nextPriceSats ?? 0)} for 1 $TERRORNODE receipt (rises from 1 to 200 sats as receipts sell).
+                  {!rc.q.graduated && rc.q.graduateAt != null && ` ${rc.q.issued.toLocaleString('en-US')} / ${(rc.q.graduateAt / 1e6).toLocaleString('en-US')}M shots to graduation.`}
                   {cab.pending > 0 && buys(cab.pending) != null && ` ${fmtCredit(cab.pending)} buys about ${(buys(cab.pending) ?? 0).toLocaleString('en-US')} shots now.`}
                 </p>
               )}
+              {rc.allEarned && <p className="tbx-glass mb-2 rounded px-3 py-2 text-xs text-white/85" data-receipt-line>All $TERRORNODE earned: every receipt is issued. Play on.</p>}
               {rc.note && <p className="mb-2 text-xs text-[var(--tbx-teal)]" data-receipt-note>{rc.note}</p>}
               <CoinCabinet
                 title="Shooting Gallery"

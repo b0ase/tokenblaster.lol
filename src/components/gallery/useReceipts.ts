@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RECEIPT_GAS, affordableReceipts, rangeSats, settlementAsm } from '@/lib/launch/receipts';
 import { SETTLE_FEE, shotsForSats, type ReceiptCurve } from '@/lib/coinop/shots';
 
-export type ReceiptQuote = { live: boolean; issued: number; pennySats: number; nextPriceSats: number; creator: string; gasAddress: string | null; gasSats: number; bsvUsd: number };
+export type ReceiptQuote = { live: boolean; issued: number; nextPriceSats: number | null; graduateAt?: number; graduated?: boolean; soldOut?: boolean; creator: string; gasAddress: string | null; gasSats: number };
 
 async function quote(): Promise<ReceiptQuote | null> {
   const r = await fetch('/api/terrornode/receipts', { cache: 'no-store' }).catch(() => null);
@@ -99,13 +99,18 @@ export function useReceipts(on: boolean) {
       clearInterval(t);
     };
   }, [on]);
-  const live = on && !!q?.live && !!q.gasAddress;
+  const live = on && !!q?.live && !!q.gasAddress && !q.soldOut;
+  /** Every receipt is issued: the game plays on, receipts stop (and what was owed is let go: there is nothing left to send). */
+  const allEarned = on && !!q?.soldOut;
+  useEffect(() => {
+    if (allEarned && owed.current) setOwed(0);
+  }, [allEarned, setOwed]);
 
   /** Where the receipt curve is now (null: receipts off). Every "buys N shots" uses it via src/lib/coinop/shots.ts. */
-  const curve: ReceiptCurve = live && q ? { issued: q.issued, pennySats: q.pennySats } : null;
+  const curve: ReceiptCurve = live && q ? { issued: q.issued } : null;
   /** Shots `sats` buys: each = `feeSats` + its receipt, with the load overhead and the settlement's gas and fee held back. */
-  const shots = useCallback((sats: number, feeSats: number) => (live && q ? shotsForSats(sats, feeSats, { issued: q.issued, pennySats: q.pennySats }) : null), [live, q]);
-  const rangeCost = useCallback((n: number) => (live && q && n > 0 ? Number(rangeSats(q.issued + 1, n, q.pennySats)) + RECEIPT_GAS + SETTLE_FEE : 0), [live, q]);
+  const shots = useCallback((sats: number, feeSats: number) => (live && q ? shotsForSats(sats, feeSats, { issued: q.issued }) : null), [live, q]);
+  const rangeCost = useCallback((n: number) => (live && q && n > 0 ? Number(rangeSats(q.issued + 1, n)) + RECEIPT_GAS + SETTLE_FEE : 0), [live, q]);
 
   const fired = useCallback(
     (n: number) => {
@@ -136,6 +141,11 @@ export function useReceipts(on: boolean) {
       settling.current = true;
       try {
         const fresh = (await quote()) ?? q;
+        if (fresh?.soldOut) {
+          setOwed(0);
+          setNote('All $TERRORNODE earned: every receipt is issued. Play on.');
+          return;
+        }
         if (!fresh?.live || !fresh.gasAddress) throw new Error('Receipts are offline: your rounds are kept and settle next time.');
         const gasAddress = fresh.gasAddress;
         setNote(`Paying for ${owedNow.toLocaleString('en-US')} $TERRORNODE receipts from your gun…`);
@@ -143,9 +153,9 @@ export function useReceipts(on: boolean) {
         let count = 0;
         let total = 0;
         const txid = await a.pay((coinSats) => {
-          count = affordableReceipts(fresh.issued + 1, owedNow, fresh.pennySats, coinSats - RECEIPT_GAS - SETTLE_FEE);
+          count = affordableReceipts(fresh.issued + 1, owedNow, coinSats - RECEIPT_GAS - SETTLE_FEE);
           if (!count) return null;
-          total = Number(rangeSats(fresh.issued + 1, count, fresh.pennySats));
+          total = Number(rangeSats(fresh.issued + 1, count));
           return {
             asm: settlementAsm({ count, recipient, session: a.session, handle: a.handle }),
             outs: [
@@ -181,5 +191,5 @@ export function useReceipts(on: boolean) {
     [q, setOwed],
   );
 
-  return { q, live, curve, earned, owed: owedN, note, shots, rangeCost, fired, settle, resetSession: () => setEarned(0) };
+  return { q, live, allEarned, curve, earned, owed: owedN, note, shots, rangeCost, fired, settle, resetSession: () => setEarned(0) };
 }

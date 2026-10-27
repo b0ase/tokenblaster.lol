@@ -9,7 +9,8 @@ import { NextResponse } from 'next/server';
 import { Beef, Transaction } from '@bsv/sdk';
 import { GRAD_SOLD, INDEX_FEE, MAX_BUY, MIN_BUY, quoteBuy, quoteSell } from '@/lib/launch/curve';
 import { bsv20Json, matchesPlan, p2pkh, tokenOut, type OutSpec, type TradePlan } from '@/lib/launch/shape';
-import { NO_TRADE, TERRORNODE_SYM } from '@/lib/launch/receipts';
+import { NO_TRADE, tradeRefusal } from '@/lib/launch/receipts';
+import { receiptsIssued } from '@/lib/launch/receiptsIssued';
 import { HOUSE, broadcast, compactBeef, configured, fundAddressOf, indexedTokenAmt, poolKey, rpc, signInput, spentBy, type CoinRow } from '@/lib/launch/server';
 
 export const dynamic = 'force-dynamic';
@@ -40,8 +41,12 @@ export async function POST(req: Request) {
   } catch {
     return bad('Bad request.');
   }
-  // Play-to-earn coins (no buy, no sell-back): $TERRORNODE is earned by playing Escape from TERRORNODE.
-  if (NO_TRADE.has(String(body.token ?? ''))) return bad(`$${TERRORNODE_SYM} cannot be bought or sold on BlastPad. Earn it by playing Escape from TERRORNODE: tokenblaster.lol/arcade/terrornode`, 403);
+  // Play-to-earn coins: $TERRORNODE is earned by playing until it graduates (GRADUATE_AT receipts issued), then it trades.
+  const token = String(body.token ?? '');
+  if (NO_TRADE.has(token)) {
+    const no = tradeRefusal(token, await receiptsIssued());
+    if (no) return bad(no, 403);
+  }
   try {
     if (body.step === 'prepare') return await prepare(body);
     if (body.step === 'sign') return await sign(body);

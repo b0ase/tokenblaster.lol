@@ -9,7 +9,7 @@
  * A row already 'sent' returns at once; a row 'sending' whose transfer reached the chain is booked, not resent.
  */
 import { P2PKH, SatoshisPerKilobyte, Script, Transaction, type PrivateKey } from '@bsv/sdk';
-import { RECEIPT_GAS, TERRORNODE_ID, pennySatsAt, readSettlement } from './receipts';
+import { RECEIPT_GAS, RECEIPT_TOP_SATS, TERRORNODE_ID, readSettlement } from './receipts';
 import { tokenOut } from './shape';
 
 export type ReceiptRow = { session_txid: string; recipient: string; first_n: number | string; count: number | string; status: 'reserved' | 'sending' | 'sent'; transfer_txid: string | null; owed_sats?: number | string };
@@ -17,7 +17,6 @@ export type PoolRow = { slot: string; token_address: string; token_utxo: string 
 
 export type Deps = {
   txHex(txid: string): Promise<string | null>;
-  bsvUsd(): Promise<number>;
   toleranceBps: number;
   get(txid: string): Promise<ReceiptRow | null>;
   reserve(a: { txid: string; recipient: string; handle: string; count: number; paid: bigint; penny: bigint; tol: number }): Promise<ReceiptRow>;
@@ -48,7 +47,7 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
     const st = readSettlement(settleTx, gasAddress);
     if (!st) return { ok: false, why: 'That transaction is not a TERRORNODE receipt settlement.', status: 400 };
     if (st.gas < BigInt(RECEIPT_GAS)) return { ok: false, why: `Underpaid: the transfer gas is ${st.gas} sats, it needs ${RECEIPT_GAS}.`, status: 402 };
-    const penny = pennySatsAt(await d.bsvUsd());
+    const penny = RECEIPT_TOP_SATS; // fixed in sats: db/022 prices with the same closed form (p_penny = top price)
     try {
       row = await d.reserve({ txid, recipient: st.recipient, handle: st.handle, count: st.count, paid: st.paid, penny, tol: d.toleranceBps });
     } catch (e) {

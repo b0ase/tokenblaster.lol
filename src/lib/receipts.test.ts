@@ -3,20 +3,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { P2PKH, PrivateKey, Script, Transaction } from '@bsv/sdk';
 import {
-  RECEIPT_CREATOR, RECEIPT_GAS, RECEIPT_SUPPLY, TERRORNODE_ID, checkPayment, pennySatsAt, priceSats, rangeSats, readSettlement, settlementAsm, shotsFor, tradingOf,
+  RECEIPT_CREATOR, RECEIPT_GAS, RECEIPT_SUPPLY, TERRORNODE_ID, GRADUATE_AT, RECEIPT_TOP_SATS, affordableReceipts, checkPayment, priceSats, rangeSats, readSettlement, settlementAsm, shotsFor, soldOut, tradeRefusal, tradingOf,
 } from './launch/receipts';
 import { settleReceipts, type Deps, type PoolRow, type ReceiptRow } from './launch/receiptsFlow';
 import { coinExtras } from './launch/coinMeta';
 import { tokenOut } from './launch/shape';
 
-const PENNY = BigInt(20_000); // BSV at $50
+const PENNY = RECEIPT_TOP_SATS; // 200 sats, fixed
 const N = RECEIPT_SUPPLY;
 
-test('price: 1 sat for #1, 1 penny for #1e9, linear between', () => {
+test('price: 1 sat for #1, 200 sats for #1e9, linear between, default = the fixed curve', () => {
   assert.equal(priceSats(1, PENNY), BigInt(1));
   assert.equal(priceSats(N, PENNY), PENNY);
   const mid = priceSats((N + BigInt(1)) / BigInt(2), PENNY);
   assert.ok(mid >= PENNY / BigInt(2) - BigInt(1) && mid <= PENNY / BigInt(2) + BigInt(1));
+  assert.equal(PENNY, BigInt(200));
+  assert.equal(priceSats(1), BigInt(1));
+  assert.equal(priceSats(N), BigInt(200));
+  assert.equal(priceSats(10_000_000), BigInt(3)); // 1 + 199 × 9,999,999 / 999,999,999 = 2.99…, rounded up
   assert.throws(() => priceSats(0, PENNY));
   assert.throws(() => priceSats(N + BigInt(1), PENNY));
 });
@@ -36,13 +40,57 @@ test('rangeSats: closed form equals the exact brute-force sum (rounded up once)'
   assert.throws(() => rangeSats(N, 2, PENNY));
 });
 
-test('pennySatsAt and shotsFor', () => {
-  assert.equal(pennySatsAt(50), BigInt(20_000));
-  assert.throws(() => pennySatsAt(0));
-  const n = shotsFor(10_000, 9, 0, PENNY);
-  const cost = (k: number) => BigInt(9 * k) + rangeSats(1, k, PENNY);
+test('shotsFor on the fixed curve', () => {
+  const n = shotsFor(10_000, 9, 0);
+  const cost = (k: number) => BigInt(9 * k) + rangeSats(1, k);
   assert.ok(cost(n) <= BigInt(10_000) && cost(n + 1) > BigInt(10_000));
-  assert.equal(shotsFor(0, 9, 0, PENNY), 0);
+  assert.equal(shotsFor(0, 9, 0), 0);
+});
+
+test('client == server: the gun pays exactly what the ledger checks, for any range', () => {
+  // the server's check (checkPayment, same closed form as db/022 with p_penny = 200) accepts exactly rangeSats, refuses 1 sat less
+  for (const [issued, c] of [[0, 1], [0, 1_000_000], [9_999_000, 5000], [123_456_789, 77_777], [999_000_000, 1_000_000]] as [number, number][]) {
+    const pay = rangeSats(issued + 1, c);
+    assert.ok(checkPayment({ count: c, paid: pay, gas: BigInt(RECEIPT_GAS) }, issued, 0).ok, `${issued}+${c}`);
+    assert.equal(checkPayment({ count: c, paid: pay - BigInt(1), gas: BigInt(RECEIPT_GAS) }, issued, 0).ok, false);
+    // split ranges never cost less than one range (rounded up once per range)
+    const h = Math.floor(c / 2);
+    if (h > 0) assert.ok(rangeSats(issued + 1, h) + rangeSats(issued + 1 + h, c - h) >= pay);
+  }
+  // a 1M-shot session from #1: 1,000,000 + 199 × Σ(0..999,999) / 999,999,999, rounded up
+  assert.equal(rangeSats(1, 1_000_000), BigInt(1_099_500));
+  // the whole supply: N(1 + 200)/2
+  assert.equal(rangeSats(1, N), BigInt(100_500_000_000));
+});
+
+test('graduation: TERRORNODE trades from 10,000,000 receipts issued, refused before', () => {
+  assert.equal(GRADUATE_AT, 10_000_000);
+  assert.equal(tradingOf(TERRORNODE_ID, null), false);
+  assert.equal(tradingOf(TERRORNODE_ID, 9_999_999), false);
+  assert.equal(tradingOf(TERRORNODE_ID, 10_000_000), true);
+  assert.match(tradeRefusal(TERRORNODE_ID, 9_999_999) ?? '', /cannot be bought or sold.*9,999,999 so far/);
+  assert.match(tradeRefusal(TERRORNODE_ID, null) ?? '', /cannot be bought or sold/);
+  assert.equal(tradeRefusal(TERRORNODE_ID, 10_000_000), null);
+  assert.equal(tradeRefusal('79d84d2f194ef324837b6dc69e39afc404d1a1dc3cbadb0215d5fa06c2269a0f_1', null), null);
+  const before = coinExtras({ token_id: TERRORNODE_ID, sold: 0 }, 9_999_999) as Record<string, unknown>;
+  assert.equal(before.trading, false);
+  assert.equal(before.category, 'reward');
+  assert.equal(before.price_sats, null);
+  const after = coinExtras({ token_id: TERRORNODE_ID, sold: 0 }, 10_000_000) as Record<string, unknown>;
+  assert.equal(after.trading, true);
+  assert.equal(after.category, undefined);
+  assert.equal(typeof after.price_sats, 'number');
+  assert.equal(after.earn_url, 'https://www.tokenblaster.lol/arcade/terrornode', 'earning continues after graduation');
+  assert.equal(after.receipts_issued, 10_000_000);
+});
+
+test('sell-out: all 1B issued stops receipts gracefully', () => {
+  assert.equal(soldOut(N - BigInt(1)), false);
+  assert.equal(soldOut(N), true);
+  assert.equal(shotsFor(1_000_000, 9, N), 0);
+  assert.equal(affordableReceipts(N + BigInt(1), 10, 1_000_000), 0);
+  assert.equal(affordableReceipts(N, 10, 1_000_000), 1, 'only the last receipt is left');
+  assert.throws(() => rangeSats(N, 2));
 });
 
 test('trading flag: TERRORNODE is play-to-earn, other coins trade', () => {
@@ -93,12 +141,11 @@ function world() {
   const d: Deps = {
     toleranceBps: 0,
     txHex: async (id) => chain.get(id)?.toHex() ?? null,
-    bsvUsd: async () => 50,
     get: async (id) => rows.get(id) ?? null,
     reserve: async (a) => {
       const had = rows.get(a.txid);
       if (had) return had;
-      const chk = checkPayment({ count: a.count, paid: a.paid, gas: BigInt(RECEIPT_GAS) }, issued, a.penny, a.tol);
+      const chk = checkPayment({ count: a.count, paid: a.paid, gas: BigInt(RECEIPT_GAS) }, issued, a.tol, a.penny);
       if (!chk.ok) throw new Error(`underpaid: ${chk.why}`);
       const r: ReceiptRow = { session_txid: a.txid, recipient: a.recipient, first_n: issued + 1, count: a.count, status: 'reserved', transfer_txid: null };
       issued += a.count;
@@ -212,12 +259,11 @@ test('flow: a transfer that went out but was not booked is booked on retry, not 
 });
 
 test('a settlement only takes what one coin can afford; the rest is carried forward', async () => {
-  const { affordableReceipts } = await import('./launch/receipts');
   const first = 1_000_000;
   const budget = Number(rangeSats(first, 500, PENNY));
-  assert.equal(affordableReceipts(first, 10_000, PENNY, budget), 500);
-  assert.equal(affordableReceipts(first, 10_000, PENNY, budget - 1), 499);
-  assert.equal(affordableReceipts(first, 200, PENNY, budget), 200, 'never more than owed');
-  assert.equal(affordableReceipts(first, 200, PENNY, 0), 0);
-  assert.equal(affordableReceipts(first, 200, PENNY, -50), 0);
+  assert.equal(affordableReceipts(first, 10_000, budget), 500);
+  assert.equal(affordableReceipts(first, 10_000, budget - 1), 499);
+  assert.equal(affordableReceipts(first, 200, budget), 200, 'never more than owed');
+  assert.equal(affordableReceipts(first, 200, 0), 0);
+  assert.equal(affordableReceipts(first, 200, -50), 0);
 });
