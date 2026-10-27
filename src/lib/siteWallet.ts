@@ -14,7 +14,7 @@
 import { PublicKey } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
 import { PairError, disconnectPhone, getPhoneEnd, getPhoneStatus, resumeReturnedPairing, subPhoneStatus } from './pair/site';
-import { parseReturnHash } from './pair/returnStore';
+import { parseReturnHash, withoutHash } from './pair/returnStore';
 import { cancelWalletCalls, connect, onWalletHold, serialised, walletHeld, withTimeout, WALLET_CANCELLED, WALLET_HELD, type Wallet } from './wallet';
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
@@ -308,22 +308,44 @@ onWalletHold((held) => {
   if (!held) clearHeldNote();
 });
 
+/**
+ * Back from bWallet after Allow (v2 return, #bwx=ok&rid=…): finish that pairing, then connect as a fresh phone.
+ * `ret` is this very page, so iOS often brings the player back to the SAME tab with only the hash changed: no reload,
+ * so this also runs on `hashchange` (owner, iPhone, 27 Oct 2026: approved in bWallet, the site still said "Connect
+ * wallet" because the return hash was never read).
+ */
+let returning = false;
+function finishReturnedPairing(): boolean {
+  if (!parseReturnHash(location.hash)) return false;
+  if (returning) return true;
+  // The open chooser's own pairing already got the phone's ready: just tidy the URL.
+  if (state.wallet?.id === 'phone' && state.live) {
+    try {
+      history.replaceState(history.state, '', withoutHash(location.href));
+    } catch {
+      /* harmless */
+    }
+    return true;
+  }
+  returning = true;
+  set({ waiting: { text: 'Finishing the connection with bWallet…', since: Date.now(), kind: 'discover' } });
+  void resumeReturnedPairing()
+    .then((p) => {
+      discoveryDone();
+      if (p) return connectEntry({ id: 'phone', name: `${p.phone} on your phone`, icon: null, kind: 'phone', wallet: p.wallet, fresh: true });
+    })
+    .catch(() => discoveryDone())
+    .finally(() => (returning = false));
+  return true;
+}
+
 /** Quietly reconnect the remembered wallet once per page load (no chooser popping up uninvited). */
 let resumed = false;
 export function resumeSiteWallet() {
   if (resumed || typeof window === 'undefined') return;
   resumed = true;
-  // Back from bWallet after Allow (v2 return, #bwx=ok&rid=…): finish that pairing, then connect as a fresh phone.
-  if (parseReturnHash(location.hash)) {
-    set({ waiting: { text: 'Finishing the connection with bWallet…', since: Date.now(), kind: 'discover' } });
-    void resumeReturnedPairing()
-      .then((p) => {
-        discoveryDone();
-        if (p) return connectEntry({ id: 'phone', name: `${p.phone} on your phone`, icon: null, kind: 'phone', wallet: p.wallet, fresh: true });
-      })
-      .catch(() => discoveryDone());
-    return;
-  }
+  window.addEventListener?.('hashchange', () => void finishReturnedPairing());
+  if (finishReturnedPairing()) return;
   const id = rememberedWallet();
   if (!id || state.wallet) return;
   void discoverWallets()
@@ -341,6 +363,7 @@ export function resumeSiteWallet() {
 export function _resetSiteWallet() {
   state = EMPTY;
   resumed = false;
+  returning = false;
   connecting = null;
   discoverGen = 0;
 }

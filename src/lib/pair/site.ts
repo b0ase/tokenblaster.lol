@@ -337,6 +337,10 @@ function pairSession(S: PrivateKey, c: string, r: string, onState: (s: PairState
     if (msg?.t === 'ready') {
       done = true;
       const saved: Saved = { c, r, s: S.toHex(), k: phoneKey, phone, ...sealer.counters };
+      // Close an older pairing first: its close() clears the saved session, which would wipe this new one (a reload
+      // would then come back unpaired).
+      current?.close();
+      current = null;
       try {
         sessionStorage.setItem(STORE, JSON.stringify(saved));
       } catch {
@@ -345,7 +349,6 @@ function pairSession(S: PrivateKey, c: string, r: string, onState: (s: PairState
       const ch = new Channel(saved, sealer, () => {});
       phoneEnd = null;
       ch.open(sock);
-      current?.close();
       current = ch;
       resumed = null;
       setPhoneStatus('awake');
@@ -505,4 +508,10 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   const wake = () => document.visibilityState !== 'hidden' && current?.wake();
   document.addEventListener('visibilitychange', wake);
   window.addEventListener('pageshow', wake);
+}
+
+/** Tests only: drop this module's in-memory channel as a page reload would (storage is kept). */
+export function _forgetPhoneForReload() {
+  current = null;
+  resumed = null;
 }
