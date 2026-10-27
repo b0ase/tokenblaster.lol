@@ -400,7 +400,7 @@ export function startPairing(onState: (s: PairState) => void): () => void {
     // ret/rid/b only travel with their proof: without s2 the wallet would not return anyway.
     const link = pairUrl({ v: PAIR_VERSION, r: RELAY, c, k, o, e, s, ...(s2 && v2.ret ? { ...v2, s2 } : {}) });
     pendingNow = s2 && v2.ret && v2.rid ? { c, r: RELAY, s: S.toHex(), e, rid: v2.rid, ret: v2.ret, at: Date.now() } : null;
-    const qr = await QRCode.toDataURL(link, { margin: 1, width: 320 });
+    const qr = await QRCode.toDataURL(link, { margin: 4, width: 600, errorCorrectionLevel: 'L' });
     if (stopped) return;
     const session = pairSession(S, c, RELAY, (st) => {
       if (st.k === 'code') clearTimeout(refresh);
