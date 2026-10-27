@@ -88,12 +88,12 @@ export function CharacterSelect({
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {hand('right')}
           {hand('left')}
-          <div className="grid grid-cols-3 gap-x-2 gap-y-0.5 text-[9px] tracking-[0.08em] sm:grid-cols-6" data-npg-stats>
+          <div className="grid max-w-[640px] grid-cols-3 gap-x-3 gap-y-0.5 text-[9px] tracking-[0.08em]" data-npg-stats>
             {STATS.map((s) => {
               const m = MOD_OF[s];
               const d = (mods[m.key] - 1) * (m.invert ? -1 : 1);
               return (
-                <span key={s} className="flex justify-between gap-1 whitespace-nowrap text-white/70" title={`${s} → ${m.label}`}>
+                <span key={s} className="flex gap-1.5 whitespace-nowrap text-white/70" title={`${s} → ${m.label}`}>
                   <b className="text-white">{STAT_ABBR[s]} {stats[s]}</b>
                   <span className={d > 0.001 ? 'text-[var(--tbx-teal)]' : d < -0.001 ? 'text-[#ff9a92]' : ''}>
                     {m.label} {signed(m.invert ? -(mods[m.key] - 1) : mods[m.key] - 1)}
