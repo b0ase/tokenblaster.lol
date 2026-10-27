@@ -918,25 +918,103 @@ html[data-phone-game] .game-stage > :not(canvas):not([data-poster]):not([data-re
   margin-right: env(safe-area-inset-right);
   margin-bottom: env(safe-area-inset-bottom);
 }
-/* Phone-sized HUD: the desktop panels scaled down so the street stays visible. */
-html[data-phone-game] .game-stage [data-hud],
-html[data-phone-game] .game-stage [data-health],
-html[data-phone-game] .game-stage [data-hud-controls],
+/* PHONE LANDSCAPE HUD (owner, 27 Oct 2026: "the HUD covers the girls and Dr Kweg"). Everything lives in the corners
+   and the safe-area insets; the centre band (middle 60% of the width, 20% to 85% of the height) stays clear so the
+   squad and the escort are always visible. Panels are compact and translucent, details collapse, labels become icons. */
+html[data-phone-game] .game-stage [data-hud] {
+  zoom: 0.5;
+  opacity: 0.88;
+  padding: 6px 10px;
+}
+html[data-phone-game] .game-stage [data-hud] [data-hud-sub] {
+  display: none !important;
+}
+/* boss bar: a thin strip top centre, no wider than the gap between the two corner panels */
+html[data-phone-game] .game-stage [data-hud] [data-boss-bar] {
+  order: 0;
+  grid-column: span 1 / span 1;
+  max-width: 64vw;
+  margin: 0 auto;
+  width: 100%;
+}
+/* the ammo column: just the counter, top left under the rounds panel (no tall bar down the left side) */
 html[data-phone-game] .game-stage [data-ammo-col] {
   zoom: 0.62;
+  top: 92px !important;
+  bottom: auto !important;
+  height: auto;
+  max-height: 64px;
+  overflow: hidden;
+  opacity: 0.85;
 }
-/* Thumb reach: FIRE low on the right where the right thumb rests, PAUSE just above it. */
+/* health: a slim strip in the bottom-left corner, beside the small portrait */
+html[data-phone-game] .game-stage [data-health] {
+  zoom: 0.55;
+  bottom: 8px !important;
+  left: 64px !important;
+  width: 240px !important;
+  opacity: 0.9;
+}
+html[data-phone-game] .game-stage [data-hud-girl] {
+  height: 40px !important;
+  bottom: 4px !important;
+  left: 4px !important;
+  opacity: 0.8;
+}
+html[data-phone-game] .game-stage [data-touch-help],
+html[data-phone-game] .game-stage [data-hud-controls] [data-hud-hint] {
+  display: none !important;
+}
+/* LOADOUT / RESULTS / LOCK: small icon buttons in the bottom strip, left of the thumb buttons */
+html[data-phone-game] .game-stage [data-hud-controls] {
+  left: auto;
+  right: 176px;
+  padding: 0 0 6px;
+}
+html[data-phone-game] .game-stage [data-hud-buttons] {
+  margin-bottom: 0;
+  gap: 4px;
+}
+html[data-phone-game] .game-stage [data-hud-buttons] .tbx-btn {
+  min-height: 32px !important;
+  min-width: 32px !important;
+  padding: 0 6px !important;
+  opacity: 0.8;
+}
+html[data-phone-game] .game-stage [data-hud-buttons] .tbx-btn > span {
+  display: none !important;
+}
+/* Thumb reach: FIRE in the bottom-right corner, CALL KWEG beside it, PAUSE small above; all see-through. */
 html[data-phone-game] .game-stage [data-fire] {
-  bottom: calc(64px + env(safe-area-inset-bottom)) !important;
-  right: 18px !important;
-  width: 96px;
-  height: 96px;
+  bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+  right: 12px !important;
+  width: 76px;
+  height: 76px;
+  font-size: 12px;
+  background: rgba(232, 38, 29, 0.18);
+  box-shadow: 0 0 14px rgba(232, 38, 29, 0.4);
+}
+html[data-phone-game] .game-stage [data-call-kweg] {
+  bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+  right: 98px !important;
+  width: 54px;
+  height: 54px;
+  font-size: 8px;
+  background: rgba(0, 0, 0, 0.25);
 }
 html[data-phone-game] .game-stage [data-pause] {
   top: auto !important;
-  bottom: calc(172px + env(safe-area-inset-bottom)) !important;
-  right: 22px !important;
-  padding: 9px 14px;
+  bottom: calc(96px + env(safe-area-inset-bottom)) !important;
+  right: 14px !important;
+  padding: 5px 10px;
+  font-size: 10px;
+  opacity: 0.85;
+}
+html[data-phone-game] .game-stage [data-onchain] {
+  zoom: 0.6;
+  bottom: auto !important;
+  top: 120px;
+  opacity: 0.85;
 }
 
 /* Phone on its side, before START: title and START fit the first screen; the rest of the loadout is below it. */
@@ -1864,4 +1942,21 @@ html[data-phone-game][data-act-card] .game-stage [data-pause] {
    the footage frames the panels; the panels keep their glass, text stays on dark. */
 html[data-npg-backdrop] [data-loadout] {
   background: radial-gradient(ellipse 80% 70% at 50% 40%, rgba(4, 9, 14, 0.55), rgba(4, 9, 14, 0.12) 100%);
+}
+
+/* Team chat on a phone on its side: a small corner toggle and a short panel, never over the middle of the street. */
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  [data-team-chat-toggle] {
+    bottom: 8px !important;
+    left: 8px !important;
+    padding: 4px 10px;
+    font-size: 10px;
+  }
+  [data-team-chat] {
+    bottom: 8px !important;
+    left: 8px !important;
+    width: min(240px, 30vw) !important;
+    max-height: 30vh !important;
+    opacity: 0.92;
+  }
 }

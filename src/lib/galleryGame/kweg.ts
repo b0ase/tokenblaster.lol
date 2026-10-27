@@ -18,6 +18,9 @@ export class KwegBody {
   private cur: THREE.AnimationAction | null = null;
   private bar: HTMLDivElement;
   private fill: HTMLDivElement;
+  /** Off-screen pointer: a small gold KWEG chip pinned to the screen edge, its arrow turned towards him. */
+  private edge: HTMLDivElement;
+  private edgeArrow: HTMLDivElement;
   private barK = -1;
   private v = new THREE.Vector3();
   private disp: { dispose: () => void }[] = [];
@@ -49,6 +52,14 @@ export class KwegBody {
     this.fill.style.cssText = 'height:100%;width:100%;border-radius:3px;background:#3dff8a;transform-origin:left center';
     this.bar.appendChild(this.fill);
     canvas.parentElement?.appendChild(this.bar);
+    this.edge = document.createElement('div');
+    this.edge.setAttribute('data-kweg-edge', '');
+    this.edge.style.cssText = 'position:absolute;left:0;top:0;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:rgba(10,6,2,.7);border:2px solid #ffc21a;color:#ffc21a;font:900 9px/26px system-ui,sans-serif;text-align:center;letter-spacing:.04em;pointer-events:none;z-index:5;display:none;will-change:transform';
+    this.edge.textContent = 'DR K';
+    this.edgeArrow = document.createElement('div');
+    this.edgeArrow.style.cssText = 'position:absolute;left:50%;top:50%;width:0;height:0;margin:-5px 0 0 15px;border:5px solid transparent;border-left:7px solid #ffc21a;transform-origin:-15px 5px';
+    this.edge.appendChild(this.edgeArrow);
+    canvas.parentElement?.appendChild(this.edge);
     void this.load();
   }
 
@@ -102,7 +113,10 @@ export class KwegBody {
 
   show(on: boolean) {
     this.root.visible = on;
-    if (!on) this.bar.style.display = 'none';
+    if (!on) {
+      this.bar.style.display = 'none';
+      this.edge.style.display = 'none';
+    }
   }
 
   update(dt: number, ai: EscortAI, camera: THREE.Camera) {
@@ -129,6 +143,27 @@ export class KwegBody {
     this.v.set(ai.x, HEIGHT + 0.25, ai.z).project(camera);
     const on = show && this.v.z < 1 && Math.abs(this.v.x) < 1.1 && Math.abs(this.v.y) < 1.1;
     this.bar.style.display = on ? 'block' : 'none';
+    // OFF SCREEN (owner, 27 Oct: "you can't see who you're protecting"): pin a chip to the nearest edge, arrow pointing at him
+    const off = show && !on;
+    this.edge.style.display = off ? 'block' : 'none';
+    if (off) {
+      let nx = this.v.x;
+      let ny = this.v.y;
+      if (this.v.z >= 1) {
+        // behind the camera: the projection flips
+        nx = -nx;
+        ny = -ny;
+      }
+      if (Math.abs(nx) < 1e-3 && Math.abs(ny) < 1e-3) ny = -1;
+      const m = Math.max(Math.abs(nx), Math.abs(ny));
+      const w = this.canvas.clientWidth;
+      const h = this.canvas.clientHeight;
+      const ex = Math.min(w - 22, Math.max(22, ((nx / m + 1) / 2) * w)) + this.canvas.offsetLeft;
+      const ey = Math.min(h - 22, Math.max(22, ((1 - ny / m) / 2) * h)) + this.canvas.offsetTop;
+      this.edge.style.transform = `translate(${ex.toFixed(1)}px,${ey.toFixed(1)}px)`;
+      this.edgeArrow.style.transform = `rotate(${Math.atan2(-ny, nx).toFixed(3)}rad)`;
+      this.edge.style.borderColor = k > 0.5 ? '#ffc21a' : k > 0.25 ? '#ff9a1a' : '#ff2a3a';
+    }
     if (on) {
       const x = ((this.v.x + 1) / 2) * this.canvas.clientWidth + this.canvas.offsetLeft;
       const y = ((1 - this.v.y) / 2) * this.canvas.clientHeight + this.canvas.offsetTop;
@@ -151,6 +186,7 @@ export class KwegBody {
     this.mixer?.stopAllAction();
     this.root.removeFromParent();
     this.bar.remove();
+    this.edge.remove();
     this.disp.forEach((d) => d.dispose());
     this.model?.traverse((o) => {
       const m = o as THREE.Mesh;
