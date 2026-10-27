@@ -81,6 +81,16 @@ browser source over another scene), `&q=low` for a light machine. Up to 64 spect
 server's own tick rate / tick cost / CPU from `/health`. Exit 1 if fewer than N join, the tick drops under 18 Hz or
 the reconnect loses its slot. `src/lib/teamSpectate.test.ts` runs it in CI against a local server.
 
+## Text chat (27 Oct)
+
+In-match chat over the same websocket: `{t:'chat', ch:'team'|'all'|'dm', to?, text}`. Team = your own side only,
+All = everyone in the match (opponents and spectators), dm = one player. The server routes (team messages are never
+written to the other side's sockets), relays and stores nothing (gone when the match ends), strips control chars,
+caps at 280 chars and limits 5 messages / 5 s per player. Spectators read All, can't send. The server advertises
+`features: ['chat']` in `/health` and the welcome / watching reply; the site shows the chat panel only then, so it is
+hidden against older servers. Enter opens chat (leaves pointer lock), Enter sends, Esc blurs; click a name to mute it
+locally. Code: `src/lib/teammode/chat.ts`, `src/components/terrornode/TeamChat.tsx`, tests `src/lib/teamChat.test.ts`.
+
 ## Run locally
 
     pnpm team:server                       # :8787
