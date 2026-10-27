@@ -88,7 +88,7 @@ export function AmmoColumn({ left, loaded }: { left: number; loaded: number }) {
 
   const low = loaded > 0 && left / Math.max(1, loaded) < 0.1;
   return (
-    <div className="tbx-in-l tbx-glass pointer-events-none absolute bottom-16 left-1.5 top-[138px] z-10 flex w-[52px] flex-col items-center gap-1 px-1 py-2 sm:left-3 sm:top-[116px] sm:w-[72px]" aria-label={`${left.toLocaleString('en-US')} rounds left`} data-ammo-column>
+    <div className="tbx-in-l tbx-glass pointer-events-none absolute bottom-16 left-1.5 top-[138px] z-10 flex w-[52px] flex-col items-center gap-1 px-1 py-2 sm:left-3 sm:top-[116px] sm:w-[72px]" data-ammo-col aria-label={`${left.toLocaleString('en-US')} rounds left`} data-ammo-column>
       <Icon name="bullet" size={14} className={low ? 'text-[var(--tbx-red)]' : 'text-[var(--tbx-amber)]'} />
       <Ticker value={left} ease={0.3} className="text-center text-[clamp(12px,1.5vw,18px)] font-bold leading-none" style={{ color: low ? 'var(--tbx-red)' : 'var(--tbx-text)' }} />
       <span className="text-[8px] font-semibold tracking-[0.25em] text-[var(--tbx-dim)]">ROUNDS</span>
