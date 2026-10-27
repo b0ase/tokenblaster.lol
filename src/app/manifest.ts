@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: '/blast',
     scope: '/',
     display: 'standalone',
-    orientation: 'portrait',
+    orientation: 'any', // TERRORNODE plays sideways; the Home Screen app is the only way to drop Safari's bars (owner, 27 Oct)
     background_color: '#0a0404',
     theme_color: '#0a0404',
     categories: ['games', 'entertainment'],
