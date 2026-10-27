@@ -1828,3 +1828,34 @@ body {
 html[data-phone-game] body {
   padding: 0;
 }
+
+/* Act title cards on a phone on its side (ACT 1, DR KWEG WONG IS FREE, ACT 2): centred in the safe area, smaller,
+   and the HUD dims while one shows (ShootingGallery sets html[data-act-card]) so nothing overlaps. */
+html[data-phone-game] .game-stage [data-act],
+html[data-phone-game] .game-stage [data-freed] {
+  top: 50% !important;
+  transform: translateY(-50%);
+  padding-left: calc(16px + env(safe-area-inset-left));
+  padding-right: calc(16px + env(safe-area-inset-right));
+}
+html[data-phone-game] .game-stage [data-act] .tbx-banner-main,
+html[data-phone-game] .game-stage [data-freed] .tbx-banner-main {
+  font-size: clamp(26px, 8.5vh, 44px);
+  max-width: 70vw;
+}
+html[data-phone-game] .game-stage [data-act] .tbx-banner-sub,
+html[data-phone-game] .game-stage [data-freed] .tbx-banner-sub {
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  max-width: 64vw;
+}
+html[data-phone-game][data-act-card] .game-stage [data-hud],
+html[data-phone-game][data-act-card] .game-stage [data-health],
+html[data-phone-game][data-act-card] .game-stage [data-hud-controls],
+html[data-phone-game][data-act-card] .game-stage [data-ammo-col],
+html[data-phone-game][data-act-card] .game-stage [data-hud-girl],
+html[data-phone-game][data-act-card] .game-stage [data-fire],
+html[data-phone-game][data-act-card] .game-stage [data-pause] {
+  opacity: 0.08 !important;
+  transition: opacity 0.25s;
+}

@@ -1355,6 +1355,17 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     else delete h.dataset.phoneGame;
     return () => void delete h.dataset.phoneGame;
   }, [gameMode]);
+  const npgCardsProp = npgCards.enabled ? { checking: npgCards.checking, checked: npgCards.checked, check: () => void npgCards.checkWallet(), error: npgCards.error } : null;
+  const charSelect = <CharacterSelect pick={girlPick} setPick={setGirlPick} owned={npgCards.owned} cards={npgCardsProp} />;
+  const charStrip = <CharacterSelect compact pick={girlPick} setPick={setGirlPick} owned={npgCards.owned} cards={npgCardsProp} />;
+  // Act title cards on a phone: the HUD dims while a card shows (globals.css, html[data-act-card]) so nothing overlaps.
+  const actCard = inPlay && (bannerCur?.kind === 'act' || bannerCur?.kind === 'freed');
+  useEffect(() => {
+    const h = document.documentElement;
+    if (actCard) h.dataset.actCard = '1';
+    else delete h.dataset.actCard;
+    return () => void delete h.dataset.actCard;
+  }, [actCard]);
   useEffect(() => {
     if (inPlay) return;
     if (document.fullscreenElement === document.documentElement) void document.exitFullscreen().catch(() => undefined);
@@ -1696,15 +1707,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           <Loadout
             start={
               <>
-              <CharacterSelect
-                pick={girlPick}
-                setPick={setGirlPick}
-                owned={npgCards.owned}
-                cards={npgCards.enabled ? { checking: npgCards.checking, checked: npgCards.checked, check: () => void npgCards.checkWallet(), error: npgCards.error } : null}
-              />
+              {!phoneLand && charSelect}
               <section className="tbx-glass relative overflow-hidden rounded-xl p-0" data-start-card>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/hero/assault.jpg" alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover opacity-70" />
+                {phoneLand && <div className="absolute left-3 top-2 z-[1]">{charStrip}</div>}
                 <div className="relative flex flex-col gap-3 bg-gradient-to-t from-black/90 via-black/55 to-black/10 p-4 pt-24 sm:flex-row sm:items-end sm:justify-between sm:p-6 sm:pt-32" data-start-body>
                   <div>
                     <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">{freePlay ? 'FREE PRACTICE · NO WALLET · NOTHING ON CHAIN' : 'NEW HERE? PLAY FREE FIRST'}</p>
