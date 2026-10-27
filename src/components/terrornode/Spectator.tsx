@@ -11,6 +11,7 @@
  * machine. If the websocket can't reach the game server the overlay keeps updating from the HTTP state endpoint.
  */
 import { useEffect, useRef, useState } from 'react';
+import { Brand } from '@/components/Brand';
 import { TeamClient, type TeamStatus } from '@/lib/teammode/client';
 import { TEAM_NAME, type Counters, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
 import { teamLevelOf } from '@/lib/teammode/levels';
@@ -134,7 +135,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div className="rounded-xl border border-white/10 bg-black/55 px-4 py-2.5 backdrop-blur-md">
             <p className="text-[11px] font-bold uppercase tracking-[0.32em]" style={{ color: L.palette.key }}>
-              Escape from TERRORNODE · {pvp ? 'NPG vs EROBOTZ' : 'Co-op'} · {L.name}
+              Escape from TERRORNODE · {pvp ? 'NPG vs EROBOTZ' : 'Co-op'} · <Brand>{L.name}</Brand>
             </p>
             <p className="mt-0.5 font-mono text-sm text-white/70">
               Room <span className="font-bold text-white">{room}</span>

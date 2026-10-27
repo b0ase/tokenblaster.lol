@@ -15,6 +15,7 @@
  * Plain words only (owner's rule): no technical terms. Transaction ids stay in the ON CHAIN panel.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { Brand } from '@/components/Brand';
 import { playMusic, unlockAudio, type Track } from '@/lib/sfx';
 import { tbxFontClass } from './fonts';
 import { Icon, Ticker, useExisting } from './ui';
@@ -218,9 +219,9 @@ export function LoadingScreen({
                     <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-red)' }}>
                       <Icon name="chevron" size={13} /> Chapter {String((i % L) + 1).padStart(2, '0')}
                     </p>
-                    <p className="tbx-display mt-1.5 text-[clamp(30px,4.2vw,58px)]">{beat.title}</p>
+                    <p className="tbx-display mt-1.5 text-[clamp(30px,4.2vw,58px)]"><Brand>{beat.title}</Brand></p>
                     <p className="mt-2 max-w-[560px] text-[clamp(15px,1.5vw,19px)] font-medium leading-snug text-white/90" style={{ textShadow: '0 2px 18px rgba(0,0,0,.8)' }}>
-                      {beat.line}
+                      <Brand>{beat.line}</Brand>
                     </p>
                     {tip && (
                       <p className="mt-3 flex items-start gap-2 text-[clamp(12px,1.1vw,14px)] text-white/65">

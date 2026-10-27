@@ -4,6 +4,7 @@
  * Levels you have reached are stored in this browser (src/lib/terrornode/levels.ts `loadProgress`).
  */
 import { LEVELS, isArenaLevel, isReached, levelOf, nextLevel, soloArenaHref, type LevelId, type Progress } from '@/lib/terrornode/levels';
+import { Brand } from '@/components/Brand';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -43,7 +44,7 @@ export function LevelSelect({ progress, active, onPick, compact = false, all = f
                   {l.n === 0 ? 'The block' : arena ? 'Arena · 64 players' : `Level ${l.n}`}
                   {l.boss ? ' · Boss' : ''}
                 </span>
-                <span className="tbx-display text-lg leading-tight text-white">{l.name}</span>
+                <span className="tbx-display text-lg leading-tight text-white"><Brand>{l.name}</Brand></span>
                 {!compact && <span className="text-[12px] leading-snug text-white/70">{open ? l.blurb : 'Locked: clear the level before it.'}</span>}
                 <span className="mt-auto pt-1 text-[11px] tabular-nums text-white/60" data-level-best>
                   {toTeam ? 'Play solo on the plaza →' : best ? `Best ${fmt(best.score)} · ${fmt(best.rounds)} rounds · ${best.clears}× clear` : open ? 'Not cleared yet' : ''}
@@ -64,7 +65,7 @@ export function LevelClear({ id, score, rounds, best, onNext, onLevels }: { id: 
     <div className="absolute inset-0 z-40 grid place-items-center bg-black/55 p-4 backdrop-blur-[2px]" data-level-clear={id}>
       <div className="tbx-glass tbx-in-d w-full max-w-md p-5 text-center" style={{ boxShadow: `0 0 0 1px ${l.palette.key}, 0 0 60px ${l.palette.key}44` }}>
         <p className="tbx-eyebrow" style={{ color: l.palette.key }}>Level clear</p>
-        <h2 className="tbx-display mt-1 text-4xl">{l.name}</h2>
+        <h2 className="tbx-display mt-1 text-4xl"><Brand>{l.name}</Brand></h2>
         <p className="mt-2 text-sm italic text-white/75">&ldquo;{l.kweg}&rdquo; — Dr Kweg Wong</p>
         <dl className="mt-4 grid grid-cols-3 gap-2 text-left">
           {[
@@ -81,7 +82,7 @@ export function LevelClear({ id, score, rounds, best, onNext, onLevels }: { id: 
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           {onNext && nx && (
             <button type="button" className="tbx-btn tbx-btn-on" onClick={() => onNext(nx)} data-next-level={nx}>
-              Next: {levelOf(nx).name}
+              Next: <Brand>{levelOf(nx).name}</Brand>
             </button>
           )}
           <button type="button" className="tbx-btn" onClick={onLevels}>

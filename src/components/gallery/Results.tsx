@@ -5,6 +5,7 @@
  * Nothing here is free: PLAY AGAIN goes back to the cabinet to put a coin in.
  */
 import { useState } from 'react';
+import { Brand } from '@/components/Brand';
 import { GAME_OVER, GAME_TITLE, KWEG, PRACTICE, RESCUED, forPractice, rankFor, shareText } from '@/lib/gallery/story';
 import { Icon, Ticker } from '../coinop/ui';
 
@@ -51,15 +52,15 @@ export function Results({ r, onAgain, onBoard }: { r: RunSummary; onAgain: () =>
         <header className="tbx-rise text-center">
           <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{GAME_TITLE}</p>
           <h2 className="tbx-display mt-2 text-[clamp(48px,10vw,120px)] " style={{ color: r.rescued ? 'var(--tbx-ok)' : 'var(--tbx-red)', textShadow: r.rescued ? '0 0 60px rgba(60,255,150,.45)' : '0 0 60px rgba(255,59,59,.5)' }}>
-            {end.title}
+            <Brand>{end.title}</Brand>
           </h2>
-          <p className="mx-auto mt-3 max-w-[560px] text-[clamp(14px,1.5vw,18px)] text-white/80">{end.line}</p>
+          <p className="mx-auto mt-3 max-w-[560px] text-[clamp(14px,1.5vw,18px)] text-white/80"><Brand>{end.line}</Brand></p>
         </header>
 
         <section className="tbx-glass tbx-pop flex flex-col items-center gap-1 px-5 py-4 text-center" style={{ ['--d' as string]: '0.15s' }}>
           <p className="tbx-eyebrow flex items-center gap-2"><Icon name="trophy" size={14} className="text-[var(--tbx-amber)]" /> Your rank</p>
-          <p className="tbx-display text-[clamp(34px,6vw,64px)]" style={{ color: 'var(--tbx-amber)', textShadow: '0 0 30px rgba(255,182,46,.35)' }}>{rank.title}</p>
-          <p className="text-sm text-[var(--tbx-dim)]">{rank.line}</p>
+          <p className="tbx-display text-[clamp(34px,6vw,64px)]" style={{ color: 'var(--tbx-amber)', textShadow: '0 0 30px rgba(255,182,46,.35)' }}><Brand>{rank.title}</Brand></p>
+          <p className="text-sm text-[var(--tbx-dim)]"><Brand>{rank.line}</Brand></p>
         </section>
 
         <section className="grid grid-cols-2 gap-2.5 sm:grid-cols-3" aria-label="Your run">
