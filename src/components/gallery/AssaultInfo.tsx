@@ -11,6 +11,7 @@ import { useMyHandle } from '../PlayerBadge';
 import { Icon } from '../coinop/ui';
 import { tbxFontClass } from '../coinop/fonts';
 import { PrizeBanner } from './PrizeBanner';
+import { CREDIT } from '@/lib/gallery/story';
 
 export const INFO_URL = '/arcade/terrornode/leaderboard';
 
@@ -71,14 +72,15 @@ export function AssaultInfo({ paid }: { paid: boolean }) {
 
       <section className="tbx-glass p-4 text-sm text-[var(--tbx-dim)]" data-info>
         <p>
-          Neo-Tokyo, 2048. Dr Kweg S Wong&apos;s Erobots and inventions went out of control and took TERRORNODE HQ, with him held hostage at the top.
-          It is one continuous ten-minute walk from the street up to the server room, and the Liquid Unit is the final boss.
+          Neo-Tokyo, 2048. The Ninja Punk Girls blast into the centre of the nSLAVE corporation to free their inventor, Dr Kweg S Wong, held hostage by his own inventions gone crazy, the Erobotz.
+          Act 1, STORM THE NODE: the street, the HQ floors and the core, where he is freed. Act 2, ESCAPE FROM TERRORNODE: carry him out over the roof, past the Liquid Unit.
         </p>
         <p className="mt-2">
           {paid
             ? 'In paid play every round is a real tagged BSV transaction ("tokenblaster.lol" … "gallery"), signed in your browser from a gun your wallet funds, so you can watch them land on bsv.lol.'
             : 'Free play: these are practice rounds. Nothing is paid, signed or sent on chain.'}
         </p>
+        <p className="mt-3 text-[11px] uppercase tracking-[0.2em] text-[var(--tbx-mute)]" data-credit>{CREDIT}</p>
       </section>
     </div>
   );

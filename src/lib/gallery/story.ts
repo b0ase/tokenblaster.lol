@@ -4,16 +4,18 @@
  * tests all read the same words.
  *
  * CANON (owner, 24 Oct 2026). Neo-Tokyo, 2048. DR KWEG S WONG is GOOD: one consistent character, brilliant
- * ("devastatingly so") and loved by everyone, never evil, no split personality. He founded TERRORNODE and invented
+ * ("devastatingly so") and loved by everyone, never evil, no split personality. He invented the Erobotz and
  * the SOUL CHAIN. Affectionate parody touches: he "established it in 2009", he peer-reviews everything, the patent
  * "for your soul", the software is open source "as long as it's BSV", and THE FALL (the accident, the hacking, the
  * incident with the cow, the trial: vague, never explained).
- * His inventions went OUT OF CONTROL. The EROBOTS (bot, frog-bot, graf-bot, stripey-bot, tech) seized TERRORNODE HQ
- * and hold him HOSTAGE. Every Erobot is an evil CPU enemy. The LIQUID UNIT (the silver liquid-metal robot) is his
- * invention gone mad and the FINAL boss on the roof. It is NOT Kweg. The NINJA PUNK GIRLS are on a mission to RESCUE
- * him and the player fights with them. PG-13. Teams (for later multiplayer): NPG vs EROBOTS.
+ * NEW STORY (owner, 27 Oct 2026, TERRORNODE-NPG-SPEC): his inventions, the EROBOTZ (bot, frog-bot, graf-bot,
+ * stripey-bot, tech), went crazy, seized the nSLAVE corporation and hold him HOSTAGE at its centre, TERRORNODE. The
+ * NINJA PUNK GIRLS blast in to free him (Act 1, STORM THE NODE: street, HQ floors, the core, where he is cut loose),
+ * then fight out carrying him (Act 2, ESCAPE FROM TERRORNODE: the roof, the Liquid Unit, the helipad). The corporate
+ * satire is nSLAVE's. Enemies are "Erobotz" in all text. The LIQUID UNIT is his invention gone mad, NOT Kweg. 17+
+ * violence (blood in Act 2), no sexual content. NPG IP: "A Ninja Punk Girls game".
  * In-world conceit for the 31 Oct stress test: every round the player fires is a real transaction on the record,
- * and in the story it jams the Erobots' control of the TERRORNODE network. Plain words for players: no tech terms.
+ * and in the story it jams the Erobotz' control of the network. Plain words for players: no tech terms.
  * Fictional names only; no real people or companies. bCorp is not in the story.
  *
  * KWEG'S TEXT IS ALL IN `KWEG` BELOW (and nowhere else), because he gets upgraded for the bMovie "KWEG". His
@@ -25,28 +27,51 @@
 export const GAME_TITLE = 'ESCAPE FROM TERRORNODE';
 export const GAME_KICKER = 'TOKENBLASTER SHOOTING GALLERY';
 export const SETTING = 'NEO-TOKYO · 2048';
+/** The launch call to action (owner, 27 Oct 2026): the START label wherever a call to action fits. */
+export const CTA = 'STORM THE NODE';
+/** The brand credit (NPG IP): small, in the footer and the credits. */
+export const CREDIT = 'A Ninja Punk Girls game';
 
 /** One paragraph. What the player is doing and why. */
 export const PREMISE =
-  'Neo-Tokyo, 2048. DR KWEG S WONG is brilliant, devastatingly so, and everyone loves him. He founded TERRORNODE and invented the SOUL CHAIN. Then his inventions went out of control. The EROBOTS seized TERRORNODE HQ and are holding him hostage, and the LIQUID UNIT, his own creation gone mad, guards the roof. The NINJA PUNK GIRLS are on a mission to rescue him, and you have joined them with a rotary gun and a pocket of coins. Every round you fire goes on the record and jams the Erobots’ control of the network. Fire enough, and the tower falls silent. Stop firing, and you are dead.';
+  'Neo-Tokyo, 2048. DR KWEG S WONG is brilliant, devastatingly so, and everyone loves him. He invented the EROBOTZ for the nSLAVE corporation. Then his inventions went crazy. The Erobotz seized nSLAVE and hold him hostage at its centre, TERRORNODE. The NINJA PUNK GIRLS blast in to free him, and you have joined them with a rotary gun and a pocket of coins. Act 1: storm the node. Act 2: carry him out. Every round you fire goes on the record and jams the Erobotz’ control of the network. Stop firing, and you are dead.';
 
 /** Short lines for banners, shares and the lobby. */
 export const TAGLINES = [
   'Every round goes on the record.',
-  'Storm TERRORNODE HQ. Rescue Dr Kweg.',
+  'Storm the node. Free Dr Kweg. Get out alive.',
   'The city never sleeps. Neither does the gun.',
-  'Four stages up. One very polite hostage.',
+  'Two acts. One very polite hostage.',
   'Rescue accepted, with required revisions.',
   'Burn the coins. Break the machine.',
 ] as const;
 export const TAGLINE = TAGLINES[0];
 
-/** TERRORNODE's corporate slogans (satire, deadpan). English first, then the short katakana line on the street ads. */
-export const TERRORNODE_SLOGANS = [
-  { en: 'TERRORNODE has developed a revolutionary new patent… for your soul.', jp: 'あなたの魂に特許を' },
-  { en: 'TERRORNODE’s software is all open source, so you’re free to use it to build on any chain you like… as long as it’s BSV.', jp: 'どのチェーンでも。BSVなら。' },
-  { en: 'SOUL CHAIN™: the chain your patented soul is stored on. (chain of tools)', jp: 'ソウルチェーン' },
+/** nSLAVE's corporate slogans (satire, deadpan). English first, then the short katakana line on the street ads. */
+export const NSLAVE_SLOGANS = [
+  { en: 'nSLAVE has developed a revolutionary new patent… for your soul.', jp: 'あなたの魂に特許を' },
+  { en: 'nSLAVE’s software is all open source, so you’re free to use it to build on any chain you like… as long as it’s BSV.', jp: 'どのチェーンでも。BSVなら。' },
+  { en: 'SOUL CHAIN™ by nSLAVE: the chain your patented soul is stored on. (chain of tools)', jp: 'ソウルチェーン' },
 ] as const;
+/** Old name, kept so nothing that imported it breaks. */
+export const TERRORNODE_SLOGANS = NSLAVE_SLOGANS;
+
+// ── The two acts ────────────────────────────────────────────────────────────────────────
+
+export type Act = { n: 1 | 2; code: string; title: string; line: string; stages: readonly number[] };
+/**
+ * Act 1 STORM THE NODE: fight IN through the street and the HQ floors to the core at the centre of nSLAVE, where
+ * Dr Wong is cut loose. Act 2 ESCAPE FROM TERRORNODE: fight OUT carrying him, up through the server room to the roof
+ * and the helipad, through angrier Erobotz and the Liquid Unit.
+ */
+export const ACTS: readonly Act[] = [
+  { n: 1, code: 'ACT 1', title: 'STORM THE NODE', line: 'Fight your way in to the centre of nSLAVE.', stages: [1, 2, 3] },
+  { n: 2, code: 'ACT 2', title: 'ESCAPE FROM TERRORNODE', line: 'Carry him out. Nobody stops firing.', stages: [4] },
+];
+/** The act a stage (1 to 4) belongs to. */
+export const actOf = (stage: number): Act => (stage >= 4 ? ACTS[1] : ACTS[0]);
+/** The beat between the acts: Dr Wong is cut loose at the core. */
+export const FREED = { top: 'DR KWEG WONG IS FREE', sub: 'The girls have him. Now get him out.' } as const;
 
 // ── DR KWEG S WONG: every word he says lives here ───────────────────────────────────────
 
@@ -55,37 +80,37 @@ export const KWEG = {
   name: 'DR KWEG S WONG',
   fullName: 'Professor Doctor Sir Kweg S Wong esq.',
   role: 'Hostage',
-  look: 'Round spectacles, a striped engineer’s cap, a red bow tie and a knitted vest under a lab coat. A tablet in one hand, a magnifying glass in the other. Currently tied to a chair.',
-  bio: 'Held hostage at the top of TERRORNODE HQ. Get him out.',
-  threat: 'On your side. He is held on the top floor and talks to you over the radio: dry pleas, review comments and the occasional correction.',
+  look: 'Round spectacles, a striped engineer’s cap, a red bow tie and a knitted vest under a lab coat. A tablet in one hand, a magnifying glass in the other. Currently chained to the core.',
+  bio: 'Held hostage at the centre of TERRORNODE by his own inventions. Get him out.',
+  threat: 'On your side. Held at the core in Act 1, carried out by the girls in Act 2. He talks to you over the radio: dry pleas, review comments and the occasional correction.',
   /** Spoken on the loading screen and the briefing. */
-  intro: 'This is Dr Wong. I am being held hostage on the top floor of a building I established in 2009. I did not authorise this.',
+  intro: 'This is Dr Wong. I am being held hostage by the Erobotz, whom I invented, in a building I established in 2009. I did not authorise this.',
   /** One per stage, in order: the radio as the stage opens. */
   stages: [
-    'Rescue accepted, with required revisions. I can see you from the sixty-first floor. Your aim is under peer review.',
-    'The Erobots have taken the lifts. I would like it noted that I installed the lifts. Please do not shoot the labs, they are peer-reviewed.',
-    'That is the core. It runs the SOUL CHAIN, and also the coffee machine. Please jam the first one.',
-    'Ah. That is the Liquid Unit. I built him. In my defence, his safety review was scheduled for Thursday.',
+    'Rescue accepted, with required revisions. I can see you from the core cameras. Your aim is under peer review.',
+    'The Erobotz have taken the lifts. I would like it noted that I installed the lifts. Please do not shoot the labs, they are peer-reviewed.',
+    'I am chained to the core. It runs the SOUL CHAIN, and also the coffee machine. Jam the first one, then untie me.',
+    'Please stop carrying me like a sofa. The helipad is on the roof. So, regrettably, is the Liquid Unit. I built him.',
   ],
   /** One per stage, when it is cleared and the lift arrives. */
   clear: [
     'The street is secure. Revisions: fewer fires.',
     'The labs are clear. I peer-reviewed every one of those windows.',
-    'The core is jammed. My claims are fully verifiable. Verification is available on request. Requests are not.',
+    'I am free. My claims are fully verifiable. Verification is available on request. Requests are not. Now run.',
   ],
   /** The final boss walks in. */
   boss: 'Please do not be alarmed. He is a prototype. He has not passed review.',
   /** The Liquid Unit melts. */
   melt: 'That was a phase transition. Please cite it correctly.',
   /** Freed: the cutscene beat and the results screen. */
-  rescued: 'Rescue complete. Verdict: accepted, with required revisions. Thank you. I established this roof in 2009.',
-  rescuedSub: 'He is looking for a pen. He would like to sign the paperwork.',
+  rescued: 'Escape complete. Verdict: accepted, with required revisions. Thank you. I established this helipad in 2009.',
+  rescuedSub: 'He is in the chopper, looking for a pen. He would like to sign the paperwork.',
   /** The player is flatlined. */
   flatlined: 'Cause of death: insufficient peer review. INSERT $b to appeal. I will be here.',
   /** Game over. */
   over: 'Peer review verdict: your gun is empty. REJECTED, pending further coins. I will wait.',
   /** Share-card sign-off and loading line. */
-  signoff: 'Respectfully, Dr K S Wong (hostage).',
+  signoff: 'Respectfully, Dr K S Wong (formerly hostage).',
   loading: 'Please wait. The lift is arriving.',
 } as const;
 
@@ -94,15 +119,15 @@ export const KWEG = {
 export type LoreBeat = { id: string; title: string; line: string; /** The CHARACTERS id whose bio card sits beside this beat. */ focus: string };
 export const LORE: LoreBeat[] = [
   { id: 'city', title: 'NEO-TOKYO, 2048', line: 'Rain on neon. Hover traffic stacked twelve lanes high. Ninety million people, and every one of them is being counted.', focus: 'gunner' },
-  { id: 'kweg', title: 'DR KWEG S WONG', line: 'Brilliant. Devastatingly so. Everyone loves him. ' + KWEG.intro, focus: 'kweg' },
+  { id: 'kweg', title: 'DR KWEG S WONG', line: 'Brilliant. Devastatingly so. Everyone loves him. He invented the Erobotz. ' + KWEG.intro, focus: 'kweg' },
   { id: 'fall', title: 'THE FALL', line: 'There was the accident, and the hacking, and the incident with the cow, and the trial, and all that. Nobody has explained any of it. Ugly situation. He remains brilliant.', focus: 'kweg' },
-  { id: 'terrornode', title: 'TERRORNODE', line: 'He founded TERRORNODE and invented the SOUL CHAIN. Its black glass tower is the headquarters, and it is where he is being held.', focus: 'kweg' },
-  { id: 'patent', title: 'THE PATENT', line: TERRORNODE_SLOGANS[0].en + ' It is stored on SOUL CHAIN™ (chain of tools). ' + TERRORNODE_SLOGANS[1].en, focus: 'kweg' },
-  { id: 'control', title: 'OUT OF CONTROL', line: 'His inventions went out of control. The Erobots seized the tower floor by floor, and a silver giant of liquid metal, his own creation, stands guard on the roof.', focus: 'liquid' },
-  { id: 'army', title: 'THE EROBOT ARMY', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the doorways and techs in the server rooms. Every one rushes you, and every one is evil.', focus: 'frog' },
-  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'On a mission to rescue him. Neon hair, sharp blades and no patience. They need a gunner who keeps the trigger down and the gun moving.', focus: 'npg' },
-  { id: 'liquid', title: 'THE LIQUID UNIT', line: 'It was meant to clean up after disasters. Something in it went mad. Seven metres of living silver with one red eye, and it is not Kweg, whatever the Erobots say.', focus: 'liquid' },
-  { id: 'record', title: 'THE RECORD', line: 'Every round you fire is written where nobody can erase it, and every one jams the Erobots’ control of the tower. Fire at the Unit and it is pushed back. Stop, and it walks right through you.', focus: 'liquid' },
+  { id: 'terrornode', title: 'nSLAVE', line: 'The nSLAVE corporation runs the city on the SOUL CHAIN. At its centre is TERRORNODE, the black glass core of its tower, and that is where he is being held.', focus: 'kweg' },
+  { id: 'patent', title: 'THE PATENT', line: NSLAVE_SLOGANS[0].en + ' It is stored on SOUL CHAIN™ (chain of tools). ' + NSLAVE_SLOGANS[1].en, focus: 'kweg' },
+  { id: 'control', title: 'OUT OF CONTROL', line: 'His inventions went crazy. The Erobotz seized nSLAVE floor by floor, chained their inventor to the core, and a silver giant of liquid metal, his own creation, guards the roof.', focus: 'liquid' },
+  { id: 'army', title: 'THE EROBOTZ', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the doorways and techs in the server rooms. Every one of them rushes you, and every one is evil.', focus: 'frog' },
+  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'They blast into the centre of nSLAVE to free him, then carry him out. Neon hair, sharp blades and no patience. They need a gunner who keeps the trigger down.', focus: 'npg' },
+  { id: 'liquid', title: 'THE LIQUID UNIT', line: 'It was meant to clean up after disasters. Something in it went mad. Seven metres of living silver with one red eye, and it is not Kweg, whatever the Erobotz say.', focus: 'liquid' },
+  { id: 'record', title: 'THE RECORD', line: 'Every round you fire is written where nobody can erase it, and every one jams the Erobotz’ control of the tower. Fire at the Unit and it is pushed back. Stop, and it walks right through you.', focus: 'liquid' },
 ];
 
 // ── Characters ──────────────────────────────────────────────────────────────────────────
@@ -143,7 +168,7 @@ export const CHARACTERS: Character[] = [
     name: 'THE NINJA PUNK GIRLS',
     role: 'Rescue team · Team NPG',
     kind: 'hero',
-    bio: 'Neon hair, sharp blades and a van with no brakes. They know every back alley and every way into the tower. They are here to get Dr Wong out. You keep the guns loud so they can reach the top floor.',
+    bio: 'Neon hair, sharp blades and a van with no brakes. They know every back alley and every way into the tower. They are here to free Dr Wong and carry him out. You keep the guns loud.',
     threat: 'On your side. They keep the way clear while you hold the trigger.',
     colour: '#ff2f92',
   },
@@ -161,7 +186,7 @@ export const CHARACTERS: Character[] = [
     name: 'THE LIQUID UNIT',
     role: 'Final boss · an invention gone mad',
     kind: 'boss',
-    bio: 'One of Dr Wong’s inventions: seven metres of living mercury with one red eye, built to clean up after disasters. Something went wrong with it, and now it guards the roof for the Erobots. Shoot it apart and it melts into the floor. It does not tire and it does not hurry, until you stop firing.',
+    bio: 'One of Dr Wong’s inventions: seven metres of living mercury with one red eye, built to clean up after disasters. Something went wrong with it, and now it guards the roof for the Erobotz. Shoot it apart and it melts into the floor. It does not tire and it does not hurry, until you stop firing.',
     threat: 'Charges, lunges and smashes anything in reach. Sustained fire pushes it back; ease off and it closes the gap fast.',
     colour: '#dfe8f5',
     shot: '/gallery/loading/boss.webp',
@@ -171,7 +196,7 @@ export const CHARACTERS: Character[] = [
     name: 'BOT',
     role: 'Rotor drone',
     kind: 'erobot',
-    bio: 'The standard EROBOT. A camera, four rotors and a fear of heights it was never given. One of Dr Wong’s inventions, out of control. Cheap, loud, and there are thousands.',
+    bio: 'The standard EROBOTZ unit. A camera, four rotors and a fear of heights it was never given. One of Dr Wong’s inventions, out of control. Cheap, loud, and there are thousands.',
     threat: 'Swarms in from above. Worth a few points each.',
     colour: '#ff5a4a',
   },
@@ -189,7 +214,7 @@ export const CHARACTERS: Character[] = [
     name: 'GRAF-BOT',
     role: 'Wall tagger',
     kind: 'erobot',
-    bio: 'A spray-can arm and a dented head. It paints over every sign that is not the Erobots’. It thinks it is an artist. It is not.',
+    bio: 'A spray-can arm and a dented head. It paints over every sign that is not the Erobotz’. It thinks it is an artist. It is not.',
     threat: 'Covers the glass in paint, so you have to keep shooting to see.',
     colour: '#ff2f92',
   },
@@ -228,7 +253,7 @@ export type LoadingShot = { src: string; beat: string; focus?: string; pos?: str
 export const LOADING_SHOTS: LoadingShot[] = [
   { src: '/gallery/loading/street-left.webp', beat: 'city', focus: 'gunner', pos: '50% 50%', caption: 'Neo-Tokyo, 01:14' },
   { src: '/gallery/loading/tower.webp', beat: 'terrornode', focus: 'kweg', pos: '50% 50%', caption: 'TERRORNODE HQ' },
-  { src: '/gallery/loading/street-right.webp', beat: 'army', focus: 'frog', pos: '60% 50%', caption: 'The Erobots hold the street' },
+  { src: '/gallery/loading/street-right.webp', beat: 'army', focus: 'frog', pos: '60% 50%', caption: 'The Erobotz hold the street' },
   { src: '/gallery/loading/boss.webp', beat: 'liquid', focus: 'liquid', pos: '55% 50%', caption: 'The Liquid Unit' },
   { src: '/gallery/loading/boss-fire.webp', beat: 'record', focus: 'npg', pos: '60% 50%', caption: 'Open fire' },
   { src: '/gallery/loading/muzzle.webp', beat: 'girls', focus: 'npg', pos: '62% 50%', caption: 'Hold the trigger' },
@@ -239,10 +264,10 @@ export const LOADING_SHOTS: LoadingShot[] = [
 
 export type StageBrief = { n: number; code: string; place: string; title: string; brief: string; intel: string; goal: string; kweg: string };
 const STAGES: Omit<StageBrief, 'kweg'>[] = [
-  { n: 1, code: 'STAGE 1 · STREET', place: 'THE STREET', title: 'STORM THE HQ', brief: 'The Erobots and worse hold the street outside TERRORNODE HQ. You walk on toward the lobby doors whatever happens. Keep the trigger down and sweep the gun across whatever comes at you.', intel: 'You never stop walking. A knockdown shields you and you fire on.', goal: 'Walk the street, hold the trigger' },
+  { n: 1, code: 'STAGE 1 · STREET', place: 'THE STREET', title: 'STORM THE NODE', brief: 'The Erobotz and worse hold the street outside the nSLAVE tower. You walk on toward the lobby doors whatever happens. Keep the trigger down and sweep the gun across whatever comes at you.', intel: 'You never stop walking. A knockdown shields you and you fire on.', goal: 'Walk the street, hold the trigger' },
   { n: 2, code: 'STAGE 2 · HQ FLOORS', place: 'HQ FLOORS', title: 'THE LABS', brief: 'Through the lobby and down the corridor: glass labs, server racks, and something behind every desk. The corridor opens straight onto the server core. Smash what you like on the way.', intel: 'Rushers close in fast. Shoot their bolts out of the air.', goal: 'Walk the corridor, hold the trigger' },
-  { n: 3, code: 'STAGE 3 · SERVER CORE', place: 'SERVER CORE', title: 'THE CORE', brief: 'A shaft of glowing racks around the core that runs the Erobots. The walk swings round the core and out through the far wall. Pour fire on the core as you pass for a bonus.', intel: 'Sustained fire on the core blows it for points. It re-arms.', goal: 'Walk round the core, hold the trigger' },
-  { n: 4, code: 'STAGE 4 · ROOFTOP', place: 'THE ROOFTOP', title: 'THE LIQUID UNIT', brief: 'Out of the shaft onto the roof and the server room. The Liquid Unit walks in for the last minutes of the block, between you and Dr Wong. Fire pushes it back. When the block lands, so does it.', intel: 'Heavy hitter. It staggers under sustained fire. Do not stop.', goal: 'Hold out to the block, melt the Liquid Unit' },
+  { n: 3, code: 'STAGE 3 · SERVER CORE', place: 'SERVER CORE', title: 'THE CENTRE', brief: 'The centre of nSLAVE: a shaft of glowing racks around TERRORNODE, the core that runs the Erobotz, with Dr Wong chained to it. Pour fire on the core as you pass. The girls cut him loose on the far side.', intel: 'Sustained fire on the core blows it for points. It re-arms.', goal: 'Walk round the core, hold the trigger' },
+  { n: 4, code: 'STAGE 4 · ROOFTOP', place: 'THE ROOFTOP', title: 'THE LIQUID UNIT', brief: 'ACT 2. The girls carry Dr Wong up out of the shaft to the roof and the helipad, the only way out. The Erobotz are angrier, and the Liquid Unit walks in between you and the chopper. Fire pushes it back.', intel: 'Heavy hitter. It staggers under sustained fire. Do not stop.', goal: 'Get him to the helipad, melt the Liquid Unit' },
 ];
 /** The briefing for stage n (1 to 4; out of range clamps). Dr Wong's radio line comes from KWEG. */
 export function stageBrief(n: number): StageBrief {
@@ -256,7 +281,7 @@ export const STAGE_COUNT = STAGES.length;
 export const BANNERS = {
   loaded: { top: 'GUN LOADED.', bottom: 'LIVE ROUNDS', sub: 'Every round you fire is on the record.' },
   boss: { top: 'FINAL BOSS', sub: 'THE LIQUID UNIT', kweg: KWEG.boss },
-  rescued: { top: 'RESCUED', sub: 'Dr Kweg S Wong is free', kweg: KWEG.rescued },
+  rescued: { top: 'ESCAPED', sub: 'Dr Kweg S Wong is out', kweg: KWEG.rescued },
 } as const;
 
 /** The lift between stages: the line under the floor counter. */
@@ -265,14 +290,14 @@ export const BANNERS = {
 
 export const BRIEFING = {
   heading: 'MISSION BRIEFING',
-  code: 'ESCAPE FROM TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTS',
+  code: 'ESCAPE FROM TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTZ',
   from: 'The Ninja Punk Girls',
-  objective: 'Storm TERRORNODE HQ. Rescue Dr Kweg. Four stages: the street, the HQ floors, the server core and the roof, where the Liquid Unit waits. You have 100 health: stay alive.',
+  objective: 'Act 1, STORM THE NODE: the street, the HQ floors and the core, where Dr Kweg is freed. Act 2, ESCAPE FROM TERRORNODE: carry him to the roof, past the Liquid Unit. You have 100 health: stay alive.',
   rules: [
     'Hold the trigger to fire. In paid play every round is real; in free play they are practice rounds and nothing is sent.',
-    'Clear the Erobots to move up a stage. In the server core, sustained fire on the core jams the whole tower.',
-    'The Liquid Unit is pushed back by sustained fire. Stop and it closes in fast. Erobots shoot and swing: keep the gun moving.',
-    'Smash the glass, drop the racks and clear the Erobots for points.',
+    'Clear the Erobotz to move up a stage. In the server core, sustained fire on the core jams the whole tower.',
+    'The Liquid Unit is pushed back by sustained fire. Stop and it closes in fast. Erobotz shoot and swing: keep the gun moving.',
+    'Smash the glass, drop the racks and clear the Erobotz for points.',
     'Unused credit stays in your gun. UNLOAD in the Your gun panel takes it back.',
   ],
 } as const;
@@ -282,8 +307,8 @@ export const BRIEFING = {
 export type Rank = { min: number; title: string; line: string };
 /** By rounds fired, highest first. */
 export const RANKS: Rank[] = [
-  { min: 1_000_000, title: 'NETWORK BREAKER', line: 'A million rounds on the record. The Erobots’ network is a smoking hole.' },
-  { min: 100_000, title: 'LIGHTS OUT', line: 'The lights are going out across TERRORNODE.' },
+  { min: 1_000_000, title: 'NETWORK BREAKER', line: 'A million rounds on the record. The Erobotz’ network is a smoking hole.' },
+  { min: 100_000, title: 'LIGHTS OUT', line: 'The lights are going out across nSLAVE.' },
   { min: 10_000, title: 'TOWER SHAKER', line: 'The tower felt every one of those.' },
   { min: 1_000, title: 'NEON HERO', line: 'A good night’s work. The Ninja Punk Girls are impressed.' },
   { min: 100, title: 'STREET FIGHTER', line: 'You made some noise. Come back with more coins.' },
@@ -294,7 +319,7 @@ export const rankFor = (rounds: number): Rank => RANKS.find((r) => rounds >= r.m
 /** The player dies (health at 0): the arcade CONTINUE? screen. */
 export const FLATLINED = {
   title: 'FLATLINED',
-  line: 'The Erobots take another gunner.',
+  line: 'The Erobotz take another gunner.',
   kweg: KWEG.flatlined,
   prompt: 'CONTINUE?',
   coin: 'INSERT $b to continue',
@@ -304,15 +329,15 @@ export const FLATLINED = {
 
 export const GAME_OVER = {
   title: 'OUT OF ROUNDS',
-  line: 'The gun is empty. The Erobots still hold the tower, and Dr Wong is still upstairs.',
+  line: 'The gun is empty. The Erobotz still hold nSLAVE, and Dr Wong is still inside.',
   kweg: KWEG.over,
   next: 'The next coin is on you.',
 } as const;
 
 /** The rescue is done: the results screen heading and its lines. */
 export const RESCUED = {
-  title: 'RESCUED',
-  line: 'Dr Kweg S Wong is free, the Liquid Unit is down and TERRORNODE HQ is quiet. The Ninja Punk Girls are already arguing about the van.',
+  title: 'ESCAPED',
+  line: 'Dr Kweg S Wong is out, the Liquid Unit is down and TERRORNODE is quiet. The Ninja Punk Girls are already arguing about who flies the chopper.',
   kweg: KWEG.rescued,
   sub: KWEG.rescuedSub,
   next: 'Mission complete. The next coin starts it again.',
@@ -321,8 +346,8 @@ export const RESCUED = {
 /** The text a player shares. Plain words. */
 export function shareText(p: { rounds: number; score: number; stage: number; rescued?: boolean; name?: string | null }): string {
   const who = p.name ? `@${p.name} fired` : 'I fired';
-  const end = p.rescued ? 'rescued Dr Kweg S Wong' : `reached stage ${p.stage}`;
-  return `${who} ${p.rounds.toLocaleString('en-US')} rounds at the Erobots holding TERRORNODE HQ in Neo-Tokyo, ${end} and scored ${p.score.toLocaleString('en-US')}. Every round is on the record. Beat that.`;
+  const end = p.rescued ? 'rescued Dr Kweg S Wong and escaped' : `reached stage ${p.stage}`;
+  return `${who} ${p.rounds.toLocaleString('en-US')} rounds at the Erobotz holding TERRORNODE in Neo-Tokyo, ${end} and scored ${p.score.toLocaleString('en-US')}. Every round is on the record. Beat that.`;
 }
 
 // ── Tips ────────────────────────────────────────────────────────────────────────────────
@@ -356,9 +381,9 @@ export const PRACTICE = {
 
 const SWAPS: [RegExp, string][] = [
   [/Every round goes on the record\./g, 'Practice rounds: nothing goes on chain.'],
-  [/Every round you fire goes on the record and jams the Erobots’ control of the network\./g, 'Every practice round you fire jams the Erobots’ control of the network, in the story.'],
+  [/Every round you fire goes on the record and jams the Erobotz’ control of the network\./g, 'Every practice round you fire jams the Erobotz’ control of the network, in the story.'],
   [/Every round you fire is on the record\./g, 'Free play: practice rounds, nothing goes on chain.'],
-  [/Every round you fire is written where nobody can erase it, and every one jams the Erobots’ control of the tower\./g, 'In the story, every round you fire jams the Erobots’ control of the tower. This is free play: practice rounds, nothing goes on chain.'],
+  [/Every round you fire is written where nobody can erase it, and every one jams the Erobotz’ control of the tower\./g, 'In the story, every round you fire jams the Erobotz’ control of the tower. This is free play: practice rounds, nothing goes on chain.'],
   [/Hold the trigger to fire\. Every round is real and goes on the record\./g, 'Hold the trigger to fire. Free play: practice rounds, nothing goes on chain.'],
   [/Hold the trigger\. Every round is real\./g, 'Hold the trigger. These are practice rounds.'],
   [/A million rounds on the record\./g, 'A million practice rounds.'],
@@ -382,6 +407,7 @@ export function practiceCopy(): string[] {
     GAME_TITLE, GAME_KICKER, SETTING, PREMISE, ...TAGLINES, PRACTICE.badge, PRACTICE.kicker, PRACTICE.nothing, PRACTICE.warmup, PRACTICE.results, ...stages,
     ...LORE.flatMap((l) => [l.title, l.line]),
     ...CHARACTERS.flatMap((c) => [c.name, c.role, c.bio, c.threat]),
+    ...ACTS.flatMap((a) => [a.code, a.title, a.line]), FREED.top, FREED.sub, CTA, CREDIT,
     ...Object.values(PRACTICE.loaded), BANNERS.boss.top, BANNERS.boss.sub, BANNERS.boss.kweg, BANNERS.rescued.top, BANNERS.rescued.sub, BANNERS.rescued.kweg,
     BRIEFING.heading, BRIEFING.code, BRIEFING.objective, ...BRIEFING.rules, ...RANKS.flatMap((r) => [r.title, r.line]),
     ...Object.values(FLATLINED), ...Object.values(GAME_OVER), ...Object.values(RESCUED), ...TIPS,

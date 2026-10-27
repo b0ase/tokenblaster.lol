@@ -3,7 +3,9 @@
  * pattern, a boss on the last one"). Pure data and progress logic: no three.js, no DOM, so the page, the engine,
  * the team server and the tests all share it without growing anyone's bundle.
  *
- * Story: Neo-Tokyo 2048. Dr Kweg Wong's Erobots hold TERRORNODE HQ; the Ninja Punk Girls cut their way in.
+ * Story (owner, 27 Oct): the Ninja Punk Girls storm the centre of the nSLAVE corporation to free Dr Kweg Wong from his
+ * own inventions, the Erobotz (Act 1, STORM THE NODE: street to core), then fight out carrying him (Act 2, ESCAPE FROM
+ * TERRORNODE: the roof). Market and Centre are Act 1 windows, Way Up and Way Out are Act 2.
  *
  *   0 ASSAULT          the full ten-minute block (street -> floors -> core -> roof, the Liquid Unit). Always open.
  *   1 NEON MARKET      the street turned night market: stalls, lanterns, rusher swarms in pulses.
@@ -75,7 +77,7 @@ export const LEVELS: readonly Level[] = [
     id: 'assault',
     n: 0,
     name: 'ESCAPE FROM TERRORNODE',
-    blurb: 'The full ten-minute block: street, HQ floors, the core, the roof and the Liquid Unit.',
+    blurb: 'The full ten-minute block. Act 1: storm the node to the core. Act 2: carry him out past the Liquid Unit.',
     kweg: 'You walked the whole block. I am almost impressed.',
     palette: { fog: '#071420', density: 0.0066, bg: '#05060f', exposure: 0, bloom: 0, key: '#27e6ff', rim: '#ff2bd6' },
     solo: { from: 0, to: 600, roles: { shooter: 0.42, rusher: 0.32, flanker: 0.26 }, horde: {}, wave: { kind: 'steady', k: 1 }, levelUp: 0 },
@@ -85,8 +87,8 @@ export const LEVELS: readonly Level[] = [
   {
     id: 'market',
     n: 1,
-    name: 'NEON MARKET',
-    blurb: 'Night market on the TERRORNODE approach. Stalls, lanterns and rushers coming in waves.',
+    name: 'nSLAVE MARKET',
+    blurb: 'Act 1. The night market outside the nSLAVE tower. Stalls, lanterns and rushers coming in waves.',
     kweg: 'You ruined a perfectly good night market. The dumplings were mine.',
     palette: { fog: '#2a0f1c', density: 0.011, bg: '#12040c', exposure: 0.08, bloom: 0.08, key: '#ff9a2b', rim: '#ff2b8a' },
     solo: {
@@ -103,8 +105,8 @@ export const LEVELS: readonly Level[] = [
   {
     id: 'rails',
     n: 2,
-    name: 'ROOFTOP RAILS',
-    blurb: 'Under the maglev line, in the rain. Flankers ride in on the trains: watch the edges.',
+    name: 'THE WAY UP',
+    blurb: 'Act 2. Carry him up to the roof, under the maglev line. Flankers ride in on the trains.',
     kweg: 'Those trains ran on time for forty years. Until you.',
     palette: { fog: '#140a2e', density: 0.0095, bg: '#07041a', exposure: 0.04, bloom: 0.06, key: '#9b5cff', rim: '#2be9ff' },
     solo: {
@@ -121,9 +123,9 @@ export const LEVELS: readonly Level[] = [
   {
     id: 'datacore',
     n: 3,
-    name: 'DATA CORE',
-    blurb: 'The server shaft, drowned in green code. Shooters hold the racks. Jam the core for the bonus.',
-    kweg: 'My beautiful core. Do you know what a petabyte of grudges weighs?',
+    name: 'THE CENTRE',
+    blurb: 'Act 1. The core at the centre of nSLAVE, where he is chained. Shooters hold the racks.',
+    kweg: 'Untied at last. Do you know what a petabyte of grudges weighs? Carry me anyway.',
     palette: { fog: '#03180f', density: 0.014, bg: '#010a06', exposure: 0.02, bloom: 0.1, key: '#2bff8a', rim: '#d4ff2b' },
     solo: {
       from: 300,
@@ -139,9 +141,9 @@ export const LEVELS: readonly Level[] = [
   {
     id: 'heart',
     n: 4,
-    name: 'TERRORNODE HEART',
-    blurb: 'The reactor heart on the roof. Everything at once, then the Liquid Unit at full strength.',
-    kweg: 'You stopped my heart. Fine. I have a spare. Untie me.',
+    name: 'THE WAY OUT',
+    blurb: 'Act 2. The roof and the helipad. Everything at once, then the Liquid Unit at full strength.',
+    kweg: 'We are out. Please put me down. Gently. I am peer-reviewed.',
     palette: { fog: '#2a0508', density: 0.0105, bg: '#120203', exposure: 0.06, bloom: 0.12, key: '#ff2a3a', rim: '#ffb21a' },
     solo: {
       from: 455,

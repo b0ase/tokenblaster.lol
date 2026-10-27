@@ -19,7 +19,7 @@ export type TeamLevel = {
   hpK: number;
   /** Enemy kinds (index into the scene's horde skins) and their weights. */
   kinds: number[];
-  /** The last wave brings a boss: one huge Erobot with this much HP. */
+  /** The last wave brings a boss: one huge Erobotz unit with this much HP. */
   bossHp?: number;
   /** Where it is fought: the street (default) or the TERRORNODE PLAZA (./arena.ts). */
   arena?: ArenaId;
@@ -30,10 +30,10 @@ export type TeamLevel = {
 export const TEAM_LEVELS: Record<LevelId, TeamLevel> = {
   // the original team mode, unchanged: 10 waves of 4 + 3n
   assault: { name: 'ESCAPE FROM TERRORNODE', waves: 10, base: 4, perWave: 3, speed: 2.4, speedPerWave: 0.25, hpK: 1, kinds: [0, 1, 2, 3, 4] },
-  market: { name: 'NEON MARKET', waves: 5, base: 6, perWave: 3, speed: 3.0, speedPerWave: 0.3, hpK: 0.8, kinds: [0, 1, 1, 3] },
-  rails: { name: 'ROOFTOP RAILS', waves: 6, base: 5, perWave: 3, speed: 3.4, speedPerWave: 0.3, hpK: 0.9, kinds: [2, 3, 4] },
-  datacore: { name: 'DATA CORE', waves: 7, base: 6, perWave: 4, speed: 2.6, speedPerWave: 0.22, hpK: 1.2, kinds: [4, 2, 0] },
-  heart: { name: 'TERRORNODE HEART', waves: 8, base: 6, perWave: 4, speed: 2.8, speedPerWave: 0.28, hpK: 1.3, kinds: [0, 1, 2, 3, 4], bossHp: 4000, bossName: 'TERRORNODE HEART' },
+  market: { name: 'nSLAVE MARKET', waves: 5, base: 6, perWave: 3, speed: 3.0, speedPerWave: 0.3, hpK: 0.8, kinds: [0, 1, 1, 3] },
+  rails: { name: 'THE WAY UP', waves: 6, base: 5, perWave: 3, speed: 3.4, speedPerWave: 0.3, hpK: 0.9, kinds: [2, 3, 4] },
+  datacore: { name: 'THE CENTRE', waves: 7, base: 6, perWave: 4, speed: 2.6, speedPerWave: 0.22, hpK: 1.2, kinds: [4, 2, 0] },
+  heart: { name: 'THE WAY OUT', waves: 8, base: 6, perWave: 4, speed: 2.8, speedPerWave: 0.28, hpK: 1.3, kinds: [0, 1, 2, 3, 4], bossHp: 4000, bossName: 'TERRORNODE HEART' },
   // the big one (owner, 26 Oct): the plaza round the tower, built for 64 players and a live stream. Waves scale with
   // the head count (teamWaveFor), then the TOWER CORE walks out of the tower door with HP to match the crowd.
   melee: { name: 'TERRORNODE MELEE', waves: 8, base: 8, perWave: 4, speed: 3.0, speedPerWave: 0.25, hpK: 1.1, kinds: [0, 1, 2, 3, 4], bossHp: 6000, arena: 'melee', bossName: 'TERRORNODE TOWER CORE' },

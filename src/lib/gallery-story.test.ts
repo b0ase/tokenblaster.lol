@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { KWEG, BANNERS, BRIEFING, CHARACTERS, FLATLINED, GAME_OVER, GAME_TITLE, LORE, LOADING_SHOTS, PREMISE, RANKS, RESCUED, STAGE_COUNT, TAGLINES, TERRORNODE_SLOGANS, TIPS, characterById, rankFor, shareText, stageBrief, PRACTICE, forPractice, practiceCopy } from './gallery/story';
+import { KWEG, BANNERS, BRIEFING, CHARACTERS, FLATLINED, GAME_OVER, GAME_TITLE, LORE, LOADING_SHOTS, PREMISE, RANKS, RESCUED, STAGE_COUNT, TAGLINES, NSLAVE_SLOGANS, ACTS, FREED, CTA, CREDIT, actOf, TIPS, characterById, rankFor, shareText, stageBrief, PRACTICE, forPractice, practiceCopy } from './gallery/story';
 
-const all = () => JSON.stringify({ GAME_TITLE, KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, FLATLINED, GAME_OVER, RESCUED, TERRORNODE_SLOGANS, stages: Array.from({ length: STAGE_COUNT }, (_, i) => stageBrief(i + 1)) });
+const all = () => JSON.stringify({ GAME_TITLE, KWEG, PREMISE, TAGLINES, LORE, CHARACTERS, BRIEFING, BANNERS, RANKS, TIPS, FLATLINED, GAME_OVER, RESCUED, NSLAVE_SLOGANS, ACTS, FREED, stages: Array.from({ length: STAGE_COUNT }, (_, i) => stageBrief(i + 1)) });
 
 test('story: 5 to 12 lore beats, all with text', () => {
   assert.ok(LORE.length >= 5 && LORE.length <= 12);
@@ -34,7 +34,7 @@ test('story: no Terminator / T2 names or likeness', () => {
 });
 
 test('story: plain words for players (no tech terms)', () => {
-  assert.doesNotMatch(all(), /blockchain|\btxs?\b|transaction|satoshi|\bsats?\b|\bwallet\b|\bnode\b|\bhash\b|\bminer\b|\bOP_RETURN\b|\bARC\b|\bmempool\b/i);
+  assert.doesNotMatch(all().replace(/STORM THE NODE|Storm the node/gi, ''), /blockchain|\btxs?\b|transaction|satoshi|\bsats?\b|\bwallet\b|\bnode\b|\bhash\b|\bminer\b|\bOP_RETURN\b|\bARC\b|\bmempool\b/i);
 });
 
 test('story: four stages, each with a brief and a radio line from Kweg', () => {
@@ -78,8 +78,11 @@ test('story: ESCAPE FROM TERRORNODE, Neo-Tokyo 2048, Kweg S Wong, the Ninja Punk
   assert.match(a, /KWEG S WONG/i);
   assert.match(a, /NINJA PUNK GIRLS/i);
   assert.match(a, /TERRORNODE/);
-  assert.match(a, /Storm TERRORNODE HQ\. Rescue Dr Kweg\./);
-  assert.doesNotMatch(a, /nSLAVE|エヌスレイブ/i, 'nSLAVE is renamed TERRORNODE everywhere');
+  assert.match(a, /STORM THE NODE/);
+  assert.match(a, /nSLAVE/, 'owner, 27 Oct: the corporation is nSLAVE, its centre is TERRORNODE');
+  assert.match(NSLAVE_SLOGANS.map((x) => x.en).join(' '), /nSLAVE/);
+  assert.equal(CTA, 'STORM THE NODE');
+  assert.equal(CREDIT, 'A Ninja Punk Girls game');
   assert.doesNotMatch(a, /bCorp/i, 'bCorp is out of the story');
   assert.doesNotMatch(a, /OMNICORE/i);
   assert.doesNotMatch(a, /London|1991|\bX Corp/i);
@@ -90,7 +93,7 @@ test('story: Kweg is the good hostage; the Erobots are evil; the Liquid Unit is 
   assert.equal(characterById('kweg')?.bio, KWEG.bio);
   assert.equal(characterById('liquid')?.kind, 'boss');
   for (const c of CHARACTERS.filter((x) => x.kind === 'erobot')) assert.ok(c.threat.length > 10);
-  assert.equal(KWEG.bio, 'Held hostage at the top of TERRORNODE HQ. Get him out.'); // owner, 25 Oct: one plain line
+  assert.equal(KWEG.bio, 'Held hostage at the centre of TERRORNODE by his own inventions. Get him out.'); // one plain line
   assert.ok(!/founder|inventor/i.test(KWEG.role), 'Kweg is a good hostage, not the founder');
   assert.doesNotMatch(KWEG.bio + KWEG.threat, /villain|evil|Hyde|liquid metal/i, 'no Jekyll/Hyde, no liquid Kweg');
   assert.doesNotMatch(characterById('liquid')?.bio ?? '', /Dr Kweg Wong\.|It is Dr Kweg/, 'the Liquid Unit is not Kweg');
@@ -109,7 +112,7 @@ test('story: the affectionate parody touches survive', () => {
   assert.match(a, /hacking/);
   assert.match(a, /incident with the cow/);
   assert.match(a, /trial/);
-  assert.match(a, /RESCUED/);
+  assert.match(a, /ESCAPED/);
 });
 
 test('story: the lines are deadpan hostage lines, short enough for a radio caption', () => {
@@ -132,4 +135,12 @@ test('free play: no copy claims live rounds, a chain, the record, real transacti
 test('live copy keeps its claims (the swap only applies in free play)', () => {
   assert.match(BANNERS.loaded.bottom, /LIVE ROUNDS/);
   assert.match(forPractice(BANNERS.loaded.bottom), /PRACTICE ROUNDS/);
+});
+
+test('story: two acts, STORM THE NODE then ESCAPE FROM TERRORNODE; enemies are Erobotz in all text', () => {
+  assert.deepEqual(ACTS.map((a) => a.title), ['STORM THE NODE', 'ESCAPE FROM TERRORNODE']);
+  assert.deepEqual([1, 2, 3, 4].map((n) => actOf(n).n), [1, 1, 1, 2]);
+  assert.match(FREED.top, /KWEG/);
+  assert.doesNotMatch(all(), /Erobots|EROBOTS|\bErobot\b|\bEROBOT\b/);
+  assert.doesNotMatch(practiceCopy().join(' '), /spam/i);
 });

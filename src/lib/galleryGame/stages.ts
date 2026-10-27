@@ -434,13 +434,13 @@ export function buildFloors({ scene, high, look }: Ctx): StageSet {
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.fillStyle = '#eef3fb';
-      g.fillText('TERRORNODE', W / 2, Hh * 0.38);
+      g.fillText('nSLAVE', W / 2, Hh * 0.38);
       g.fillStyle = '#ff4a3a';
       g.font = `700 ${Hh * 0.17}px Arial, sans-serif`;
       g.fillText('H E A D Q U A R T E R S', W / 2, Hh * 0.72);
       g.fillStyle = '#ff9a8a';
       g.font = `700 ${Hh * 0.13}px ${JP}`;
-      g.fillText('テラーノード本社', W / 2, Hh * 0.9);
+      g.fillText('エヌスレイブ本社', W / 2, Hh * 0.9);
     });
     logo.mesh.position.set(-4.4, 2.5, ZF + 0.03);
     const eye = textPlane(3.2, 1.5, (g, W, Hh) => {
@@ -1107,7 +1107,7 @@ export function buildRoof({ scene, high, look }: Ctx): StageSet {
       g.shadowBlur = 0;
       g.fillStyle = '#ff5646';
       g.font = `700 ${Hh * 0.17}px ${JP}`;
-      g.fillText('テラーノード本社', W / 2, Hh * 0.9);
+      g.fillText('nSLAVE · テラーノード', W / 2, Hh * 0.9);
     }, 1.7);
     disp.push(sign.map, sign.mat, sign.mesh.geometry);
     sign.mesh.position.set(0, PH + 6.2, ZF - 0.4);
