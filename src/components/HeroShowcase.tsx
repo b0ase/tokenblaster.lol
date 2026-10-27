@@ -20,7 +20,7 @@ import { startPreview, stopPreview, trackFor, usePreview } from '@/lib/preview';
  */
 type Slide = { href: string; img: string; vid?: string; title: string; tag: string; kana: string };
 const SLIDES: readonly Slide[] = [
-  { href: '/arcade/terrornode', img: '/gallery/loading/boss-fire.webp', vid: '/hero/assault', title: 'Escape from TERRORNODE', tag: 'Rail shooter', kana: 'テラーノード強襲' },
+  { href: '/arcade/terrornode', img: '/gallery/loading/boss-fire.webp', vid: '/hero/assault', title: 'Welcome to TERRORNODE', tag: 'Rail shooter', kana: 'テラーノード強襲' },
   { href: '/arena', img: '/arcade/arena.jpg', vid: '/hero/arena', title: 'Arena', tag: 'Hell-forge shooter', kana: 'アリーナ' },
   { href: '/arcade/npg-arena', img: '/arcade/npg-arena.jpg', vid: '/hero/npg-arena', title: 'Ninja Punk Girls: Arena', tag: 'Ninja brawler', kana: '忍者パンクガールズ' },
   { href: '/arcade/bracer', img: '/arcade/bracer.jpg', vid: '/hero/bracer-v2', title: 'bRacer', tag: 'Anti-gravity racer', kana: '反重力レース' },

@@ -143,13 +143,13 @@ const BASE_FOV = 60;
 const BLOCK = {
   id: 'assault',
   n: 0,
-  name: 'ESCAPE FROM TERRORNODE',
+  name: 'WELCOME TO TERRORNODE',
   blurb: '',
   kweg: '',
   boss: true,
   palette: { fog: '#071420', density: 0.0066, bg: '#05060f', exposure: 0, bloom: 0, key: '#27e6ff', rim: '#ff2bd6' },
   solo: { from: 0, to: 600, roles: { shooter: 0.42, rusher: 0.32, flanker: 0.26 }, horde: {}, wave: { kind: 'steady', k: 1 }, levelUp: 0 },
-  team: { name: 'ESCAPE FROM TERRORNODE', waves: 10, base: 4, perWave: 3, speed: 2.4, speedPerWave: 0.25, hpK: 1, kinds: [0, 1, 2, 3, 4] },
+  team: { name: 'WELCOME TO TERRORNODE', waves: 10, base: 4, perWave: 3, speed: 2.4, speedPerWave: 0.25, hpK: 1, kinds: [0, 1, 2, 3, 4] },
 } satisfies Level;
 
 export class GalleryEngine {

@@ -76,7 +76,7 @@ export const LEVELS: readonly Level[] = [
   {
     id: 'assault',
     n: 0,
-    name: 'ESCAPE FROM TERRORNODE',
+    name: 'WELCOME TO TERRORNODE',
     blurb: 'The full ten-minute block. Act 1: storm the node to the core. Act 2: protect him past the Liquid Unit (he runs the wrong way).',
     kweg: 'You walked the whole block. I am almost impressed.',
     palette: { fog: '#071420', density: 0.0066, bg: '#05060f', exposure: 0, bloom: 0, key: '#27e6ff', rim: '#ff2bd6' },

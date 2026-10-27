@@ -14,7 +14,7 @@
  *
  * Plain words only (owner's rule): no technical terms. Transaction ids stay in the ON CHAIN panel.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Brand } from '@/components/Brand';
 import { playMusic, unlockAudio, type Track } from '@/lib/sfx';
 import { tbxFontClass } from './fonts';
@@ -100,6 +100,7 @@ export function CharacterCard({ c, portrait, compact = false }: { c: LoadCharact
 
 export function LoadingScreen({
   title,
+  titleArt,
   kicker = 'TOKENBLASTER',
   setting,
   shots,
@@ -111,6 +112,8 @@ export function LoadingScreen({
   track,
 }: {
   title: string;
+  /** Optional title art shown instead of the plain title text (e.g. the bloody WELCOME TO TERRORNODE). */
+  titleArt?: ReactNode;
   kicker?: string;
   /** A small line under the title, e.g. the place and year. */
   setting?: string;
@@ -187,7 +190,7 @@ export function LoadingScreen({
               {kicker}
             </p>
             <h1 className="tbx-display mt-2 text-[clamp(44px,8.5vw,132px)]" style={{ textShadow: '0 8px 50px rgba(0,0,0,.7)' }}>
-              {title}
+              {titleArt ?? title}
             </h1>
             {setting && <p className="mt-2 text-[clamp(11px,1.1vw,14px)] font-semibold uppercase tracking-[0.4em] text-white/65">{setting}</p>}
           </div>

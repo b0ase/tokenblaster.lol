@@ -49,7 +49,7 @@ export const soldOut = (issued: bigint | number) => big(issued) >= RECEIPT_SUPPL
 /** Why the trade route refuses this coin right now (null: it may trade). */
 export function tradeRefusal(tokenId: string, issued: number | null): string | null {
   if (tradingOf(tokenId, issued)) return null;
-  return `$${TERRORNODE_SYM} cannot be bought or sold on BlastPad until ${GRADUATE_AT.toLocaleString('en-US')} receipts are earned${issued != null ? ` (${issued.toLocaleString('en-US')} so far)` : ''}. Earn it by playing Escape from TERRORNODE: tokenblaster.lol/arcade/terrornode`;
+  return `$${TERRORNODE_SYM} cannot be bought or sold on BlastPad until ${GRADUATE_AT.toLocaleString('en-US')} receipts are earned${issued != null ? ` (${issued.toLocaleString('en-US')} so far)` : ''}. Earn it by playing Welcome to TERRORNODE: tokenblaster.lol/arcade/terrornode`;
 }
 
 const N1 = RECEIPT_SUPPLY - BigInt(1);

@@ -9,10 +9,10 @@ const description =
 const shareDescription =
   'Fire a million transactions. Hold the trigger on a minigun in Neo-Tokyo to storm the node and free Dr Kweg Wong from the Erobotz, then escape from TERRORNODE: every bullet is a real BSV transaction from your own wallet.';
 export const metadata = {
-  title: '31 Oct BSV Stress Test · Escape from TERRORNODE',
+  title: '31 Oct BSV Stress Test · Welcome to TERRORNODE',
   description,
-  openGraph: { title: 'Escape from TERRORNODE: fire a million transactions', description: shareDescription, url: '/arcade/terrornode', images: shareImages(TERRORNODE_CARD).openGraph },
-  twitter: { card: 'summary_large_image', title: 'TokenBlaster: Escape from TERRORNODE', description: shareDescription, images: shareImages(TERRORNODE_CARD).twitter },
+  openGraph: { title: 'Welcome to TERRORNODE: fire a million transactions', description: shareDescription, url: '/arcade/terrornode', images: shareImages(TERRORNODE_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'TokenBlaster: Welcome to TERRORNODE', description: shareDescription, images: shareImages(TERRORNODE_CARD).twitter },
 };
 
 // FREE PLAY on production while the payment flow is fixed (owner, 24 Oct 2026: "keep it online but let everyone
@@ -24,7 +24,7 @@ const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
 export default function GalleryPage() {
   return (
     <GameShell
-      title="31 Oct Stress Test · Escape from TERRORNODE"
+      title="31 Oct Stress Test · Welcome to TERRORNODE"
       lock
       liveTicker="TERRORNODE"
       tabs={<ModeSwitch active="solo" />}

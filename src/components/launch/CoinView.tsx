@@ -902,7 +902,7 @@ function EarnPanel({ c }: { c: Coin }) {
         </>
       )}
       <a className="btn btn-on mt-3 block text-center" href="/arcade/terrornode">
-        Earn ${c.sym} by playing Escape from TERRORNODE
+        Earn ${c.sym} by playing Welcome to TERRORNODE
       </a>
       <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt, 1 sat for the first rising to 200 sats for the last of the 1B. Earned coins are not sold back.</p>
     </section>

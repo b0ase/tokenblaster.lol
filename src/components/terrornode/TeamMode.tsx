@@ -311,7 +311,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
       {/* ── MENU: pick a match type ── */}
       {!code && (
         <div className="relative z-10 mx-auto flex max-w-4xl flex-col items-center px-4 py-10">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#ff2a46]">Escape from TERRORNODE · Team mode</p>
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#ff2a46]">Welcome to TERRORNODE · Team mode</p>
           <h1 className="mt-2 text-center text-3xl font-black tracking-tight sm:text-5xl">Squad up. Up to {MAX_PLAYERS} players.</h1>
           <p className="mt-3 max-w-xl text-center text-sm text-white/70">Neo-Tokyo, 2048. Make a match, send the invite link to your crew or the bChatX TERRORNODE room, and fight on the same street. Every bullet is a real BSV transaction from your own wallet.</p>
           <div className="mt-6 w-full">

@@ -81,7 +81,7 @@ export default function Home() {
             <div className="mt-4"><HeroSound /></div>
             {/* Fixed headline CTA (flow test, 25 Oct): always Escape from TERRORNODE, whatever the hero rotation shows. */}
             <Link href="/arcade/terrornode" data-cta-terrornode className="btn-fire mb-3 mt-1 inline-flex w-full items-center justify-center gap-2 !text-2xl sm:w-auto sm:!px-10 sm:!text-3xl">
-              Play Escape from TERRORNODE &raquo;
+              Play Welcome to TERRORNODE &raquo;
             </Link>
             <div className="flex flex-wrap items-center gap-3 sm:gap-4">
               <Link href="/blast" className="btn-fire inline-flex items-center justify-center !text-xl sm:!text-2xl">

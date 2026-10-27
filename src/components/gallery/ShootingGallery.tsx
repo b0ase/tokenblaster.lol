@@ -72,6 +72,7 @@ import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
+import { BloodTitle } from './BloodTitle';
 import { CHARACTERS, CREDIT, CTA, GAME_KICKER, KWEG_LOST, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, actOf, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
@@ -1501,6 +1502,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         {((cab.stage === 'approve' && !freePlay) || load?.kind === 'failed') && (
           <LoadingScreen
             title={GAME_TITLE}
+            titleArt={<BloodTitle />}
             kicker={GAME_KICKER}
             setting={`${SETTING} · ${CREDIT}`}
             shots={LOADING_SHOTS}

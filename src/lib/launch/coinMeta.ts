@@ -61,7 +61,7 @@ export function coinExtras(row: { token_id?: string; sold?: number | string | nu
   return {
     price_sats: trading ? price(sold) : null,
     trading,
-    ...(earned && { earn_url: EARN_URL, earn_label: 'Play Escape from TERRORNODE', receipts_url: `${SITE}/api/terrornode/receipts`, receipts_issued: issued, graduate_at: GRADUATE_AT }),
+    ...(earned && { earn_url: EARN_URL, earn_label: 'Play Welcome to TERRORNODE', receipts_url: `${SITE}/api/terrornode/receipts`, receipts_issued: issued, graduate_at: GRADUATE_AT }),
     ...(!trading && { category: 'reward' as const }), ...(theme && { theme }), ...(m.room && { room: m.room }), ...(m.merch_url && { merch_url: m.merch_url }),
   };
 }
