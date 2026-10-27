@@ -48,12 +48,12 @@ export type SquadWorld = {
 export type SquadShot = { mate: string; foe: string; dmg: number };
 
 export const SQUAD = {
-  /** Formation around the player (x right, z back), one per AI slot. */
+  /** Formation around the player (x right, z back; -z is ahead), one per AI slot: a little ahead and wide, so in first person they are in view. */
   formation: [
-    { x: -2.6, z: 1.2 },
-    { x: 2.6, z: 1.2 },
-    { x: -4.4, z: 3.0 },
-    { x: 4.4, z: 3.0 },
+    { x: -2.4, z: -4.5 },
+    { x: 2.4, z: -4.5 },
+    { x: -4.6, z: -7.5 },
+    { x: 4.6, z: -7.5 },
   ] as const,
   hp: 100,
   speed: 4.2,
