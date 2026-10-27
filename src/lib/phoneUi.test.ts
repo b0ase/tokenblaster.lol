@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isPhoneDevice, openInBwalletBrowserUrl, phoneRows, showQrPanel } from './pair/phoneUi';
+import { isPhoneDevice, openInBwalletBrowserUrl, phoneRows, showQrPanel, isAppParent, showPlayInBwallet } from './pair/phoneUi';
 
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1';
 const ANDROID = 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36';
@@ -43,4 +43,15 @@ test('Play in bWallet: phone browsers only, never inside bWallet or on desktop',
   assert.equal(showPlayInBwallet(`${safari} YoursWalletMobile/1.0`, true, true), false);
   assert.equal(showPlayInBwallet('Mozilla/5.0 (Macintosh)', false, true), false);
   assert.equal(showPlayInBwallet(safari, true, false), false);
+});
+
+test('in-wallet frame (parent is the app WebView) never shows Play in bWallet', () => {
+  const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1';
+  assert.equal(isAppParent(['capacitor://localhost'], true), true);
+  assert.equal(isAppParent(['https://localhost'], true), true);
+  assert.equal(isAppParent(['https://localhost.evil.test'], true), false);
+  assert.equal(isAppParent(['capacitor://localhost'], false), false);
+  assert.equal(isAppParent(['https://www.bchatx.com'], true), false);
+  assert.equal(showPlayInBwallet(safari, true, true, true), false);
+  assert.equal(showPlayInBwallet(safari, true, true, false), true);
 });

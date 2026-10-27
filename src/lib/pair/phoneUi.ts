@@ -43,7 +43,25 @@ export const showQrPanel = (isPhone: boolean) => !isPhone;
 export const isBwalletInAppUa = (ua: string) => /(?:bWallet|YoursWalletMobile)\//.test(ua);
 
 /** TERRORNODE plays full screen inside bWallet: a phone browser that is not bWallet gets "Play in bWallet" first. */
-export const showPlayInBwallet = (ua: string, isPhone: boolean, linkReady: boolean = BWALLET_BROWSER_LINK_READY) =>
-  linkReady && isPhone && !isBwalletInAppUa(ua);
+/** bWallet's in-wallet frame (#392) is an iframe in the app WebView, whose UA had no token before yours-mobile #396:
+ *  also count a frame whose parent is the app (capacitor://localhost on iOS, https://localhost on Android). */
+export const isAppParent = (parents: readonly string[], framed: boolean) =>
+  framed && parents.some((o) => o.startsWith('capacitor://localhost') || /^https:\/\/localhost(?::\d+)?(?:\/|$)/.test(o));
+
+const parentOrigins = (): string[] => {
+  if (typeof window === 'undefined') return [];
+  const a = (window.location as Location & { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+  return [...(a ? Array.from(a) : []), document.referrer].filter(Boolean);
+};
+const isFramed = () => {
+  try { return typeof window !== 'undefined' && window.top !== window; } catch { return true; }
+};
+
+export const showPlayInBwallet = (
+  ua: string,
+  isPhone: boolean,
+  linkReady: boolean = BWALLET_BROWSER_LINK_READY,
+  inAppFrame: boolean = isAppParent(parentOrigins(), isFramed()),
+) => linkReady && isPhone && !isBwalletInAppUa(ua) && !inAppFrame;
 
 export const TERRORNODE_URL = 'https://www.tokenblaster.lol/arcade/terrornode';
