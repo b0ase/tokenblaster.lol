@@ -64,7 +64,7 @@ import { Icon, Modal, Ticker } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
 import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
 import { useReceipts } from './useReceipts';
-import { fetchSplit, reportSplit, splitAvailable } from '@/lib/launch/splitClient';
+import { fetchSplit, prefetchSplitCheck, reportSplit, splitAvailable } from '@/lib/launch/splitClient';
 import { SPLIT_LINE, splitOutputs } from '@/lib/launch/split';
 import { PER_SHOT_BURN, type AmmoCoin } from '@/lib/launch/ammoCoins';
 import { GunUnload, UnloadButton } from '../GunUnload';
@@ -171,6 +171,10 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   const [netSeen, setNetSeen] = useState(0);
   const netSeenRef = useRef(0); // across reload sessions (each session's count starts at 0)
   const [loadout, setLoadout] = useState(true);
+  // LOCK & LOAD speed: the paid-start check runs while the player is still choosing (not after the press)
+  useEffect(() => {
+    if (loadout && !dry) prefetchSplitCheck();
+  }, [loadout, dry]);
   // LEVELS (src/lib/terrornode/levels.ts): which window of the block plays, what you have reached, LEVEL CLEAR.
   const [levels, setLevels] = useState<Progress>(() => ({ v: 1, reached: ['assault', 'market'], best: {} }));
   const lvMod = useRef<LevelsModule | null>(null);
@@ -1044,6 +1048,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     try {
       // TERRORNODE revenue goes 50/50 to NPG Ltd and bCorp (src/lib/launch/split.ts). If their destinations can't be
       // resolved and pinned right now, no paid session starts (free practice still works); nothing goes anywhere else.
+      // (usually answered already: the check is prefetched when the loadout opens, splitClient.ts)
       if (!(await splitAvailable())) throw new Error('PAYUNAVAIL');
       // End the previous session first: stop its sender, release the gun's lock, save its change.
       stop.current = true;

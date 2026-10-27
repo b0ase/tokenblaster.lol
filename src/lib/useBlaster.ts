@@ -32,6 +32,14 @@ import { BURN_FEE } from './launch/ammoCoins';
  * setMode('tokens')), once per session per basket, refusals remembered (src/lib/basketSession.ts). Nothing is read
  * on refocus, there is no liveness timer, and the wallet is held (no calls at all) while a storm session runs.
  */
+/** How long a background "wallet is alive" answer lets LOCK & LOAD skip its own check (ms). */
+const WARM_MS = 45_000;
+/**
+ * Per-attempt wait for the wallet's isAuthenticated (walletAlive tries twice). It was 15 s, and that was the ~15 s the
+ * owner waited for the sheet (27 Oct): an asleep extension drops the first call, the second one wakes and answers.
+ */
+const ALIVE_MS = 4_000;
+
 export function useBlaster() {
   const gun = useRef<Gun | null>(null);
   // The site's ONE wallet (src/lib/siteWallet.ts): the top bar, this page and every other Connect share it. The store
@@ -158,22 +166,58 @@ export function useBlaster() {
 
 
   /** Check the wallet answers right now. Updates `walletLive`. */
+  // LOCK & LOAD speed (owner, 27 Oct: the wallet sheet took ~15 s to appear): the liveness check is what wakes an
+  // asleep extension, so it runs AHEAD of the press (warmWallet: cabinet open, coin in) and the press reuses a fresh
+  // answer instead of waiting for a second round trip. Still never bills a dropped connection: no recent "alive",
+  // the full check runs as before.
+  const warm = useRef<{ at: number; ok: boolean; key: string } | null>(null);
+  const warming = useRef<Promise<boolean | 'busy'> | null>(null);
+  const aliveNow = useCallback(async (): Promise<boolean | 'busy'> => {
+    if (!wallet) return false;
+    const key = wallet.publicKey;
+    if (!warming.current) {
+      const p = walletAlive(wallet, ALIVE_MS).finally(() => {
+        if (warming.current === p) warming.current = null;
+      });
+      warming.current = p;
+      void p.then((a) => {
+        if (a !== 'busy') warm.current = { at: performance.now(), ok: a === true, key };
+      });
+    }
+    return warming.current;
+  }, [wallet]);
+  /** Ask the wallet "are you there?" in the background (no sheet), so a press right after needs no wait. */
+  const warmWallet = useCallback(() => {
+    if (!wallet || walletHeld()) return;
+    const w = warm.current;
+    if (w && w.ok && w.key === wallet.publicKey && performance.now() - w.at < WARM_MS / 2) return;
+    void aliveNow().catch(() => undefined);
+  }, [wallet, aliveNow]);
   const checkWallet = useCallback(async () => {
     if (!wallet) return false;
-    let alive = await walletAlive(wallet);
+    const w = warm.current;
+    if (w && w.ok && w.key === wallet.publicKey && performance.now() - w.at < WARM_MS && !walletBusy(wallet.client)) {
+      loadMark(`wallet checked ${Math.round((performance.now() - w.at) / 1000)} s ago: straight to the payment`);
+      setSiteWalletLive(true);
+      return true;
+    }
+    let alive = await aliveNow();
     if (alive === 'busy') {
       // Something is queued or open in the wallet. An open payment stays (fund() refuses a second one); anything else
       // (a background read, a backup sheet nobody saw) is dropped so the payment goes straight to the wallet.
       loadMark(`wallet busy: ${walletPaying() ? 'a payment is open' : 'clearing queued calls'}`);
       if (walletPaying()) return true;
       cancelWalletCalls(wallet.client, 'WALLET_BUSY_CLEARED');
-      alive = await walletAlive(wallet);
+      alive = await walletAlive(wallet, ALIVE_MS);
     }
     const ok = alive === true;
     setSiteWalletLive(ok);
-    if (!ok) loadMark(`wallet not answering: ${wallet.name}`);
+    if (!ok) {
+      warm.current = null;
+      loadMark(`wallet not answering: ${wallet.name}`);
+    }
     return ok;
-  }, [wallet]);
+  }, [wallet, aliveNow]);
   // No liveness timer: checkWallet runs only right before a payment (isAuthenticated, never a sheet).
 
   /**
@@ -693,5 +737,5 @@ export function useBlaster() {
     [],
   );
 
-  return { latePaid, gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { latePaid, warmWallet, gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
 }

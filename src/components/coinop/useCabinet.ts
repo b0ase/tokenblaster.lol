@@ -63,6 +63,13 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
 
   const onCoin = useCallback((c: number) => setPending((t) => Math.min(MAX_PAY_USD, addCoin(t, c))), []);
   const onClear = useCallback(() => setPending(0), []);
+  // Wake the wallet before LOCK & LOAD is pressed (cabinet open, every coin in): the press then opens the wallet
+  // sheet at once instead of first waiting on a liveness round trip (owner, 27 Oct: ~15 s to the prompt).
+  const warmWallet = b.warmWallet;
+  const hasWallet = Boolean(b.wallet);
+  useEffect(() => {
+    if (!opts.dry && hasWallet) warmWallet();
+  }, [pending, hasWallet, warmWallet, opts.dry]);
 
   /**
    * START: pay the pending total in ONE wallet request (connecting first if needed), then call `after` once the

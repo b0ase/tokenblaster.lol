@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import type { Mate } from './squad';
-import { loadSquadBodies } from './squadBodies';
+import { loadSquadBodies, type GirlBody } from './squadBodies';
 
 /**
  * The AI squad on screen: each girl as a standing billboard of her NPG portrait (placeholder until the 3D
  * girls land; `setBody` swaps one in) with her name, a small "AI" tag and a health bar above her head.
  * Labels redraw only when what they show changes. Lite: smaller label textures, no shadows of any kind.
  */
-type View = { g: THREE.Group; body: THREE.Sprite; label: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; mat: THREE.SpriteMaterial; model?: THREE.Object3D };
+type View = { g: THREE.Group; body: THREE.Sprite; label: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; mat: THREE.SpriteMaterial; model?: GirlBody; px: number; pz: number };
 
 const BODY_H = 1.75;
 
@@ -16,6 +16,7 @@ export class SquadView {
   private views = new Map<string, View>();
   private loader = new THREE.TextureLoader();
   private gone = false;
+  private lastT = -1;
 
   constructor(
     scene: THREE.Scene,
@@ -25,7 +26,7 @@ export class SquadView {
     this.group.name = 'npg-squad';
     scene.add(this.group);
     for (const m of mates) this.add(m);
-    // desktop: swap the billboards for the 3D NPG girls (#137 models) once they load; lite keeps billboards
+    // desktop: swap the billboards for the rigged 3D NPG girls (squadBodies.ts) once they load; lite keeps billboards
     if (!opts.lite)
       void loadSquadBodies(mates.map((m) => m.id))
         .then((bodies) => {
@@ -64,16 +65,17 @@ export class SquadView {
     label.renderOrder = 5;
     g.add(label);
     this.group.add(g);
-    this.views.set(m.id, { g, body, label, ctx, tex: lt, key: '', mat });
+    this.views.set(m.id, { g, body, label, ctx, tex: lt, key: '', mat, px: m.x, pz: m.z });
   }
 
   /** Swap a girl's placeholder billboard for a real body (the 3D NPG girls, when they are in). */
-  setBody(id: string, obj: THREE.Object3D) {
+  setBody(id: string, body: GirlBody) {
     const v = this.views.get(id);
-    if (!v) return;
+    if (!v) return body.dispose();
+    v.model?.dispose();
     v.body.visible = false;
-    v.model = obj;
-    v.g.add(obj);
+    v.model = body;
+    v.g.add(body.root);
   }
 
   private paint(v: View, m: Mate) {
@@ -116,6 +118,8 @@ export class SquadView {
   }
 
   update(mates: Mate[], t: number) {
+    const dt = this.lastT < 0 ? 0 : Math.min(0.1, Math.max(0, t - this.lastT));
+    this.lastT = t;
     for (const m of mates) {
       const v = this.views.get(m.id);
       if (!v) continue;
@@ -125,10 +129,14 @@ export class SquadView {
       v.body.position.y = down ? -0.7 : Math.abs(Math.sin(t * 6 + m.phase)) * 0.04;
       v.mat.color.set(down ? '#6a6a7a' : '#ffffff');
       if (v.model) {
-        // the 3D girl faces her target; downed she drops on her side
-        v.model.rotation.set(0, Math.PI - m.yaw, down ? Math.PI / 2.4 : 0);
-        v.model.position.y = down ? 0.25 : Math.abs(Math.sin(t * 6 + m.phase)) * 0.04;
+        // the 3D girl faces her target and runs, shoots or crouches with real clips
+        const sp = dt > 0 ? Math.hypot(m.x - v.px, m.z - v.pz) / dt : 0;
+        v.model.root.rotation.set(0, Math.PI - m.yaw, 0);
+        v.model.play(down ? 'down' : sp > 4.5 ? 'sprint' : sp > 0.6 ? 'jog' : m.state === 'engage' && m.target ? 'shoot' : 'idle');
+        v.model.update(dt);
       }
+      v.px = m.x;
+      v.pz = m.z;
       v.label.position.y = down ? BODY_H - 0.5 : BODY_H + 0.15;
       this.paint(v, m);
     }
@@ -137,6 +145,7 @@ export class SquadView {
   dispose() {
     this.gone = true;
     for (const v of this.views.values()) {
+      v.model?.dispose();
       v.mat.map?.dispose();
       v.mat.dispose();
       v.tex.dispose();
