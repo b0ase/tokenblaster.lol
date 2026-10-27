@@ -87,7 +87,7 @@ export const LEVELS: readonly Level[] = [
   {
     id: 'market',
     n: 1,
-    name: 'nSLAVE MARKET',
+    name: 'PENETRATE nSLAVE',
     blurb: 'Act 1. The night market outside the nSLAVE tower. Stalls, lanterns and rushers coming in waves.',
     kweg: 'You ruined a perfectly good night market. The dumplings were mine.',
     palette: { fog: '#2a0f1c', density: 0.011, bg: '#12040c', exposure: 0.08, bloom: 0.08, key: '#ff9a2b', rim: '#ff2b8a' },
