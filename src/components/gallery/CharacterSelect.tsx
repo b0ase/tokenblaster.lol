@@ -127,7 +127,7 @@ export function CharacterSelect({
               role="radio"
               aria-checked={g.id === girl.id}
               onClick={() => setPick(normalizePick({ girl: g.id, right: g.right, left: g.left }, owned.elements))}
-              className={`relative h-[84px] w-[46px] overflow-hidden rounded border sm:h-[110px] sm:w-[62px] ${g.id === girl.id ? 'border-[var(--tbx-red)] bg-[var(--tbx-red)]/20' : 'border-white/15 bg-black/40 opacity-75'}`}
+              className={`relative h-[84px] w-[46px] overflow-hidden rounded border sm:h-[110px] sm:w-[62px] ${g.id === girl.id ? 'border-[var(--tbx-red)] bg-[var(--tbx-red)]/20' : `border-white/15 bg-black/40 ${ready3d ? '' : 'opacity-75'}`}`}
               data-npg-girl={g.id}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
