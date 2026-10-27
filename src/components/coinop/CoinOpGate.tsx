@@ -19,7 +19,19 @@ import { coinStore } from './store';
 import { useCabinet } from './useCabinet';
 import { usePlayerName } from './usePlayerName';
 
-export function CoinOpGate({ game, title, children }: { game: string; title: string; children: ReactNode }) {
+/**
+ * CAPTURE BUILDS ONLY (owner 27 Oct: gameplay captures for bGamesX cards / bAds). A local build made with
+ * NEXT_PUBLIC_TB_CAPTURE=1 opens the game with no gate, for headless recording. It is inlined at build time;
+ * never set it on Vercel, or the public gets free play.
+ */
+const CAPTURE_BUILD = process.env.NEXT_PUBLIC_TB_CAPTURE === '1';
+
+export function CoinOpGate(props: { game: string; title: string; children: ReactNode }) {
+  if (CAPTURE_BUILD) return <>{props.children}</>;
+  return <CoinOpGateInner {...props} />;
+}
+
+function CoinOpGateInner({ game, title, children }: { game: string; title: string; children: ReactNode }) {
   const b = useBlaster();
   const cab = useCabinet(b, title);
   const price = playPriceUsd(game);
