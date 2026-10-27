@@ -1,5 +1,6 @@
 'use client';
 
+import { linkProps } from '@/lib/tokenLinks';
 /**
  * The landing dashboard: most-blasted tokens up top, then bsv.lol-style live chain panels, all fed
  * by the page's one shared JungleBus stream (src/lib/chainStream.ts). Transactions land in refs;
@@ -76,7 +77,7 @@ const nameOf = (f: FeedTx) => f.appName ?? labelOf(appOf(f));
 const bsv = (sats: number) => (sats / 1e8).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 8 });
 const short = (id: string) => `${id.slice(0, 8)}…${id.slice(-4)}`;
 const ago = (s: number) => (s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`);
-const market = (id: string) => (/_\d+$/.test(id) ? `https://1sat.market/market/bsv21/${id}` : `https://1sat.market/market/bsv20/${id}`);
+
 
 /** "$SYM transfer 1,000" when we know the token, else the raw preview. */
 function tokenLine(f: FeedTx) {
@@ -406,7 +407,7 @@ function Inspector({ f }: { f: FeedTx | null }) {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={tl.meta.iconSrc} alt="" className="h-6 w-6 rounded object-cover" />
                 )}
-                <a href={market(f.token!)} target="_blank" rel="noopener noreferrer" className="min-w-0 break-all text-accent hover:text-hot">
+                <a {...linkProps(f.token!)} className="min-w-0 break-all text-accent hover:text-hot">
                   {tl.text}
                 </a>
               </dd>
@@ -504,7 +505,7 @@ function TokensMoving({ movers, win }: { movers: Mover[]; win: number }) {
             const meta = tokenMeta(m.id);
             const amt = meta ? Number(m.amt) / 10 ** meta.dec : null;
             return (
-              <a key={m.id} href={market(m.id)} target="_blank" rel="noopener noreferrer" className="inset flex min-w-0 items-center gap-2 px-2 py-1 text-xs hover:border-fg">
+              <a key={m.id} {...linkProps(m.id)} className="inset flex min-w-0 items-center gap-2 px-2 py-1 text-xs hover:border-fg">
                 {meta?.iconSrc ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={meta.iconSrc} alt="" className="h-6 w-6 shrink-0 rounded object-cover" />
