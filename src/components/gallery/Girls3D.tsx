@@ -1,8 +1,9 @@
 'use client';
 
 /**
- * CHOOSE YOUR GIRL in 3D (owner, 27 Oct): each portrait slot shows a small live model of the girl, turning on a
- * turntable in her idle; the selected one stands bigger and brighter. The girls are the Tripo rigged NPG models
+ * CHOOSE YOUR GIRL in 3D (owner, 27 Oct): each portrait slot shows a live model of the girl facing the
+ * camera (a slight 3/4, no turntable: owner, 27 Oct) in her idle, breaking into a gesture (nod, folded arms, punch,
+ * dance, guard) every 6-12 s, staggered, and at once on hover, focus or tap; the selected one stands bigger and brighter. The girls are the Tripo rigged NPG models
  * (src/lib/galleryGame/squadBodies.ts, the same shared, once-per-page loads the squadmates use), animated with the
  * shared mocap clips. Drawn by the page's one preview context (src/lib/previewRenderer.ts), a scissored viewport per
  * slot, released (context force-lost) the moment the picker unmounts. Not used in the mobile-lite tier (2D
@@ -10,10 +11,12 @@
  */
 import { useEffect, useRef, type RefObject } from 'react';
 import * as THREE from 'three';
-import { BODY_H, GirlBody, loadGirl } from '@/lib/galleryGame/squadBodies';
+import { BODY_H, GirlBody, loadGirl, type Move } from '@/lib/galleryGame/squadBodies';
 import { addPreview } from '@/lib/previewRenderer';
 
-type Slot = { id: string; body: GirlBody; phase: number };
+type Slot = { id: string; body: GirlBody; next: number };
+const GESTURES: Move[] = ['yes', 'folds', 'punch', 'dance', 'ready'];
+const pickGesture = () => GESTURES[Math.floor(Math.random() * GESTURES.length)];
 
 export function Girls3D({ container, ids, selected, onReady }: { container: RefObject<HTMLDivElement | null>; ids: string[]; selected: string; onReady: (ready: boolean) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,6 +31,9 @@ export function Girls3D({ container, ids, selected, onReady }: { container: RefO
     if (!canvas || !box) return;
     let dead = false;
     let release: (() => void) | null = null;
+    let unpoke: (() => void) | null = null;
+    let clock = 0;
+    let last = 0;
     const slots: Slot[] = [];
     const scene = new THREE.Scene();
     const hemi = new THREE.HemisphereLight(0xffffff, 0x302040, 2.2);
@@ -41,18 +47,40 @@ export function Girls3D({ container, ids, selected, onReady }: { container: RefO
       .then((ts) => {
         if (dead) return;
         ts.forEach((t, i) => {
-          if (t) slots.push({ id: ids[i], body: new GirlBody(t), phase: i * 1.3 });
+          if (t) slots.push({ id: ids[i], body: new GirlBody(t), next: 2.5 + i * 1.4 + Math.random() * 2 });
         });
         if (!slots.length) return onReady(false);
         onReady(true);
+        // hover / keyboard focus / tap on a portrait: that girl gestures now
+        const poke = (e: Event) => {
+          const id = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-npg-girl]')?.dataset.npgGirl;
+          const s = id && slots.find((x) => x.id === id);
+          if (s && !s.body.busy) {
+            s.body.gesture(pickGesture());
+            s.next = clock + 6 + Math.random() * 6;
+          }
+        };
+        box.addEventListener('pointerover', poke);
+        box.addEventListener('focusin', poke);
+        box.addEventListener('pointerdown', poke);
+        unpoke = () => {
+          box.removeEventListener('pointerover', poke);
+          box.removeEventListener('focusin', poke);
+          box.removeEventListener('pointerdown', poke);
+        };
         release = addPreview({
           canvas,
-          every: 33, // ~30 fps is plenty for a turntable
-          draw: (renderer, t, dt) => {
+          every: 33, // ~30 fps is plenty for an idle
+          draw: (renderer) => {
             const cr = box.getBoundingClientRect();
             const k = canvas.width / Math.max(1, cr.width);
             renderer.toneMapping = THREE.NoToneMapping;
             renderer.setScissorTest(true);
+            // the shared loop's dt is per global frame; this view draws every ~33 ms, so time it here
+            const now = performance.now() / 1000;
+            const dt = Math.min(0.1, last ? now - last : 0);
+            last = now;
+            clock += dt;
             for (const s of slots) {
               const el = box.querySelector<HTMLElement>(`[data-npg-girl="${s.id}"]`);
               if (!el) continue;
@@ -62,9 +90,13 @@ export function Girls3D({ container, ids, selected, onReady }: { container: RefO
               renderer.setViewport(x, y, r.width * k, r.height * k);
               renderer.setScissor(x, y, r.width * k, r.height * k);
               const on = s.id === sel.current;
-              s.body.root.rotation.y = t * (on ? 0.9 : 0.45) + s.phase;
-              s.body.root.scale.setScalar(on ? 1.08 : 0.9);
-              s.body.update(dt * 1.6);
+              s.body.root.rotation.y = 0.32; // facing us, a slight 3/4
+              s.body.root.scale.setScalar(on ? 1.04 : 0.94);
+              if (clock >= s.next) {
+                if (!s.body.busy) s.body.gesture(pickGesture());
+                s.next = clock + 6 + Math.random() * 6;
+              }
+              s.body.update(dt);
               hemi.intensity = on ? 2.4 : 1.1;
               scene.add(s.body.root);
               camera.aspect = r.width / r.height;
@@ -86,6 +118,7 @@ export function Girls3D({ container, ids, selected, onReady }: { container: RefO
     return () => {
       dead = true;
       release?.();
+      unpoke?.();
       for (const s of slots) s.body.dispose();
       onReady(false);
     };

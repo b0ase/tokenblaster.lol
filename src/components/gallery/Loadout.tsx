@@ -14,7 +14,11 @@ import { BRIEFING, CHARACTERS, SETTING, PRACTICE, TAGLINE, forPractice, stageBri
 import { Icon, useExisting } from '../coinop/ui';
 import { CharacterCard } from '../coinop/LoadingScreen';
 import { GunPreview } from './GunPreview';
+import { RARITY_COLOR } from '@/lib/ordnance';
+
+const RARITY_WORD = { common: 'STANDARD ISSUE', rare: 'RARE', epic: 'EPIC', legendary: 'LEGENDARY' } as const;
 import { NpgBackdrop } from '../terrornode/NpgBackdrop';
+import { OfficialNpg } from '../terrornode/OfficialNpg';
 
 export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, levels, practice = false, rounds = 0 }: { start?: ReactNode; player?: ReactNode; levels?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
@@ -31,7 +35,8 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
             <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
               <span className="inline-block h-[2px] w-6 bg-[var(--tbx-red)]" /> {SETTING}
             </p>
-            <h2 className="mt-1.5 text-[clamp(38px,6vw,76px)]"><BloodTitle /></h2>
+            <OfficialNpg className="mt-2" />
+            <h2 className="mt-1 text-[clamp(38px,6vw,76px)]"><BloodTitle /></h2>
           </div>
           <div className="flex flex-col items-end gap-2">
             <Link href="/arcade/terrornode/leaderboard" data-fs-skip className="tbx-btn !min-h-[36px] !px-3 !text-xs" data-info-link>
@@ -90,10 +95,14 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
                 const ok = canUse(w);
                 const on = w.id === weaponId;
                 return (
-                  <button key={w.id} type="button" onClick={() => ok && setWeaponId(w.id)} disabled={!ok} aria-pressed={on} className="tbx-card tbx-rise flex w-[232px] shrink-0 flex-col gap-1.5 p-3 sm:w-[260px] xl:w-auto" style={{ ['--d' as string]: `${0.1 + k * 0.08}s` }}>
-                    {w.id === 'minigun' && <span className="absolute right-2.5 top-2.5 rounded-full border border-[var(--tbx-red)]/60 bg-[var(--tbx-red)]/15 px-2 py-0.5 text-[9px] font-bold tracking-[0.2em] text-[#ff9a92]">DEFAULT</span>}
-                    <GunPreview url={w.def.url} active={on} />
-                    <span className="tbx-display text-[clamp(22px,2.4vw,30px)]" style={{ color: on ? '#fff' : '#cfdbe3' }}>{w.name}</span>
+                  <button key={w.id} type="button" onClick={() => ok && setWeaponId(w.id)} disabled={!ok} aria-pressed={on} className="tbx-card tbx-ord tbx-rise flex w-[196px] shrink-0 flex-col gap-1 p-2.5 sm:w-[212px] xl:w-auto" style={{ ['--d' as string]: `${0.1 + k * 0.08}s`, ['--rc' as string]: RARITY_COLOR[w.ordnance?.rarity ?? 'common'] }} data-ord-card>
+                    <span aria-hidden className="tbx-ord-dots" />
+                    <span className="relative flex items-center justify-between gap-1">
+                      <span className="tbx-ord-label">{w.ordnance ? '1SAT ORDNANCE' : w.id === 'minigun' ? 'DEFAULT ISSUE' : 'STOCK ISSUE'}</span>
+                      <span className="tbx-ord-tag">{w.ordnance ? RARITY_WORD[w.ordnance.rarity] : 'STANDARD'}</span>
+                    </span>
+                    <span className="relative"><GunPreview url={w.def.url} active={on} /></span>
+                    <span className="tbx-ord-name relative text-[clamp(17px,1.8vw,22px)]" style={{ color: on ? '#fff' : '#fff1dc' }}>{w.name}</span>
                     <span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: p.kind === 'stream' ? 'var(--tbx-teal)' : 'var(--tbx-amber)' }}>
                       <Icon name={p.kind === 'stream' ? 'bolt' : 'stack'} size={12} /> {practice ? (p.kind === 'stream' ? `PRACTICE · ${p.rate.toLocaleString()} rounds/s, simulated` : `PRACTICE · ${p.n} rounds per pull`) : patternLabel(p)}
                     </span>

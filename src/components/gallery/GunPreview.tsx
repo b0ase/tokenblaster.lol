@@ -78,6 +78,6 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
     };
   }, [url, live]);
 
-  if (!live) return <div className="grid h-28 w-full place-items-center rounded-md bg-gradient-to-br from-white/5 to-transparent text-[10px] font-bold tracking-[0.3em] text-white/35 sm:h-36" aria-hidden>TAP TO EQUIP</div>;
-  return <canvas ref={ref} className="h-28 w-full sm:h-36" aria-hidden />;
+  if (!live) return <div className="grid h-24 w-full place-items-center rounded-md bg-gradient-to-br from-white/5 to-transparent text-[10px] font-bold tracking-[0.3em] text-white/35 sm:h-28" aria-hidden>TAP TO EQUIP</div>;
+  return <canvas ref={ref} className="h-24 w-full sm:h-28" aria-hidden />;
 }

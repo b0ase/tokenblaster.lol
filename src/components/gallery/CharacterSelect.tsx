@@ -118,8 +118,8 @@ export function CharacterSelect({
           </button>
         )}
       </div>
-      <div className="mt-2 flex gap-2 sm:gap-3">
-        <div ref={row} className="relative flex shrink-0 gap-1" role="radiogroup" aria-label="Girl">
+      <div className="mt-2 flex flex-col gap-2 lg:flex-row lg:gap-3">
+        <div ref={row} className="relative flex w-full gap-1 lg:w-auto lg:shrink-0" role="radiogroup" aria-label="Girl">
           {DEFAULT_ROSTER.map((g) => (
             <button
               key={g.id}
@@ -128,7 +128,7 @@ export function CharacterSelect({
               aria-label={g.name}
               aria-checked={g.id === girl.id}
               onClick={() => setPick(normalizePick({ girl: g.id, right: g.right, left: g.left }, owned.elements))}
-              className={`relative h-[84px] w-[46px] overflow-hidden rounded border sm:h-[110px] sm:w-[62px] ${g.id === girl.id ? 'border-[var(--tbx-red)] bg-[var(--tbx-red)]/20' : `border-white/15 bg-black/40 ${ready3d ? '' : 'opacity-75'}`}`}
+              className={`relative h-[124px] min-w-0 flex-1 overflow-hidden rounded border sm:h-[168px] lg:h-[184px] [@media(max-height:500px)]:h-[108px] lg:w-[96px] lg:flex-none xl:w-[108px] ${g.id === girl.id ? 'border-[var(--tbx-red)] bg-[var(--tbx-red)]/20' : `border-white/15 bg-black/40 ${ready3d ? '' : 'opacity-75'}`}`}
               data-npg-girl={g.id}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -139,7 +139,7 @@ export function CharacterSelect({
           {/* names sit ABOVE the shared 3D canvas (z-[4]), in their own layer, so no model or stacking context clips them */}
           <div aria-hidden className="pointer-events-none absolute inset-0 z-[4] flex gap-1">
             {DEFAULT_ROSTER.map((g) => (
-              <span key={g.id} className="relative h-full w-[46px] sm:w-[62px]">
+              <span key={g.id} className="relative h-full min-w-0 flex-1 lg:w-[96px] lg:flex-none xl:w-[108px]">
                 <span className="absolute inset-x-0 bottom-px whitespace-nowrap rounded-b bg-black/80 text-center text-[8px] font-bold leading-[12px] tracking-normal text-white sm:text-[9px]" data-npg-name={g.id}>
                   {g.name.toUpperCase()}
                   {owned.girls.has(g.id) ? ' ✓' : ''}
@@ -148,10 +148,10 @@ export function CharacterSelect({
             ))}
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-1.5 lg:flex lg:w-[250px] lg:flex-none lg:flex-col">
           {hand('right')}
           {hand('left')}
-          <div className="grid max-w-[640px] grid-cols-3 gap-x-3 gap-y-0.5 text-[9px] tracking-[0.08em]" data-npg-stats>
+          <div className="col-span-2 grid max-w-[640px] grid-cols-3 lg:grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] tracking-[0.08em]" data-npg-stats>
             {STATS.map((s) => {
               const m = MOD_OF[s];
               const d = (mods[m.key] - 1) * (m.invert ? -1 : 1);

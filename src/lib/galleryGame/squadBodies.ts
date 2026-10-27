@@ -17,8 +17,8 @@ const ANIMS = '/npg/anims/mixamo-anims.glb';
 /** Height the bodies are scaled to (m). */
 export const BODY_H = 1.7;
 
-export type Move = 'idle' | 'jog' | 'sprint' | 'shoot' | 'down';
-const CLIP: Record<Move, string> = { idle: 'Idle_Loop', jog: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop', shoot: 'Spell_Simple_Shoot', down: 'Crouch_Idle_Loop' };
+export type Move = 'idle' | 'jog' | 'sprint' | 'shoot' | 'down' | 'yes' | 'folds' | 'punch' | 'dance' | 'ready';
+const CLIP: Record<Move, string> = { idle: 'Idle_Loop', jog: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop', shoot: 'Spell_Simple_Shoot', down: 'Crouch_Idle_Loop', yes: 'Yes', folds: 'Idle_FoldArms_Loop', punch: 'Punch_Cross', dance: 'Dance_Loop', ready: 'Sword_Idle' };
 
 export type GirlTemplate = { scene: THREE.Object3D; clips: Map<Move, THREE.AnimationClip>; scale: number; offset: THREE.Vector3 };
 
@@ -125,6 +125,8 @@ export class GirlBody {
   private actions = new Map<Move, THREE.AnimationAction>();
   private cur: Move = 'idle';
   private model: THREE.Object3D;
+  private clock = 0;
+  private until = 0;
 
   constructor(t: GirlTemplate) {
     this.model = cloneSkinned(t.scene);
@@ -147,8 +149,25 @@ export class GirlBody {
     from.crossFadeTo(to, fade, false);
   }
 
+  /** A one-off gesture (the loadout picker): play `mv` for its clip length (capped), then fade back to idle. */
+  gesture(mv: Move, max = 3.2) {
+    const a = this.actions.get(mv);
+    if (!a) return;
+    this.play(mv, 0.25);
+    this.until = this.clock + Math.min(max, Math.max(1, a.getClip().duration));
+  }
+
+  get busy() {
+    return this.until > 0;
+  }
+
   update(dt: number) {
+    this.clock += dt;
     this.mixer.update(dt);
+    if (this.until && this.clock >= this.until) {
+      this.until = 0;
+      this.play('idle', 0.35);
+    }
   }
 
   /** Drops this clone only: the template (geometry, materials, textures) stays shared for the page. */

@@ -2,7 +2,7 @@
 // (white-hot core, coloured halo, tube flicker gaps, wet-floor reflection), neon katakana sign, TOKENBLASTER.LOL
 // wordmark, yellow sticker and hazard stripe.
 // Usage: node scripts/og/compose-neon-card.mjs <card.json> [out.jpg]
-//   card.json: { frame, out, kicker, section, line1, line2, c1, c2, font, size1, size2, tagline[], sticker, kana, sign, padLeft, zoom, fx, fy, dim, blur, drip }
+//   card.json: { frame, out, kicker, section, line1, line2, c1, c2, font, size1, size2, tagline[], sticker, kana, sign, badge?: { logo, text }, padLeft, zoom, fx, fy, dim, blur, drip }
 //   drip: true runs glossy blood drips down from the title letters (seeded, so re-renders match).
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -39,6 +39,8 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const neon = (c, core = '#fff') => `color:${core};text-shadow:0 0 2px #fff,0 0 6px ${core},0 0 14px ${c},0 0 28px ${c},0 0 52px ${c},0 0 90px ${c}`;
 const s1 = cfg.size1 ?? 150, s2 = cfg.size2 ?? s1;
 
+const npg = cfg.badge ? `<div class="npg"><img src="data:image/png;base64,${(await sharp(cfg.badge.logo).png().toBuffer()).toString('base64')}"><span>${esc(cfg.badge.text)}</span></div>` : '';
+
 const html = `<!doctype html><html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=${f.css}&family=Audiowide&family=Barlow+Condensed:ital,wght@1,800;1,900&family=Noto+Sans+JP:wght@900&family=Space+Mono:wght@700&display=block" rel="stylesheet">
 <style>
@@ -68,6 +70,7 @@ body{width:${W}px;height:${H}px;overflow:hidden;background:#000;position:relativ
 .drip::after{content:'';position:absolute;left:28%;top:6%;width:18%;height:70%;border-radius:3px;background:linear-gradient(180deg,rgba(255,170,170,.0),rgba(255,190,190,.55),rgba(255,190,190,0))}
 .bulb{position:absolute;border-radius:50% 50% 50% 50% / 58% 58% 42% 42%;background:radial-gradient(circle at 35% 30%,#ff8a8a 0 8%,#c80e24 22%,#6a000c 75%,#2a0004);box-shadow:0 0 6px #ff1a2e55}
 .pool{position:absolute;border-radius:50%;background:radial-gradient(ellipse at 45% 40%,#d0122acc,#6a000caa 55%,transparent 72%);filter:blur(.6px)}
+.npg{position:absolute;right:136px;top:100px;display:flex;flex-direction:column;align-items:center;gap:6px}.npg img{height:86px;filter:drop-shadow(0 3px 10px rgba(0,0,0,.7))}.npg span{font:700 15px 'Space Mono',monospace;letter-spacing:.16em;color:#ff5fb4;text-shadow:0 0 8px #ff5fb488,0 2px 2px #000}
 .haz{position:absolute;left:0;right:0;bottom:0;height:40px;background:repeating-linear-gradient(-45deg,#ffb800 0 22px,#0a0a0c 22px 44px);border-top:2px solid #0a0a0c}
 </style></head><body>
 <div class="bg"></div><div class="mood"></div><div class="floor"></div><div class="rain"></div><div class="bloom"></div><div class="frame"></div>
@@ -79,7 +82,7 @@ body{width:${W}px;height:${H}px;overflow:hidden;background:#000;position:relativ
 <div class="stk">${esc(cfg.sticker ?? 'EVERY BULLET = 1 REAL BSV TX')}</div>
 ${cfg.sign ? `<div class="sign">${esc(cfg.sign)}</div>` : ''}
 <div class="kana">${esc(cfg.kana ?? '')}</div>
-<div class="haz"></div>
+${npg}<div class="haz"></div>
 </body></html>`;
 
 const b = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });

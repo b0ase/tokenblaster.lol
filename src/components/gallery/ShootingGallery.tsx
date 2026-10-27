@@ -101,6 +101,7 @@ import { useCabinet } from '../coinop/useCabinet';
 import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
+import { OfficialNpg } from '../terrornode/OfficialNpg';
 
 const FALLBACK_USD = 17.4;
 const PREFS = 'tb:gallery-prefs';
@@ -1503,6 +1504,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           <LoadingScreen
             title={GAME_TITLE}
             titleArt={<BloodTitle />}
+            badge={<OfficialNpg className="mt-3" />}
             kicker={GAME_KICKER}
             setting={`${SETTING} · ${CREDIT}`}
             shots={LOADING_SHOTS}
