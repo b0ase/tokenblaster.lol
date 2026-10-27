@@ -129,3 +129,34 @@ preview of this branch.
    - The session-end merge saves the change.
 7. If it passes, repeat once with 100,000 rounds (2.6M sat ≈ 0.0261 BSV, about $0.65 to $1.30) to check that
    it holds over 30+ s.
+
+## Ramp test with GorillaPool (Thu 29 Oct 2026, 14:00 UTC): `pnpm ramp`
+
+`blaster/ramp/` runs stages of 100 → 250 → 500 → 1,000 → 1,500 → 2,000 tx/s, 5 min each. The ARC run goes
+first, then a 10 min pause, then the BSV Broadcaster run (`--bsv-url`, default https://arcade.gorillapool.io).
+Every tx is tagged `X-CallbackToken: terrornode-ramp-29oct`.
+
+- **Wide, not deep.** A mined prep coin is fanned out (depth 1) into 2,000 lane coins. That fan-out is sent on
+  its own, and its lanes are spent only after the same broadcaster reports it SEEN. Each lane gets one blast
+  (depth 2). Nothing is ever built on ANNOUNCED_TO_NETWORK or SEEN_IN_ORPHAN_MEMPOOL.
+- **Ledger.** `~/.tokenblaster/ramp/spent.jsonl` records every input before its tx is sent. An output is never
+  spent twice, even after a restart. A sampled blast that comes back REJECTED "missing inputs" kills its chain.
+  If its fan-out was also REJECTED, the mined prep coin is released once, so the run rebuilds from there.
+- **Broadcasters** (`blaster/ramp/broadcaster.ts`). On a 503, a 5xx or a timeout, the client backs off and
+  resends the same bytes. A 400 is final. A refused `/txs` batch is split: the txid the error names is dropped,
+  otherwise the batch is bisected down to single `POST /tx`. Status is asked of the broadcaster the tx went to.
+- **Auto-stop** after a stage when: the accept rate is under 95 %; or orphan + rejected is up 0.5 points on the
+  last stage; or under 80 % of the target rate was achieved; or `--max-sats` is reached; or prep coins run out.
+  `touch ~/.tokenblaster/STOP` or Ctrl-C halts everything within 10 s.
+- **Logs:** `~/.tokenblaster/ramp/<ts>/stages.csv`, `<run>-stage-<n>.json`, `summary.json`.
+
+```
+pnpm ramp estimate                                   # sats at the live /policy fee (read-only GETs)
+pnpm ramp --stage-secs 5                             # dry run: mock ARC + Broadcaster on 127.0.0.1, throwaway key
+export TERRORNODE_STRESS_WIF="$(security find-generic-password -s TERRORNODE_STRESS_WIF -w)"
+pnpm ramp prep --live --max-sats 200000              # split the funding into fan-out coins; wait for 1 block
+pnpm ramp --live --max-sats 105000000                # ARC → 10 min → BSV Broadcaster
+```
+
+The key is read only from the env var named by `--key-env` (default `TERRORNODE_STRESS_WIF`). It is never
+printed or written to disk.
