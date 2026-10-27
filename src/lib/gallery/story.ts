@@ -11,7 +11,7 @@
  * NEW STORY (owner, 27 Oct 2026, TERRORNODE-NPG-SPEC): his inventions, the EROBOTZ (bot, frog-bot, graf-bot,
  * stripey-bot, tech), went crazy, seized the nSLAVE corporation and hold him HOSTAGE at its centre, TERRORNODE. The
  * NINJA PUNK GIRLS blast in to free him (Act 1, STORM THE NODE: street, HQ floors, the core, where he is cut loose),
- * then fight out carrying him (Act 2, ESCAPE FROM TERRORNODE: the roof, the Liquid Unit, the helipad). The corporate
+ * then fight out with him while he keeps running the wrong way (Act 2, ESCAPE FROM TERRORNODE: the roof, the Liquid Unit, the helipad). The corporate
  * satire is nSLAVE's. Enemies are "Erobotz" in all text. The LIQUID UNIT is his invention gone mad, NOT Kweg. 17+
  * violence (blood in Act 2), no sexual content. NPG IP: "A Ninja Punk Girls game".
  * In-world conceit for the 31 Oct stress test: every round the player fires is a real transaction on the record,
@@ -34,7 +34,7 @@ export const CREDIT = 'A Ninja Punk Girls game';
 
 /** One paragraph. What the player is doing and why. */
 export const PREMISE =
-  'Neo-Tokyo, 2048. DR KWEG S WONG is brilliant, devastatingly so, and everyone loves him. He invented the EROBOTZ for the nSLAVE corporation. Then his inventions went crazy. The Erobotz seized nSLAVE and hold him hostage at its centre, TERRORNODE. The NINJA PUNK GIRLS blast in to free him, and you have joined them with a rotary gun and a pocket of coins. Act 1: storm the node. Act 2: carry him out. Every round you fire goes on the record and jams the Erobotz’ control of the network. Stop firing, and you are dead.';
+  'Neo-Tokyo, 2048. DR KWEG S WONG is brilliant, devastatingly so, and everyone loves him. He invented the EROBOTZ for the nSLAVE corporation. Then his inventions went crazy. The Erobotz seized nSLAVE and hold him hostage at its centre, TERRORNODE. The NINJA PUNK GIRLS blast in to free him, and you have joined them with a rotary gun and a pocket of coins. Act 1: storm the node. Act 2: get him out. He keeps running the wrong way. Protect him. Every round you fire goes on the record and jams the Erobotz’ control of the network. Stop firing, and you are dead.';
 
 /** Short lines for banners, shares and the lobby. */
 export const TAGLINES = [
@@ -61,17 +61,20 @@ export const TERRORNODE_SLOGANS = NSLAVE_SLOGANS;
 export type Act = { n: 1 | 2; code: string; title: string; line: string; stages: readonly number[] };
 /**
  * Act 1 STORM THE NODE: fight IN through the street and the HQ floors to the core at the centre of nSLAVE, where
- * Dr Wong is cut loose. Act 2 ESCAPE FROM TERRORNODE: fight OUT carrying him, up through the server room to the roof
+ * Dr Wong is cut loose. Act 2 ESCAPE FROM TERRORNODE: fight OUT with him (he keeps running the wrong way: protect him), up through the server room to the roof
  * and the helipad, through angrier Erobotz and the Liquid Unit.
  */
 export const ACTS: readonly Act[] = [
   { n: 1, code: 'ACT 1', title: 'STORM THE NODE', line: 'Fight your way in to the centre of nSLAVE.', stages: [1, 2, 3] },
-  { n: 2, code: 'ACT 2', title: 'ESCAPE FROM TERRORNODE', line: 'Carry him out. Nobody stops firing.', stages: [4] },
+  { n: 2, code: 'ACT 2', title: 'ESCAPE FROM TERRORNODE', line: 'He keeps running the wrong way. Protect him.', stages: [4] },
 ];
 /** The act a stage (1 to 4) belongs to. */
 export const actOf = (stage: number): Act => (stage >= 4 ? ACTS[1] : ACTS[0]);
 /** The beat between the acts: Dr Wong is cut loose at the core. */
-export const FREED = { top: 'DR KWEG WONG IS FREE', sub: 'The girls have him. Now get him out.' } as const;
+export const FREED = { top: 'DR KWEG WONG IS FREE', sub: 'He keeps running the wrong way. Protect him.' } as const;
+
+/** ACT 2 ESCORT: Dr Kweg died on the way out. */
+export const KWEG_LOST = { top: 'DR KWEG WONG IS LOST', sub: 'He ran the wrong way once too often. Stay close, and CALL KWEG when he bolts.', retry: 'RETRY ACT 2' } as const;
 
 // ── DR KWEG S WONG: every word he says lives here ───────────────────────────────────────
 
@@ -82,7 +85,7 @@ export const KWEG = {
   role: 'Hostage',
   look: 'Round spectacles, a striped engineer’s cap, a red bow tie and a knitted vest under a lab coat. A tablet in one hand, a magnifying glass in the other. Currently chained to the core.',
   bio: 'Held hostage at the centre of TERRORNODE by his own inventions. Get him out.',
-  threat: 'On your side. Held at the core in Act 1, carried out by the girls in Act 2. He talks to you over the radio: dry pleas, review comments and the occasional correction.',
+  threat: 'On your side. Held at the core in Act 1, running out with the girls in Act 2 (the wrong way, mostly: protect him). He talks to you over the radio: dry pleas, review comments and the occasional correction.',
   /** Spoken on the loading screen and the briefing. */
   intro: 'This is Dr Wong. I am being held hostage by the Erobotz, whom I invented, in a building I established in 2009. I did not authorise this.',
   /** One per stage, in order: the radio as the stage opens. */
@@ -90,7 +93,7 @@ export const KWEG = {
     'Rescue accepted, with required revisions. I can see you from the core cameras. Your aim is under peer review.',
     'The Erobotz have taken the lifts. I would like it noted that I installed the lifts. Please do not shoot the labs, they are peer-reviewed.',
     'I am chained to the core. It runs the SOUL CHAIN, and also the coffee machine. Jam the first one, then untie me.',
-    'Please stop carrying me like a sofa. The helipad is on the roof. So, regrettably, is the Liquid Unit. I built him.',
+    'I am running. I am not sure which way. The helipad is on the roof. So, regrettably, is the Liquid Unit. I built him.',
   ],
   /** One per stage, when it is cleared and the lift arrives. */
   clear: [
@@ -125,7 +128,7 @@ export const LORE: LoreBeat[] = [
   { id: 'patent', title: 'THE PATENT', line: NSLAVE_SLOGANS[0].en + ' It is stored on SOUL CHAIN™ (chain of tools). ' + NSLAVE_SLOGANS[1].en, focus: 'kweg' },
   { id: 'control', title: 'OUT OF CONTROL', line: 'His inventions went crazy. The Erobotz seized nSLAVE floor by floor, chained their inventor to the core, and a silver giant of liquid metal, his own creation, guards the roof.', focus: 'liquid' },
   { id: 'army', title: 'THE EROBOTZ', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the doorways and techs in the server rooms. Every one of them rushes you, and every one is evil.', focus: 'frog' },
-  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'They blast into the centre of nSLAVE to free him, then carry him out. Neon hair, sharp blades and no patience. They need a gunner who keeps the trigger down.', focus: 'npg' },
+  { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'They blast into the centre of nSLAVE to free him, then get him out while he runs the wrong way. Neon hair, sharp blades and no patience. They need a gunner who keeps the trigger down.', focus: 'npg' },
   { id: 'liquid', title: 'THE LIQUID UNIT', line: 'It was meant to clean up after disasters. Something in it went mad. Seven metres of living silver with one red eye, and it is not Kweg, whatever the Erobotz say.', focus: 'liquid' },
   { id: 'record', title: 'THE RECORD', line: 'Every round you fire is written where nobody can erase it, and every one jams the Erobotz’ control of the tower. Fire at the Unit and it is pushed back. Stop, and it walks right through you.', focus: 'liquid' },
 ];
@@ -168,7 +171,7 @@ export const CHARACTERS: Character[] = [
     name: 'THE NINJA PUNK GIRLS',
     role: 'Rescue team · Team NPG',
     kind: 'hero',
-    bio: 'Neon hair, sharp blades and a van with no brakes. They know every back alley and every way into the tower. They are here to free Dr Wong and carry him out. You keep the guns loud.',
+    bio: 'Neon hair, sharp blades and a van with no brakes. They know every back alley and every way into the tower. They are here to free Dr Wong and keep him alive on the way out. You keep the guns loud.',
     threat: 'On your side. They keep the way clear while you hold the trigger.',
     colour: '#ff2f92',
   },
@@ -267,7 +270,7 @@ const STAGES: Omit<StageBrief, 'kweg'>[] = [
   { n: 1, code: 'STAGE 1 · STREET', place: 'THE STREET', title: 'STORM THE NODE', brief: 'The Erobotz and worse hold the street outside the nSLAVE tower. You walk on toward the lobby doors whatever happens. Keep the trigger down and sweep the gun across whatever comes at you.', intel: 'You never stop walking. A knockdown shields you and you fire on.', goal: 'Walk the street, hold the trigger' },
   { n: 2, code: 'STAGE 2 · HQ FLOORS', place: 'HQ FLOORS', title: 'THE LABS', brief: 'Through the lobby and down the corridor: glass labs, server racks, and something behind every desk. The corridor opens straight onto the server core. Smash what you like on the way.', intel: 'Rushers close in fast. Shoot their bolts out of the air.', goal: 'Walk the corridor, hold the trigger' },
   { n: 3, code: 'STAGE 3 · SERVER CORE', place: 'SERVER CORE', title: 'THE CENTRE', brief: 'The centre of nSLAVE: a shaft of glowing racks around TERRORNODE, the core that runs the Erobotz, with Dr Wong chained to it. Pour fire on the core as you pass. The girls cut him loose on the far side.', intel: 'Sustained fire on the core blows it for points. It re-arms.', goal: 'Walk round the core, hold the trigger' },
-  { n: 4, code: 'STAGE 4 · ROOFTOP', place: 'THE ROOFTOP', title: 'THE LIQUID UNIT', brief: 'ACT 2. The girls carry Dr Wong up out of the shaft to the roof and the helipad, the only way out. The Erobotz are angrier, and the Liquid Unit walks in between you and the chopper. Fire pushes it back.', intel: 'Heavy hitter. It staggers under sustained fire. Do not stop.', goal: 'Get him to the helipad, melt the Liquid Unit' },
+  { n: 4, code: 'STAGE 4 · ROOFTOP', place: 'THE ROOFTOP', title: 'THE LIQUID UNIT', brief: 'ACT 2. Dr Wong runs up out of the shaft with the girls to the roof and the helipad, the only way out. The Erobotz are angrier, and the Liquid Unit walks in between you and the chopper. Fire pushes it back. He keeps running the wrong way: stay close, or CALL KWEG (tap him, C or E). If he dies, the mission is lost.', intel: 'Heavy hitter. It staggers under sustained fire. Do not stop.', goal: 'Keep Dr Kweg alive, melt the Liquid Unit' },
 ];
 /** The briefing for stage n (1 to 4; out of range clamps). Dr Wong's radio line comes from KWEG. */
 export function stageBrief(n: number): StageBrief {
@@ -292,7 +295,7 @@ export const BRIEFING = {
   heading: 'MISSION BRIEFING',
   code: 'ESCAPE FROM TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTZ',
   from: 'The Ninja Punk Girls',
-  objective: 'Act 1, STORM THE NODE: the street, the HQ floors and the core, where Dr Kweg is freed. Act 2, ESCAPE FROM TERRORNODE: carry him to the roof, past the Liquid Unit. You have 100 health: stay alive.',
+  objective: 'Act 1, STORM THE NODE: the street, the HQ floors and the core, where Dr Kweg is freed. Act 2, ESCAPE FROM TERRORNODE: get him to the roof, past the Liquid Unit. He keeps running the wrong way: protect him. You have 100 health: stay alive.',
   rules: [
     'Hold the trigger to fire. In paid play every round is real; in free play they are practice rounds and nothing is sent.',
     'Clear the Erobotz to move up a stage. In the server core, sustained fire on the core jams the whole tower.',

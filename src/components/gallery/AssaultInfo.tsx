@@ -73,7 +73,7 @@ export function AssaultInfo({ paid }: { paid: boolean }) {
       <section className="tbx-glass p-4 text-sm text-[var(--tbx-dim)]" data-info>
         <p>
           Neo-Tokyo, 2048. The Ninja Punk Girls blast into the centre of the nSLAVE corporation to free their inventor, Dr Kweg S Wong, held hostage by his own inventions gone crazy, the Erobotz.
-          Act 1, STORM THE NODE: the street, the HQ floors and the core, where he is freed. Act 2, ESCAPE FROM TERRORNODE: carry him out over the roof, past the Liquid Unit.
+          Act 1, STORM THE NODE: the street, the HQ floors and the core, where he is freed. Act 2, ESCAPE FROM TERRORNODE: get him out over the roof, past the Liquid Unit. He keeps running the wrong way: protect him.
         </p>
         <p className="mt-2">
           {paid

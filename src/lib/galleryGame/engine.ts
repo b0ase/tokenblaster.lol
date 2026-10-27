@@ -35,6 +35,8 @@ import { buildCore, buildFloors, buildRoof, type StageSet, type World } from './
 import { LiquidUnit } from './boss';
 import { KWEG } from '../gallery/story';
 import { ErobotWave } from './enemies';
+import { EscortAI, type Pt } from './escort';
+import { KwegBody } from './kweg';
 import { Horde } from './horde';
 import { Bolts, type HurtKind } from './combat';
 import { TUNING } from './tuning';
@@ -69,9 +71,13 @@ export type Stats = {
   bossDist: number;
   /** The Liquid Unit is in play (stage 4). */
   bossOn: boolean;
+  /** Act 2 escort: Dr Kweg is out with you (CALL KWEG shows), his health. */
+  kwegOn: boolean;
+  kwegHp: number;
+  kwegMax: number;
 };
 /** Stage flow events for the page: the lift closes (`leave`), a stage opens (`enter`), the boss is down, the hostage is free. */
-export type StageEvent = { kind: 'enter'; stage: number; line: string } | { kind: 'boss' } | { kind: 'down' } | { kind: 'rescued' } | { kind: 'clear'; level: LevelId; score: number; rounds: number };
+export type StageEvent = { kind: 'enter'; stage: number; line: string } | { kind: 'boss' } | { kind: 'down' } | { kind: 'rescued' } | { kind: 'lost' } | { kind: 'clear'; level: LevelId; score: number; rounds: number };
 /** The player was hurt. `angle`: where it came from relative to the view (0 ahead, + right, +-PI behind). */
 export type Hurt = { angle: number; dmg: number; kind: HurtKind; hp: number; hpMax: number };
 export type Hooks = {
@@ -197,6 +203,14 @@ export class GalleryEngine {
   private coreHit = 0;
   private sinceCoreHit = 99;
   private rescue: { t: number; freed: boolean; sent: boolean } | null = null;
+  /** ACT 2 ESCORT (escort.ts / kweg.ts): Dr Kweg runs out with you and keeps running the wrong way. */
+  private escort = new EscortAI();
+  private kweg: KwegBody | null = null;
+  private escortOn = false;
+  /** He died: DR KWEG WONG IS LOST (the page offers a retry from the start of Act 2). */
+  private kwegLost = false;
+  private threatPts: Pt[] = [];
+  private kwegRay = new THREE.Raycaster();
   /** Act 2 (the roof, the way out): blood on the floors and walls, angrier Erobotz (see story.ts ACTS). */
   private blood: Blood | null = null;
   private bloodAt = new THREE.Vector3();
@@ -373,6 +387,7 @@ export class GalleryEngine {
       melee: (from, dmg) => this.hurt(from, dmg, 'melee'),
     });
     this.horde = new Horde(this.scene, this.fx, { high, lite: this.lite, flash: (at, c, i, ms) => this.flash(at, c, i, ms), melee: (from, dmg) => this.hurt(from, dmg, 'melee') });
+    this.kweg = new KwegBody(this.scene, high, this.canvas);
     this.boss.onEvent = (k, at) => this.bossEvent(k, at);
     this.boss.onAttack = (a) => this.bossAttack(a);
     this.scene.add(this.camera);
@@ -598,6 +613,7 @@ export class GalleryEngine {
         }
       }
       if (!this.freeLook) setNdc(e);
+      this.tapKweg(); // a tap / click on Dr Kweg calls him back (and still fires)
       this.setTrigger(true);
     };
     const up = (e: PointerEvent) => {
@@ -652,7 +668,9 @@ export class GalleryEngine {
       else if (e.code === 'KeyS' || e.code === 'ArrowDown') this.keyB = d;
       else if (e.code === 'ArrowLeft') this.keyTL = d;
       else if (e.code === 'ArrowRight') this.keyTR = d;
-      else return;
+      else if (e.code === 'KeyC' || e.code === 'KeyE') {
+        if (d && !e.repeat) this.callKweg();
+      } else return;
       e.preventDefault();
     };
     const kd = (e: KeyboardEvent) => key(e, true);
@@ -1038,6 +1056,7 @@ export class GalleryEngine {
     this.erobots.playerAlive = !this.dead;
     this.erobots.update(sd, this.camera, this.trigger);
     this.horde.update(sd, this.camera, !this.dead);
+    this.escortTick(sd);
     this.shake = Math.min(1, this.shake + this.horde.impulse);
     this.horde.impulse = 0;
     this.bolts.update(sd, this.camera.position, (from, dmg, kind) => this.hurt(from, dmg, kind));
@@ -1109,6 +1128,9 @@ export class GalleryEngine {
       bossPush: this.bossOn ? this.boss.pushNorm : 0,
       bossDist: this.bossOn && this.boss.alive ? this.boss.dist : 99,
       bossOn: this.bossOn,
+      kwegOn: this.escortOn && this.escort.alive && !this.rescue,
+      kwegHp: Math.ceil(this.escort.hp),
+      kwegMax: this.escort.hpMaxValue,
     };
   }
 
@@ -1135,8 +1157,9 @@ export class GalleryEngine {
 
   private lookAtHostage(dt: number) {
     const h = this.sets.roof?.hostage;
-    if (!h) return;
-    h.head.getWorldPosition(this.tA);
+    if (this.escortOn && this.kweg) this.tA.copy(this.kweg.chest).setY(1.4);
+    else if (h) h.head.getWorldPosition(this.tA);
+    else return;
     this.tA.project(this.camera);
     const k = Math.min(1, dt * 3);
     this.ndc.x += (THREE.MathUtils.clamp(this.tA.x, -0.8, 0.8) - this.ndc.x) * k;
@@ -1272,18 +1295,22 @@ export class GalleryEngine {
   private applyStage(i: number) {
     const from = this.stageIdx;
     this.stageIdx = i;
-    // ACT 2 (story.ts ACTS): Dr Wong is cut loose at the core and carried out over the roof. The way out is painted
+    // ACT 2 (story.ts ACTS): Dr Wong is cut loose at the core and runs out with you over the roof (the escort, escort.ts). The way out is painted
     // in blood, the Erobotz are a level angrier, and crossing over from the core gives a short breather for the card.
     if (i === 3) {
       this.blood?.scatter();
       this.sets.roof?.hostage?.free(-46);
+      this.startEscort();
       if (from === 2 && this.combat) {
         this.erobots.clearAll();
         this.horde.clearAll();
         this.bolts.clear();
         this.erobots.grace = this.horde.grace = TUNING.player.openingGrace + 2.5;
       }
-    } else this.blood?.clear();
+    } else {
+      this.blood?.clear();
+      this.stopEscort();
+    }
     this.world = this.setNow() ?? this.city;
     this.droneGroupVisible(i === 0);
     if (this.decal) this.decal.visible = i === 0;
@@ -1319,12 +1346,13 @@ export class GalleryEngine {
   }
 
   /** A fresh run: back to the street, everything reset, the hostage tied up again, the block clock at 0:00. */
-  startRun() {
+  startRun(fromAct2 = false) {
     this.rescue = null;
+    this.kwegLost = false;
     this.cleared = false;
     this.runRounds = 0;
     this.scoreAt = this.score;
-    this.runT = this.level.solo.from;
+    this.runT = fromAct2 ? Math.max(this.level.solo.from, TUNING.stages[3].at) : this.level.solo.from;
     this.routeD = 0;
     this.jamRounds = 0;
     this.sinceCoreHit = 99;
@@ -1339,6 +1367,7 @@ export class GalleryEngine {
       this.bossOn = false;
       showKit(this.bossKit, false);
     }
+    this.stopEscort();
     this.applyStage(this.stageAt(this.runT));
     this.walk(0);
     this.px = 0;
@@ -1471,7 +1500,7 @@ export class GalleryEngine {
       }
       return;
     }
-    if (!this.combat || this.cleared) return;
+    if (!this.combat || this.cleared || this.kwegLost) return;
     this.runT += dt;
     const L = this.level.solo;
     // a level without a boss clears when its window of the block is walked
@@ -1572,6 +1601,7 @@ export class GalleryEngine {
   private bossMelted() {
     if (!this.bossOn || this.rescue) return;
     this.rescue = { t: 0, freed: false, sent: false };
+    this.escort.safe();
     this.invuln = 999;
     this.erobots.clearAll();
     this.erobots.spawning = false;
@@ -1749,6 +1779,67 @@ export class GalleryEngine {
     this.hooks.current.died();
   }
 
+  // ── ACT 2 ESCORT ──
+
+  private startEscort() {
+    if (this.escortOn) return;
+    this.escortOn = true;
+    this.kwegLost = false;
+    this.escort.reset();
+    const h = this.sets.roof?.hostage;
+    if (h) h.group.visible = false; // the chair figure stays for Act 1; the real Kweg runs out with you
+    this.kweg?.show(true);
+  }
+
+  private stopEscort() {
+    this.escortOn = false;
+    this.kweg?.show(false);
+    const h = this.sets.roof?.hostage;
+    if (h) h.group.visible = true;
+  }
+
+  /** CALL KWEG (the C / E key, the phone button, a tap on him): he sprints back to you. */
+  callKweg() {
+    if (!this.escortOn || !this.combat || this.kwegLost) return false;
+    const ok = this.escort.call();
+    if (ok && this.kweg) this.fx.ring(this.tA.copy(this.kweg.chest).setY(0.3), '#ffd27a', 2.5, 0.4);
+    return ok;
+  }
+
+  private tapKweg() {
+    if (!this.escortOn || !this.kweg) return false;
+    this.kwegRay.setFromCamera(this.ndc, this.camera);
+    return this.kweg.hitBy(this.kwegRay.ray) && this.callKweg();
+  }
+
+  private escortTick(dt: number) {
+    if (!this.escortOn || !this.kweg) return;
+    if (this.combat && !this.dead && !this.kwegLost) {
+      const pts = this.threatPts;
+      pts.length = 0;
+      this.erobots.threats(pts);
+      this.horde.threats(pts);
+      const ev = this.escort.update(dt, { x: this.camera.position.x, z: this.camera.position.z }, pts);
+      if (ev === 'panic' && Math.random() < 0.5) sfx('hurt', 0.25);
+      if (ev === 'lost') this.lostKweg();
+    }
+    this.kweg.update(dt, this.escort, this.camera);
+  }
+
+  /** Dr Kweg is down: the mission fails (the page shows DR KWEG WONG IS LOST and a retry from Act 2). */
+  private lostKweg() {
+    this.kwegLost = true;
+    this.invuln = 999;
+    this.erobots.clearAll();
+    this.erobots.spawning = false;
+    this.horde.dismiss();
+    this.bolts.clear();
+    this.setTrigger(false);
+    this.shake = 1;
+    sfx('explosion', 0.6);
+    this.hooks.current.stage({ kind: 'lost' });
+  }
+
   /** Continue: back on your feet with full health and a few seconds of grace; the close attackers are cleared. */
   revive() {
     this.dead = false;
@@ -1760,6 +1851,7 @@ export class GalleryEngine {
     this.erobots.clearAll();
     this.horde.clearAll();
     this.erobots.grace = this.horde.grace = TUNING.player.reviveGrace + 0.5;
+    if (this.escortOn && this.escort.alive) this.escort.call(); // back on your feet: he comes running
     this.flash(this.camera.position.clone().add(new THREE.Vector3(0, 0.5, -3)), '#7cf9ff', 100, 500);
     this.fx.ring(this.tA.set(this.px, 0.3, -2), '#7cf9ff', 6, 0.6);
     this.hooks.current.hurt({ angle: 0, dmg: 0, kind: 'bolt', hp: this.hp, hpMax: this.hpMax });
@@ -1773,6 +1865,10 @@ export class GalleryEngine {
       if (this.bossOn && this.boss.alive && this.boss.hit(this.boss.hp + 1, this.boss.chest(new THREE.Vector3()))) this.bossMelted();
     },
     stage: () => this.stageIdx + 1,
+    kweg: () => ({ on: this.escortOn, state: this.escort.state, hp: this.escort.hp, x: this.escort.x, z: this.escort.z, lost: this.kwegLost }),
+    kwegAt: (x: number, z: number) => ((this.escort.x = x), (this.escort.z = z)),
+    kwegHurt: (n: number) => this.escort.hurt(n) === 'lost' && this.lostKweg(),
+    callKweg: () => this.callKweg(),
     /** Jump the block clock to `secs` (the stage follows it seamlessly). */
     setTime: (secs: number) => (this.runT = secs),
     setStage: (n: number) => {
@@ -1793,8 +1889,8 @@ export class GalleryEngine {
     noSpawn: () => this.erobots.setStage(TUNING.stages[this.stageIdx].lane, TUNING.stages[this.stageIdx].level),
     calm: (on: boolean) => (this.boss.calmed = on),
     look: (x: number, y: number) => this.ndc.set(x, y),
-    clearEnemies: () => (this.erobots.clearAll(), this.bolts.clear()),
-    spawning: (on: boolean) => (this.erobots.spawning = on),
+    clearEnemies: () => (this.erobots.clearAll(), this.horde.clearAll(), this.bolts.clear()),
+    spawning: (on: boolean) => (this.erobots.spawning = this.horde.spawning = on),
     /** Where the free-moving player is: x, metres off the auto-walk spot, view yaw, route metres, free-look on. */
     player: () => ({ x: this.px, z: this.pz, yaw: this.yaw, route: this.routeD, free: this.freeLook, combat: this.combat }),
     /** Dev only: drop a monster `z` metres straight in front of the view (a point-blank test). */
@@ -1955,6 +2051,7 @@ export class GalleryEngine {
     if (this.mgOn) minigun(false);
     this.cleanup.forEach((f) => f());
     this.ro?.disconnect();
+    this.kweg?.dispose();
     this.dressing?.dispose();
     this.blood?.dispose();
     this.city?.dispose();
