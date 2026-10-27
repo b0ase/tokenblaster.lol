@@ -53,6 +53,42 @@ function announced(ms: number): Promise<Announce[]> {
   });
 }
 
+/**
+ * Framed (bChatX's floating player, ?embed=1): bWalletX injects into https iframes only after one round trip
+ * to its background (bWalletX #407), so neither window.CWI nor an announce is there at load. Before calling it
+ * "no wallet", wait up to `ms` for a late announce (asking again every 400 ms) or a window.CWI to appear.
+ * Resolves with whatever answered (empty if nothing did). Timing only: what is offered is unchanged.
+ */
+export function waitForLateWallet(ms = 2000, poll = 100): Promise<Announce[]> {
+  return new Promise((done) => {
+    const found = new Map<string, Announce>();
+    const hasCwi = () => Boolean((window as { CWI?: unknown }).CWI);
+    let ended = false;
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<Announce>).detail;
+      if (d?.info?.rdns && d.wallet) {
+        found.set(d.info.rdns, d);
+        // a short grace so a CWI injected alongside the announce is seen by the caller too
+        setTimeout(finish, poll);
+      }
+    };
+    const finish = () => {
+      if (ended) return;
+      ended = true;
+      clearInterval(tick);
+      clearInterval(ask);
+      clearTimeout(cap);
+      window.removeEventListener('brc100:announceWallet', on);
+      done([...found.values()]);
+    };
+    window.addEventListener('brc100:announceWallet', on);
+    const tick = setInterval(() => hasCwi() && finish(), poll);
+    const ask = setInterval(() => window.dispatchEvent(new Event('brc100:requestWallet')), 400);
+    const cap = setTimeout(finish, ms);
+    if (hasCwi()) finish();
+  });
+}
+
 const CLI_SEEN = 'tb.cliWalletSeen';
 const localWalletSeen = () => {
   try {
@@ -134,6 +170,9 @@ async function discoverAll(): Promise<WalletEntry[]> {
     kind: a.info.kind ?? 'extension',
     wallet: a.wallet,
   }));
+  if (inFrame() && !list.length && !(window as { CWI?: unknown }).CWI)
+    for (const a of await waitForLateWallet())
+      if (!list.some((w) => w.id === a.info.rdns)) list.push({ id: a.info.rdns, name: a.info.name, icon: a.info.icon ?? null, kind: a.info.kind ?? 'extension', wallet: a.wallet });
 
   // A phone paired by QR earlier in this tab (§4.6): offer it again, so a reload reconnects to it.
   const phone = resumePhone();

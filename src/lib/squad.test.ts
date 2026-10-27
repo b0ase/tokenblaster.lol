@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { SQUAD, hurtMate, makeSquad, squadSlots, stepSquad, type SquadWorld } from './galleryGame/squad';
+import { SQUAD, hurtMate, keepClear, makeSquad, squadSlots, stepSquad, type SquadWorld } from './galleryGame/squad';
 
 const ROSTER = ['aika', 'ayumi', 'kimiko', 'nao', 'kazuyo'].map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1) }));
 const world = (o: Partial<SquadWorld> = {}): SquadWorld => ({ player: { x: 0, z: 0 }, foes: [], kweg: null, act: 1, playerDps: 100, ...o });
@@ -96,4 +96,55 @@ test('no payment from AI shots: the squad never touches wallet / pay / broadcast
   const body = eng.slice(eng.indexOf('private tickSquad('), eng.indexOf('  dispose() {'));
   assert.ok(body.length > 100);
   assert.doesNotMatch(body.replace(/\/\/.*$/gm, ''), /hooks|accept\(|pull\(/);
+});
+
+test('formation: flanks 3-6 m at 30-60 deg, far pair wider ahead; none in the 12 deg aim cone or within 2 m', () => {
+  for (const [i, f] of SQUAD.formation.entries()) {
+    const r = Math.hypot(f.x, f.z);
+    const deg = (Math.atan2(Math.abs(f.x), -f.z) * 180) / Math.PI;
+    assert.ok(deg > 12 && r > 2, `slot ${i}`);
+    if (i < 2) assert.ok(r >= 3 && r <= 6 && deg >= 30 && deg <= 60, `flank ${i}: ${r} m ${deg} deg`);
+    else assert.ok(-f.z > -SQUAD.formation[0].z && Math.abs(f.x) > Math.abs(SQUAD.formation[0].x), `far ${i}`);
+  }
+});
+
+test('formation turns with the camera and the girls never enter the aim cone or personal space', () => {
+  const sq = makeSquad(ROSTER, 'aika');
+  for (const fwd of [{ x: 1, z: 0 }, { x: 0, z: 1 }, { x: -Math.SQRT1_2, z: -Math.SQRT1_2 }]) {
+    const w = world({ player: { x: 3, z: 4, fwd } });
+    for (let t = 0; t < 10; t += 1 / 30) {
+      stepSquad(sq, w, 1 / 30, () => 0.5);
+      for (const m of sq) {
+        const dx = m.x - 3;
+        const dz = m.z - 4;
+        const r = Math.hypot(dx, dz);
+        const ahead = dx * fwd.x + dz * fwd.z;
+        assert.ok(r >= SQUAD.minR - 1e-6, `${m.id} ${r}`);
+        if (ahead > 0) assert.ok(Math.acos(Math.min(1, ahead / r)) >= SQUAD.clearCone - 1e-6, `${m.id} in cone`);
+      }
+    }
+    for (const m of sq) {
+      const dx = m.x - 3;
+      const dz = m.z - 4;
+      assert.ok(dx * fwd.x + dz * fwd.z > 2, `${m.id} settles ahead of the camera`);
+    }
+  }
+});
+
+test('keepClear: a girl dead on the crosshair or on top of the camera is pushed out', () => {
+  const f = { x: 0, z: -1 };
+  const a = keepClear(0, 0, f, 0, -5, 1);
+  assert.ok(Math.abs(a.x) >= 5 * Math.tan(SQUAD.clearCone));
+  const b = keepClear(0, 0, f, 0.1, 0, -1);
+  assert.ok(Math.hypot(b.x, b.z) >= SQUAD.minR - 1e-9);
+});
+
+test('engaged girls turn to face their target', () => {
+  const sq = makeSquad(ROSTER, 'aika');
+  const w = world({ foes: [{ id: 'e1', x: 20, z: -2 }] });
+  run(sq, w, 2);
+  for (const m of sq) {
+    assert.equal(m.target, 'e1');
+    assert.ok(Math.abs(m.yaw - Math.atan2(20 - m.x, -(-2 - m.z))) < 1e-9);
+  }
 });

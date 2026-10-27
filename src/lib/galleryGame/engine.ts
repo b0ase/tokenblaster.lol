@@ -332,6 +332,7 @@ export class GalleryEngine {
   private tB = v3();
   private tC = v3();
   private tD = v3();
+  private tE = v3();
   private tQ = new THREE.Quaternion();
   private m4 = new THREE.Matrix4();
 
@@ -2081,6 +2082,16 @@ export class GalleryEngine {
     // mobile-lite: the AI thinks at 10 Hz (desktop 30 Hz); the bodies still draw every frame
     this.squadAcc += dt;
     const gap = this.lite ? 0.1 : 1 / 30;
+    if (!live && this.squadAcc >= gap) {
+      // out of combat (intro walk, insert-coin, between stages): they still keep formation round the moving
+      // camera and out of its face, with no foes so nothing is shot (owner, 27 Oct: girls left behind the camera)
+      const step = Math.min(0.25, this.squadAcc);
+      this.squadAcc = 0;
+      this.camera.getWorldDirection(this.tE);
+      const fl = Math.hypot(this.tE.x, this.tE.z);
+      const fwd = fl > 1e-3 ? { x: this.tE.x / fl, z: this.tE.z / fl } : { x: 0, z: -1 };
+      stepSquad(this.squad, { player: { x: this.camera.position.x, z: this.camera.position.z, fwd }, foes: [], kweg: null, act: 1, playerDps: 0 }, step);
+    }
     if (live && this.squadAcc >= gap) {
       const t0 = performance.now();
       const step = Math.min(0.25, this.squadAcc);
@@ -2095,7 +2106,10 @@ export class GalleryEngine {
       this.dpsAcc = 0;
       this.dpsT = this.t;
       const p = this.camera.position;
-      const shots = stepSquad(this.squad, { player: { x: p.x, z: p.z }, foes, kweg: k, act: this.stageIdx >= 3 ? 2 : 1, playerDps: this.playerDps }, step);
+      this.camera.getWorldDirection(this.tE);
+      const fl = Math.hypot(this.tE.x, this.tE.z);
+      const fwd = fl > 1e-3 ? { x: this.tE.x / fl, z: this.tE.z / fl } : { x: 0, z: -1 };
+      const shots = stepSquad(this.squad, { player: { x: p.x, z: p.z, fwd }, foes, kweg: k, act: this.stageIdx >= 3 ? 2 : 1, playerDps: this.playerDps }, step);
       // AI rounds: straight damage to the Erobot. No hooks.pull / accept: nothing is paid, broadcast or split.
       for (const sh of shots) {
         const m = this.squad.find((x) => x.id === sh.mate);
