@@ -446,6 +446,14 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 px-4" data-team-over>
           <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#0a0b16] p-6 text-center">
             <p className="text-xs uppercase tracking-[0.3em] text-white/50">Match {state.id} over</p>
+            {chatOk && chat.msgs.length > 0 && (
+              // Your own copy of the chat (only what you could see) lives in this tab; the server kept nothing.
+              // TODO(bWalletX): hand chat.msgs to the bWalletX private (encrypted-to-your-key) mint hand-off once
+              // tokenblaster has one. No payment, fee or minting code here, and never auto-save.
+              <button type="button" disabled data-team-chat-save title="Coming soon: saves privately to your bWalletX" className="mt-2 rounded-full border border-white/15 px-3 py-1 text-[11px] uppercase tracking-widest text-white/40">
+                Save this match chat to my wallet · soon
+              </button>
+            )}
             <h2 className="mt-2 text-4xl font-black uppercase" style={{ color: state.winner === 'erobotz' || state.winner === 'horde' ? COLOUR.erobotz : COLOUR.npg }}>
               {state.winner === 'squad' ? 'TERRORNODE taken' : state.winner === 'horde' ? 'The horde holds' : state.winner === 'draw' ? 'Draw' : `${TEAM_NAME[state.winner as Team]} win`}
             </h2>
