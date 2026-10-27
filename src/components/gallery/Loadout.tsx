@@ -9,7 +9,8 @@ import { Brand } from '@/components/Brand';
 import { useState, type ReactNode } from 'react';
 import { liveCeiling, liveRate, patternLabel, roundsForFullRate, txPattern, type TxPattern } from '@/lib/gallery';
 import type { RangeWeapon } from '@/lib/bsvgun/weapons';
-import { BRIEFING, CHARACTERS, GAME_TITLE, SETTING, PRACTICE, TAGLINE, forPractice, stageBrief } from '@/lib/gallery/story';
+import { BloodTitle } from './BloodTitle';
+import { BRIEFING, CHARACTERS, SETTING, PRACTICE, TAGLINE, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Icon, useExisting } from '../coinop/ui';
 import { CharacterCard } from '../coinop/LoadingScreen';
 import { GunPreview } from './GunPreview';
@@ -30,7 +31,7 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
             <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
               <span className="inline-block h-[2px] w-6 bg-[var(--tbx-red)]" /> {SETTING}
             </p>
-            <h2 className="tbx-display mt-1.5 text-[clamp(38px,6vw,76px)]">{GAME_TITLE}</h2>
+            <h2 className="mt-1.5 text-[clamp(38px,6vw,76px)]"><BloodTitle /></h2>
           </div>
           <div className="flex flex-col items-end gap-2">
             <Link href="/arcade/terrornode/leaderboard" data-fs-skip className="tbx-btn !min-h-[36px] !px-3 !text-xs" data-info-link>

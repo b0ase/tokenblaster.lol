@@ -102,7 +102,7 @@ export async function notifySplit(txHex: string, q: SplitQuote, total: number, f
     const r = await f(fill(c.receive, p.alias), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hex: txHex, reference: d.reference, metadata: { note: 'Escape from TERRORNODE revenue (50/50 NPG Ltd · bCorp)' } }),
+      body: JSON.stringify({ hex: txHex, reference: d.reference, metadata: { note: 'Welcome to TERRORNODE revenue (50/50 NPG Ltd · bCorp)' } }),
       signal: AbortSignal.timeout(8000),
     }).catch(() => null);
     if (!r) return { ok: false, why: `${p.paymail} is unreachable.`, retry: true };

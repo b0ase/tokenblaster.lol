@@ -29,7 +29,7 @@ export type TeamLevel = {
 
 export const TEAM_LEVELS: Record<LevelId, TeamLevel> = {
   // the original team mode, unchanged: 10 waves of 4 + 3n
-  assault: { name: 'ESCAPE FROM TERRORNODE', waves: 10, base: 4, perWave: 3, speed: 2.4, speedPerWave: 0.25, hpK: 1, kinds: [0, 1, 2, 3, 4] },
+  assault: { name: 'WELCOME TO TERRORNODE', waves: 10, base: 4, perWave: 3, speed: 2.4, speedPerWave: 0.25, hpK: 1, kinds: [0, 1, 2, 3, 4] },
   market: { name: 'nSLAVE MARKET', waves: 5, base: 6, perWave: 3, speed: 3.0, speedPerWave: 0.3, hpK: 0.8, kinds: [0, 1, 1, 3] },
   rails: { name: 'THE WAY UP', waves: 6, base: 5, perWave: 3, speed: 3.4, speedPerWave: 0.3, hpK: 0.9, kinds: [2, 3, 4] },
   datacore: { name: 'THE CENTRE', waves: 7, base: 6, perWave: 4, speed: 2.6, speedPerWave: 0.22, hpK: 1.2, kinds: [4, 2, 0] },

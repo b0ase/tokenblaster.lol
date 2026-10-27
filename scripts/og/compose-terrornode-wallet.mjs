@@ -86,7 +86,7 @@ try {
   const logo = await sharp(logoPng).png({ palette: true, quality: 90, compressionLevel: 9 }).toBuffer();
   await sharp(logo).toFile(`${outDir}/terrornode-wallet-logo.png`); console.log('wrote terrornode-wallet-logo.png', logo.length);
   // 2. card 1011x637
-  await jpg(await shot(await scene(cardFrame, 1011, 637, { dir: '180deg', stop: 18, zoom: 1.05, fx: 0.6, fy: 0.6, eyeX: 36, eyeY: 34, eye: 128, tx: 182, ty: 44, size: 124, ky: 168, ks: 17, kicker: 'ROOM // ESCAPE FROM TERRORNODE' }), 1011, 637, 120), 'terrornode-wallet-card.jpg');
+  await jpg(await shot(await scene(cardFrame, 1011, 637, { dir: '180deg', stop: 18, zoom: 1.05, fx: 0.6, fy: 0.6, eyeX: 36, eyeY: 34, eye: 128, tx: 182, ty: 44, size: 124, ky: 168, ks: 17, kicker: 'ROOM // WELCOME TO TERRORNODE' }), 1011, 637, 120), 'terrornode-wallet-card.jpg');
   // 3. banner 1500x500
   await jpg(await shot(await scene(bannerFrame, 1500, 500, { dir: '90deg', stop: 34, zoom: 1, fx: 0.5, fy: 0.62, eyeX: 48, eyeY: 120, eye: 210, tx: 290, ty: 120, size: 170, ky: 82, ks: 20, kicker: '$TERRORNODE ROOM // EVERY BULLET = 1 REAL BSV TX' }), 1500, 500, 150), 'terrornode-room-banner.jpg');
 } finally { await b.close(); }

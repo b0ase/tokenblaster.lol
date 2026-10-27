@@ -24,7 +24,7 @@
  * Here he is the hostage on the radio: dry, polite, unflappable pleas and review comments.
  */
 
-export const GAME_TITLE = 'ESCAPE FROM TERRORNODE';
+export const GAME_TITLE = 'WELCOME TO TERRORNODE';
 export const GAME_KICKER = 'TOKENBLASTER SHOOTING GALLERY';
 export const SETTING = 'NEO-TOKYO · 2048';
 /** The launch call to action (owner, 27 Oct 2026): the START label wherever a call to action fits. */
@@ -293,7 +293,7 @@ export const BANNERS = {
 
 export const BRIEFING = {
   heading: 'MISSION BRIEFING',
-  code: 'ESCAPE FROM TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTZ',
+  code: 'WELCOME TO TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTZ',
   from: 'The Ninja Punk Girls',
   objective: 'Act 1, STORM THE NODE: the street, the HQ floors and the core, where Dr Kweg is freed. Act 2, ESCAPE FROM TERRORNODE: get him to the roof, past the Liquid Unit. He keeps running the wrong way: protect him. You have 100 health: stay alive.',
   rules: [

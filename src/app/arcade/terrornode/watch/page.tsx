@@ -1,7 +1,7 @@
 import { WatchView } from './WatchView';
 
 export const metadata = {
-  title: 'Watch · Escape from TERRORNODE',
+  title: 'Watch · Welcome to TERRORNODE',
   description: 'Spectate a TERRORNODE team match live: all 16 players, the round counter and the transactions a second. No wallet needed.',
   robots: { index: false },
 };
