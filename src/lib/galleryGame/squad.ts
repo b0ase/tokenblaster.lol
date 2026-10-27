@@ -51,15 +51,16 @@ export type SquadShot = { mate: string; foe: string; dmg: number };
 export const SQUAD = {
   /**
    * Formation in the player's VIEW frame (x right, z back; -z is ahead), one per AI slot (owner, 27 Oct: they
-   * stood in front of the camera, backs of heads blocking the shot). Two flank at ~5.5 m / ~32 deg off the
-   * view axis, two further ahead and out wide (~10 m / ~30 deg): inside the 60 deg FOV (feet included, past
-   * the ~3 m the eye line hides) at 16:10 and phone landscape, and well clear of the crosshair.
+   * stood in front of the camera, backs of heads blocking the shot). Two flank at ~6.8 m / ~30 deg off the
+   * view axis, two further ahead and out wide (~11.8 m / ~28 deg): inside the 60 deg FOV at 16:10 and phone
+   * landscape, feet included even with the camera tilted ~13 deg up at the tower (nearer than ~5.9 m ahead the
+   * feet drop out of frame), and well clear of the crosshair.
    */
   formation: [
-    { x: -2.9, z: -4.7 },
-    { x: 2.9, z: -4.7 },
-    { x: -5.0, z: -8.8 },
-    { x: 5.0, z: -8.8 },
+    { x: -3.4, z: -5.9 },
+    { x: 3.4, z: -5.9 },
+    { x: -5.6, z: -10.4 },
+    { x: 5.6, z: -10.4 },
   ] as const,
   /** Never inside this half-angle (rad, ~12 deg) round the crosshair, nor closer than `minR` m to the camera. */
   clearCone: (12 * Math.PI) / 180,
@@ -217,8 +218,8 @@ export function stepSquad(mates: Mate[], w: SquadWorld, dt: number, rnd: () => n
     if (!foe) {
       m.state = 'follow';
       m.target = null;
-      // idle: face ahead with the player, turned a little outward (three-quarter, not the back of her head)
-      m.yaw = Math.atan2(fw.x, -fw.z) + side * 0.7;
+      // idle: turned in across the street (~70 deg), so the camera sees her profile, not the back of her head
+      m.yaw = Math.atan2(fw.x, -fw.z) - side * 1.2;
       continue;
     }
     m.state = protect ? 'protect' : 'engage';

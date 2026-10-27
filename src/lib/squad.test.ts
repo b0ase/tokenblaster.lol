@@ -98,12 +98,12 @@ test('no payment from AI shots: the squad never touches wallet / pay / broadcast
   assert.doesNotMatch(body.replace(/\/\/.*$/gm, ''), /hooks|accept\(|pull\(/);
 });
 
-test('formation: flanks 3-6 m at 30-60 deg, far pair wider ahead; none in the 12 deg aim cone or within 2 m', () => {
+test('formation: flanks ~3-7 m at 30-60 deg, far pair wider ahead; none in the 12 deg aim cone or within 2 m', () => {
   for (const [i, f] of SQUAD.formation.entries()) {
     const r = Math.hypot(f.x, f.z);
     const deg = (Math.atan2(Math.abs(f.x), -f.z) * 180) / Math.PI;
     assert.ok(deg > 12 && r > 2, `slot ${i}`);
-    if (i < 2) assert.ok(r >= 3 && r <= 6 && deg >= 30 && deg <= 60, `flank ${i}: ${r} m ${deg} deg`);
+    if (i < 2) assert.ok(r >= 3 && r <= 7 && deg >= 29.5 && deg <= 60, `flank ${i}: ${r} m ${deg} deg`);
     else assert.ok(-f.z > -SQUAD.formation[0].z && Math.abs(f.x) > Math.abs(SQUAD.formation[0].x), `far ${i}`);
   }
 });
