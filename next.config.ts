@@ -9,6 +9,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://web.bwalletx.com https://desktop.bwalletx.com capacitor://localhost" }] },
+      // TERRORNODE in the bChatX room's floating player (?embed=1, owner 27 Oct 2026): that route only, also framable by
+      // bchatx.com. Listed after the catch-all so this value wins (Next: the last matching header with the same key).
+      {
+        source: '/arcade/terrornode',
+        has: [{ type: 'query', key: 'embed', value: '1' }],
+        headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://web.bwalletx.com https://desktop.bwalletx.com capacitor://localhost https://www.bchatx.com https://bchatx.com" }],
+      },
       // 1Sat Ordnance models and art, loadable by wallets' 3D display cabinets (bWalletX).
       { source: '/arena/models/guns/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
       { source: '/ordnance/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
