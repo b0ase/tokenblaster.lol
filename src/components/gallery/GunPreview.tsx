@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadGunModel } from '@/lib/ordnanceModels';
+import { isMobileLite } from '@/lib/mobileLite';
 
 /** A slowly turning 3D model of one gun, for the loadout cards. */
 export function GunPreview({ url, active }: { url: string; active: boolean }) {
@@ -18,7 +19,10 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
   useEffect(() => {
     void Promise.resolve().then(() => setCoarse(window.matchMedia('(pointer: coarse)').matches));
   }, []);
-  const live = !coarse || active;
+  // Mobile-lite: the game holds the only WebGL context, so the cards show no 3D model at all (read on the
+  // client before the first effect, so a phone never opens a second context even briefly)
+  const [lite] = useState(() => typeof window !== 'undefined' && isMobileLite());
+  const live = !lite && (!coarse || active);
   useEffect(() => {
     const cv = ref.current;
     if (!cv || !live) return;

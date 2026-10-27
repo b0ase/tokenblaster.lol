@@ -64,7 +64,7 @@ export type Look = {
 };
 
 /** Load the PBR sets and the HDRI. Any file that fails is skipped (callers fall back to the Arena textures). */
-export async function loadLook(renderer: THREE.WebGLRenderer, quality: Quality, onProgress?: (p: number) => void): Promise<Look> {
+export async function loadLook(renderer: THREE.WebGLRenderer, quality: Quality, onProgress?: (p: number) => void, opts: { env?: boolean } = {}): Promise<Look> {
   const aniso = quality === 'high' ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 2;
   const mgr = new THREE.LoadingManager();
   mgr.onProgress = (_u, d, t) => onProgress?.(t ? d / t : 0);
@@ -92,7 +92,8 @@ export async function loadLook(renderer: THREE.WebGLRenderer, quality: Quality, 
     }),
   );
   let env: THREE.Texture | null = null;
-  try {
+  // the mobile-lite tier skips the HDRI (1.6 MB download plus the PMREM cube on the GPU)
+  if (opts.env !== false) try {
     const hdr = await new HDRLoader(mgr).loadAsync('/doubleo/warehouse_1k.hdr');
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     const pm = new THREE.PMREMGenerator(renderer);
