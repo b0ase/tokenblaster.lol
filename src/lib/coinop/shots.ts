@@ -14,8 +14,8 @@ import { usdToSats } from './credit';
 /** The settlement tx's own network fee margin, held back from a load (with RECEIPT_GAS). */
 export const SETTLE_FEE = 300;
 
-/** The live receipt curve position: receipts issued so far and 1 US penny in sats. null: receipts off. */
-export type ReceiptCurve = { issued: number; pennySats: number } | null;
+/** The live receipt curve position: receipts issued so far (the price is fixed in sats). null: receipts off. */
+export type ReceiptCurve = { issued: number } | null;
 
 /** "1 sat", "30 sats". */
 export const satsWord = (n: number) => `${n.toLocaleString('en-US')} sat${n === 1 ? '' : 's'}`;
@@ -23,7 +23,7 @@ export const satsWord = (n: number) => `${n.toLocaleString('en-US')} sat${n === 
 /** Shots `sats` buys now, after the load overhead (and the receipts settlement, when receipts are on). */
 export function shotsForSats(sats: number, feeSats: number, receipt: ReceiptCurve): number {
   if (!(sats > 0) || !(feeSats > 0)) return 0;
-  const n = (s: number) => (receipt ? shotsFor(s - RECEIPT_GAS - SETTLE_FEE, feeSats, receipt.issued, receipt.pennySats) : roundsFor(s, feeSats));
+  const n = (s: number) => (receipt ? shotsFor(s - RECEIPT_GAS - SETTLE_FEE, feeSats, receipt.issued) : roundsFor(s, feeSats));
   const first = n(sats);
   return n(Math.max(0, sats - overheadSats(first)));
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { tradingOf } from '@/lib/launch/receipts';
+import { GRADUATE_AT, tradingOf } from '@/lib/launch/receipts';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { presetBsv } from '@/lib/buyPreset';
@@ -41,6 +41,10 @@ type Coin = {
   graduated_at: string | null;
   grad_rank: number | null;
   created_at: string;
+  trading?: boolean;
+  earn_url?: string;
+  receipts_issued?: number | null;
+  graduate_at?: number;
 };
 type Reserves = { expected: { bsv: number; tokens: number }; ledger: { bsv: number; tokens: number }; chain: { bsv: number | null; tokens: number | null; checkedAt: number } };
 
@@ -211,16 +215,8 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
       </div>
 
       <aside className="flex flex-col gap-3">
-        {!tradingOf(c.token_id) ? (
-          <section className="panel text-sm">
-            <p className="panel-title">Play to earn</p>
-            <p className="mt-2">This coin is not bought or sold on BlastPad.</p>
-            <a className="btn btn-on mt-3 block text-center" href="/arcade/terrornode">
-              Earn ${c.sym} by playing Escape from TERRORNODE
-            </a>
-            <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt; the price rises as receipts sell. No sell-back.</p>
-          </section>
-        ) : (
+        {c.earn_url && <EarnPanel c={c} />}
+        {!(c.trading ?? tradingOf(c.token_id, c.receipts_issued ?? null)) ? null : (
         <TradePanel
           presetUsd={presetUsd}
           indexed={data.indexed ?? null}
@@ -884,6 +880,31 @@ function TradePanel({ coin, icon, wallet, onConnect, rate, onDone, indexed, pres
         </p>
       )}
       <p className="mt-2 text-xs text-muted">One atomic BSV transaction per trade: tokens and BSV move together or not at all.</p>
+    </section>
+  );
+}
+
+/** A play-to-earn coin: earn by playing, and progress to graduation (then it trades on the curve too). */
+function EarnPanel({ c }: { c: Coin }) {
+  const goal = c.graduate_at ?? GRADUATE_AT;
+  const n = c.receipts_issued ?? null;
+  const grad = n != null && n >= goal;
+  return (
+    <section className="panel text-sm" data-earn-panel>
+      <p className="panel-title">Play to earn</p>
+      <p className="mt-2">{grad ? `Graduated: $${c.sym} now trades on BlastPad, and playing still earns it.` : `$${c.sym} is earned by playing. It trades on BlastPad once ${(goal / 1e6).toLocaleString('en-US')}M shots are fired.`}</p>
+      {n != null && !grad && (
+        <>
+          <Segments v={Math.min(1, n / goal)} />
+          <p className="mt-1 text-xs text-muted" data-grad-progress>
+            {n.toLocaleString('en-US')} / {(goal / 1e6).toLocaleString('en-US')}M shots to graduation
+          </p>
+        </>
+      )}
+      <a className="btn btn-on mt-3 block text-center" href="/arcade/terrornode">
+        Earn ${c.sym} by playing Escape from TERRORNODE
+      </a>
+      <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt, 1 sat for the first rising to 200 sats for the last of the 1B. Earned coins are not sold back.</p>
     </section>
   );
 }
