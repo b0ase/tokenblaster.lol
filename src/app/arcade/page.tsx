@@ -6,6 +6,7 @@ import { byTitle } from '@/lib/alpha';
 import { GAMES } from '@/lib/games';
 import { ARCADE_CARD, shareImages } from '@/lib/og';
 import { OfficialNpg } from '@/components/terrornode/OfficialNpg';
+import { BAdsRail } from '@/components/BAdsRail';
 
 const description = 'Games built on the live BSV chain: shoot your own tokens, dodge real mainnet traffic, and more on the way.';
 export const metadata = {
@@ -118,6 +119,7 @@ export default function ArcadePage() {
           ))}
         </div>
       </section>
+    <BAdsRail />
     </main>
   );
 }

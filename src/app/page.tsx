@@ -17,6 +17,7 @@ import { CountUp } from '@/components/home/CountUp';
 import { tbxDisplay, tbxUi } from '@/components/coinop/fonts';
 import { byTitle } from '@/lib/alpha';
 import { GAMES, type Game } from '@/lib/games';
+import { BAdsRail } from '@/components/BAdsRail';
 
 /** Every live cabinet, from the one list the arcade page uses (src/lib/games.ts), so count, order, tags and blurbs match. */
 const TILES = byTitle(GAMES).filter((g): g is Game & { href: string } => g.status === 'live' && Boolean(g.href));
@@ -218,6 +219,7 @@ export default function Home() {
         </dl>
        </div>
       </section>
+    <BAdsRail docked={false} />
     </main>
   );
 }
