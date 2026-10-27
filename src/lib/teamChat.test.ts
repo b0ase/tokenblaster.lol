@@ -57,7 +57,7 @@ const PORT = 20_000 + Math.floor(Math.random() * 2000);
 const BASE = `http://127.0.0.1:${PORT}`;
 let srv: ChildProcess;
 before(async () => {
-  srv = spawn('node_modules/.bin/tsx', ['server/terrornode-team/server.ts'], { env: { ...process.env, PORT: String(PORT), ALLOW_ORIGINS: '' }, stdio: 'pipe' });
+  srv = spawn('node_modules/.bin/tsx', ['server/terrornode-team/server.ts'], { env: { ...process.env, PORT: String(PORT), ALLOW_ORIGINS: '', TEAM_BOTS: '0' }, stdio: 'pipe' });
   for (let i = 0; i < 100; i++) {
     if (await fetch(`${BASE}/health`).then((r) => r.ok).catch(() => false)) return;
     await new Promise((r) => setTimeout(r, 100));

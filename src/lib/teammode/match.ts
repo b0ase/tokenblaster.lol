@@ -104,6 +104,8 @@ export type Player = {
   resume: string;
   streamSlot: string | null;
   host: boolean;
+  /** A server-run AI NPG girl (./bots.ts) filling an empty seat: never host, never paid, earns nothing. */
+  bot?: boolean;
 };
 
 /** `kind` indexes the scene's horde skins; BOSS_KIND is the level's boss (one huge Erobot on the last wave). */
@@ -247,6 +249,48 @@ export function join(m: Match, o: { name: string; identityKey?: string | null; s
   return { ok: true, player: p, resumed: false };
 }
 
+/**
+ * Seat an AI NPG girl (./bots.ts): always on the NPG side, never host, no identity key, spawned like a player.
+ * Returns null when the side or the match is full. `p` re-seats a bot parked by `parkBots` (keeps her state).
+ */
+export function seatBot(m: Match, o: { id: string; name: string; now: number }, p?: Player): Player | null {
+  if (m.phase === 'over' || m.players.size >= MAX_PLAYERS) return null;
+  if (m.mode === 'pvp' && sideCount(m, 'npg') >= MAX_PER_SIDE) return null;
+  if (p) {
+    m.players.set(p.id, p);
+    return p;
+  }
+  const b: Player = {
+    id: o.id,
+    name: cleanName(o.name),
+    identityKey: null,
+    team: 'npg',
+    x: 0,
+    z: 0,
+    yaw: 0,
+    hp: statsFor(m.mode, 'npg').hp,
+    alive: true,
+    respawnAt: 0,
+    kills: 0,
+    deaths: 0,
+    score: 0,
+    shots: 0,
+    txShots: 0,
+    lastShot: 0,
+    lastMove: o.now,
+    connected: true,
+    droppedAt: 0,
+    resume: '',
+    streamSlot: null,
+    host: false,
+    bot: true,
+  };
+  place(m, b);
+  m.players.set(b.id, b);
+  m.events.push({ k: 'spawn', id: b.id });
+  return b;
+}
+
 /** Lobby only (PvP): switch sides if the other side has room and it does not stack it by more than one. */
 export function pickSide(m: Match, id: string, side: Team): { ok: boolean; error?: string } {
   const p = m.players.get(id);
@@ -286,7 +330,7 @@ function removePlayer(m: Match, id: string) {
   const p = m.players.get(id);
   m.players.delete(id);
   if (p?.host) {
-    const next = [...m.players.values()][0];
+    const next = [...m.players.values()].find((q) => !q.bot);
     if (next) next.host = true;
   }
 }
@@ -351,7 +395,8 @@ export function shoot(m: Match, id: string, yaw: unknown, txid: unknown, now: nu
   if (now - p.lastShot < st.shotGapMs) return { ok: false, error: 'too fast' };
   p.lastShot = now;
   p.shots++;
-  if (typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid)) {
+  // bots fire free rounds: never a transaction, never counted as one
+  if (!p.bot && typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid)) {
     p.txShots++;
     logTx(m, 1, now);
   }
@@ -382,7 +427,7 @@ export function shoot(m: Match, id: string, yaw: unknown, txid: unknown, now: nu
     if (killed) {
       kill(m, q, now);
       p.kills++;
-      p.score += RULES.fragScore;
+      if (!p.bot) p.score += RULES.fragScore;
       m.frags[p.team]++;
       m.events.push({ k: 'kill', by: p.id, on: q.id, x: q.x, z: q.z });
       if (m.frags[p.team] >= RULES.fragLimit) end(m, now);
@@ -397,7 +442,7 @@ export function shoot(m: Match, id: string, yaw: unknown, txid: unknown, now: nu
   if (killed) {
     m.enemies = m.enemies.filter((x) => x !== e);
     p.kills++;
-    p.score += RULES.killScore;
+    if (!p.bot) p.score += RULES.killScore;
     m.frags.npg++;
     m.events.push({ k: 'kill', by: p.id, on: eid, x: e.x, z: e.z });
   }
@@ -706,9 +751,11 @@ export function publicState(m: Match, now: number, opts: { inviteBase?: string }
   const players = [...m.players.values()].map((p) => ({
     id: p.id,
     name: p.name,
-    identityKey: p.identityKey,
+    identityKey: p.bot ? null : p.identityKey,
     team: p.team,
     host: p.host,
+    /** An AI NPG girl the server runs in an empty seat (shown with an AI tag, never a paymail). */
+    bot: Boolean(p.bot),
     score: p.score,
     kills: p.kills,
     deaths: p.deaths,
@@ -768,7 +815,7 @@ export type PublicState = ReturnType<typeof publicState>;
 export function confirmTx(m: Match, id: string, n: unknown, now = Date.now()) {
   const p = m.players.get(id);
   const k = Math.floor(fin(n));
-  if (!p || k <= 0) return;
+  if (!p || p.bot || k <= 0) return;
   const before = p.txShots;
   p.txShots = Math.min(p.shots, p.txShots + Math.min(k, 1000));
   logTx(m, p.txShots - before, now);
