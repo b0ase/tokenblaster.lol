@@ -1787,10 +1787,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                 <img src="/hero/assault.jpg" alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover opacity-70" />
                 {phoneLand && <div className="absolute left-3 top-2 z-[1]">{charStrip}</div>}
                 <div className="relative flex flex-col gap-3 bg-gradient-to-t from-black/90 via-black/55 to-black/10 p-4 pt-24 sm:flex-row sm:items-end sm:justify-between sm:p-6 sm:pt-32" data-start-body>
+                  {/* Owner 27 Oct: no free-practice button on the site; paid play (LOCK & LOAD) only. */}
+                  {freePlayProp && (
                   <div>
-                    <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">{freePlay ? 'FREE PRACTICE · NO WALLET · NOTHING ON CHAIN' : 'NEW HERE? PLAY FREE FIRST'}</p>
-                    <p className="mt-1 max-w-[440px] text-sm text-white/85" data-start-copy>Practice rounds are simulated: nothing is paid, signed or broadcast. Pick PAID ROUNDS later to fire real BSV transactions.</p>
+                    <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">FREE PRACTICE · NO WALLET · NOTHING ON CHAIN</p>
+                    <p className="mt-1 max-w-[440px] text-sm text-white/85" data-start-copy>Practice rounds are simulated: nothing is paid, signed or broadcast.</p>
                   </div>
+                  )}
                   <div className="flex flex-col gap-2 sm:items-end">
                     {playInBwallet && !playHere ? (
                       <>
@@ -1799,7 +1802,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                           Play here anyway
                         </button>
                       </>
-                    ) : (
+                    ) : freePlayProp && (
                       <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-6 py-2 text-2xl sm:px-10 sm:text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>
                         ▶ {CTA} <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
                       </button>
