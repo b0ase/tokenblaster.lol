@@ -662,7 +662,8 @@ export class Gun {
    */
   /** `pay`: an optional payment output in every blast (e.g. 1 sat to the house per game action). */
   /** `signal`: once aborted, nothing more is broadcast (START's timeout cancels the play payment, src/lib/coinop/startPlay.ts). */
-  async fireBatch(token: string, startN: number, extras: string[][], pay?: { address: string; sats: number }, signal?: AbortSignal): Promise<string[]> {
+  async fireBatch(token: string, startN: number, extras: string[][], pay?: { address: string; sats: number } | { address: string; sats: number }[], signal?: AbortSignal): Promise<string[]> {
+    const pays = pay ? (Array.isArray(pay) ? pay : [pay]) : [];
     const abortCheck = () => {
       if (signal?.aborted) throw new Error('START_ABORTED');
     };
@@ -685,7 +686,7 @@ export class Gun {
           const tx = new Transaction();
           tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
           tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
-          if (pay) tx.addOutput({ lockingScript: new P2PKH().lock(pay.address), satoshis: pay.sats });
+          for (const p of pays) tx.addOutput({ lockingScript: new P2PKH().lock(p.address), satoshis: p.sats });
           tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
           await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
           await tx.sign();

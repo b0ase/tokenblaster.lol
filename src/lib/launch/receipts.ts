@@ -8,20 +8,29 @@
  * closed form, rounded up once per range.
  * Graduation: once 10,000,000 receipts are issued, $TERRORNODE also trades on its BlastPad curve; earning by playing
  * carries on at the same receipt curve until all 1B are issued, then receipts stop (the game keeps working).
- * At session end the gun pays the receipt money for the rounds fired to the creator address in ONE settlement tx
- * that carries the session's tag; the server checks it and sends that many TERRORNODE from the pool in ONE transfer.
+ * At session end the gun pays the receipt money for the rounds fired, split 50/50 to NPG Ltd and bCorp
+ * (src/lib/launch/split.ts, owner 27 Oct 2026; it used to go to one creator address), in ONE settlement tx that
+ * carries the session's tag; the server checks it and sends that many TERRORNODE from the pool in ONE transfer.
  *
  * Settlement tx outputs (any order, the gun's change last):
  *   OP_FALSE OP_RETURN "tokenblaster.lol" "terrornode" "receipts" <count> <recipient address> <session id> <handle>
- *   P2PKH → RECEIPT_CREATOR  ≥ rangeSats(issued+1, count, pennySats)
+ *                      "split" <npg prefix> <npg suffix> <npg reference> <bcorp prefix> <bcorp suffix> <bcorp reference>
+ *   P2PKH → NPG Ltd's pinned one-time address  floor(paid / 2)
+ *   P2PKH → bCorp's pinned one-time address    paid − floor(paid / 2)     (paid ≥ rangeSats(issued+1, count, pennySats))
  *   P2PKH → the pool's gas address ≥ RECEIPT_GAS (pays the network fee of the server's token transfer)
  * The recipient is inside the paid tx, so a txid can never be claimed for another address.
  */
 import { P2PKH, Transaction, Utils } from '@bsv/sdk';
+import { derivedAddress, payeeOf, readSplit, type SplitQuote } from './split';
+const derivedAddressOf = (id: 'npg' | 'bcorp', prefix: string, suffix: string) => derivedAddress(payeeOf(id).identityKey, prefix, suffix);
 
 export const TERRORNODE_ID = 'd5ffbbfd8310dcb6763c7180b8dbc725b708d0ce990f93cd27d00ff24aa0de02_1';
 export const TERRORNODE_SYM = 'TERRORNODE';
-export const RECEIPT_CREATOR = '1F4J9KkMoqtznXPJuCgb98LRymssc8MFfd';
+/**
+ * Where receipt money went before the 27 Oct 2026 split. Read-only: the server still honours settlements already
+ * paid there (so nobody loses tokens they paid for), but nothing quotes or pays it any more.
+ */
+export const LEGACY_RECEIPT_CREATOR = '1F4J9KkMoqtznXPJuCgb98LRymssc8MFfd';
 export const RECEIPT_SUPPLY = BigInt(1_000_000_000);
 export const RECEIPT_GAS = 300; // sats per settlement for the server's one token transfer
 export const EARN_URL = 'https://www.tokenblaster.lol/arcade/terrornode';
@@ -117,9 +126,10 @@ export const isAddress = (a: unknown): a is string => typeof a === 'string' && /
 
 export type Settlement = { count: number; recipient: string; session: string; handle: string };
 
-/** The OP_RETURN script (ASM) for a settlement. */
-export function settlementAsm(s: Settlement) {
-  return `OP_FALSE OP_RETURN ${[...RECEIPT_TAG, String(s.count), s.recipient, s.session, s.handle.slice(0, 64)].map(hex).join(' ')}`;
+/** The OP_RETURN script (ASM) for a settlement, carrying the split's derivations so the server can re-check them. */
+export function settlementAsm(s: Settlement, q: SplitQuote) {
+  const split = ['split', q.npg.prefix, q.npg.suffix, q.npg.reference, q.bcorp.prefix, q.bcorp.suffix, q.bcorp.reference];
+  return `OP_FALSE OP_RETURN ${[...RECEIPT_TAG, String(s.count), s.recipient, s.session, s.handle.slice(0, 64) || '-', ...split].map(hex).join(' ')}`;
 }
 
 /** The data pushes of a script body (after OP_FALSE OP_RETURN), read straight from the bytes. */
@@ -147,27 +157,50 @@ function pushes(b: number[]): number[][] {
   return out;
 }
 
-/** Read a settlement tx: its tag, and what it paid to the creator and to the gas address. */
-export function readSettlement(tx: Transaction, gasAddress: string): (Settlement & { paid: bigint; gas: bigint }) | null {
+export type ReadSettlement = Settlement & { paid: bigint; gas: bigint; split: SplitQuote | null; splitError?: string };
+
+/**
+ * Read a settlement tx: its tag, what it paid to the revenue split (exactly 50/50 to the pinned NPG Ltd / bCorp
+ * destinations named in the tag, else paid = 0 and `splitError` says why) and to the gas address. A settlement
+ * with no split in its tag is a pre-split one: paid = what it sent to LEGACY_RECEIPT_CREATOR.
+ */
+export function readSettlement(tx: Transaction, gasAddress: string): ReadSettlement | null {
   let s: Settlement | null = null;
-  let paid = BigInt(0);
+  let chunks: string[] = [];
+  let legacy = BigInt(0);
   let gas = BigInt(0);
-  const creator = new P2PKH().lock(RECEIPT_CREATOR).toHex();
+  const creator = new P2PKH().lock(LEGACY_RECEIPT_CREATOR).toHex();
   const gasLock = new P2PKH().lock(gasAddress).toHex();
   for (const o of tx.outputs) {
     const h = o.lockingScript.toHex();
-    if (h === creator) paid += BigInt(o.satoshis ?? 0);
+    if (h === creator) legacy += BigInt(o.satoshis ?? 0);
     else if (h === gasLock) gas += BigInt(o.satoshis ?? 0);
     else if (!s && h.startsWith('006a')) {
-      const chunks = pushes(Utils.toArray(h.slice(4), 'hex')).map((d) => Utils.toUTF8(d));
-      if (chunks.length >= 6 && RECEIPT_TAG.every((t, i) => chunks[i] === t)) {
-        const count = Number(chunks[3]);
-        if (Number.isSafeInteger(count) && count > 0 && /^\d+$/.test(chunks[3]) && isAddress(chunks[4]))
-          s = { count, recipient: chunks[4], session: chunks[5], handle: chunks[6] ?? '' };
+      const c = pushes(Utils.toArray(h.slice(4), 'hex')).map((d) => Utils.toUTF8(d));
+      if (c.length >= 6 && RECEIPT_TAG.every((t, i) => c[i] === t)) {
+        const count = Number(c[3]);
+        if (Number.isSafeInteger(count) && count > 0 && /^\d+$/.test(c[3]) && isAddress(c[4])) {
+          s = { count, recipient: c[4], session: c[5], handle: c[6] === '-' ? '' : (c[6] ?? '') };
+          chunks = c;
+        }
       }
     }
   }
-  return s ? { ...s, paid, gas } : null;
+  if (!s) return null;
+  if (chunks[7] !== 'split') return { ...s, paid: legacy, gas, split: null };
+  const [, np, ns, nr, bp, bs, br] = chunks.slice(7);
+  const q = { npg: { payee: 'npg', prefix: np, suffix: ns, reference: nr }, bcorp: { payee: 'bcorp', prefix: bp, suffix: bs, reference: br } };
+  // The addresses come from the pinned keys, never from the tx: a tag naming someone else's derivation can't match.
+  const withAddr = (d: { payee: string; prefix?: string; suffix?: string; reference?: string }, key: 'npg' | 'bcorp') => {
+    try {
+      return { ...d, payee: key, address: derivedAddressOf(key, d.prefix ?? '', d.suffix ?? '') } as SplitQuote['npg'];
+    } catch {
+      return null;
+    }
+  };
+  const split = { npg: withAddr(q.npg, 'npg'), bcorp: withAddr(q.bcorp, 'bcorp') } as SplitQuote;
+  const r = readSplit(tx, split);
+  return r.ok ? { ...s, paid: r.paid, gas, split } : { ...s, paid: BigInt(0), gas, split: null, splitError: r.why };
 }
 
 /**

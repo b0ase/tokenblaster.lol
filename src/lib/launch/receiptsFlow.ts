@@ -1,7 +1,9 @@
 /**
  * The server's receipt settlement, with its chain and ledger injected (the route wires the real ones,
  * the tests a mock chain and an in-memory ledger). Order, each step safe to retry:
- *   1. fetch the settlement tx from the chain and read its tag + payments (receipts.ts readSettlement)
+ *   1. fetch the settlement tx from the chain and read its tag + payments (receipts.ts readSettlement): the receipt
+ *      money must be split exactly 50/50 to the pinned NPG Ltd / bCorp destinations its tag names (split.ts), and
+ *      each company's paymail server must accept its half (notify: proof the destination was issued; idempotent)
  *   2. reserve the receipt range in the ledger, which checks the payment against the server's own price and
  *      is idempotent per txid (db/022 tokenblaster_receipts_reserve)
  *   3. lease the pool, build ONE transfer (pool tokens + the settlement's gas output → recipient, rest → pool),
@@ -10,6 +12,7 @@
  */
 import { P2PKH, SatoshisPerKilobyte, Script, Transaction, type PrivateKey } from '@bsv/sdk';
 import { RECEIPT_GAS, RECEIPT_TOP_SATS, TERRORNODE_ID, readSettlement } from './receipts';
+import type { SplitQuote } from './split';
 import { tokenOut } from './shape';
 
 export type ReceiptRow = { session_txid: string; recipient: string; first_n: number | string; count: number | string; status: 'reserved' | 'sending' | 'sent'; transfer_txid: string | null; owed_sats?: number | string };
@@ -31,6 +34,10 @@ export type Deps = {
   poolSource(beefHex: string, txid: string): Transaction | null;
   mergeBeef(beefHex: string, tx: Transaction): string;
   newLease(): string;
+  /** Credit the split to the companies' wallets (payees.ts notifySplit). */
+  notify(txHex: string, q: SplitQuote, total: number): Promise<{ ok: true } | { ok: false; why: string; retry: boolean }>;
+  /** Still honour settlements paid to the pre-split creator address (a short grace for queued deliveries). */
+  legacyOk: boolean;
 };
 
 export type SettleResult = { ok: true; count: number; first: number; recipient: string; transfer: string } | { ok: false; why: string; status?: number };
@@ -46,6 +53,12 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
     if (settleTx.id('hex') !== txid) return { ok: false, why: 'The chain returned a different transaction.', status: 502 };
     const st = readSettlement(settleTx, gasAddress);
     if (!st) return { ok: false, why: 'That transaction is not a TERRORNODE receipt settlement.', status: 400 };
+    if (st.splitError) return { ok: false, why: st.splitError, status: 402 };
+    if (!st.split && !d.legacyOk) return { ok: false, why: 'Receipt money must be split between NPG Ltd and bCorp; this settlement is not.', status: 402 };
+    if (st.split) {
+      const n = await d.notify(hex.trim(), st.split, Number(st.paid));
+      if (!n.ok) return { ok: false, why: n.why, status: n.retry ? 202 : 402 };
+    }
     if (st.gas < BigInt(RECEIPT_GAS)) return { ok: false, why: `Underpaid: the transfer gas is ${st.gas} sats, it needs ${RECEIPT_GAS}.`, status: 402 };
     const penny = RECEIPT_TOP_SATS; // fixed in sats: db/022 prices with the same closed form (p_penny = top price)
     try {

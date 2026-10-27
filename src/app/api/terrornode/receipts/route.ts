@@ -1,7 +1,8 @@
 /**
  * $TERRORNODE receipts (src/lib/launch/receipts.ts, receiptsFlow.ts, db/022_terrornode_receipts.sql).
  *   GET                 → { issued, topSats, pennySats (= topSats, kept for old clients), nextPriceSats, graduateAt,
- *                           graduated, soldOut, creator, gasAddress, gasSats, live }
+ *                           graduated, soldOut, payees, split, gasAddress, gasSats, live }
+ *                         (receipt money is split 50/50 NPG Ltd / bCorp: the gun gets destinations from /api/terrornode/split)
  *   POST { txid }       → verify the session's settlement tx on chain, reserve its receipt range (idempotent per
  *                         txid), send that many TERRORNODE from the pool to the recipient in ONE transfer.
  * Off until RECEIPTS_LIVE=1 and the launchpad is configured (LAUNCH_SECRET, LAUNCH_POOL_WIF, Supabase). The pool key
@@ -9,14 +10,18 @@
  */
 import { NextResponse } from 'next/server';
 import { Beef, Transaction } from '@bsv/sdk';
-import { GRADUATE_AT, RECEIPT_CREATOR, RECEIPT_GAS, RECEIPT_SUPPLY, RECEIPT_TOP_SATS, TERRORNODE_ID, priceSats, soldOut } from '@/lib/launch/receipts';
+import { GRADUATE_AT, RECEIPT_GAS, RECEIPT_SUPPLY, RECEIPT_TOP_SATS, TERRORNODE_ID, priceSats, soldOut } from '@/lib/launch/receipts';
 import { settleReceipts, type PoolRow, type ReceiptRow } from '@/lib/launch/receiptsFlow';
+import { notifySplit } from '@/lib/launch/payees';
+import { PAYEES, SPLIT_LINE } from '@/lib/launch/split';
 import { broadcast, configured, poolKey, rpc, spentBy } from '@/lib/launch/server';
 
 export const dynamic = 'force-dynamic';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const LEASE_SECS = 90;
 const live = () => configured() && process.env.RECEIPTS_LIVE === '1';
+/** Settlements paid to the pre-split creator address are still delivered until then (already-paid, queued ones). */
+const LEGACY_UNTIL = Date.parse('2026-11-03T00:00:00Z');
 const TOL = Math.max(0, Math.min(1000, Number(process.env.RECEIPTS_TOLERANCE_BPS ?? 300) || 0));
 
 async function pool() {
@@ -34,7 +39,7 @@ export async function GET() {
     const out = soldOut(n);
     const top = Number(RECEIPT_TOP_SATS);
     return NextResponse.json(
-      { live: live() && !!p && !out, issued: Number(n), supply: Number(RECEIPT_SUPPLY), topSats: top, pennySats: top, nextPriceSats: out ? null : Number(priceSats(n + BigInt(1))), graduateAt: GRADUATE_AT, graduated: Number(n) >= GRADUATE_AT, soldOut: out, creator: RECEIPT_CREATOR, gasAddress: p?.token_address ?? null, gasSats: RECEIPT_GAS },
+      { live: live() && !!p && !out, issued: Number(n), supply: Number(RECEIPT_SUPPLY), topSats: top, pennySats: top, nextPriceSats: out ? null : Number(priceSats(n + BigInt(1))), graduateAt: GRADUATE_AT, graduated: Number(n) >= GRADUATE_AT, soldOut: out, payees: PAYEES.map((p) => ({ name: p.name, paymail: p.paymail, share: 0.5 })), split: SPLIT_LINE, gasAddress: p?.token_address ?? null, gasSats: RECEIPT_GAS },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (e) {
@@ -72,6 +77,8 @@ export async function POST(req: Request) {
       return b.toHex();
     },
     newLease: () => crypto.randomUUID(),
+    notify: (hex, q, total) => notifySplit(hex, q, total),
+    legacyOk: Date.now() < LEGACY_UNTIL,
   });
   if (!r.ok) return NextResponse.json({ error: r.why }, { status: r.status ?? 500 });
   return NextResponse.json(r);
