@@ -5,9 +5,13 @@
  */
 import { pinnedQuote, type SplitQuote } from './split';
 
-/** Fresh pinned NPG Ltd / bCorp destinations, or null (payments temporarily unavailable). */
-export async function fetchSplit(): Promise<SplitQuote | null> {
-  const r = await fetch('/api/terrornode/split', { cache: 'no-store' }).catch(() => null);
+/**
+ * Pinned NPG Ltd / bCorp destinations for one paid session (`who` = the session's gun/session id), or null.
+ * Only call when a payment is actually about to be made: each new quote uses up paymail destinations.
+ */
+export async function fetchSplit(purpose: 'fee' | 'receipts', who: string): Promise<SplitQuote | null> {
+  const u = `/api/terrornode/split?for=${purpose}&who=${encodeURIComponent(who)}`;
+  const r = await fetch(u, { cache: 'no-store' }).catch(() => null);
   const j = (await r?.json().catch(() => null)) as { ok?: boolean; quote?: unknown } | null;
   return r?.ok && j?.ok && pinnedQuote(j.quote) ? j.quote : null;
 }

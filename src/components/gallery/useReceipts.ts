@@ -152,7 +152,7 @@ export function useReceipts(on: boolean) {
         const gasAddress = fresh.gasAddress;
         // The receipt money goes 50/50 to NPG Ltd and bCorp, to destinations the server resolved and pinned.
         // Unresolvable → nothing is paid (never to anyone else): the rounds stay owed for the next settlement.
-        const split = await fetchSplit();
+        const split = await fetchSplit('receipts', a.session);
         if (!split) throw new Error('Payments temporarily unavailable: your rounds are kept and settle next time.');
         setNote(`Paying for ${owedNow.toLocaleString('en-US')} $TERRORNODE receipts from your gun…`);
         // Only what the gun's one coin can pay (receipts + gas + network fee); the rest stays owed for the next settle.

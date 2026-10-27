@@ -1077,7 +1077,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       if (feeSats > 0) {
         // The platform fee is TERRORNODE revenue: two outputs, 50/50 NPG Ltd · bCorp (odd sat → bCorp), then reported
         // so each company's wallet is credited.
-        const split = await fetchSplit();
+        const split = await fetchSplit('fee', b.gunAddress || sid);
         if (!split) throw new Error('PAYUNAVAIL');
         const [feeTx] = await b.fireBatch(0, [[GALLERY_GAME, 'fee']], splitOutputs(split, feeSats), ammo ?? DEFAULT_AMMO);
         if (feeTx) void reportSplit(feeTx, split).then((ok) => ok || console.warn(`[tb-split] fee ${feeTx} not credited yet`));
