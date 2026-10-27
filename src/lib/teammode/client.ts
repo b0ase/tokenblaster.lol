@@ -5,6 +5,7 @@
 import type { PublicState, Snapshot, Team } from './match';
 import type { LevelId } from '../terrornode/levels';
 import { parseChat, serverHasChat, type ChatChannel, type ChatMsg } from './chat';
+import { serverHasErobotz } from './match';
 
 export const TEAM_WS = (process.env.NEXT_PUBLIC_TERRORNODE_TEAM_WS || 'ws://localhost:8787/ws').replace(/\/$/, '');
 
@@ -20,6 +21,8 @@ type Handlers = {
   onChatError?: (e: string) => void;
   /** The server's chat support, from the welcome / watching reply (false on servers that predate chat). */
   onChatSupport?: (ok: boolean) => void;
+  /** The server applies the playable-Erobotz PvP rules ('erobotz' in its features; false on older servers). */
+  onErobotzSupport?: (ok: boolean) => void;
 };
 
 const KEY = (code: string) => `tn-team-resume:${code}`;
@@ -46,6 +49,8 @@ export class TeamClient {
   you: string | null = null;
   /** True when the connected server relays chat. */
   chat = false;
+  /** True when the connected server runs the playable-Erobotz rules. */
+  erobotz = false;
 
   constructor(
     readonly code: string,
@@ -78,6 +83,8 @@ export class TeamClient {
       if (m.t === 'watching' || m.t === 'welcome') {
         this.chat = serverHasChat(m);
         this.h.onChatSupport?.(this.chat);
+        this.erobotz = serverHasErobotz(m);
+        this.h.onErobotzSupport?.(this.erobotz);
       }
       if (m.t === 'state') return this.h.onState(m.state);
       if (m.t === 'watching') {

@@ -56,7 +56,8 @@ test('pvp: hits, friendly fire off, frags, kill score', () => {
   [a.x, a.z, mate.x, mate.z, foe.x, foe.z] = [0, 0, 0, -5, 0, -10];
   // the teammate is in the line of fire: friendly fire is off, the ray passes through to the foe
   let t = 1000;
-  for (let i = 0; i < 5; i++, t += 100) assert.equal(shoot(m, a.id, aim(a, foe), null, t).hit?.id, foe.id);
+  // an Erobot player is armoured: 120 HP = 6 NPG rounds
+  for (let i = 0; i < 6; i++, t += 100) assert.equal(shoot(m, a.id, aim(a, foe), null, t).hit?.id, foe.id);
   assert.equal(mate.hp, RULES.hp);
   assert.equal(foe.alive, false);
   assert.equal(m.frags.npg, 1);
@@ -133,7 +134,7 @@ test('public state: teams, tournament id, stream slots, invite link, no resume t
   const s = publicState(m, 5, { inviteBase: 'https://tokenblaster.lol' });
   assert.equal(s.id, 'TN-ABCDE');
   assert.equal(s.tournamentId, 'cup-31oct');
-  assert.deepEqual(s.teams.map((t) => t.name), ['NPG', 'Erobotz']);
+  assert.deepEqual(s.teams.map((t) => t.name), ['NPG', 'EROBOTZ']);
   assert.equal(s.streams[0].slot, 'npg-girl@chat');
   assert.equal(s.inviteUrl, 'https://tokenblaster.lol/arcade/terrornode/team?match=ABCDE');
   assert.ok(!JSON.stringify(s).includes(a.resume));

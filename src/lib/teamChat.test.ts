@@ -86,7 +86,7 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test('local server: team isolation, all, dm, spectator, rate limit, length', async () => {
   const health = await fetch(`${BASE}/health`).then((r) => r.json());
-  assert.deepEqual(health.features, ['chat']);
+  assert.ok(health.features.includes('chat'));
   const { code } = await fetch(`${BASE}/matches`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'pvp' }) }).then((r) => r.json());
   // PvP balances sides, so join alternately
   const a1 = await connect({ t: 'join', match: code, name: 'alice', side: 'npg' });

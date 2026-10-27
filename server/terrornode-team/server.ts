@@ -52,12 +52,16 @@ import {
   type Match,
   type Mode,
   type Team,
+  EROBOTZ_FEATURE,
 } from '../../src/lib/teammode/match';
 import { performance } from 'node:perf_hooks';
 import { CHAT_FEATURE, allowChat, routeChat } from '../../src/lib/teammode/chat';
 
-/** Capabilities in /health and the welcome / watching reply (the site shows chat only when 'chat' is listed). */
-const FEATURES = [CHAT_FEATURE];
+/**
+ * Capabilities in /health and the welcome / watching reply. The site shows chat only when 'chat' is listed, and the
+ * playable-Erobotz side (its own HP / speed / cannon, erobot bodies, side stats) only when 'erobotz' is listed.
+ */
+const FEATURES = [CHAT_FEATURE, EROBOTZ_FEATURE];
 
 const PORT = Number(process.env.PORT || 8787);
 const SITE = process.env.PUBLIC_SITE || 'https://tokenblaster.lol';

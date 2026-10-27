@@ -28,7 +28,7 @@ import { GO_LIVE_EVENT } from '@/components/GoLiveButton';
 import { DEFAULT_AMMO } from '@/lib/gallery';
 import { TeamClient, createTeamMatch, type TeamStatus } from '@/lib/teammode/client';
 import TeamChat, { useTeamChat } from './TeamChat';
-import { MAX_PER_SIDE, MAX_PLAYERS, RULES, TEAM_NAME, teamShotPushes, type Counters, type Mode, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
+import { MAX_PER_SIDE, MAX_PLAYERS, RULES, SIDE_STATS, TEAM_NAME, teamShotPushes, type Counters, type Mode, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
 import type { TeamScene } from '@/lib/teammode/scene';
 import dynamic from 'next/dynamic';
 import { isLevelId, teamLevelOf, type LevelId } from '@/lib/teammode/levels';
@@ -64,6 +64,8 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
   const client = useRef<TeamClient | null>(null);
   const chat = useTeamChat();
   const [chatOk, setChatOk] = useState(false);
+  // playable Erobotz (PvP only): the server lists 'erobotz' in its features; older servers keep the old look
+  const [eroOk, setEroOk] = useState(false);
   const scene = useRef<TeamScene | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -126,6 +128,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           setTimeout(() => chat.setNote(null), 3000);
         },
         onChatSupport: setChatOk,
+        onErobotzSupport: setEroOk,
       },
     );
     client.current = c;
@@ -152,6 +155,9 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
 
   const meP = state?.players.find((p) => p.id === you) ?? null;
   const myTeam: Team = meP?.team ?? 'npg';
+  const ero = eroOk && state?.mode === 'pvp';
+  const iAmErobot = ero && myTeam === 'erobotz';
+  const maxHp = ero ? SIDE_STATS[myTeam].hp : RULES.hp;
   const phase = state?.phase ?? null;
   const ready = free || (rounds ?? 0) > 0;
 
@@ -167,6 +173,11 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
     }
     c.shot(yaw);
   }, [freePlay, dry]);
+  const eroRef = useRef(false);
+  useEffect(() => {
+    eroRef.current = ero;
+    scene.current?.setErobotz(ero);
+  }, [ero]);
   const fireRef = useRef(fire);
   useEffect(() => {
     fireRef.current = fire;
@@ -180,7 +191,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
     void import('@/lib/teammode/scene').then(async ({ TeamScene }) => {
       if (!live || !canvas.current) return;
       const high = !window.matchMedia('(pointer: coarse)').matches && new URLSearchParams(location.search).get('q') !== 'low';
-      const s = new TeamScene(canvas.current, { high });
+      const s = new TeamScene(canvas.current, { high, erobotz: eroRef.current });
       scene.current = s;
       s.me.id = client.current?.you ?? '';
       s.onMove = (x, z, yaw) => client.current?.move(x, z, yaw);
@@ -307,7 +318,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           </div>
           <div className="mt-4 grid w-full gap-4 sm:grid-cols-2">
             <ModeCard title="Co-op squads" kicker={`PvE · up to ${MAX_PLAYERS}`} colour={COLOUR.npg} body={`Everyone fights for NPG against Dr Kweg Wong's Erobot horde on ${teamLevelOf(level).name}. ${teamLevelOf(level).waves} waves, each one bigger${teamLevelOf(level).bossHp ? ', and the Heart itself on the last' : ''}. Clear them all to take TERRORNODE HQ.`} onClick={() => void create('coop')} disabled={busy} cta="Make co-op match" />
-            <ModeCard title="NPG vs Erobotz" kicker={`PvP · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}`} colour={COLOUR.erobotz} body={`Two teams of up to ${MAX_PER_SIDE}. Pick a side in the lobby, friendly fire off. First team to 50 frags, or the most frags when the 10-minute clock runs out.`} onClick={() => void create('pvp')} disabled={busy} cta="Make PvP match" />
+            <ModeCard title="NPG vs EROBOTZ" kicker={`PvP · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}`} colour={COLOUR.erobotz} body={`Two teams of up to ${MAX_PER_SIDE}. Pick a side in the lobby, friendly fire off. First team to 50 frags, or the most frags when the 10-minute clock runs out.`} onClick={() => void create('pvp')} disabled={busy} cta="Make PvP match" />
           </div>
           {teamLevelOf(level).arena === 'melee' && (
             <button type="button" disabled={busy} onClick={() => { soloMade.current = true; setSolo(true); void create('coop'); }} className="mt-3 text-xs font-bold uppercase tracking-[0.25em] text-[#2ec8e0] hover:text-white" data-melee-solo>
@@ -329,7 +340,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           <div className="tbx-glass w-full rounded-2xl border border-white/10 bg-black/60 p-4 backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? `NPG vs Erobotz · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}` : 'Co-op squads vs the horde'}{state?.level ? ` · ${teamLevelOf(state.level).name}` : ''}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
+                <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-white/60">{state?.mode === 'pvp' ? `NPG vs EROBOTZ · ${MAX_PER_SIDE} v ${MAX_PER_SIDE}` : 'Co-op squads vs the horde'}{state?.level ? ` · ${teamLevelOf(state.level).name}` : ''}{state?.tournamentId ? ` · ${state.tournamentId}` : ''}</p>
                 <p className="font-mono text-3xl font-black tracking-[0.25em]" data-match-code>{code}</p>
               </div>
               <div className="flex items-center gap-2">
@@ -345,6 +356,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
                     <p className="text-sm font-black uppercase tracking-widest" style={{ color: COLOUR[t.id] }}>{t.name} <span className="text-white/50">{t.size}/{t.max}</span></p>
                     {state?.mode === 'pvp' && meP && meP.team !== t.id && <button type="button" onClick={() => client.current?.side(t.id)} className="rounded-full border px-3 py-1 text-[11px] font-bold uppercase" style={{ borderColor: COLOUR[t.id] }}>Join {t.name}</button>}
                   </div>
+                  {ero && <SideBlurb team={t.id} />}
                   <ul className="mt-2 grid grid-cols-2 gap-1 text-sm">
                     {state?.players.filter((p) => p.team === t.id).map((p) => (
                       <li key={p.id} className="truncate">{p.host ? '★ ' : ''}{p.name}{p.id === you ? ' (you)' : ''}{!p.connected ? ' · reconnecting' : ''}</li>
@@ -408,10 +420,12 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
       {/* ── HUD ── */}
       {live && ready && (
         <div className="pointer-events-none absolute inset-0 z-10" data-team-hud>
+          {/* the Erobot's HUD: a red visor vignette and scan lines over the cannon */}
+          {iAmErobot && <div className="absolute inset-0" data-erobot-hud style={{ boxShadow: 'inset 0 0 140px rgba(255,42,70,0.38)', backgroundImage: 'repeating-linear-gradient(0deg, rgba(255,42,70,0.05) 0 1px, transparent 1px 4px)' }} />}
           <div className="absolute inset-x-0 top-3 flex justify-center gap-3">
             <ScorePill label={state?.mode === 'pvp' ? 'NPG' : 'Squad'} value={snapInfo?.frags.npg ?? 0} colour={COLOUR.npg} />
             <div className="rounded-full bg-black/60 px-4 py-2 font-mono text-lg font-bold">{snapInfo?.endsAt ? fmtClock(snapInfo.endsAt - now) : '--:--'}</div>
-            {state?.mode === 'pvp' ? <ScorePill label="Erobotz" value={snapInfo?.frags.erobotz ?? 0} colour={COLOUR.erobotz} /> : <ScorePill label={`Wave ${snapInfo?.wave ?? 1}/${state?.waves ?? RULES.waves}`} value={snapInfo?.c?.ec ?? state?.enemiesLive ?? 0} colour={COLOUR.erobotz} />}
+            {state?.mode === 'pvp' ? <ScorePill label="EROBOTZ" value={snapInfo?.frags.erobotz ?? 0} colour={COLOUR.erobotz} /> : <ScorePill label={`Wave ${snapInfo?.wave ?? 1}/${state?.waves ?? RULES.waves}`} value={snapInfo?.c?.ec ?? state?.enemiesLive ?? 0} colour={COLOUR.erobotz} />}
           </div>
           {/* ROOM TX/SEC: the stream's headline, every player's paid rounds a second (server-summed) */}
           <div className="absolute right-4 top-3 rounded-xl border border-[#ffd21a55] bg-black/60 px-4 py-1.5 text-right" data-room-tps>
@@ -427,11 +441,11 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
           )}
           <div className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2" style={{ borderColor: COLOUR[myTeam] }} />
           <div className="absolute bottom-4 left-4 rounded-xl bg-black/60 px-4 py-2">
-            <p className="text-[10px] uppercase tracking-widest text-white/60">Health</p>
-            <div className="mt-1 h-2 w-40 rounded bg-white/10"><div className="h-2 rounded" style={{ width: `${hp}%`, background: hp > 35 ? COLOUR[myTeam] : '#ff2a46' }} /></div>
+            <p className="text-[10px] uppercase tracking-widest text-white/60">{iAmErobot ? 'Armour' : 'Health'}</p>
+            <div className="mt-1 h-2 w-40 rounded bg-white/10"><div className="h-2 rounded" style={{ width: `${Math.min(100, (100 * hp) / maxHp)}%`, background: hp > maxHp * 0.35 ? COLOUR[myTeam] : '#ff2a46' }} /></div>
           </div>
           <div className="absolute bottom-4 right-4 rounded-xl bg-black/60 px-4 py-2 text-right">
-            <p className="text-[10px] uppercase tracking-widest text-white/60">{TEAM_NAME[myTeam]} · {meP?.kills ?? 0} kills</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/60">{iAmErobot ? 'EROBOT · heavy cannon' : TEAM_NAME[myTeam]} · {meP?.kills ?? 0} kills</p>
             <p className="font-mono text-xl font-black">{free ? 'FREE PLAY' : `${(rounds ?? 0).toLocaleString('en-US')} rds`}</p>
           </div>
           {chatOk && (
@@ -474,6 +488,17 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
       )}
       <SiteWalletChooser />
     </div>
+  );
+}
+
+/** PvP side card (playable-Erobotz servers): who you play and the side's numbers, straight from SIDE_STATS. */
+function SideBlurb({ team }: { team: Team }) {
+  const s = SIDE_STATS[team];
+  const dps = Math.round((s.shotDamage * 1000) / s.shotGapMs);
+  return (
+    <p className="mt-1 text-[11px] text-white/60" data-side-stats={team}>
+      {team === 'npg' ? 'Ninja Punk Girls: fast, full-auto blasters.' : 'Play as an Erobot: heavy armour, slower, a hard-hitting cannon.'} HP {s.hp} · speed {s.speed} m/s · {s.shotDamage} dmg · {dps} dmg/s
+    </p>
   );
 }
 
