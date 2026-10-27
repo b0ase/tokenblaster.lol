@@ -1,7 +1,7 @@
 'use client';
 
 /** "Choose your girl": NPG girl + a weapon per hand, six stats → game modifiers (src/lib/npgLoadout.ts). One compact card. */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { DEFAULT_ROSTER, STATS, STAT_ABBR, allowedWeapons, girlImg, modsFor, normalizePick, statsFor, weaponById, weaponImg, type Mods, type Pick } from '@/lib/npgLoadout';
 import type { NpgOwned } from '@/lib/npgLoadout';
 
@@ -20,7 +20,9 @@ export function CharacterSelect({
   setPick,
   owned,
   cards,
+  compact = false,
 }: {
+  compact?: boolean;
   pick: Pick;
   setPick: (p: Pick) => void;
   owned: NpgOwned;
@@ -29,6 +31,7 @@ export function CharacterSelect({
   const girl = DEFAULT_ROSTER.find((g) => g.id === pick.girl) ?? DEFAULT_ROSTER[0];
   const stats = useMemo(() => statsFor(pick), [pick]);
   const mods = modsFor(stats);
+  const [sheet, setSheet] = useState(false);
   const hand = (h: 'right' | 'left') => {
     const list = allowedWeapons(girl, h, owned.elements);
     const cur = weaponById(pick[h]);
@@ -54,6 +57,45 @@ export function CharacterSelect({
       </label>
     );
   };
+  if (compact) {
+    // Phone on its side, before START: a thin strip of portraits so START stays on the first screen; weapons and
+    // stats open in a sheet.
+    return (
+      <div className="flex items-center gap-1.5" data-character-strip>
+        <div className="flex gap-1" role="radiogroup" aria-label="Choose your girl">
+          {DEFAULT_ROSTER.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              role="radio"
+              aria-checked={g.id === girl.id}
+              aria-label={g.name}
+              onClick={() => setPick(normalizePick({ girl: g.id, right: g.right, left: g.left }, owned.elements))}
+              className={`relative h-[50px] w-[30px] overflow-hidden rounded border bg-black/50 ${g.id === girl.id ? 'border-2 border-[var(--tbx-red)] shadow-[0_0_12px_rgba(255,59,59,.7)]' : 'border-white/20 opacity-70'}`}
+              data-npg-girl={g.id}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={girlImg(g.id)} alt="" loading="lazy" className="absolute inset-0 h-full w-full object-contain object-top" />
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => setSheet(true)} className="rounded bg-black/70 px-2 py-1 text-left text-[9px] font-bold leading-tight tracking-[0.14em] text-white" data-npg-sheet-open>
+          <span className="block text-[var(--tbx-amber)]">{girl.name.toUpperCase()}</span>
+          <span className="text-white/70">WEAPONS &amp; STATS ▸</span>
+        </button>
+        {sheet && (
+          <div className="fixed inset-0 z-[960] flex items-center justify-center bg-black/75 p-3" onClick={() => setSheet(false)} data-npg-sheet>
+            <div className="w-full max-w-[640px]" onClick={(e) => e.stopPropagation()}>
+              <CharacterSelect pick={pick} setPick={setPick} owned={owned} cards={cards} />
+              <button type="button" onClick={() => setSheet(false)} className="btn btn-on mt-2 w-full py-2 text-xs font-bold tracking-widest" data-npg-sheet-close>
+                DONE
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <section className="tbx-glass rounded-xl p-2 sm:p-3" data-character-select>
       <div className="flex items-center justify-between gap-2">
