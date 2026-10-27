@@ -38,3 +38,12 @@ export function phoneRows(hasInApp: boolean): PhoneRow[] {
 
 /** The QR panel is for a computer only. */
 export const showQrPanel = (isPhone: boolean) => !isPhone;
+
+/** bWallet's in-app browser adds `bWallet/` (or the older `YoursWalletMobile/`) to the user agent (see lib/wallet.ts). */
+export const isBwalletInAppUa = (ua: string) => /(?:bWallet|YoursWalletMobile)\//.test(ua);
+
+/** TERRORNODE plays full screen inside bWallet: a phone browser that is not bWallet gets "Play in bWallet" first. */
+export const showPlayInBwallet = (ua: string, isPhone: boolean, linkReady: boolean = BWALLET_BROWSER_LINK_READY) =>
+  linkReady && isPhone && !isBwalletInAppUa(ua);
+
+export const TERRORNODE_URL = 'https://www.tokenblaster.lol/arcade/terrornode';
