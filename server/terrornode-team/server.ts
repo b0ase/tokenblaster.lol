@@ -11,7 +11,9 @@
  * WS  /ws
  *   → {t:'join', match, name, identityKey?, side?, resume?} | {t:'watch', match} (read-only spectator) | {t:'side', side} | {t:'start'}
  *     {t:'in', x, z, yaw} | {t:'shot', yaw} | {t:'tx', n} (shots ARC accepted) | {t:'live', slot} | {t:'ping'}
- *   ← {t:'welcome', you, resume, state} | {t:'watching', state} | {t:'state', state} | {t:'snap', …} | {t:'err', error} | {t:'pong', now, id?}
+ *   → {t:'chat', ch:'team'|'all'|'dm', to?, text} (text chat, relayed, never stored)
+ *   ← {t:'chat', ch, from, name, team, to?, text, at} | {t:'chatErr', error}
+ *   ← {t:'welcome', you, resume, features, state} | {t:'watching', state} | {t:'state', state} | {t:'snap', …} | {t:'err', error} | {t:'pong', now, id?}
  *
  * Load (26 Oct, for 16-player sessions; `pnpm team:load`): each match keeps its own socket set (no scan of every
  * connection per match per tick), a snapshot or state is serialised ONCE and the same string goes to every socket,
@@ -52,6 +54,10 @@ import {
   type Team,
 } from '../../src/lib/teammode/match';
 import { performance } from 'node:perf_hooks';
+import { CHAT_FEATURE, allowChat, routeChat } from '../../src/lib/teammode/chat';
+
+/** Capabilities in /health and the welcome / watching reply (the site shows chat only when 'chat' is listed). */
+const FEATURES = [CHAT_FEATURE];
 
 const PORT = Number(process.env.PORT || 8787);
 const SITE = process.env.PUBLIC_SITE || 'https://tokenblaster.lol';
@@ -68,7 +74,7 @@ const stateHz = (m: Match) => (m.players.size > INTEREST.fullBelow ? BIG_STATE_H
 
 const rand = () => randomInt(0, 1 << 30) / (1 << 30);
 const matches = new Map<string, Match>();
-type Conn = { ws: WebSocket; match: Match | null; player: string | null; watch: boolean; msgs: number; window: number };
+type Conn = { ws: WebSocket; match: Match | null; player: string | null; team: Team | null; watch: boolean; msgs: number; window: number; chatAt: number[] };
 const conns = new Set<Conn>();
 /** Each match's sockets (players and spectators). */
 const rooms = new Map<Match, Set<Conn>>();
@@ -86,6 +92,7 @@ const exit = (c: Conn) => {
   if (c.match) rooms.get(c.match)?.delete(c);
   c.match = null;
   c.player = null;
+  c.team = null;
 };
 
 export function newMatch(mode: Mode, tournamentId: string | null, now = Date.now(), level?: unknown): Match {
@@ -152,6 +159,7 @@ const http = createServer(async (req, res) => {
     for (const m of matches.values()) tps += txPerSec(m, now);
     return json(res, 200, {
       ok: true,
+      features: FEATURES,
       limits: { players: MAX_PLAYERS, perSide: MAX_PER_SIDE },
       txPerSec: Math.round(tps * 10) / 10,
       matches: matches.size,
@@ -210,7 +218,7 @@ const markState = (m: Match) => dirty.add(m);
 const roster = (m: Match) => (m.players.size > INTEREST.fullBelow ? markState(m) : broadcastState(m));
 
 wss.on('connection', (ws) => {
-  const c: Conn = { ws, match: null, player: null, watch: false, msgs: 0, window: Date.now() };
+  const c: Conn = { ws, match: null, player: null, team: null, watch: false, msgs: 0, window: Date.now(), chatAt: [] };
   conns.add(c);
   let alive = true;
   ws.on('pong', () => (alive = true));
@@ -254,7 +262,7 @@ wss.on('connection', (ws) => {
         for (const o of [...(rooms.get(target) ?? [])]) if (o !== c && o.player === r.player.id) exit(o);
         enter(c, target);
         c.player = r.player.id;
-        send(ws, { t: 'welcome', you: r.player.id, resume: r.player.resume, resumed: r.resumed, state: publicState(target, now, { inviteBase: SITE }) });
+        send(ws, { t: 'welcome', you: r.player.id, resume: r.player.resume, resumed: r.resumed, features: FEATURES, state: publicState(target, now, { inviteBase: SITE }) });
         return roster(target);
       }
     }
@@ -269,7 +277,21 @@ wss.on('connection', (ws) => {
       if (w >= MAX_WATCHERS) return send(ws, { t: 'err', error: 'Too many spectators on this match.' });
       c.watch = true;
       enter(c, target);
-      return send(ws, { t: 'watching', state: publicState(target, now, { inviteBase: SITE }) });
+      return send(ws, { t: 'watching', features: FEATURES, state: publicState(target, now, { inviteBase: SITE }) });
+    }
+    if (msg.t === 'chat') {
+      // TEXT CHAT: relayed, never stored. Team = own side's sockets only; dm = target + sender; all = whole room.
+      if (!m) return;
+      c.team = c.player ? (m.players.get(c.player)?.team ?? null) : null;
+      if (c.player && !allowChat(c.chatAt, now)) return send(ws, { t: 'chatErr', error: 'Slow down: 5 messages every 5 seconds.' });
+      const room = [...(rooms.get(m) ?? [])];
+      for (const o of room) o.team = o.player ? (m.players.get(o.player)?.team ?? null) : null;
+      const r = routeChat(c, room, msg);
+      if (!r.ok) return send(ws, { t: 'chatErr', error: r.error });
+      const p = m.players.get(c.player!);
+      const out = JSON.stringify({ t: 'chat', ch: r.ch, from: c.player, name: p?.name ?? 'player', team: c.team, to: r.to, text: r.text, at: now });
+      for (const o of r.recipients) if (o.ws.readyState === WebSocket.OPEN) o.ws.send(out);
+      return;
     }
     if (!m || !c.player) return;
     switch (msg.t) {

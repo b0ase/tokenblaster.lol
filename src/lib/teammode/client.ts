@@ -4,6 +4,7 @@
  */
 import type { PublicState, Snapshot, Team } from './match';
 import type { LevelId } from '../terrornode/levels';
+import { parseChat, serverHasChat, type ChatChannel, type ChatMsg } from './chat';
 
 export const TEAM_WS = (process.env.NEXT_PUBLIC_TERRORNODE_TEAM_WS || 'ws://localhost:8787/ws').replace(/\/$/, '');
 
@@ -14,6 +15,11 @@ type Handlers = {
   onWelcome: (you: string) => void;
   onError: (e: string) => void;
   onStatus: (s: TeamStatus) => void;
+  /** Text chat (only once the server advertises it: see `chat`). */
+  onChat?: (m: ChatMsg) => void;
+  onChatError?: (e: string) => void;
+  /** The server's chat support, from the welcome / watching reply (false on servers that predate chat). */
+  onChatSupport?: (ok: boolean) => void;
 };
 
 const KEY = (code: string) => `tn-team-resume:${code}`;
@@ -38,6 +44,8 @@ export class TeamClient {
   private closed = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   you: string | null = null;
+  /** True when the connected server relays chat. */
+  chat = false;
 
   constructor(
     readonly code: string,
@@ -61,6 +69,16 @@ export class TeamClient {
     ws.onmessage = (ev) => {
       const m = JSON.parse(String(ev.data));
       if (m.t === 'snap') return this.h.onSnap(m);
+      if (m.t === 'chat') {
+        const c = parseChat(m);
+        if (c) this.h.onChat?.(c);
+        return;
+      }
+      if (m.t === 'chatErr') return this.h.onChatError?.(String(m.error || ''));
+      if (m.t === 'watching' || m.t === 'welcome') {
+        this.chat = serverHasChat(m);
+        this.h.onChatSupport?.(this.chat);
+      }
       if (m.t === 'state') return this.h.onState(m.state);
       if (m.t === 'watching') {
         this.tries = 0;
@@ -107,6 +125,10 @@ export class TeamClient {
   /** The bChatX stream slot (the LiveKit handle GO LIVE returned), or null when the stream stops. */
   live(slot: string | null) {
     this.send({ t: 'live', slot });
+  }
+  /** Text chat. No-op on servers without chat. */
+  say(ch: ChatChannel, text: string, to?: string) {
+    if (this.chat && !this.watch) this.send({ t: 'chat', ch, text, ...(ch === 'dm' && to ? { to } : {}) });
   }
   close() {
     this.closed = true;
