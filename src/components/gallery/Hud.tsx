@@ -77,7 +77,7 @@ export function Hud(p: {
           {p.dry ? 'FREE PLAY · PRACTICE · NOTHING ON CHAIN' : 'LIVE · ON CHAIN'}
         </p>
         <Ticker value={p.fired} ease={0.3} format={fixedInt(9)} className="tbx-display block text-[clamp(32px,5.4vw,56px)] leading-none" style={{ ...TAB, display: 'block', textAlign: 'left', color: 'var(--tbx-text)' }} />
-        <p className="text-[10px] text-[var(--tbx-dim)]">
+        <p className="text-[10px] text-[var(--tbx-dim)]" data-hud-sub>
           {p.dry ? 'practice rounds fired' : <>rounds fired · <span className="tbx-num">{p.sent.toLocaleString('en-US')}</span> on the record</>}
         </p>
         <p className="mt-1 hidden text-[10px] sm:block">
@@ -106,7 +106,7 @@ export function Hud(p: {
           <i className="absolute inset-0 origin-left" style={{ transform: `scaleX(${k})`, transition: 'transform 0.12s linear', background: bossBar ? 'linear-gradient(90deg,#7f8da1,#f4f8ff 50%,#9fb0c6)' : 'linear-gradient(90deg,#0a8ea0,#27e6ff 60%,#c8fbff)', boxShadow: '0 0 12px rgba(190,220,255,.5)' }} />
           <span className="absolute inset-0" style={{ background: 'repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(0,0,0,.45) calc(10% - 1px) 10%)' }} />
         </div>
-        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--tbx-dim)]">
+        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--tbx-dim)]" data-hud-sub>
           <span className="truncate">{bossBar ? (push > 0.45 ? 'PUSHED BACK. Keep firing!' : p.bossNote) : p.stageNote}</span>
           <span className="tbx-num shrink-0">{s ? (goal?.kind === 'block' ? clock : `${hp.toLocaleString('en-US')} / ${max.toLocaleString('en-US')}`) : ''}</span>
         </div>
@@ -120,8 +120,8 @@ export function Hud(p: {
         <p className="tbx-display text-[clamp(26px,4vw,40px)] leading-none tbx-num" style={{ color: 'var(--tbx-amber)', textShadow: '0 0 16px rgba(255,182,46,.35)' }} data-hud-credit>
           <span style={{ ...TAB, minWidth: '10ch' }}>{p.live ? pad(`$${p.live.usd.toFixed(6)}`, 10) : p.freePlay ? 'FREE' : fmtCredit(p.creditUsd)}</span>
         </p>
-        {p.live?.practice && <p className="text-[9px] tracking-[0.18em] text-[var(--tbx-dim)]">PRACTICE · NOTHING ON CHAIN</p>}
-        <dl className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-tight">
+        {p.live?.practice && <p data-hud-sub className="text-[9px] tracking-[0.18em] text-[var(--tbx-dim)]">PRACTICE · NOTHING ON CHAIN</p>}
+        <dl data-hud-sub className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-tight">
           <dt className="text-[var(--tbx-dim)]">{p.dry ? 'practice rounds/s' : 'tx/s accepted'}</dt>
           <dd className="m-0"><Ticker value={p.tps} ease={0.3} format={fixedInt(6)} style={{ ...TAB, color: 'var(--tbx-teal)' }} /></dd>
           {p.receipts && (
@@ -154,10 +154,10 @@ export function Hud(p: {
 export function HudControls(p: { hint: string; locked: boolean; canLock: boolean; onLoadout: () => void; onLock: () => void; onStop: () => void; onEnd: () => void; canEnd: boolean }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-2 p-1.5 sm:p-3" data-hud-controls>
-      <div className="tbx-glass tbx-rise max-w-[56%] px-3 py-2 text-[11px] text-[var(--tbx-dim)] sm:text-xs" role="status">
+      <div className="tbx-glass tbx-rise max-w-[56%] px-3 py-2 text-[11px] text-[var(--tbx-dim)] sm:text-xs" role="status" data-hud-hint>
         {p.hint}
       </div>
-      <div className="pointer-events-auto mb-11 flex flex-wrap justify-end gap-1.5 sm:mb-12 sm:gap-2">
+      <div data-hud-buttons className="pointer-events-auto mb-11 flex flex-wrap justify-end gap-1.5 sm:mb-12 sm:gap-2">
         <button type="button" onClick={p.onLoadout} aria-label="Loadout" className="tbx-btn !min-h-[40px] !min-w-[40px] !px-2.5 !text-[11px] sm:!px-3">
           <Icon name="loadout" size={15} /> <span className="hidden sm:inline">Loadout</span>
         </button>
