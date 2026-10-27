@@ -86,6 +86,11 @@ export class Horde {
     this.ready = this.load().catch(() => undefined);
   }
 
+  /** Live mobs' ground positions (Act 2: they go for Dr Kweg too). */
+  threats(out: { x: number; z: number }[]) {
+    for (const m of this.mobs) if (m.state === 'walk' || m.state === 'attack') out.push({ x: m.m.root.position.x, z: m.m.root.position.z });
+  }
+
   get live() {
     let n = 0;
     for (const m of this.mobs) if (m.state === 'walk' || m.state === 'attack') n++;

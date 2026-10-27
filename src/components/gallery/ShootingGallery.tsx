@@ -72,7 +72,7 @@ import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
-import { CHARACTERS, CREDIT, CTA, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, actOf, forPractice, stageBrief } from '@/lib/gallery/story';
+import { CHARACTERS, CREDIT, CTA, GAME_KICKER, KWEG_LOST, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, actOf, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
 import { BannerStage, RescuedBeat, useBanners } from './Banners';
@@ -836,6 +836,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   // surge with a non-blocking banner and a new song while the fire never stops; the Liquid Unit walks in for the
   // last minutes, goes down, the hostage is free and the RESCUED beat plays before the results.
   const [rescued, setRescued] = useState(false);
+  /** ACT 2 ESCORT: Dr Kweg died (DR KWEG WONG IS LOST, retry from the start of Act 2). */
+  const [kwegLost, setKwegLost] = useState(false);
   const rescuedRef = useRef(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
@@ -864,6 +866,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         clearBanners();
         clearLevel(e.level, e.score, e.rounds);
         setLevelClear({ id: e.level, score: e.score, rounds: e.rounds });
+        return;
+      }
+      if (e.kind === 'lost') {
+        held.current = false;
+        engine.current?.setTrigger(false);
+        clearBanners();
+        setKwegLost(true);
         return;
       }
       if (e.kind === 'rescued') {
@@ -994,6 +1003,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       rc.resetSession();
       // a fresh attempt: back to the street, the doors open, a new song
       engine.current?.startRun();
+      setKwegLost(false);
       rescuedRef.current = false;
       setRescued(false);
       skipTrack();
@@ -1507,6 +1517,32 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         )}
         {!loadout && !over && <BannerStage item={bannerCur} practice={simulated} />}
         {rescued && !over && <RescuedBeat />}
+        {kwegLost && !over && (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/70 px-4 text-center" role="alertdialog" aria-label={KWEG_LOST.top} data-kweg-lost>
+            <p className="tbx-display tbx-pop text-[clamp(30px,7vw,84px)] leading-none text-[var(--tbx-red)]" style={{ textShadow: '0 0 40px rgba(232,38,29,.6)' }}>
+              {KWEG_LOST.top}
+            </p>
+            <p className="mt-3 max-w-md text-sm text-white/85">{KWEG_LOST.sub}</p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                className="rounded-full bg-[var(--tbx-red)] px-5 py-2.5 text-sm font-black tracking-[0.18em] text-white"
+                onClick={() => {
+                  setKwegLost(false);
+                  engine.current?.startRun(true);
+                  pushBanner({ kind: 'act', n: 2 });
+                  pushBanner({ kind: 'stage', n: 4 });
+                }}
+                data-kweg-retry
+              >
+                {KWEG_LOST.retry}
+              </button>
+              <button type="button" className="tbx-glass rounded-full px-5 py-2.5 text-sm font-bold tracking-[0.18em] text-white" onClick={() => (setKwegLost(false), finishRef.current())}>
+                RESULTS
+              </button>
+            </div>
+          </div>
+        )}
         {queueNote && !simulated && !loadout && !jammed && !over && (
           <div className="tbx-glass pointer-events-none absolute bottom-[96px] left-1/2 z-10 -translate-x-1/2 rounded-full px-4 py-1.5 text-xs text-white/85" role="status">
             Rounds are queueing, the network is catching up.
@@ -1623,6 +1659,20 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           <div className="tbx-glass absolute right-3 top-3 z-40 rounded-lg px-2 py-1.5" data-attract-unload>
             <UnloadButton b={b} creditUsd={cab.creditUsd} />
           </div>
+        )}
+        {/* CALL KWEG (touch; C or E on a keyboard, or click him): Dr Kweg sprints back to you. */}
+        {mode !== 'off' && !loadout && !over && !paused && !flat && !kwegLost && hud?.kwegOn && (
+          <button
+            type="button"
+            aria-label="Call Dr Kweg back"
+            className="absolute bottom-[calc(190px+env(safe-area-inset-bottom))] right-[112px] z-30 grid h-[64px] w-[64px] touch-none select-none place-items-center rounded-full border-2 border-[var(--tbx-gold,#ffc21a)] bg-black/45 text-[10px] font-black leading-tight tracking-[0.12em] text-white backdrop-blur-sm active:bg-[#ffc21a]/50 [@media(pointer:fine)]:hidden"
+            onPointerDown={(e) => (e.preventDefault(), e.stopPropagation(), engine.current?.callKweg())}
+            data-call-kweg
+          >
+            CALL
+            <br />
+            KWEG
+          </button>
         )}
         {/* FIRE (touch): hold to fire. The right half of the screen still drags the view and fires too. */}
         {mode !== 'off' && !loadout && !over && !paused && !flat && (

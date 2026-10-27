@@ -4,7 +4,7 @@
  * the team server and the tests all share it without growing anyone's bundle.
  *
  * Story (owner, 27 Oct): the Ninja Punk Girls storm the centre of the nSLAVE corporation to free Dr Kweg Wong from his
- * own inventions, the Erobotz (Act 1, STORM THE NODE: street to core), then fight out carrying him (Act 2, ESCAPE FROM
+ * own inventions, the Erobotz (Act 1, STORM THE NODE: street to core), then fight out with him, protecting him as he keeps running the wrong way (Act 2, ESCAPE FROM
  * TERRORNODE: the roof). Market and Centre are Act 1 windows, Way Up and Way Out are Act 2.
  *
  *   0 ASSAULT          the full ten-minute block (street -> floors -> core -> roof, the Liquid Unit). Always open.
@@ -77,7 +77,7 @@ export const LEVELS: readonly Level[] = [
     id: 'assault',
     n: 0,
     name: 'ESCAPE FROM TERRORNODE',
-    blurb: 'The full ten-minute block. Act 1: storm the node to the core. Act 2: carry him out past the Liquid Unit.',
+    blurb: 'The full ten-minute block. Act 1: storm the node to the core. Act 2: protect him past the Liquid Unit (he runs the wrong way).',
     kweg: 'You walked the whole block. I am almost impressed.',
     palette: { fog: '#071420', density: 0.0066, bg: '#05060f', exposure: 0, bloom: 0, key: '#27e6ff', rim: '#ff2bd6' },
     solo: { from: 0, to: 600, roles: { shooter: 0.42, rusher: 0.32, flanker: 0.26 }, horde: {}, wave: { kind: 'steady', k: 1 }, levelUp: 0 },
@@ -106,7 +106,7 @@ export const LEVELS: readonly Level[] = [
     id: 'rails',
     n: 2,
     name: 'THE WAY UP',
-    blurb: 'Act 2. Carry him up to the roof, under the maglev line. Flankers ride in on the trains.',
+    blurb: 'Act 2. Get him up to the roof (he keeps running the wrong way), under the maglev line. Flankers ride in on the trains.',
     kweg: 'Those trains ran on time for forty years. Until you.',
     palette: { fog: '#140a2e', density: 0.0095, bg: '#07041a', exposure: 0.04, bloom: 0.06, key: '#9b5cff', rim: '#2be9ff' },
     solo: {

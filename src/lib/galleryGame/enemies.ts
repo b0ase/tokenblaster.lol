@@ -254,6 +254,11 @@ export class ErobotWave {
     return found;
   }
 
+  /** Live bodies' ground positions (Act 2: they go for Dr Kweg too). Pushes into `out`, no allocation per frame beyond the points. */
+  threats(out: { x: number; z: number }[]) {
+    for (const s of this.slots) if (s.state === 'run' || s.state === 'aim' || s.state === 'melee') out.push({ x: s.root.position.x, z: s.root.position.z });
+  }
+
   get live() {
     let n = 0;
     for (const s of this.slots) if (s.state === 'boot' || s.state === 'run' || s.state === 'aim' || s.state === 'melee') n++;
