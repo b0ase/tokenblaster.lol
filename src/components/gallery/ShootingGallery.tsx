@@ -72,6 +72,8 @@ import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
 import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
+import { RotatePrompt } from './RotatePrompt';
+import { isMobileLite } from '@/lib/mobileLite';
 import type { RunSummary } from './Results';
 import dynamic from 'next/dynamic';
 import type { LevelId, Progress } from '@/lib/terrornode/levels';
@@ -126,6 +128,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   // when the player picks PAID ROUNDS (LOCK & LOAD).
   const [guest, setGuest] = useState(false);
   const [coarse, setCoarse] = useState(false); // a touch screen: touch hints and the FIRE button
+  const [lost, setLost] = useState(false); // the WebGL context was dropped (iOS memory pressure): offer a reload
   useEffect(() => {
     void Promise.resolve().then(() => setCoarse(window.matchMedia('(pointer: coarse)').matches));
   }, []);
@@ -275,6 +278,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     hurt: (h) => dmgFx.current?.hit(h.angle, h.dmg),
     stage: (e) => stageRef.current(e),
     died: () => diedRef.current(),
+    lost: () => setLost(true),
   });
 
   // ── Engine ──
@@ -282,8 +286,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     const cv = canvas.current;
     if (!cv) return;
     const phone = /iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.hardwareConcurrency ?? 8) <= 4;
-    const quality: Quality = new URLSearchParams(location.search).get('q') === 'low' || phone ? 'low' : 'high';
-    const eng = new GalleryEngine(cv, hooks, { quality, weapons, bossBase: 20_000 });
+    const lite = isMobileLite();
+    const quality: Quality = new URLSearchParams(location.search).get('q') === 'low' || phone || lite ? 'low' : 'high';
+    const eng = new GalleryEngine(cv, hooks, { quality, weapons, bossBase: 20_000, lite });
     eng.stickEl = stickRef.current;
     eng.knobEl = knobRef.current;
     engine.current = eng;
@@ -1274,6 +1279,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   return (
     <div className={`game-root flex flex-col gap-3 ${drFontClass} ${tbxFontClass}`}>
       <GameAudio track="terror" />
+      <RotatePrompt />
+      {lost && (
+        <button type="button" onClick={() => location.reload()} className="fixed inset-0 z-[999] flex items-center justify-center bg-[#03070c] text-lg font-bold tracking-[0.08em] text-[#e8f1f6]" data-context-lost>
+          Tap to reload
+        </button>
+      )}
       <section className="game-stage panel relative overflow-hidden p-0" style={{ background: '#04080d' }}>
         <canvas ref={canvas} className="block h-full min-h-[420px] w-full touch-none select-none" style={{ cursor: 'none' }} aria-label="Shooting Gallery: hold to fire" />
         <div ref={reticle} className="pointer-events-none absolute left-0 top-0 h-11 w-11" aria-hidden>

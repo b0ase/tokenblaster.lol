@@ -14,6 +14,7 @@
  * barrel spin, muzzle flash, tracers and brass, and `hooks.pull()` for burst weapons (one batch per pull).
  */
 import * as THREE from 'three';
+import { LITE_DPR, LITE_TEX } from '@/lib/mobileLite';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -85,6 +86,8 @@ export type Hooks = {
   died: () => void;
   /** Stage flow: the lift, a new stage, the final boss down, the rescue. */
   stage: (e: StageEvent) => void;
+  /** The browser dropped the WebGL context (iOS under memory pressure): the page offers a reload. */
+  lost?: () => void;
 };
 
 type Drone = { g: THREE.Group; rotors: THREE.Mesh[]; hp: number; dead: number; t: number; v: THREE.Vector3; base: THREE.Vector3; body: THREE.Mesh };
@@ -143,10 +146,10 @@ export class GalleryEngine {
   private renderer!: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(BASE_FOV, 16 / 9, 0.05, 900);
-  private composer!: EffectComposer;
-  private bloom!: UnrealBloomPass;
+  private composer: EffectComposer | null = null;
+  private bloom: UnrealBloomPass | null = null;
   private ao: GTAOPass | null = null;
-  private grade!: ReturnType<typeof makeGradePass>;
+  private grade: ReturnType<typeof makeGradePass> | null = null;
   private shafts: ShaderPass | null = null;
   private shaftP = new THREE.Vector3();
   private look!: Look;
@@ -298,27 +301,46 @@ export class GalleryEngine {
   constructor(
     private canvas: HTMLCanvasElement,
     private hooks: { current: Hooks },
-    private opts: { quality: Quality; weapons: RangeWeapon[]; bossBase: number },
+    private opts: { quality: Quality; weapons: RangeWeapon[]; bossBase: number; lite?: boolean },
   ) {}
 
   get high() {
-    return this.opts.quality === 'high';
+    return !this.opts.lite && this.opts.quality === 'high';
+  }
+
+  /** Mobile-lite tier (src/lib/mobileLite.ts): Low, minus the HDR env, post-processing and the heaviest models. */
+  get lite() {
+    return !!this.opts.lite;
+  }
+
+  private draw() {
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   async init(onProgress: (p: number) => void) {
     const high = this.high;
     const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !high, powerPreference: 'high-performance', stencil: false }));
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, high ? 1.5 : 1));
+    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.lite ? LITE_DPR : high ? 1.5 : 1));
+    const onLost = (e: Event) => {
+      e.preventDefault();
+      cancelAnimationFrame(this.raf);
+      this.hooks.current.lost?.();
+    };
+    this.canvas.addEventListener('webglcontextlost', onLost);
+    this.cleanup.push(() => this.canvas.removeEventListener('webglcontextlost', onLost));
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.0;
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.shadowMap.enabled = high;
     r.shadowMap.type = THREE.PCFShadowMap;
     onProgress(0.05);
-    this.look = await loadLook(r, high ? 'high' : 'low', (p) => onProgress(0.05 + p * 0.45));
+    this.look = await loadLook(r, high ? 'high' : 'low', (p) => onProgress(0.05 + p * 0.45), { env: !this.lite });
     if (this.disposed) return;
     this.city = buildCity({ renderer: r, scene: this.scene, high, look: this.look });
     this.world = this.city;
+    // lite: no HDR environment, so a cheap sky/ground fill keeps the PBR materials readable
+    if (this.lite) this.scene.add(new THREE.HemisphereLight('#8fb2e6', '#1c1420', 1.1), new THREE.AmbientLight('#ffffff', 0.35));
     const fg = this.scene.fog as THREE.FogExp2;
     this.setMood = { fog: '#' + fg.color.getHexString(), density: fg.density, bg: '#05060f' };
     this.boss = new LiquidUnit(this.opts.bossBase, high);
@@ -341,7 +363,7 @@ export class GalleryEngine {
       bolts: this.bolts,
       melee: (from, dmg) => this.hurt(from, dmg, 'melee'),
     });
-    this.horde = new Horde(this.scene, this.fx, { high, flash: (at, c, i, ms) => this.flash(at, c, i, ms), melee: (from, dmg) => this.hurt(from, dmg, 'melee') });
+    this.horde = new Horde(this.scene, this.fx, { high, lite: this.lite, flash: (at, c, i, ms) => this.flash(at, c, i, ms), melee: (from, dmg) => this.hurt(from, dmg, 'melee') });
     this.boss.onEvent = (k, at) => this.bossEvent(k, at);
     this.boss.onAttack = (a) => this.bossAttack(a);
     this.scene.add(this.camera);
@@ -383,7 +405,38 @@ export class GalleryEngine {
     this.droneGroupVisible(true);
     onProgress(0.65);
 
-    // Arena-grade post: render, GTAO (desktop High), bloom, grade, output.
+    // Arena-grade post: render, GTAO (desktop High), bloom, grade, output. Lite renders straight to the canvas.
+    if (!this.lite) this.buildPost(r);
+
+    // PRE-WARM: every set, the boss, the swarm and the effects compile now, off the frame loop, against the
+    // final light set-up (it never changes during the run), so nothing compiles mid-run
+    onProgress(0.7);
+    await r.compileAsync(this.scene, this.camera).catch(() => undefined);
+    this.warmTextures();
+    this.warmFrame();
+    void Promise.all([this.erobots.ready, this.horde.ready]).then(async () => {
+      if (this.disposed) return;
+      await r.compileAsync(this.scene, this.camera).catch(() => undefined);
+      if (this.disposed) return;
+      this.warmTextures();
+      this.warmFrame();
+    });
+    if (this.disposed) return;
+    this.bindInput();
+    this.ro = new ResizeObserver(() => this.resize());
+    this.ro.observe(this.canvas.parentElement ?? this.canvas);
+    this.resize();
+    onProgress(0.8);
+    const first = this.opts.weapons[0];
+    if (first) await this.setWeapon(first.id);
+    if (this.disposed) return;
+    onProgress(1);
+    this.last = performance.now();
+    this.raf = requestAnimationFrame(this.frame);
+  }
+
+  private buildPost(r: THREE.WebGLRenderer) {
+    const high = this.high;
     const size = r.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: high ? 4 : 0 });
     const comp = new EffectComposer(r, rt);
@@ -437,32 +490,6 @@ export class GalleryEngine {
     this.grade.apply({ shadow: [0.76, 1.0, 1.14], high: [1.08, 1.0, 0.9], sat: 0.92, contrast: 1.22, vignette: 0.74 });
     comp.addPass(this.grade.pass);
     this.composer = comp;
-
-    // PRE-WARM: every set, the boss, the swarm and the effects compile now, off the frame loop, against the
-    // final light set-up (it never changes during the run), so nothing compiles mid-run
-    onProgress(0.7);
-    await r.compileAsync(this.scene, this.camera).catch(() => undefined);
-    this.warmTextures();
-    this.warmFrame();
-    void Promise.all([this.erobots.ready, this.horde.ready]).then(async () => {
-      if (this.disposed) return;
-      await r.compileAsync(this.scene, this.camera).catch(() => undefined);
-      if (this.disposed) return;
-      this.warmTextures();
-      this.warmFrame();
-    });
-    if (this.disposed) return;
-    this.bindInput();
-    this.ro = new ResizeObserver(() => this.resize());
-    this.ro.observe(this.canvas.parentElement ?? this.canvas);
-    this.resize();
-    onProgress(0.8);
-    const first = this.opts.weapons[0];
-    if (first) await this.setWeapon(first.id);
-    if (this.disposed) return;
-    onProgress(1);
-    this.last = performance.now();
-    this.raf = requestAnimationFrame(this.frame);
   }
 
   resize() {
@@ -1022,7 +1049,7 @@ export class GalleryEngine {
     this.recoil *= Math.pow(0.0008, dt);
     this.shake *= Math.pow(0.02, dt);
     this.updateFlash(dt);
-    this.grade.tick(this.t, 0);
+    this.grade?.tick(this.t, 0);
     // GTAO is the costliest pass after the mirror; under sustained fire the screen is all muzzle, tracers and
     // swarm, so it rests while the trigger has been held a moment and comes back when you let go (keeps >=45 fps)
     this.holdT = this.trigger ? this.holdT + dt : 0;
@@ -1035,7 +1062,7 @@ export class GalleryEngine {
       u.uPos.value.set(p.x * 0.5 + 0.5, p.y * 0.5 + 0.5);
       u.uK.value = p.z < 1 && this.stageIdx === 0 ? 0.1 : 0;
     }
-    this.composer.render();
+    this.draw();
     this.statsT -= dt;
     if (this.statsT <= 0) {
       this.statsT = 0.12;
@@ -1191,7 +1218,7 @@ export class GalleryEngine {
       if ((o.name === 'erobots' || o.name === 'horde') && o.children.length) for (const c of o.children) if (!c.visible) bodies.push(c);
     });
     for (const b of bodies) b.visible = true;
-    this.composer.render();
+    this.draw();
     for (const b of bodies) b.visible = false;
     kits.forEach((k, i) => showKit(k, was[i]));
   }
@@ -1208,6 +1235,7 @@ export class GalleryEngine {
         if (u) for (const x of Object.values(u)) if (x && x.value instanceof THREE.Texture && !seen.has(x.value)) seen.add(x.value);
       }
     });
+    if (this.lite) for (const t of seen) capTexture(t, LITE_TEX);
     for (const t of seen) this.renderer.initTexture(t);
   }
 
@@ -1581,9 +1609,8 @@ export class GalleryEngine {
       this.flashK = Math.min(this.flashK, 0.25);
     }
     this.renderer.toneMappingExposure = 1.0 + this.level.palette.exposure + this.kick;
-    this.bloom.strength = (this.high ? 0.3 : 0.26) + this.level.palette.bloom + this.kick * 0.7;
-    const u = this.grade.pass.uniforms as { uAberr: { value: number } };
-    u.uAberr.value = 0.0012 + this.flashK * 0.003;
+    if (this.bloom) this.bloom.strength = (this.high ? 0.3 : 0.26) + this.level.palette.bloom + this.kick * 0.7;
+    if (this.grade) (this.grade.pass.uniforms as { uAberr: { value: number } }).uAberr.value = 0.0012 + this.flashK * 0.003;
   }
 
   private bossEvent(kind: 'roar' | 'stomp' | 'lunge' | 'stagger' | 'skid' | 'melt' | 'splash' | 'pooled' | 'rise', at: THREE.Vector3) {
@@ -1905,4 +1932,22 @@ export class GalleryEngine {
     this.composer?.dispose();
     this.renderer?.dispose();
   }
+}
+
+/** Lite tier: redraw any texture image larger than `max` px into a smaller canvas before it reaches the GPU. */
+function capTexture(t: THREE.Texture, max: number) {
+  const img = t.image as { width?: number; height?: number } | null;
+  if (!img || !img.width || !img.height || (t as THREE.DataTexture).isDataTexture || (t as THREE.CompressedTexture).isCompressedTexture) return;
+  const k = max / Math.max(img.width, img.height);
+  if (k >= 1 || typeof document === 'undefined') return;
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(img.width * k));
+  c.height = Math.max(1, Math.round(img.height * k));
+  try {
+    c.getContext('2d')?.drawImage(img as CanvasImageSource, 0, 0, c.width, c.height);
+  } catch {
+    return;
+  }
+  t.image = c;
+  t.needsUpdate = true;
 }

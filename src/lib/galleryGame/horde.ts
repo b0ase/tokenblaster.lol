@@ -10,6 +10,7 @@
  * ray-vs-sphere tests, not mesh raycasts.
  */
 import * as THREE from 'three';
+import { LITE_SKIP_MONSTERS } from '@/lib/mobileLite';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { Monster, MONSTERS } from '../arenaHD';
@@ -78,7 +79,7 @@ export class Horde {
   constructor(
     private scene: THREE.Scene,
     private fx: Fx,
-    private opts: { high: boolean; flash?: (at: THREE.Vector3, color: string, intensity: number, ms: number) => void; melee: (from: THREE.Vector3, dmg: number) => void },
+    private opts: { high: boolean; lite?: boolean; flash?: (at: THREE.Vector3, color: string, intensity: number, ms: number) => void; melee: (from: THREE.Vector3, dmg: number) => void },
   ) {
     this.group.name = 'horde';
     scene.add(this.group);
@@ -94,7 +95,8 @@ export class Horde {
   private async load() {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const H = TUNING.horde;
-    const defs = H.kinds.map((k) => MONSTERS.find((d) => d.id === k.id)).filter((d): d is (typeof MONSTERS)[number] => !!d);
+    // lite (phones): the heaviest models are never fetched; the weighted pick only draws kinds that have bodies
+    const defs = H.kinds.map((k) => MONSTERS.find((d) => d.id === k.id)).filter((d): d is (typeof MONSTERS)[number] => !!d && !(this.opts.lite && LITE_SKIP_MONSTERS.includes(d.id)));
     const gl = await Promise.all(defs.map((d) => loader.loadAsync(d.url).catch(() => null)));
     if (this.disposed) return;
     H.kinds.forEach((k) => {
