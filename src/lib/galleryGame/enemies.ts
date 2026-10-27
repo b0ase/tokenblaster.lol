@@ -259,6 +259,24 @@ export class ErobotWave {
     for (const s of this.slots) if (s.state === 'run' || s.state === 'aim' || s.state === 'melee') out.push({ x: s.root.position.x, z: s.root.position.z });
   }
 
+  /** Live robots for the AI squad (squad.ts): stable ids by pool slot, positions in scene space. */
+  foes(out: { id: string; x: number; z: number; hit: (dmg: number, from: THREE.Vector3) => boolean }[]) {
+    for (let i = 0; i < this.slots.length; i++) {
+      const s = this.slots[i];
+      if (s.state !== 'run' && s.state !== 'aim' && s.state !== 'melee') continue;
+      out.push({
+        id: `e${i}`,
+        x: s.root.position.x,
+        z: s.root.position.z,
+        hit: (dmg, from) => {
+          const point = s.root.position.clone().setY(1.3 * s.size);
+          const dir = point.clone().sub(from).normalize();
+          return this.hit({ slot: s, point, dist: point.distanceTo(from), head: false }, dmg, dir, true).killed;
+        },
+      });
+    }
+  }
+
   get live() {
     let n = 0;
     for (const s of this.slots) if (s.state === 'boot' || s.state === 'run' || s.state === 'aim' || s.state === 'melee') n++;
@@ -780,7 +798,8 @@ export class ErobotWave {
   }
 
   /** Apply `dmg` to the struck robot. */
-  hit(h: ErHit, dmg: number, dir: THREE.Vector3): ErResult {
+  /** `quiet`: an AI squadmate's round (no hit-marker at the player's reticle). */
+  hit(h: ErHit, dmg: number, dir: THREE.Vector3, quiet = false): ErResult {
     const s = h.slot;
     const at = h.point;
     if (s.state === 'dying' || s.state === 'down' || s.state === 'off') return { killed: false, heavy: false, score: 0 };
@@ -792,7 +811,7 @@ export class ErobotWave {
     this.addDecal(s, at, dir);
     if (s.hp <= 0) {
       this.kill(s, at, dir, h.head);
-      this.mark(true, h.head);
+      if (!quiet) this.mark(true, h.head);
       return { killed: true, heavy: true, score: h.head ? 450 : 300 };
     }
     // flinch (skip the clip while it's mid-cast to keep aiming readable); a charging shooter is interrupted
@@ -807,7 +826,7 @@ export class ErobotWave {
         }
       }
     }
-    this.mark(false, h.head);
+    if (!quiet) this.mark(false, h.head);
     return { killed: false, heavy: total >= HP * 0.35, score: Math.round(total) };
   }
 

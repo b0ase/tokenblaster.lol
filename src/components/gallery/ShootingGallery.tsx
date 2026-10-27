@@ -333,6 +333,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   useEffect(() => {
     if (ready) void engine.current?.setWeapon(weaponId);
   }, [ready, weaponId]);
+  // THE NPG SQUAD (owner, 27 Oct): you are the girl you picked, the other four fight alongside you as AI
+  // (src/lib/galleryGame/squad.ts). Their rounds are never paid; only yours are transactions.
+  useEffect(() => {
+    if (!ready) return;
+    const off = new URLSearchParams(location.search).get('squad') === '0';
+    engine.current?.setSquad(off ? [] : GIRLS, girlPick.girl, girlImg);
+  }, [ready, girlPick.girl]);
   useEffect(() => {
     if (ready) void loadResults();
   }, [ready]);
