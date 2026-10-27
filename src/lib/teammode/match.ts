@@ -59,7 +59,27 @@ export const RULES = {
   enemyCap: 40,
 } as const;
 
-export const TEAM_NAME: Record<Team, string> = { npg: 'NPG', erobotz: 'Erobotz' };
+export const TEAM_NAME: Record<Team, string> = { npg: 'NPG', erobotz: 'EROBOTZ' };
+
+/**
+ * PLAYABLE EROBOTZ (27 Oct, owner: erobotz are playable ONLY in team PvP, as one side; in solo and co-op they stay
+ * the enemy). In PvP the Erobotz side is heavier: more armour, slower on its feet, a slower but harder-hitting
+ * cannon. Balanced to roughly even: NPG put an Erobot down in 6 rounds (0.35 s at full auto), an Erobot puts a
+ * girl down in 4 (0.33 s); the girls are 17% faster on their feet and fire 57% more rounds (more paid shots).
+ * Co-op players are always NPG with the base RULES. Servers that apply these list EROBOTZ_FEATURE in /health and
+ * the welcome reply; older servers use the NPG numbers for both sides, so the site only shows them when listed.
+ */
+export const EROBOTZ_FEATURE = 'erobotz';
+export type SideStats = { hp: number; speed: number; shotDamage: number; shotGapMs: number };
+export const SIDE_STATS: Record<Team, SideStats> = {
+  npg: { hp: RULES.hp, speed: RULES.speed, shotDamage: RULES.shotDamage, shotGapMs: RULES.shotGapMs },
+  erobotz: { hp: 120, speed: 6.4, shotDamage: 25, shotGapMs: 110 },
+};
+/** The numbers a player on `team` plays with in this mode (co-op: always the NPG base). */
+export const statsFor = (mode: Mode, team: Team): SideStats => (mode === 'pvp' ? SIDE_STATS[team] : SIDE_STATS.npg);
+const pStats = (m: Match, p: Player) => statsFor(m.mode, p.team);
+/** True when a server reply (welcome / watching / health) lists the playable-Erobotz rules. */
+export const serverHasErobotz = (reply: { features?: unknown } | null | undefined) => Array.isArray(reply?.features) && reply.features.includes(EROBOTZ_FEATURE);
 
 export type Player = {
   id: string;
@@ -205,7 +225,7 @@ export function join(m: Match, o: { name: string; identityKey?: string | null; s
     x: 0,
     z: 0,
     yaw: 0,
-    hp: RULES.hp,
+    hp: statsFor(m.mode, team).hp,
     alive: true,
     respawnAt: 0,
     kills: 0,
@@ -281,7 +301,7 @@ export function start(m: Match, by: string, now: number): { ok: boolean; error?:
   m.endsAt = now + RULES.timeLimitMs;
   for (const q of m.players.values()) {
     place(m, q);
-    q.hp = RULES.hp;
+    q.hp = pStats(m, q).hp;
     q.alive = true;
   }
   if (m.mode === 'coop') nextWave(m);
@@ -293,7 +313,7 @@ export function move(m: Match, id: string, x: unknown, z: unknown, yaw: unknown,
   const p = m.players.get(id);
   if (!p || !p.alive || m.phase !== 'live') return;
   const dt = Math.max(0.05, (now - p.lastMove) / 1000);
-  const max = RULES.speed * dt + 0.25;
+  const max = pStats(m, p).speed * dt + 0.25;
   let dx = fin(x, p.x) - p.x;
   let dz = fin(z, p.z) - p.z;
   const d = Math.hypot(dx, dz);
@@ -327,7 +347,8 @@ export function shoot(m: Match, id: string, yaw: unknown, txid: unknown, now: nu
   const p = m.players.get(id);
   if (!p || m.phase !== 'live') return { ok: false, error: 'not live' };
   if (!p.alive) return { ok: false, error: 'dead' };
-  if (now - p.lastShot < RULES.shotGapMs) return { ok: false, error: 'too fast' };
+  const st = pStats(m, p);
+  if (now - p.lastShot < st.shotGapMs) return { ok: false, error: 'too fast' };
   p.lastShot = now;
   p.shots++;
   if (typeof txid === 'string' && /^[0-9a-f]{64}$/.test(txid)) {
@@ -355,8 +376,8 @@ export function shoot(m: Match, id: string, yaw: unknown, txid: unknown, now: nu
   if (!hit) return { ok: true, hit: null };
   if (hit.kind === 'player') {
     const q = hit.ref as Player;
-    q.hp -= RULES.shotDamage;
-    m.events.push({ k: 'hit', by: p.id, on: q.id, dmg: RULES.shotDamage, x: q.x, z: q.z });
+    q.hp -= st.shotDamage;
+    m.events.push({ k: 'hit', by: p.id, on: q.id, dmg: st.shotDamage, x: q.x, z: q.z });
     const killed = q.hp <= 0;
     if (killed) {
       kill(m, q, now);
@@ -443,7 +464,7 @@ export function tick(m: Match, now: number, dt = 1 / TICK_HZ): GameEvent[] {
     for (const p of m.players.values()) {
       if (!p.alive && now >= p.respawnAt) {
         place(m, p);
-        p.hp = RULES.hp;
+        p.hp = pStats(m, p).hp;
         p.alive = true;
         m.events.push({ k: 'spawn', id: p.id });
       }
@@ -704,6 +725,8 @@ export function publicState(m: Match, now: number, opts: { inviteBase?: string }
     size: players.filter((p) => p.team === t).length,
     max: m.mode === 'pvp' ? MAX_PER_SIDE : MAX_PLAYERS,
     frags: m.frags[t],
+    /** The side's PvP numbers (only honoured by servers listing EROBOTZ_FEATURE). */
+    stats: statsFor(m.mode, t),
     score: players.filter((p) => p.team === t).reduce((s, p) => s + p.score, 0),
   });
   return {

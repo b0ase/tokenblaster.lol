@@ -23,7 +23,7 @@ import { buildCity, EYE, type City } from '../galleryGame/city';
 import { loadLook, makeGradePass, type Look } from '../visuals/look';
 import { loadLibrary, retarget } from '../galleryGame/enemies';
 import { buildWeapon, weaponMaterial } from '../galleryGame/castModels';
-import { BOSS_KIND, dirOf, type Snapshot, type Team } from './match';
+import { BOSS_KIND, RULES, SIDE_STATS, dirOf, type Snapshot, type Team } from './match';
 import { STREET, arenaById, heightAt, resolve, type Arena } from './arena';
 import { teamLevelOf } from './levels';
 import type { MeleeScene } from './meleeScene';
@@ -33,6 +33,13 @@ import type { Dressing } from '../terrornode/dressing';
 export const TEAM_COLOUR: Record<Team, string> = { npg: '#2ec8e0', erobotz: '#ff2a46' };
 const SKINS: Record<Team, string[]> = { npg: ['hikaru', 'matoko', 'phi-phi', 'yamarashii'], erobotz: ['bot', 'graf-bot', 'stripey-bot', 'tech'] };
 const HORDE = ['bot', 'frog-bot', 'graf-bot', 'stripey-bot', 'tech'];
+/**
+ * PLAYABLE EROBOTZ (PvP only, servers listing 'erobotz'): erobot PLAYERS wear the NPG house erobot models
+ * (ninja-punk-girls-com 3D_assets/erobot_models bot1-bot5, meshopt + WebP, hi ~350-480 KB, lo/phones ~90-120 KB),
+ * so a player Erobot never looks like the server's horde. They are static meshes: they bob as they walk and topple
+ * when they die. Loaded only for PvP matches on such a server.
+ */
+export const EROBOT_PLAYER_SKINS = ['erobot1', 'erobot2', 'erobot3', 'erobot4', 'erobot5'];
 const SPEED = 6.5;
 
 type Body = {
@@ -50,6 +57,9 @@ type Body = {
   seen: number;
   tag: THREE.Sprite | null;
   far: number;
+  /** A static (unrigged) model: bobbed and toppled in code. */
+  rigless: THREE.Object3D | null;
+  phase: number;
 };
 /** Full skinned bodies past this many Erobots draw as the instanced crowd instead. */
 const ENEMY_BUDGET = { player: 56, spectator: 72 };
@@ -98,15 +108,20 @@ export class TeamScene {
   private melee: MeleeScene | null = null;
   private crowd: THREE.InstancedMesh | null = null;
   private proxies = new Map<string, { x: number; z: number; tx: number; tz: number; seen: number }>();
+  /** PvP on a server with the playable-Erobotz rules: erobot player models, the erobot's own speed and fire rate. */
+  erobotz: boolean;
+  private eroLoad: Promise<void> | null = null;
+  private gunTeam: Team | null = null;
   private frames = 0;
   private fpsAt = 0;
   fps = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
-    opts: { high: boolean; spectate?: boolean },
+    opts: { high: boolean; spectate?: boolean; erobotz?: boolean },
   ) {
     this.high = opts.high;
+    this.erobotz = Boolean(opts.erobotz);
     this.spectate = Boolean(opts.spectate);
   }
 
@@ -179,6 +194,7 @@ export class TeamScene {
         m.position.sub(c);
         m.traverse((o) => o.layers.set(1));
         this.gun.add(m);
+        this.gunTeam = null; // re-dress for the side once the model is in
       })
       .catch(() => {
         const w = buildWeapon('blaster', high);
@@ -222,10 +238,12 @@ export class TeamScene {
     const ids = [...new Set([...SKINS.npg, ...SKINS.erobotz, ...HORDE])];
     const lib = await loadLibrary();
     let done = 0;
+    const total = ids.length;
+    if (this.erobotz) await this.loadErobots();
     await Promise.all(
       ids.map(async (id) => {
         const g = await loader.loadAsync(`/gallery/erobots/${dir}/${id}.glb`).catch(() => null);
-        onProgress(++done / ids.length);
+        onProgress(++done / total);
         if (!g) return;
         const box = new THREE.Box3().setFromObject(g.scene);
         const h = Math.max(0.1, box.max.y - box.min.y);
@@ -241,6 +259,7 @@ export class TeamScene {
     let run: THREE.AnimationAction | null = null;
     let idle: THREE.AnimationAction | null = null;
     let die: THREE.AnimationAction | null = null;
+    let rigless: THREE.Object3D | null = null;
     if (m) {
       const model = cloneSkinned(m.scene);
       model.scale.setScalar(m.scale);
@@ -268,6 +287,10 @@ export class TeamScene {
         die.clampWhenFinished = true;
       }
       idle?.play();
+      if (!run && !idle) {
+        mixer = null;
+        rigless = model;
+      }
     } else {
       const fallback = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 1.1, 6, 12), new THREE.MeshStandardMaterial({ color: '#1a1d26', metalness: 0.7, roughness: 0.3, emissive: colour, emissiveIntensity: 0.2 }));
       fallback.position.y = 0.95;
@@ -281,7 +304,7 @@ export class TeamScene {
     const tag = label ? nameTag(label, colour) : null;
     if (tag) g.add(tag);
     this.scene.add(g);
-    return { g, mixer, run, idle, die, tx: 0, tz: 0, tyaw: 0, lx: 0, lz: 0, alive: true, seen: 0, tag, far: 0 };
+    return { g, mixer, run, idle, die, tx: 0, tz: 0, tyaw: 0, lx: 0, lz: 0, alive: true, seen: 0, tag, far: 0, rigless, phase: Math.random() * 6 };
   }
 
   /** Apply a server snapshot: correct the local player, move everyone else, draw shots and hits. */
@@ -301,7 +324,8 @@ export class TeamScene {
       }
       let b = this.bodies.get(id);
       if (!b) {
-        const skin = SKINS[team][hash(id) % SKINS[team].length];
+        const skins = team === 'erobotz' && this.erobotz && this.models.has(EROBOT_PLAYER_SKINS[0]) ? EROBOT_PLAYER_SKINS.filter((k) => this.models.has(k)) : SKINS[team];
+        const skin = skins[hash(id) % skins.length];
         b = this.makeBody(skin, TEAM_COLOUR[team], names.get(id) ?? 'Player');
         b.g.position.set(x, heightAt(this.arena, x, z), z);
         this.bodies.set(id, b);
@@ -359,6 +383,70 @@ export class TeamScene {
       if (e.k === 'shot' && e.by !== this.me.id) this.tracer(e.x, e.z, e.yaw, Math.min(e.len, 70), s.p.find((p) => p[0] === e.by)?.[6] ?? 'npg');
       if (e.k === 'hit') this.spark(e.x, e.z, e.on === this.me.id ? '#ff2a46' : '#ffd27a');
     }
+  }
+
+  /** Turn the playable-Erobotz look on once the server says so (the spectator learns it after the scene is up). */
+  setErobotz(on: boolean) {
+    this.erobotz = on;
+    if (on) void this.loadErobots();
+  }
+  private loadErobots() {
+    if (this.eroLoad) return this.eroLoad;
+    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const dir = this.high && !this.spectate ? 'hi' : 'lo';
+    this.eroLoad = Promise.all(
+      EROBOT_PLAYER_SKINS.map(async (id) => {
+        const g = await loader.loadAsync(`/terrornode/erobotz/${dir}/${id}.glb`).catch(() => null);
+        if (!g || this.disposed) return;
+        // no transmission pass (an extra full-scene render per frame; phones can't afford it)
+        g.scene.traverse((o) => {
+          const mat = (o as THREE.Mesh).material as THREE.MeshPhysicalMaterial | undefined;
+          if (mat && 'transmission' in mat && mat.transmission > 0) [mat.transmission, mat.transparent, mat.opacity] = [0, true, 0.85];
+        });
+        // feet on the ground, centred, a head taller than the girls (2.15 m): heavy armour
+        const box = new THREE.Box3().setFromObject(g.scene);
+        const h = Math.max(0.1, box.max.y - box.min.y);
+        const c = box.getCenter(new THREE.Vector3());
+        const root = new THREE.Group();
+        g.scene.position.set(-c.x, -box.min.y, -c.z);
+        root.add(g.scene);
+        this.models.set(id, { scene: root, clips: new Map(), scale: 2.15 / h });
+      }),
+    ).then(() => undefined);
+    return this.eroLoad;
+  }
+
+  /** Local walking speed: the NPG base, the erobot's slower gait on a playable-Erobotz server. */
+  private mySpeed() {
+    return this.erobotz ? SPEED * (SIDE_STATS[this.me.team].speed / RULES.speed) : SPEED;
+  }
+  /** Seconds between local shots: never faster than the server accepts (a refused shot is a wasted paid round). */
+  private myFireGap() {
+    return this.erobotz ? Math.max(0.085, SIDE_STATS[this.me.team].shotGapMs / 1000 + 0.015) : 0.085;
+  }
+  /** The erobot's first-person cannon: the same gun, bigger, gunmetal with a red core. */
+  private dressGun(team: Team) {
+    this.gunTeam = team;
+    const ero = this.erobotz && team === 'erobotz';
+    this.gun.scale.setScalar(ero ? 1.35 : 1);
+    this.gun.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const ud = mesh.userData as { base?: THREE.Material | THREE.Material[] };
+      if (!ud.base) ud.base = mesh.material;
+      if (!ero) return void (mesh.material = ud.base);
+      const one = (b: THREE.Material) => {
+        const m = b.clone() as THREE.MeshStandardMaterial;
+        if ('emissive' in m) {
+          m.color = new THREE.Color('#2a2c33');
+          m.emissive = new THREE.Color(TEAM_COLOUR.erobotz);
+          m.emissiveIntensity = 0.45;
+        }
+        return m;
+      };
+      mesh.material = Array.isArray(ud.base) ? ud.base.map(one) : one(ud.base);
+    });
+    this.flash.color.set(ero ? '#ff4a3a' : '#ffb870');
   }
 
   private retarget(b: Body, x: number, z: number, yaw: number, alive: boolean, now: number) {
@@ -498,14 +586,15 @@ export class TeamScene {
       if (this.touchMove) [s, f] = [Math.max(-1, Math.min(1, this.touchMove.x)), Math.max(-1, Math.min(1, -this.touchMove.y))];
       const { dx, dz } = dirOf(me.yaw);
       const n = Math.hypot(f, s) || 1;
-      const go = f || s ? SPEED * dt : 0;
+      const go = f || s ? this.mySpeed() * dt : 0;
       const c = resolve(this.arena, me.x + ((dx * f - dz * s) / n) * go, me.z + ((dz * f + dx * s) / n) * go);
       [me.x, me.z] = [c.x, c.z];
       if (this.t - this.lastSend > 0.05) {
         this.lastSend = this.t;
         this.onMove(me.x, me.z, me.yaw);
       }
-      if (this.trigger && this.t - this.lastFire > 0.085) {
+      if (this.gunTeam !== me.team) this.dressGun(me.team);
+      if (this.trigger && this.t - this.lastFire > this.myFireGap()) {
         this.lastFire = this.t;
         this.kick = 1;
         this.flash.intensity = 6;
@@ -538,6 +627,20 @@ export class TeamScene {
       b.g.rotation.y += dy * k;
       const v = Math.hypot(b.g.position.x - b.lx, b.g.position.z - b.lz) / Math.max(dt, 1e-3);
       [b.lx, b.lz] = [b.g.position.x, b.g.position.z];
+      if (b.rigless) {
+        // static erobot: a heavy bob and sway while walking, a topple when it dies, upright on respawn
+        const r = b.rigless;
+        if (b.alive) {
+          b.phase += dt * Math.min(9, v * 1.6);
+          const w = Math.min(1, v / 3);
+          r.position.y = Math.abs(Math.sin(b.phase)) * 0.09 * w;
+          r.rotation.z = Math.sin(b.phase) * 0.06 * w;
+          r.rotation.x += (0 - r.rotation.x) * k;
+        } else {
+          r.rotation.x += (-Math.PI / 2 - r.rotation.x) * Math.min(1, dt * 5);
+          r.position.y *= 0.9;
+        }
+      }
       if (b.alive && b.run && b.idle) {
         const moving = v > 0.6;
         if (moving && !b.run.isRunning()) {

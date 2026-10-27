@@ -38,6 +38,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
   const samples = useRef<TxSample[]>([]);
   const lastSnapAt = useRef(0);
   const levelRef = useRef<PublicState['level'] | null>(null);
+  const eroRef = useRef(false);
 
   const onState = (s: PublicState) => {
     setState(s);
@@ -64,6 +65,10 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
         onWelcome: () => undefined,
         onError: setErr,
         onStatus: setStatus,
+        onErobotzSupport: (ok) => {
+          eroRef.current = ok;
+          scene.current?.setErobotz(ok);
+        },
       },
       true,
     );
@@ -93,7 +98,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
     void import('@/lib/teammode/scene').then(async ({ TeamScene }) => {
       if (!live || !canvas.current) return;
       const high = new URLSearchParams(location.search).get('q') !== 'low';
-      const s = new TeamScene(canvas.current, { high, spectate: true });
+      const s = new TeamScene(canvas.current, { high, spectate: true, erobotz: eroRef.current });
       scene.current = s;
       await s.init(() => undefined);
       if (!live) return s.dispose();
@@ -129,7 +134,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div className="rounded-xl border border-white/10 bg-black/55 px-4 py-2.5 backdrop-blur-md">
             <p className="text-[11px] font-bold uppercase tracking-[0.32em]" style={{ color: L.palette.key }}>
-              Escape from TERRORNODE · {pvp ? 'NPG vs Erobotz' : 'Co-op'} · {L.name}
+              Escape from TERRORNODE · {pvp ? 'NPG vs EROBOTZ' : 'Co-op'} · {L.name}
             </p>
             <p className="mt-0.5 font-mono text-sm text-white/70">
               Room <span className="font-bold text-white">{room}</span>
@@ -191,7 +196,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
               return (
                 <section key={t} className="rounded-xl border bg-black/55 p-2 backdrop-blur-md" style={{ borderColor: `${COLOUR[t]}66` }}>
                   <p className="mb-1 flex items-center justify-between text-[11px] font-bold uppercase tracking-[0.28em]" style={{ color: COLOUR[t] }}>
-                    <span>{pvp ? TEAM_NAME[t] : 'NPG squads'}</span>
+                    <span>{pvp ? (t === 'npg' ? 'NPG · the girls' : 'EROBOTZ · players') : 'NPG squads'}</span>
                     <span className="text-white/60">{list.length} players</span>
                   </p>
                   <ol className={`grid gap-[3px] ${dense ? (pvp ? 'grid-cols-2 xl:grid-cols-4' : 'grid-cols-4 md:grid-cols-6 xl:grid-cols-8') : pvp ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-2 md:grid-cols-4'}`}>
