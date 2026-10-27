@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadGunModel } from '@/lib/ordnanceModels';
 import { isMobileLite } from '@/lib/mobileLite';
+import { addPreview } from '@/lib/previewRenderer';
 
 /** A slowly turning 3D model of one gun, for the loadout cards. */
 export function GunPreview({ url, active }: { url: string; active: boolean }) {
@@ -26,9 +27,7 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
   useEffect(() => {
     const cv = ref.current;
     if (!cv || !live) return;
-    const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // drawn by the page's one shared preview context (src/lib/previewRenderer.ts), not a context per card
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
     camera.position.set(0, 0.35, 3.2);
@@ -43,12 +42,12 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
     const pivot = new THREE.Group();
     scene.add(pivot);
 
-    let raf = 0;
     let gone = false;
     loadGunModel(url)
       .then((gltf) => {
         if (gone) return;
         // SkeletonUtils keeps rigged guns (Quad Plasma, Minigun) intact; a plain clone() drops their skin.
+        // The clone shares the cached model's geometry and materials, so nothing is disposed here.
         const model = cloneSkinned(gltf.scene);
         model.updateMatrixWorld(true);
         const box = new THREE.Box3().setFromObject(model, true);
@@ -63,31 +62,19 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
       })
       .catch(() => {});
 
-    const resize = () => {
-      const w = Math.max(2, cv.clientWidth);
-      const h = Math.max(2, cv.clientHeight);
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    };
-    resize();
-    const ro = new ResizeObserver(resize);
-    ro.observe(cv);
-
-    let last = performance.now();
-    const frame = (t: number) => {
-      const dt = Math.min(0.05, (t - last) / 1000);
-      last = t;
-      pivot.rotation.y += dt * (activeRef.current ? 1.4 : 0.5);
-      renderer.render(scene, camera);
-      raf = requestAnimationFrame(frame);
-    };
-    raf = requestAnimationFrame(frame);
+    const release = addPreview({
+      canvas: cv,
+      draw: (renderer, _t, dt) => {
+        pivot.rotation.y += dt * (activeRef.current ? 1.4 : 0.5);
+        camera.aspect = cv.width / Math.max(1, cv.height);
+        camera.updateProjectionMatrix();
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.render(scene, camera);
+      },
+    });
     return () => {
       gone = true;
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-      renderer.dispose();
+      release?.();
     };
   }, [url, live]);
 
