@@ -1819,3 +1819,12 @@ html[data-phone-game] .game-stage [data-pause] {
     opacity: 0.6;
   }
 }
+
+/* viewport-fit=cover (layout.tsx) lets the phone game reach under the notch; ordinary pages keep clear of it. */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+html[data-phone-game] body {
+  padding: 0;
+}

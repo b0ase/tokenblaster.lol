@@ -1291,7 +1291,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     return () => window.removeEventListener('keydown', kd, { capture: true });
   }, [loadout]);
 
-  // PHONE GAME MODE (owner, 27 Oct 2026): a phone on its side plays full screen once START is pressed. The stage is
+  // PHONE GAME MODE (owner, 27 Oct 2026): a phone on its side is full screen as soon as it is turned, before START too
+  // (the loadout scrolls inside the stage, so team, wallet and LOCK & LOAD stay reachable). The stage is
   // fixed over the whole viewport and every bit of page chrome is hidden (globals.css, html[data-phone-game]).
   // Turning the phone upright mid-round pauses (the rotate prompt covers it); back on its side resumes.
   const [phoneLand, setPhoneLand] = useState(false);
@@ -1305,10 +1306,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     return () => mq.removeEventListener('change', on);
   }, []);
   const inPlay = !loadout && !over;
-  const gameMode = phoneLand && inPlay;
+  const gameMode = phoneLand;
   useEffect(() => {
     const h = document.documentElement;
-    if (gameMode) h.dataset.phoneGame = '1';
+    if (gameMode) {
+      h.dataset.phoneGame = '1';
+      window.scrollTo(0, 0);
+    }
     else delete h.dataset.phoneGame;
     return () => void delete h.dataset.phoneGame;
   }, [gameMode]);
