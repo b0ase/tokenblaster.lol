@@ -101,6 +101,7 @@ export function CharacterCard({ c, portrait, compact = false }: { c: LoadCharact
 export function LoadingScreen({
   title,
   titleArt,
+  badge,
   kicker = 'TOKENBLASTER',
   setting,
   shots,
@@ -114,6 +115,8 @@ export function LoadingScreen({
   title: string;
   /** Optional title art shown instead of the plain title text (e.g. the bloody WELCOME TO TERRORNODE). */
   titleArt?: ReactNode;
+  /** A small line above the title (e.g. OFFICIAL NPG GAME). */
+  badge?: ReactNode;
   kicker?: string;
   /** A small line under the title, e.g. the place and year. */
   setting?: string;
@@ -189,6 +192,7 @@ export function LoadingScreen({
               <span className="inline-block h-[2px] w-6 bg-[var(--tbx-red)]" />
               {kicker}
             </p>
+            {badge}
             <h1 className="tbx-display mt-2 text-[clamp(44px,8.5vw,132px)]" style={{ textShadow: '0 8px 50px rgba(0,0,0,.7)' }}>
               {titleArt ?? title}
             </h1>

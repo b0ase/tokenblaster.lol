@@ -177,3 +177,22 @@
 .tbx .tbx-led-digits { animation: tbx-led-flash 0.4s ease-out; }
 
 .tbx .tbx-go-sub { display: block; margin-top: 4px; font-family: var(--tbx-ui), sans-serif; font-size: clamp(12px, 1.6vw, 15px); font-weight: 700; letter-spacing: 0.22em; opacity: 0.92; }
+
+/* 1Sat Ordnance card treatment on the loadout gun cards (owner, 27 Oct): the same look as the store's poster cards
+   (src/lib/ordnanceArt.ts backdrop): rarity hazard stripes top and bottom on near-black, a faint rarity sunburst,
+   halftone dots at the edges, a 1SAT ORDNANCE amber mono label and a boxed rarity tag. --rc = the rarity colour. */
+.tbx .tbx-ord { --rc: #e0958a; overflow: hidden; isolation: isolate; border-radius: 6px; border-color: color-mix(in srgb, var(--rc) 55%, transparent); padding-top: 18px !important; padding-bottom: 18px !important;
+  background:
+    repeating-conic-gradient(from 0deg at 50% 34%, color-mix(in srgb, var(--rc) 8%, transparent) 0 7.5deg, transparent 7.5deg 15deg),
+    radial-gradient(ellipse at 50% 34%, #2c2410, #070708 75%); }
+.tbx .tbx-ord::before, .tbx .tbx-ord::after { content: ''; position: absolute; left: 0; right: 0; height: 10px; pointer-events: none;
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--rc) 85%, #0b0b0d) 0 6px, #0b0b0d 6px 12px); }
+.tbx .tbx-ord::before { top: 0; }
+.tbx .tbx-ord::after { bottom: 0; }
+.tbx .tbx-ord > .tbx-ord-dots { position: absolute; inset: 10px 0; z-index: -1; pointer-events: none; opacity: 0.18;
+  background: radial-gradient(circle, var(--rc) 1.4px, transparent 1.7px) 0 0 / 9px 9px;
+  -webkit-mask: linear-gradient(90deg, #000, transparent 22%, transparent 78%, #000); mask: linear-gradient(90deg, #000, transparent 22%, transparent 78%, #000); }
+.tbx .tbx-ord-label { font: 700 10px Menlo, 'Courier New', monospace; letter-spacing: 0.06em; color: #f5b800; }
+.tbx .tbx-ord-tag { font: 700 9px Menlo, 'Courier New', monospace; letter-spacing: 0.08em; color: var(--rc); border: 1.5px solid var(--rc); padding: 1px 4px; background: rgba(0, 0, 0, 0.55); }
+.tbx .tbx-ord-name { font-family: 'Arial Black', Impact, sans-serif; font-weight: 900; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1; }
+.tbx .tbx-ord[aria-pressed='true'] { border-color: var(--rc); box-shadow: 0 0 0 1px var(--rc), 0 0 30px color-mix(in srgb, var(--rc) 35%, transparent); }

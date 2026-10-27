@@ -4,6 +4,7 @@ import { BloodTitle } from '@/components/gallery/BloodTitle';
 import { LOADING_SHOTS } from '@/lib/gallery/story';
 import { tbxFontClass } from '../coinop/fonts';
 import { PrizeBanner } from '../gallery/PrizeBanner';
+import { OfficialNpg } from '../terrornode/OfficialNpg';
 
 /** Filmstrip frames: three of the cinematic loader stills, captioned from the story data. */
 const FRAMES = ['/gallery/loading/street-left.webp', '/gallery/loading/tower.webp', '/gallery/loading/muzzle.webp']
@@ -38,6 +39,7 @@ export function GalleryCard() {
               <b aria-hidden />
               Welcome to TERRORNODE · 31 Oct stress test
             </span>
+            <OfficialNpg size="sm" />
             <p className="hp-gal-title"><BloodTitle /></p>
             <p className="max-w-xl text-[clamp(14px,1.5vw,17px)] leading-relaxed text-[var(--tbx-dim)]">
               Neo-Tokyo, 2048. The Ninja Punk Girls storm the node to free Dr Kweg Wong from his own Erobotz. Join them, drop a coin in and hold the trigger: in paid play every round is a real transaction.

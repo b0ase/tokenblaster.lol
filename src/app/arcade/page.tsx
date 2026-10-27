@@ -5,6 +5,7 @@ import { Pictogram } from '@/components/dr';
 import { byTitle } from '@/lib/alpha';
 import { GAMES } from '@/lib/games';
 import { ARCADE_CARD, shareImages } from '@/lib/og';
+import { OfficialNpg } from '@/components/terrornode/OfficialNpg';
 
 const description = 'Games built on the live BSV chain: shoot your own tokens, dodge real mainnet traffic, and more on the way.';
 export const metadata = {
@@ -56,6 +57,7 @@ export default function ArcadePage() {
                 <img src={g.img} alt={`${g.title} screenshot`} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />
                 <span className="dr-display absolute left-0 top-0 bg-[var(--accent-fill)] px-2 py-0.5 text-xl text-[var(--on-accent)]">{pad(i + 1)}</span>
                 {g.status === 'soon' && <span className="dr-sticker dr-sticker-red absolute right-2 top-2 text-xs">Coming soon</span>}
+                {g.href === '/arcade/terrornode' && <OfficialNpg size="sm" className="absolute bottom-2 left-2 rounded bg-black/75 px-2 py-1" />}
                 {g.version && <span className="dr-stamp absolute bottom-2 right-2 bg-black/80 text-[var(--hot)] !text-[var(--hot)]">{g.version}</span>}
               </div>
               <div className="flex flex-1 flex-col p-3">
