@@ -17,7 +17,7 @@ export function useChainFeed(cap = 400) {
     if (!SUBSCRIPTION) return;
     const push = (f: FeedTx) => {
       // Rolling buffer, per kind: always keep the newest of each kind, so one flood (e.g. a
-      // spam burst of data txs) can't fill the queue and starve the other lanes or go stale.
+      // flood of data txs) can't fill the queue and starve the other lanes or go stale.
       const q = queue.current;
       q.push(f);
       // Each kind keeps at most its share (oldest of that kind goes first), then the total cap.

@@ -5,13 +5,13 @@
  * from KWEG). Pointer events are off; the gun keeps firing underneath.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BANNERS, KWEG, PRACTICE, stageBrief } from '@/lib/gallery/story';
+import { ACTS, BANNERS, FREED, KWEG, PRACTICE, stageBrief } from '@/lib/gallery/story';
 import { Icon } from '../coinop/ui';
 
-export type BannerKind = { kind: 'loaded' } | { kind: 'stage'; n: number } | { kind: 'boss' };
+export type BannerKind = { kind: 'loaded' } | { kind: 'stage'; n: number } | { kind: 'boss' } | { kind: 'act'; n: 1 | 2 } | { kind: 'freed' };
 type Item = BannerKind & { id: number; ms: number };
 
-const MS = { loaded: 2400, stage: 3400, boss: 2400 } as const;
+const MS = { loaded: 2400, stage: 3400, boss: 2400, act: 3000, freed: 3200 } as const;
 
 /** Queue banners; each one shows for its own time, then the next. */
 export function useBanners() {
@@ -70,6 +70,32 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
       </div>
     );
   }
+  if (item.kind === 'act') {
+    // ACT 1 STORM THE NODE / ACT 2 ESCAPE FROM TERRORNODE: the title card between the acts
+    const a = ACTS[item.n - 1];
+    return (
+      <div key={item.id} className={base} role="status" style={dur} data-act={item.n}>
+        <p className="tbx-banner-sub text-xs font-bold uppercase tracking-[0.5em] text-[var(--tbx-red)]">{a.code}</p>
+        <p className="tbx-banner-main tbx-display max-w-[94vw] text-[clamp(34px,7.4vw,108px)] leading-[0.95]" style={{ textShadow: '0 0 60px rgba(255,59,59,.55), 0 8px 50px rgba(0,0,0,.9)' }}>
+          {a.title}
+        </p>
+        <span className="tbx-banner-line mt-2 h-[2px] w-[min(560px,76vw)] bg-gradient-to-r from-transparent via-[var(--tbx-red)] to-transparent" />
+        <p className="tbx-banner-sub mt-3 text-[clamp(12px,1.4vw,17px)] font-semibold uppercase tracking-[0.28em] text-white/85">{a.line}</p>
+      </div>
+    );
+  }
+  if (item.kind === 'freed') {
+    return (
+      <div key={item.id} className={base} role="status" style={dur} data-freed>
+        <p className="tbx-banner-main tbx-display max-w-[94vw] text-[clamp(30px,6.4vw,92px)] leading-[0.95]" style={{ color: 'var(--tbx-ok)', textShadow: '0 0 60px rgba(60,255,150,.5), 0 8px 50px rgba(0,0,0,.85)' }}>
+          {FREED.top}
+        </p>
+        <span className="tbx-banner-line mt-2 h-[2px] w-[min(520px,70vw)] bg-gradient-to-r from-transparent via-[var(--tbx-ok)] to-transparent" />
+        <p className="tbx-banner-sub mt-3 text-[clamp(13px,1.6vw,20px)] font-bold uppercase tracking-[0.24em] text-white">{FREED.sub}</p>
+        <p className="tbx-banner-sub mt-2 hidden max-w-[560px] text-[clamp(11px,1.1vw,14px)] italic text-white/70 sm:block">“{KWEG.clear[2]}” <span className="not-italic">· {KWEG.name}</span></p>
+      </div>
+    );
+  }
   if (item.kind === 'boss') {
     return (
       <div key={item.id} className={base} role="status" style={dur}>
@@ -102,7 +128,7 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
   );
 }
 
-/** The RESCUED beat: Kweg is free; a deadpan line over the roof. */
+/** The ESCAPED beat: Kweg is out; a deadpan line over the helipad. */
 export function RescuedBeat() {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-[14%] z-20 flex flex-col items-center px-4 text-center" role="status" data-rescued>

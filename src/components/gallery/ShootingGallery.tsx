@@ -72,7 +72,7 @@ import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
 import { LoadingScreen, type LoadState } from '../coinop/LoadingScreen';
-import { CHARACTERS, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, forPractice, stageBrief } from '@/lib/gallery/story';
+import { CHARACTERS, CREDIT, CTA, GAME_KICKER, GAME_TITLE, LORE, LOADING_SHOTS, PRACTICE, SETTING, TIPS, actOf, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Hud, HudControls } from './Hud';
 import { TUNING } from '@/lib/galleryGame/tuning';
 import { BannerStage, RescuedBeat, useBanners } from './Banners';
@@ -845,6 +845,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       if (e.kind === 'enter') {
         hudWave.current = e.stage;
         skipTrack(); // a new stage, a new song
+        // into Act 2 from the core: Dr Wong is cut loose, then the act card (story.ts ACTS)
+        if (e.stage === 4) {
+          pushBanner({ kind: 'freed' });
+          pushBanner({ kind: 'act', n: 2 });
+        }
         pushBanner({ kind: 'stage', n: e.stage });
         return;
       }
@@ -957,7 +962,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       sfx('coin');
       if (continued) return; // play resumes on the same stage: no new banners
       // GO (the overlay below) is the "gun loaded" moment now; the stage banner follows once it has gone
-      setTimeout(() => pushBanner({ kind: 'stage', n: 1 }), 1300);
+      setTimeout(() => {
+        // the act card first (a level that starts on the roof is already Act 2), then its first stage
+        const st = (engine.current?.stageIdx ?? 0) + 1;
+        pushBanner({ kind: 'act', n: actOf(st).n });
+        pushBanner({ kind: 'stage', n: st });
+      }, 1300);
     },
     [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
@@ -1449,7 +1459,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           <LoadingScreen
             title={GAME_TITLE}
             kicker={GAME_KICKER}
-            setting={SETTING}
+            setting={`${SETTING} · ${CREDIT}`}
             shots={LOADING_SHOTS}
             track="terror"
             lore={simulated ? LORE.map((l) => ({ ...l, line: forPractice(l.line) })) : LORE}
@@ -1709,8 +1719,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                         </button>
                       </>
                     ) : (
-                      <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-10 py-2 text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>
-                        ▶ START <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
+                      <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-6 py-2 text-2xl sm:px-10 sm:text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>
+                        ▶ {CTA} <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
                       </button>
                     )}
                     {guest && !freePlayProp && (

@@ -1229,7 +1229,7 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
     if (Math.random() < 0.35) burning.push(w);
   };
 
-  // logo: TERRORNODE / HEADQUARTERS to the right of the huge animated eye
+  // logo: nSLAVE / HEADQUARTERS (the corporation; TERRORNODE is the core at its centre) to the right of the huge animated eye
   const logoTex = track(
     tex(
       canvas(1024, 300, (g) => {
@@ -1240,14 +1240,14 @@ export function buildCity({ renderer, scene, high, look }: { renderer: THREE.Web
         g.fillStyle = '#eef3fb';
         g.shadowColor = '#9fc0ff';
         g.shadowBlur = 0;
-        g.fillText('TERRORNODE', 512, 118);
+        g.fillText('nSLAVE', 512, 118);
         g.font = '700 44px Arial, sans-serif';
         g.fillStyle = '#ff4a3a';
         g.shadowColor = '#ff2020';
         g.fillText('H  E  A  D  Q  U  A  R  T  E  R  S', 512, 224);
         g.font = `700 28px ${JP}`;
         g.fillStyle = '#ff9a8a';
-        g.fillText('テラーノード本社', 512, 275);
+        g.fillText('エヌスレイブ本社', 512, 275);
       }),
     ),
   );

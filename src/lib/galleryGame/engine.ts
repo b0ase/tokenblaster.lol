@@ -15,6 +15,7 @@
  */
 import * as THREE from 'three';
 import { LITE_DPR, LITE_TEX } from '@/lib/mobileLite';
+import { buildBlood, type Blood } from './blood';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -196,6 +197,9 @@ export class GalleryEngine {
   private coreHit = 0;
   private sinceCoreHit = 99;
   private rescue: { t: number; freed: boolean; sent: boolean } | null = null;
+  /** Act 2 (the roof, the way out): blood on the floors and walls, angrier Erobotz (see story.ts ACTS). */
+  private blood: Blood | null = null;
+  private bloodAt = new THREE.Vector3();
   private bossOn = false;
   private boss!: LiquidUnit;
   private erobots!: ErobotWave;
@@ -764,6 +768,7 @@ export class GalleryEngine {
         this.kills++;
         this.heal(TUNING.player.healOnKill);
         if (r.big || Math.random() < 0.3) sfx('explosion', r.big ? 0.8 : 0.35);
+        this.bleed(mob.point);
       }
       this.erobots.mark(r.killed);
       return mob.point;
@@ -782,6 +787,7 @@ export class GalleryEngine {
         this.kills++;
         this.heal(TUNING.player.healOnKill);
         sfx('explosion', 0.5);
+        this.bleed(er.point);
       }
       if (r.heavy) this.shake = Math.max(this.shake, r.killed ? 0.5 : 0.3);
       return er.point;
@@ -1149,6 +1155,9 @@ export class GalleryEngine {
     this.sets.floors = buildFloors(ctx);
     this.sets.core = buildCore(ctx);
     this.sets.roof = buildRoof(ctx);
+    // ACT 2 blood: painted when the roof opens (the way out), on its floor, parapets and far wall
+    this.blood = buildBlood(this.lite ? 'lite' : this.high ? 'high' : 'low', { halfW: 15, z0: 18, z1: -62, wallX: 24, farZ: -66, wallH: 1.15 });
+    this.sets.roof.group.add(this.blood.ground, this.blood.walls);
     const R = TUNING.run.route;
     // seams: floor patches so the walk never crosses a hole between a straight floor and the round shaft
     const patch = (st: StageSet, z0: number, z1: number, w: number, y: number) => {
@@ -1223,7 +1232,10 @@ export class GalleryEngine {
       if ((o.name === 'erobots' || o.name === 'horde') && o.children.length) for (const c of o.children) if (!c.visible) bodies.push(c);
     });
     for (const b of bodies) b.visible = true;
+    const bled = (this.blood?.ground.count ?? 0) > 0;
+    this.blood?.scatter(); // the blood compiles now too, not on the first frame of Act 2
     this.draw();
+    if (!bled) this.blood?.clear();
     for (const b of bodies) b.visible = false;
     kits.forEach((k, i) => showKit(k, was[i]));
   }
@@ -1258,7 +1270,20 @@ export class GalleryEngine {
 
   /** Switch the gameplay stage `i` (0..3): the lane, the hit targets, the Erobot level. The scenery is the route's. */
   private applyStage(i: number) {
+    const from = this.stageIdx;
     this.stageIdx = i;
+    // ACT 2 (story.ts ACTS): Dr Wong is cut loose at the core and carried out over the roof. The way out is painted
+    // in blood, the Erobotz are a level angrier, and crossing over from the core gives a short breather for the card.
+    if (i === 3) {
+      this.blood?.scatter();
+      this.sets.roof?.hostage?.free(-46);
+      if (from === 2 && this.combat) {
+        this.erobots.clearAll();
+        this.horde.clearAll();
+        this.bolts.clear();
+        this.erobots.grace = this.horde.grace = TUNING.player.openingGrace + 2.5;
+      }
+    } else this.blood?.clear();
     this.world = this.setNow() ?? this.city;
     this.droneGroupVisible(i === 0);
     if (this.decal) this.decal.visible = i === 0;
@@ -1268,10 +1293,17 @@ export class GalleryEngine {
     }
     this.jamRounds = i === 2 ? 0 : this.jamRounds;
     const T = TUNING.stages[i];
-    this.erobots.setStage(T.lane, T.level + this.level.solo.levelUp);
+    this.erobots.setStage(T.lane, T.level + this.level.solo.levelUp + (i === 3 ? 1 : 0));
     this.erobots.spawning = true;
     this.horde.lane = T.lane;
     this.horde.spawning = true;
+  }
+
+  /** Act 2: a kill leaves a pool on the roof under it. */
+  private bleed(at: THREE.Vector3) {
+    const roof = this.sets.roof;
+    if (this.stageIdx !== 3 || !this.blood || !roof) return;
+    this.blood.splat(roof.group.worldToLocal(this.bloodAt.copy(at)));
   }
 
   /** The Liquid Unit walks in (the last minutes of the block, in the server room on the roof). */
@@ -1460,7 +1492,7 @@ export class GalleryEngine {
     const k = THREE.MathUtils.clamp((this.runT - S.at) / Math.max(1, end - S.at), 0, 1);
     const live = S.horde + (S.hordeEnd - S.horde) * k;
     const wk = this.waveK(L.wave, this.runT - L.from, L.to - L.from);
-    this.horde.want = Math.round(live * wk * (this.high ? 1 : TUNING.horde.lowLive));
+    this.horde.want = Math.round(live * wk * (this.stageIdx === 3 ? 1.25 : 1) * (this.high ? 1 : TUNING.horde.lowLive));
     // the boss: in at bossAt, final for the last seconds, and the block lands on him at 10:00
     if (this.stageIdx === 3 && this.level.boss && this.runT >= (L.bossAt ?? R.bossAt)) this.bossIn();
     if (this.bossOn && this.runT >= R.secs - 25) this.boss.final = true;
@@ -1924,6 +1956,7 @@ export class GalleryEngine {
     this.cleanup.forEach((f) => f());
     this.ro?.disconnect();
     this.dressing?.dispose();
+    this.blood?.dispose();
     this.city?.dispose();
     for (const k of ['floors', 'core', 'roof'] as const) this.sets[k]?.dispose();
     this.boss?.dispose();

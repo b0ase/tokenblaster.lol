@@ -39,7 +39,7 @@ export const CAST: readonly CastMember[] = [
   { id: 'scarlet', name: 'Scarlet', named: true, weapon: 'axe', shot: '#ff2a3a', weight: 1.3 },
   { id: 'matoko', name: 'Matoko', named: true, weapon: 'rail', shot: '#5affe8', weight: 1.3 },
   // the generic ranks (still bald: no modelled hair fits them yet, see the PR notes)
-  { id: 'bot', name: 'Erobot', named: false, weapon: 'palm', shot: '#ff4a30', weight: 1 },
+  { id: 'bot', name: 'Erobotz', named: false, weapon: 'palm', shot: '#ff4a30', weight: 1 },
   { id: 'tech', name: 'Tech', named: false, weapon: 'palm', shot: '#ff4a30', weight: 1 },
   { id: 'frog-bot', name: 'Frog-Bot', named: false, weapon: 'palm', shot: '#ff4a30', weight: 1 },
   { id: 'stripey-bot', name: 'Stripey-Bot', named: false, weapon: 'palm', shot: '#ff4a30', weight: 1 },

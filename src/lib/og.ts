@@ -51,7 +51,7 @@ export const CITY_CARD = card(
 // Red neon dripping blood (25 Oct 2026): scripts/og/compose-neon-card.mjs scripts/og/terrornode-neon-v3.json
 export const TERRORNODE_CARD = card(
   'terrornode-neon-v3.jpg',
-  'ESCAPE FROM TERRORNODE in red neon-tube lettering dripping blood, over a first-person minigun on a rainy Neo-Tokyo 2048 street with an Erobot ahead. Every bullet = 1 real BSV tx.',
+  'ESCAPE FROM TERRORNODE in red neon-tube lettering dripping blood, over a first-person minigun on a rainy Neo-Tokyo 2048 street with an Erobotz unit ahead. Every bullet = 1 real BSV tx.',
 );
 
 // OG refresh (24 Oct 2026): house-style cards from real in-game renders (scripts/og/compose-dr-card.mjs).

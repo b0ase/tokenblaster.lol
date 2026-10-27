@@ -3,7 +3,7 @@
  * downloads): facade atlases with window variety, shopfronts, a vertical-sign atlas with katakana and
  * kanji lettering, a hologram-billboard atlas, vending machines, skyline silhouettes, lobby and curtain wall.
  *
- * Every brand here is invented, apart from our own (TERRORNODE, TOKENBLASTER, bWalletX, NPG).
+ * Every brand here is invented, apart from our own (nSLAVE, TERRORNODE, TOKENBLASTER, bWalletX, NPG).
  * `S` is a scale for texture resolution: 1 on High, 0.5 on Low.
  */
 import * as THREE from 'three';
@@ -256,7 +256,7 @@ export const SIGNS: SignDef[] = [
   { t: '月影バー', c: '#3a7bff' },
   { t: 'トークン市場', c: '#ff2a46' },
   { t: 'ニンジャ堂', c: '#ff2a46', sub: 'NPG' },
-  { t: 'テラーノード', c: '#ff2a3a', sub: 'TERRORNODE' },
+  { t: 'エヌスレイブ', c: '#ff2a3a', sub: 'nSLAVE' },
   { t: 'bWalletX', c: '#4da3ff', latin: true },
   { t: 'TOKENBLASTER', c: '#ff9a3a', latin: true },
   { t: 'NPG', c: '#ff2a46', latin: true },
@@ -372,7 +372,7 @@ export function adAtlas(S = 1) {
       g.fillText(t, 256, y);
       g.shadowBlur = 0;
     };
-    // 0: TERRORNODE with the eye
+    // 0: nSLAVE with the eye (its centre, TERRORNODE, under it)
     panel(0, (g) => {
       g.strokeStyle = '#ff3226';
       g.lineWidth = 8;
@@ -388,9 +388,9 @@ export function adAtlas(S = 1) {
       g.fillStyle = '#000';
       g.fillRect(250, 142, 12, 96);
       g.shadowBlur = 0;
-      center(g, 'TERRORNODE', 340, 56, '#f4f7ff', '900 56px "Arial Black", Impact, sans-serif', 14);
-      center(g, 'H E A D Q U A R T E R S', 400, 28, '#ff5646', '700 28px Arial, sans-serif', 10);
-      center(g, 'テラーノード本社', 456, 30, '#ffb0a8', `700 30px ${JP}`, 8);
+      center(g, 'nSLAVE', 340, 64, '#f4f7ff', '900 64px "Arial Black", Impact, sans-serif', 14);
+      center(g, 'T E R R O R N O D E', 400, 28, '#ff5646', '700 28px Arial, sans-serif', 10);
+      center(g, 'エヌスレイブ本社', 456, 30, '#ffb0a8', `700 30px ${JP}`, 8);
     });
     panel(1, (g) => {
       center(g, 'TOKEN', 190, 110, '#ffb800', '900 italic 110px Impact, "Arial Black", sans-serif');
@@ -425,24 +425,24 @@ export function adAtlas(S = 1) {
       center(g, 'ネオ東京', 410, 66, '#cfeaf4', `900 66px ${JP}`, 14);
     });
     panel(5, (g) => {
-      // TERRORNODE corporate slogan: the patent (deadpan)
-      center(g, 'TERRORNODE', 110, 58, '#f4f7ff', '900 58px "Arial Black", Impact, sans-serif', 16);
+      // nSLAVE corporate slogan: the patent (deadpan)
+      center(g, 'nSLAVE', 110, 58, '#f4f7ff', '900 58px "Arial Black", Impact, sans-serif', 16);
       center(g, 'NOW PATENTED:', 214, 40, '#ff5646', '800 40px Arial, sans-serif', 10);
       center(g, 'YOUR SOUL.', 290, 84, '#ff2a3a', '900 84px "Arial Black", Impact, sans-serif', 24);
       center(g, 'あなたの魂に特許を', 400, 44, '#ffb0a8', `800 44px ${JP}`, 10);
       center(g, 'terms apply · see you in court', 462, 22, '#8a98a8', '600 22px Arial, sans-serif', 0);
     });
     panel(6, (g) => {
-      // TERRORNODE's product: the chain your patented soul is stored on
-      center(g, 'TERRORNODE', 84, 42, '#f4f7ff', '900 42px "Arial Black", Impact, sans-serif', 12);
+      // nSLAVE's product: the chain your patented soul is stored on
+      center(g, 'nSLAVE', 84, 42, '#f4f7ff', '900 42px "Arial Black", Impact, sans-serif', 12);
       center(g, 'SOUL', 190, 118, '#ff2a3a', '900 118px "Arial Black", Impact, sans-serif', 24);
       center(g, 'CHAIN™', 300, 96, '#2ec8e0', '900 96px "Arial Black", Impact, sans-serif', 22);
       center(g, '(chain of tools)', 380, 30, '#ffc0b8', 'italic 700 30px Arial, sans-serif', 8);
       center(g, 'ソウルチェーン', 450, 42, '#80d8e8', `800 42px ${JP}`, 10);
     });
     panel(7, (g) => {
-      // TERRORNODE corporate slogan: open source, one chain only
-      center(g, 'TERRORNODE', 96, 50, '#f4f7ff', '900 50px "Arial Black", Impact, sans-serif', 14);
+      // nSLAVE corporate slogan: open source, one chain only
+      center(g, 'nSLAVE', 96, 50, '#f4f7ff', '900 50px "Arial Black", Impact, sans-serif', 14);
       center(g, '100% OPEN SOURCE', 190, 46, '#2ec8e0', '800 46px Arial, sans-serif', 12);
       center(g, 'BUILD ON ANY CHAIN', 262, 38, '#c0e8f0', '700 38px Arial, sans-serif', 8);
       center(g, 'AS LONG AS IT’S BSV', 330, 40, '#ff9a3a', '800 40px Arial, sans-serif', 12);
