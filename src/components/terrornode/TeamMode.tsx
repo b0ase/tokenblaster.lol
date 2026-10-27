@@ -27,6 +27,7 @@ import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { GO_LIVE_EVENT } from '@/components/GoLiveButton';
 import { DEFAULT_AMMO } from '@/lib/gallery';
 import { TeamClient, createTeamMatch, type TeamStatus } from '@/lib/teammode/client';
+import TeamChat, { useTeamChat } from './TeamChat';
 import { MAX_PER_SIDE, MAX_PLAYERS, RULES, TEAM_NAME, teamShotPushes, type Counters, type Mode, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
 import type { TeamScene } from '@/lib/teammode/scene';
 import dynamic from 'next/dynamic';
@@ -61,6 +62,8 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
   const [solo, setSolo] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const client = useRef<TeamClient | null>(null);
+  const chat = useTeamChat();
+  const [chatOk, setChatOk] = useState(false);
   const scene = useRef<TeamScene | null>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -117,9 +120,16 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
         },
         onError: (e) => setErr(e),
         onStatus: setStatus,
+        onChat: chat.push,
+        onChatError: (e) => {
+          chat.setNote(e);
+          setTimeout(() => chat.setNote(null), 3000);
+        },
+        onChatSupport: setChatOk,
       },
     );
     client.current = c;
+    chat.clear();
     return () => {
       c.close();
       client.current = null;
@@ -424,6 +434,9 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
             <p className="text-[10px] uppercase tracking-widest text-white/60">{TEAM_NAME[myTeam]} · {meP?.kills ?? 0} kills</p>
             <p className="font-mono text-xl font-black">{free ? 'FREE PLAY' : `${(rounds ?? 0).toLocaleString('en-US')} rds`}</p>
           </div>
+          {chatOk && (
+            <TeamChat you={you} myTeam={myTeam} peers={state?.players ?? []} msgs={chat.msgs} note={chat.note} spectator={false} onSend={(ch, t, to) => client.current?.say(ch, t, to)} />
+          )}
           {meP && !meP.alive && <p className="absolute inset-x-0 top-1/3 text-center text-3xl font-black uppercase tracking-widest text-[#ff2a46]">Flatlined · respawning</p>}
         </div>
       )}
@@ -433,6 +446,14 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 px-4" data-team-over>
           <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-[#0a0b16] p-6 text-center">
             <p className="text-xs uppercase tracking-[0.3em] text-white/50">Match {state.id} over</p>
+            {chatOk && chat.msgs.length > 0 && (
+              // Your own copy of the chat (only what you could see) lives in this tab; the server kept nothing.
+              // TODO(bWalletX): hand chat.msgs to the bWalletX private (encrypted-to-your-key) mint hand-off once
+              // tokenblaster has one. No payment, fee or minting code here, and never auto-save.
+              <button type="button" disabled data-team-chat-save title="Coming soon: saves privately to your bWalletX" className="mt-2 rounded-full border border-white/15 px-3 py-1 text-[11px] uppercase tracking-widest text-white/40">
+                Save this match chat to my wallet · soon
+              </button>
+            )}
             <h2 className="mt-2 text-4xl font-black uppercase" style={{ color: state.winner === 'erobotz' || state.winner === 'horde' ? COLOUR.erobotz : COLOUR.npg }}>
               {state.winner === 'squad' ? 'TERRORNODE taken' : state.winner === 'horde' ? 'The horde holds' : state.winner === 'draw' ? 'Draw' : `${TEAM_NAME[state.winner as Team]} win`}
             </h2>
