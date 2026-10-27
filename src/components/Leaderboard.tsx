@@ -1,5 +1,6 @@
 'use client';
 
+import { linkProps } from '@/lib/tokenLinks';
 import { useEffect, useState } from 'react';
 import { CountUp } from './home/CountUp';
 import { PERIODS, type Period, type TokenScore } from '@/lib/leaderboard';
@@ -83,9 +84,7 @@ export function Leaderboard({ hero = false }: { hero?: boolean } = {}) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {t.icon ? <img src={t.icon} alt="" className={`${icon} shrink-0 rounded object-cover`} /> : <span className={`${icon} shrink-0 bg-muted`} />}
             <a
-              href={/_\d+$/.test(t.tokenId) ? `https://1sat.market/market/bsv21/${t.tokenId}` : `https://1sat.market/market/bsv20/${t.tokenId}`}
-              target="_blank"
-              rel="noopener noreferrer"
+              {...linkProps(t.tokenId)}
               className={`${hero ? 'w-24 text-base font-bold sm:w-36' : 'w-28'} shrink-0 overflow-hidden text-ellipsis whitespace-nowrap text-accent hover:text-hot`}
             >
               ${t.ticker}

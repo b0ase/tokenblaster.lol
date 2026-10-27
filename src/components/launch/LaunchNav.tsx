@@ -13,6 +13,7 @@ const LINKS = [
   ['/launch/leaders', 'Leaders'],
   ['/launch/mine', 'My coins'],
   ['/launch/how', 'How it works'],
+  ['/tokens', 'All tokens'],
 ] as const;
 
 export function LaunchNav({ wallet, onConnect, busy }: { wallet?: { address: string } | null; onConnect?: () => void; busy?: boolean }) {

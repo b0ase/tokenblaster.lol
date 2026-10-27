@@ -1,5 +1,6 @@
 'use client';
 
+import { linkProps } from '@/lib/tokenLinks';
 import { useEffect, useRef, useState } from 'react';
 import type { ChainStats } from '@/lib/chain';
 import { subscribeStatus, subscribeTx, type StreamStatus } from '@/lib/chainStream';
@@ -231,9 +232,7 @@ export function Highway({ onSelect, showMovers = true }: { onSelect?: (f: FeedTx
               return (
                 <a
                   key={m.id}
-                  href={/_\d+$/.test(m.id) ? `https://1sat.market/market/bsv21/${m.id}` : `https://1sat.market/market/bsv20/${m.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  {...linkProps(m.id)}
                   className="inset flex items-center gap-2 px-2 py-1 text-xs hover:border-fg"
                 >
                   {meta?.iconSrc ? (
