@@ -125,6 +125,7 @@ export function CharacterSelect({
               key={g.id}
               type="button"
               role="radio"
+              aria-label={g.name}
               aria-checked={g.id === girl.id}
               onClick={() => setPick(normalizePick({ girl: g.id, right: g.right, left: g.left }, owned.elements))}
               className={`relative h-[84px] w-[46px] overflow-hidden rounded border sm:h-[110px] sm:w-[62px] ${g.id === girl.id ? 'border-[var(--tbx-red)] bg-[var(--tbx-red)]/20' : `border-white/15 bg-black/40 ${ready3d ? '' : 'opacity-75'}`}`}
@@ -132,13 +133,20 @@ export function CharacterSelect({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={girlImg(g.id)} alt="" loading="lazy" className={`absolute inset-0 h-full w-full object-contain object-top transition-opacity ${ready3d ? 'opacity-0' : ''}`} />
-              <span className="absolute inset-x-0 bottom-0 z-[3] bg-black/70 text-[8px] font-bold tracking-[0.1em] text-white sm:text-[9px]">
-                {g.name.toUpperCase()}
-                {owned.girls.has(g.id) ? ' ✓' : ''}
-              </span>
             </button>
           ))}
           {three && <Girls3D container={row} ids={ids} selected={girl.id} onReady={setReady3d} />}
+          {/* names sit ABOVE the shared 3D canvas (z-[4]), in their own layer, so no model or stacking context clips them */}
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-[4] flex gap-1">
+            {DEFAULT_ROSTER.map((g) => (
+              <span key={g.id} className="relative h-full w-[46px] sm:w-[62px]">
+                <span className="absolute inset-x-0 bottom-px whitespace-nowrap rounded-b bg-black/80 text-center text-[8px] font-bold leading-[12px] tracking-normal text-white sm:text-[9px]" data-npg-name={g.id}>
+                  {g.name.toUpperCase()}
+                  {owned.girls.has(g.id) ? ' ✓' : ''}
+                </span>
+              </span>
+            ))}
+          </div>
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {hand('right')}

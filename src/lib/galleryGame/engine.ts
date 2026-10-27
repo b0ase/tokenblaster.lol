@@ -43,6 +43,9 @@ import { TUNING } from './tuning';
 import type { Level, LevelId, WavePattern } from '../terrornode/levels';
 import type { Dressing } from '../terrornode/dressing';
 
+import { SQUAD, makeSquad, stepSquad, type Foe, type Mate } from './squad';
+import { SquadView } from './squadView';
+
 export type Quality = 'low' | 'high';
 export type Stats = {
   score: number;
@@ -225,6 +228,17 @@ export class GalleryEngine {
   private disposed = false;
   private ro: ResizeObserver | null = null;
   private cleanup: (() => void)[] = [];
+
+  // the NPG squad: four AI girls alongside the player (squad.ts); their rounds are never paid
+  squad: Mate[] = [];
+  private squadView: SquadView | null = null;
+  private squadAcc = 0;
+  private squadFoes: (Foe & { hit: (dmg: number, from: THREE.Vector3) => boolean })[] = [];
+  /** Squad AI tick time (ms, rolling average) for the perf check. */
+  squadMs = 0;
+  private playerDps = 0;
+  private dpsAcc = 0;
+  private dpsT = 0;
 
   // input
   private ndc = new THREE.Vector2(0, 0.1);
@@ -738,6 +752,7 @@ export class GalleryEngine {
     const w = this.weapon;
     if (!w || n <= 0 || !this.city) return;
     if (this.combat) this.runRounds += n;
+    this.dpsAcc += n * w.damage * this.mods.damage;
     const org = this.tA;
     const dir = this.tB;
     this.aimRay(org, dir);
@@ -1057,6 +1072,7 @@ export class GalleryEngine {
     this.erobots.update(sd, this.camera, this.trigger);
     this.horde.update(sd, this.camera, !this.dead);
     this.escortTick(sd);
+    this.tickSquad(sd);
     this.shake = Math.min(1, this.shake + this.horde.impulse);
     this.horde.impulse = 0;
     this.bolts.update(sd, this.camera.position, (from, dmg, kind) => this.hurt(from, dmg, kind));
@@ -1864,6 +1880,7 @@ export class GalleryEngine {
     meltBoss: () => {
       if (this.bossOn && this.boss.alive && this.boss.hit(this.boss.hp + 1, this.boss.chest(new THREE.Vector3()))) this.bossMelted();
     },
+    squad: () => ({ ms: this.squadMs, mates: this.squad.map((m) => ({ id: m.id, state: m.state, hp: Math.round(m.hp), x: +m.x.toFixed(1), z: +m.z.toFixed(1) })) }),
     stage: () => this.stageIdx + 1,
     kweg: () => ({ on: this.escortOn, state: this.escort.state, hp: this.escort.hp, x: this.escort.x, z: this.escort.z, lost: this.kwegLost }),
     kwegAt: (x: number, z: number) => ((this.escort.x = x), (this.escort.z = z)),
@@ -2045,8 +2062,57 @@ export class GalleryEngine {
     return { x: ((this.ndc.x + 1) / 2) * r.width, y: ((1 - this.ndc.y) / 2) * r.height };
   }
 
+  /** Field the squad: the four girls the player didn't pick, as AI (solo). Empty `roster` clears it. */
+  setSquad(roster: readonly { id: string; name: string }[], playerGirl: string, img: (id: string) => string) {
+    this.squadView?.dispose();
+    this.squad = roster.length ? makeSquad(roster, playerGirl) : [];
+    this.squadView = this.squad.length ? new SquadView(this.scene, this.squad, { lite: this.lite, img }) : null;
+  }
+
+  /** Dr Kweg while he is escorted (escort.ts): the squad guards him in Act 2. */
+  private kwegAt(): { x: number; z: number } | null {
+    if (!this.escortOn || !this.escort.alive || this.kwegLost) return null;
+    return { x: this.escort.x, z: this.escort.z };
+  }
+
+  private tickSquad(dt: number) {
+    if (!this.squadView) return;
+    const live = this.combat && !this.dead;
+    // mobile-lite: the AI thinks at 10 Hz (desktop 30 Hz); the bodies still draw every frame
+    this.squadAcc += dt;
+    const gap = this.lite ? 0.1 : 1 / 30;
+    if (live && this.squadAcc >= gap) {
+      const t0 = performance.now();
+      const step = Math.min(0.25, this.squadAcc);
+      this.squadAcc = 0;
+      const foes = this.squadFoes;
+      foes.length = 0;
+      this.erobots.foes(foes);
+      this.horde.foes(foes);
+      const k = this.kwegAt();
+      if (k) for (const f of foes) f.onKweg = (f.x - k.x) ** 2 + (f.z - k.z) ** 2 < SQUAD.guard * SQUAD.guard;
+      this.playerDps = this.dpsAcc / Math.max(0.05, this.t - this.dpsT) * 0.5 + this.playerDps * 0.5;
+      this.dpsAcc = 0;
+      this.dpsT = this.t;
+      const p = this.camera.position;
+      const shots = stepSquad(this.squad, { player: { x: p.x, z: p.z }, foes, kweg: k, act: this.stageIdx >= 3 ? 2 : 1, playerDps: this.playerDps }, step);
+      // AI rounds: straight damage to the Erobot. No hooks.pull / accept: nothing is paid, broadcast or split.
+      for (const sh of shots) {
+        const m = this.squad.find((x) => x.id === sh.mate);
+        const f = foes.find((x) => x.id === sh.foe);
+        if (!m || !f) continue;
+        const from = this.tD.set(m.x, 1.3, m.z);
+        f.hit(sh.dmg, from);
+        if (!this.lite || Math.random() < 0.4) this.fx.tracer(from.clone(), this.tC.set(f.x, 1.3, f.z).clone(), '#ff2bd6', 0.03, 0.06);
+      }
+      this.squadMs = this.squadMs * 0.9 + (performance.now() - t0) * 0.1;
+    }
+    this.squadView.update(this.squad, this.t);
+  }
+
   dispose() {
     this.disposed = true;
+    this.squadView?.dispose();
     cancelAnimationFrame(this.raf);
     if (this.mgOn) minigun(false);
     this.cleanup.forEach((f) => f());

@@ -405,6 +405,24 @@ export class Horde {
     return { killed: true, score: Math.round(mob.kind.score * mob.size), big };
   }
 
+  /** Live mobs for the AI squad (squad.ts). */
+  foes(out: { id: string; x: number; z: number; hit: (dmg: number, from: THREE.Vector3) => boolean }[]) {
+    for (let i = 0; i < this.mobs.length; i++) {
+      const mob = this.mobs[i];
+      if (mob.state !== 'walk' && mob.state !== 'attack') continue;
+      out.push({
+        id: `h${i}`,
+        x: mob.m.root.position.x,
+        z: mob.m.root.position.z,
+        hit: (dmg, from) => {
+          const point = mob.m.root.position.clone();
+          point.y += mob.m.def.height * mob.size * 0.55;
+          return this.hit({ mob, point, dist: point.distanceTo(from) }, dmg).killed;
+        },
+      });
+    }
+  }
+
   /** Chest of the nearest live mob (dev auto-aim). */
   nearest(out: THREE.Vector3): number {
     let best = 1e9;
