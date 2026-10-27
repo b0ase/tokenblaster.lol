@@ -1859,3 +1859,9 @@ html[data-phone-game][data-act-card] .game-stage [data-pause] {
   opacity: 0.08 !important;
   transition: opacity 0.25s;
 }
+
+/* NPG live backdrop behind the loadout (src/components/terrornode/NpgBackdrop.tsx): the screen's own wash thins so
+   the footage frames the panels; the panels keep their glass, text stays on dark. */
+html[data-npg-backdrop] [data-loadout] {
+  background: radial-gradient(ellipse 80% 70% at 50% 40%, rgba(4, 9, 14, 0.55), rgba(4, 9, 14, 0.12) 100%);
+}
