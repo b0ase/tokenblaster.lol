@@ -272,11 +272,12 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
           {/* bWallet on the phone: QR shown straight away, an equal option (spec §2). Computers only. */}
           {showQrPanel(isPhone) && (
             <div
-              className="flex items-center gap-4 rounded-none px-3 py-3"
+              className="flex flex-col items-center gap-3 rounded-none px-3 py-3 text-center"
               style={{ background: 'var(--input)', border: '1px solid var(--border-dim)' }}
             >
+              {/* 240px with a 4-module quiet zone: the ~580-char pairing link didn't scan at 112px (owner, 27 Oct). */}
               <span
-                className="grid h-[112px] w-[112px] shrink-0 place-items-center overflow-hidden rounded-none"
+                className="grid h-[240px] w-[240px] shrink-0 place-items-center overflow-hidden rounded-none"
                 style={{ background: pair.k === 'qr' ? '#fff' : 'var(--canvas)', border: '1px solid var(--border-dim)' }}
               >
                 {pair.k === 'qr' ? (
