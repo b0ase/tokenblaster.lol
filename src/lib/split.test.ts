@@ -6,6 +6,7 @@ import { PAYEES, pinned, pinnedQuote, readSplit, splitOutputs, splitSats } from 
 import { _resetPayeeCache, checkPayees, notifySplit, resolveDest, resolveSplit } from './launch/payees';
 import { RECEIPT_GAS, readSettlement, settlementAsm } from './launch/receipts';
 import { testDest, testQuote } from './splitFixture';
+import { LIMIT, _resetSplitGate, checkCached, markUsed, quoteFor } from './launch/splitGate';
 
 const POOL = PrivateKey.fromRandom().toAddress();
 const payTx = (outs: { address: string; sats: number }[]) => {
@@ -138,4 +139,68 @@ test('notify: credits each non-zero half, idempotent per txid, refuses a referen
   const r2 = await notifySplit(tx.toHex(), q, 101, down.f);
   assert.equal(!r2.ok && r2.retry, true);
   _resetPayeeCache();
+});
+
+// ── Guards: the check never uses up destinations; quotes are rate-limited and reused ──────────────
+
+test('check: zero p2p calls, and repeated checks within 60 s hit the cache', async () => {
+  _resetPayeeCache();
+  _resetSplitGate();
+  const pm = mockPaymail();
+  const t = 1_000_000;
+  assert.deepEqual(await checkCached(pm.f, t), { ok: true });
+  const after1 = pm.calls.length;
+  for (let i = 0; i < 50; i++) assert.equal((await checkCached(pm.f, t + 1000 + i)).ok, true);
+  assert.equal(pm.calls.length, after1); // cached: nothing more was fetched
+  assert.equal(pm.calls.filter((u) => u.includes('/p2p/')).length, 0);
+  // Concurrent page loads share one lookup.
+  _resetPayeeCache();
+  _resetSplitGate();
+  const pm2 = mockPaymail();
+  await Promise.all(Array.from({ length: 20 }, () => checkCached(pm2.f, t)));
+  assert.equal(pm2.calls.filter((u) => u.endsWith('/.well-known/bsvalias')).length, 1);
+  assert.equal(pm2.calls.filter((u) => u.includes('/p2p/')).length, 0);
+  // A key mismatch is reported (and cached) without any p2p call either.
+  _resetPayeeCache();
+  _resetSplitGate();
+  const bad = mockPaymail({ pubkeys: { npg: PrivateKey.fromRandom().toPublicKey().toString() } });
+  assert.equal((await checkCached(bad.f, t)).ok, false);
+  assert.equal(bad.calls.filter((u) => u.includes('/p2p/')).length, 0);
+  _resetPayeeCache();
+  _resetSplitGate();
+});
+
+test('quote: an unused quote is reused on retry; rate-limited per wallet and per IP; a used quote is not reused', async () => {
+  _resetPayeeCache();
+  _resetSplitGate();
+  const pm = mockPaymail();
+  const p2p = () => pm.calls.filter((u) => u.includes('/p2p/')).length;
+  const t = 5_000_000;
+  const a = await quoteFor({ ip: '1.1.1.1', who: 'gunA1234', purpose: 'fee' }, pm.f, t);
+  assert.ok(a.ok);
+  assert.equal(p2p(), 2);
+  for (let i = 0; i < 10; i++) {
+    const r = await quoteFor({ ip: '1.1.1.1', who: 'gunA1234', purpose: 'fee' }, pm.f, t + i);
+    assert.ok(r.ok && r.reused && r.quote.npg.reference === (a.ok && a.quote.npg.reference));
+  }
+  assert.equal(p2p(), 2); // retries cost nothing
+  // Once paid, the next session for the same wallet gets new destinations, up to LIMIT.perWho a minute.
+  let fetched = 1;
+  for (let i = 0; i < 10; i++) {
+    const last = await quoteFor({ ip: '1.1.1.1', who: 'gunA1234', purpose: 'fee' }, pm.f, t + 100 + i);
+    if (last.ok) {
+      if (!last.reused) fetched++;
+      markUsed(last.quote);
+    } else assert.equal(last.status, 429);
+  }
+  assert.equal(fetched, LIMIT.perWho);
+  // Per IP: many wallet ids from one IP are capped too.
+  const ipT = t + 10 * 60_000;
+  let ok = 0;
+  for (let i = 0; i < 20; i++) if ((await quoteFor({ ip: '2.2.2.2', who: `w${i}xxxxx`, purpose: 'fee' }, pm.f, ipT)).ok) ok++;
+  assert.equal(ok, LIMIT.perIp);
+  // After the window passes, requests are allowed again.
+  assert.ok((await quoteFor({ ip: '2.2.2.2', who: 'wNEWxxxx', purpose: 'fee' }, pm.f, ipT + LIMIT.window + 1)).ok);
+  _resetPayeeCache();
+  _resetSplitGate();
 });

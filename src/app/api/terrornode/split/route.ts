@@ -1,8 +1,10 @@
 /**
  * Escape from TERRORNODE revenue destinations (src/lib/launch/split.ts, payees.ts): 50/50 NPG Ltd · bCorp.
- *   GET ?check=1   → { ok, split } : the paymail capabilities answer and both identity keys match the pinned ones
- *                    (no destination is used up). The cabinet asks before a paid session; not ok → no paid play.
- *   GET            → { ok, quote: { npg, bcorp } } : fresh one-time destinations, each re-derived from its pinned key.
+ *   GET ?check=1   → { ok, split } : the paymail capabilities answer and both identity keys match the pinned ones.
+ *                    NEVER uses up a destination; cached 60 s server-side (src/lib/launch/splitGate.ts).
+ *   GET ?for=fee|receipts&who=<session/gun id> → { ok, quote: { npg, bcorp } } : one-time destinations for a paid
+ *                    session, each re-derived from its pinned key. Rate-limited per IP and per `who`; an unused quote
+ *                    for the same who+purpose is returned again on retry. 429 when over the limit.
  *   POST { txid, quote } → for a payment made outside the receipts settlement (the platform fee on rounds): checks
  *                    the tx on chain pays exactly 50/50 to the pinned quote, then credits each company's wallet.
  *                    Idempotent: the paymail server answers "already received" for the same txid.
@@ -10,7 +12,8 @@
  */
 import { NextResponse } from 'next/server';
 import { Transaction } from '@bsv/sdk';
-import { checkPayees, notifySplit, resolveSplit } from '@/lib/launch/payees';
+import { notifySplit } from '@/lib/launch/payees';
+import { checkCached, clientIp, markUsed, quoteFor, validWho } from '@/lib/launch/splitGate';
 import { SPLIT_LINE, readSplit } from '@/lib/launch/split';
 
 export const dynamic = 'force-dynamic';
@@ -22,16 +25,21 @@ const unavailable = (why: string) => {
 };
 
 export async function GET(req: Request) {
-  const check = new URL(req.url).searchParams.get('check') === '1';
-  try {
-    if (check) {
-      await checkPayees();
-      return NextResponse.json({ ok: true, split: SPLIT_LINE }, { headers: NO_STORE });
-    }
-    return NextResponse.json({ ok: true, split: SPLIT_LINE, quote: await resolveSplit() }, { headers: NO_STORE });
-  } catch (e) {
-    return unavailable(e instanceof Error ? e.message : String(e));
+  const q = new URL(req.url).searchParams;
+  if (q.get('check') === '1') {
+    const c = await checkCached();
+    return c.ok ? NextResponse.json({ ok: true, split: SPLIT_LINE }, { headers: NO_STORE }) : unavailable(c.why ?? 'check failed');
   }
+  const purpose = q.get('for');
+  const who = q.get('who');
+  if ((purpose !== 'fee' && purpose !== 'receipts') || !validWho(who))
+    return NextResponse.json({ ok: false, error: 'Bad request.' }, { status: 400, headers: NO_STORE });
+  const r = await quoteFor({ ip: clientIp(req), who, purpose });
+  if (!r.ok) {
+    if (r.status === 429) return NextResponse.json({ ok: false, error: r.why }, { status: 429, headers: { ...NO_STORE, 'Retry-After': '60' } });
+    return unavailable(r.why);
+  }
+  return NextResponse.json({ ok: true, split: SPLIT_LINE, quote: r.quote }, { headers: NO_STORE });
 }
 
 export async function POST(req: Request) {
@@ -56,5 +64,6 @@ export async function POST(req: Request) {
   if (!r.ok) return NextResponse.json({ ok: false, error: r.why }, { status: 402 });
   const n = await notifySplit(hex.trim(), body.quote as Parameters<typeof notifySplit>[1], Number(r.paid));
   if (!n.ok) return NextResponse.json({ ok: false, error: n.why }, { status: n.retry ? 202 : 402 });
+  markUsed(body.quote as Parameters<typeof markUsed>[0]);
   return NextResponse.json({ ok: true, txid, npg: r.npg, bcorp: r.bcorp });
 }

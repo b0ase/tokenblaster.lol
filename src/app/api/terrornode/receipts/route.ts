@@ -13,6 +13,7 @@ import { Beef, Transaction } from '@bsv/sdk';
 import { GRADUATE_AT, RECEIPT_GAS, RECEIPT_SUPPLY, RECEIPT_TOP_SATS, TERRORNODE_ID, priceSats, soldOut } from '@/lib/launch/receipts';
 import { settleReceipts, type PoolRow, type ReceiptRow } from '@/lib/launch/receiptsFlow';
 import { notifySplit } from '@/lib/launch/payees';
+import { markUsed } from '@/lib/launch/splitGate';
 import { PAYEES, SPLIT_LINE } from '@/lib/launch/split';
 import { broadcast, configured, poolKey, rpc, spentBy } from '@/lib/launch/server';
 
@@ -77,7 +78,11 @@ export async function POST(req: Request) {
       return b.toHex();
     },
     newLease: () => crypto.randomUUID(),
-    notify: (hex, q, total) => notifySplit(hex, q, total),
+    notify: async (hex, q, total) => {
+      const n = await notifySplit(hex, q, total);
+      if (n.ok) markUsed(q);
+      return n;
+    },
     legacyOk: Date.now() < LEGACY_UNTIL,
   });
   if (!r.ok) return NextResponse.json({ error: r.why }, { status: r.status ?? 500 });
