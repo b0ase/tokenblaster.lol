@@ -33,6 +33,7 @@ import { MAX_PER_SIDE, MAX_PLAYERS, RULES, SIDE_STATS, TEAM_NAME, teamShotPushes
 import type { TeamScene } from '@/lib/teammode/scene';
 import dynamic from 'next/dynamic';
 import { isLevelId, teamLevelOf, type LevelId } from '@/lib/teammode/levels';
+import { girlOf } from '@/lib/teammode/bots';
 import type { Progress } from '@/lib/terrornode/levels';
 // the level select (and the full level table) is its own chunk
 const LevelSelect = dynamic(() => import('./Levels').then((m) => m.LevelSelect), { ssr: false });
@@ -74,6 +75,8 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
   const queue = useRef(0);
   const sentN = useRef(0);
   const namesRef = useRef(new Map<string, string>());
+  // AI NPG girls the server seats: id → girl slug (her Tripo model); her tag reads "AI · <name>", never a paymail
+  const botsRef = useRef(new Map<string, string>());
   const [loadPct, setLoadPct] = useState(0);
   // the level the next match is made on (every level is open in team mode: the squad picks together)
   const [level, setLevel] = useState<LevelId>('assault');
@@ -109,10 +112,11 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
       {
         onState: (s) => {
           setState(s);
-          namesRef.current = new Map(s.players.map((p) => [p.id, p.name]));
+          namesRef.current = new Map(s.players.map((p) => [p.id, p.bot ? `AI · ${p.name}` : p.name]));
+          botsRef.current = new Map(s.players.filter((p) => p.bot).map((p) => [p.id, girlOf(p.name) ?? 'aika']));
         },
         onSnap: (s: Snapshot) => {
-          scene.current?.apply(s, namesRef.current);
+          scene.current?.apply(s, namesRef.current, botsRef.current);
           const me = s.p.find((p) => p[0] === c.you);
           if (me) setHp(me[4]);
           setSnapInfo({ frags: s.frags, wave: s.wave, endsAt: s.endsAt, c: s.c ?? null });
@@ -360,7 +364,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
                   {ero && <SideBlurb team={t.id} />}
                   <ul className="mt-2 grid grid-cols-2 gap-1 text-sm">
                     {state?.players.filter((p) => p.team === t.id).map((p) => (
-                      <li key={p.id} className="truncate">{p.host ? '★ ' : ''}{p.name}{p.id === you ? ' (you)' : ''}{!p.connected ? ' · reconnecting' : ''}</li>
+                      <li key={p.id} className="truncate">{p.host ? '★ ' : ''}{p.bot ? 'AI · ' : ''}{p.name}{p.id === you ? ' (you)' : ''}{!p.connected ? ' · reconnecting' : ''}</li>
                     ))}
                   </ul>
                 </div>
@@ -477,7 +481,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
             </div>
             <ol className="mt-4 space-y-1 text-left text-sm">
               {[...state.players].sort((a, z) => z.score - a.score).map((p, i) => (
-                <li key={p.id} className="flex justify-between rounded bg-white/5 px-3 py-1"><span><span style={{ color: COLOUR[p.team] }}>■</span> {i + 1}. {p.name}</span><span className="font-mono">{p.kills}K {p.deaths}D · {p.score} · {p.txShots} tx</span></li>
+                <li key={p.id} className="flex justify-between rounded bg-white/5 px-3 py-1"><span><span style={{ color: COLOUR[p.team] }}>■</span> {i + 1}. {p.bot ? 'AI · ' : ''}{p.name}</span><span className="font-mono">{p.kills}K {p.deaths}D · {p.score} · {p.txShots} tx</span></li>
               ))}
             </ol>
             <div className="mt-5 flex justify-center gap-3">

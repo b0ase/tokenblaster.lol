@@ -5,7 +5,7 @@
  *
  * HTTP
  *   GET  /health                 → { ok, matches, players, conns, spectators, tick: {hz, ms, maxMs}, cpu, rssMb }
- *   POST /matches {mode, level?, tournamentId?}  → { code, id, level, inviteUrl }   (the bChatX room or the lobby creates one)
+ *   POST /matches {mode, level?, tournamentId?, bots?}  → { code, id, level, inviteUrl }   (the bChatX room or the lobby creates one)
  *   GET  /matches                → public state of every open match (newest first)
  *   GET  /matches/:code          → public state (players, teams, score, stream slots) for the bChatX room
  * WS  /ws
@@ -56,12 +56,20 @@ import {
 } from '../../src/lib/teammode/match';
 import { performance } from 'node:perf_hooks';
 import { CHAT_FEATURE, allowChat, routeChat } from '../../src/lib/teammode/chat';
+import { BOT_TEAM_SIZE, fillBots, stepBots, withSeatFor } from '../../src/lib/teammode/bots';
 
 /**
  * Capabilities in /health and the welcome / watching reply. The site shows chat only when 'chat' is listed, and the
  * playable-Erobotz side (its own HP / speed / cannon, erobot bodies, side stats) only when 'erobotz' is listed.
  */
-const FEATURES = [CHAT_FEATURE, EROBOTZ_FEATURE];
+const FEATURES = [CHAT_FEATURE, EROBOTZ_FEATURE, 'bots'];
+/**
+ * AI NPG girls (src/lib/teammode/bots.ts): empty NPG seats are filled up to this many. TEAM_BOTS=0 turns them off;
+ * a match made with {bots: false} (or bots: 0) has none.
+ */
+const TEAM_BOTS = Math.max(0, Math.min(8, Number(process.env.TEAM_BOTS ?? BOT_TEAM_SIZE) || 0));
+const botSize = new Map<Match, number>();
+const seats = (m: Match) => botSize.get(m) ?? 0;
 
 const PORT = Number(process.env.PORT || 8787);
 const SITE = process.env.PUBLIC_SITE || 'https://tokenblaster.lol';
@@ -104,6 +112,7 @@ export function newMatch(mode: Mode, tournamentId: string | null, now = Date.now
   while (matches.has(code)) code = makeCode(rand);
   const m = createMatch({ code, mode, level, tournamentId, now, rand });
   matches.set(code, m);
+  botSize.set(m, TEAM_BOTS);
   return m;
 }
 
@@ -180,6 +189,7 @@ const http = createServer(async (req, res) => {
     const b = await body(req);
     const mode: Mode = b.mode === 'pvp' ? 'pvp' : 'coop';
     const m = newMatch(mode, typeof b.tournamentId === 'string' ? b.tournamentId : null, now, b.level);
+    if (b.bots === false || b.bots === 0) botSize.set(m, 0);
     return json(res, 201, { code: m.code, id: m.id, mode, level: m.level, inviteUrl: publicState(m, now, { inviteBase: SITE }).inviteUrl });
   }
   if (url.pathname === '/matches' && req.method === 'GET') {
@@ -252,7 +262,7 @@ wss.on('connection', (ws) => {
         const target = validCode(code) ? matches.get(code) : undefined;
         if (!target) return send(ws, { t: 'err', error: 'No match with that code. Ask for a new invite.' });
         const side = msg.side === 'npg' || msg.side === 'erobotz' ? (msg.side as Team) : null;
-        const r = join(target, {
+        const r = withSeatFor(target, seats(target), now, () => join(target, {
           name: String(msg.name || ''),
           identityKey: typeof msg.identityKey === 'string' ? msg.identityKey : null,
           side,
@@ -260,7 +270,7 @@ wss.on('connection', (ws) => {
           now,
           id: randomBytes(4).toString('hex'),
           resumeToken: randomBytes(16).toString('hex'),
-        });
+        }));
         if (!r.ok) return send(ws, { t: 'err', error: r.error });
         // a resumed player's old socket (if still open) is dropped
         for (const o of [...(rooms.get(target) ?? [])]) if (o !== c && o.player === r.player.id) exit(o);
@@ -300,7 +310,7 @@ wss.on('connection', (ws) => {
     if (!m || !c.player) return;
     switch (msg.t) {
       case 'side': {
-        const r = pickSide(m, c.player, msg.side === 'erobotz' ? 'erobotz' : 'npg');
+        const r = withSeatFor(m, seats(m), now, () => pickSide(m, c.player!, msg.side === 'erobotz' ? 'erobotz' : 'npg'));
         if (!r.ok) send(ws, { t: 'err', error: r.error });
         return broadcastState(m);
       }
@@ -329,6 +339,7 @@ wss.on('connection', (ws) => {
     exit(c);
     if (m && p) {
       leave(m, p, Date.now());
+      fillBots(m, seats(m), Date.now());
       roster(m);
     }
   });
@@ -343,7 +354,10 @@ function step() {
   const now = Date.now();
   for (const [code, m] of matches) {
     const tt = performance.now();
+    stepBots(m, now); // bot moves and shots land in this tick's events
     const ev = tick(m, now);
+    // once a second: seats freed by the reconnect grace running out, or the last human gone (bots leave too)
+    if (m.tick % TICK_HZ === 0 && fillBots(m, seats(m), now)) markState(m);
     perf.logicMs += performance.now() - tt;
     const room = rooms.get(m);
     const live = m.phase === 'live';
@@ -373,6 +387,7 @@ function step() {
       lastPhase.delete(code);
       lastState.delete(m);
       dirty.delete(m);
+      botSize.delete(m);
       for (const c of rooms.get(m) ?? []) exit(c);
       rooms.delete(m);
     }

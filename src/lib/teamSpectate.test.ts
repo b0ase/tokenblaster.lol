@@ -15,7 +15,7 @@ const TSX = 'node_modules/.bin/tsx';
 let srv: ChildProcess;
 
 before(async () => {
-  srv = spawn(TSX, ['server/terrornode-team/server.ts'], { env: { ...process.env, PORT: String(PORT), ALLOW_ORIGINS: '' }, stdio: 'pipe' });
+  srv = spawn(TSX, ['server/terrornode-team/server.ts'], { env: { ...process.env, PORT: String(PORT), ALLOW_ORIGINS: '', TEAM_BOTS: '0' }, stdio: 'pipe' });
   for (let i = 0; i < 100; i++) {
     const ok = await fetch(`${BASE}/health`).then((r) => r.ok).catch(() => false);
     if (ok) return;

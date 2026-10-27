@@ -26,6 +26,7 @@ import { buildWeapon, weaponMaterial } from '../galleryGame/castModels';
 import { BOSS_KIND, RULES, SIDE_STATS, dirOf, type Snapshot, type Team } from './match';
 import { STREET, arenaById, heightAt, resolve, type Arena } from './arena';
 import { teamLevelOf } from './levels';
+import { BOT_GIRLS } from './bots';
 import type { MeleeScene } from './meleeScene';
 import { levelOf, type LevelId } from '../terrornode/levels';
 import type { Dressing } from '../terrornode/dressing';
@@ -64,7 +65,7 @@ type Body = {
 /** Full skinned bodies past this many Erobots draw as the instanced crowd instead. */
 const ENEMY_BUDGET = { player: 56, spectator: 72 };
 const FAR = 45;
-type Model = { scene: THREE.Object3D; clips: Map<string, THREE.AnimationClip>; scale: number };
+type Model = { scene: THREE.Object3D; clips: Map<string, THREE.AnimationClip>; scale: number; offset?: THREE.Vector3 };
 
 export class TeamScene {
   renderer!: THREE.WebGLRenderer;
@@ -240,6 +241,8 @@ export class TeamScene {
     let done = 0;
     const total = ids.length;
     if (this.erobotz) await this.loadErobots();
+    // the AI NPG girls the server seats (bots.ts): the solo squad's Tripo girls, desktop only (phones keep the skins)
+    if (this.high) await this.loadGirls();
     await Promise.all(
       ids.map(async (id) => {
         const g = await loader.loadAsync(`/gallery/erobots/${dir}/${id}.glb`).catch(() => null);
@@ -248,6 +251,22 @@ export class TeamScene {
         const box = new THREE.Box3().setFromObject(g.scene);
         const h = Math.max(0.1, box.max.y - box.min.y);
         this.models.set(id, { scene: g.scene, clips: lib.length ? retarget(lib, g.scene) : new Map(), scale: 1.9 / h });
+      }),
+    );
+  }
+
+  private async loadGirls() {
+    const { loadGirl } = await import('../galleryGame/squadBodies');
+    await Promise.all(
+      BOT_GIRLS.map(async ({ slug }) => {
+        const t = await loadGirl(slug).catch(() => null);
+        if (!t) return;
+        const clips = new Map<string, THREE.AnimationClip>();
+        for (const [mv, name] of [['idle', 'Idle_Loop'], ['sprint', 'Sprint_Loop']] as const) {
+          const c = t.clips.get(mv);
+          if (c) clips.set(name, c);
+        }
+        this.models.set(`girl:${slug}`, { scene: t.scene, clips, scale: t.scale, offset: t.offset });
       }),
     );
   }
@@ -263,6 +282,7 @@ export class TeamScene {
     if (m) {
       const model = cloneSkinned(m.scene);
       model.scale.setScalar(m.scale);
+      if (m.offset) model.position.copy(m.offset);
       model.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (mesh.isMesh) {
@@ -308,7 +328,7 @@ export class TeamScene {
   }
 
   /** Apply a server snapshot: correct the local player, move everyone else, draw shots and hits. */
-  apply(s: Snapshot, names: Map<string, string>) {
+  apply(s: Snapshot, names: Map<string, string>, bots?: Map<string, string>) {
     if (!this.ready) return; // bodies are built from the loaded models, never from stand-ins
     const now = this.t;
     for (const [id, x, z, yaw, , alive, team] of s.p) {
@@ -325,7 +345,8 @@ export class TeamScene {
       let b = this.bodies.get(id);
       if (!b) {
         const skins = team === 'erobotz' && this.erobotz && this.models.has(EROBOT_PLAYER_SKINS[0]) ? EROBOT_PLAYER_SKINS.filter((k) => this.models.has(k)) : SKINS[team];
-        const skin = skins[hash(id) % skins.length];
+        const girl = bots?.get(id);
+        const skin = girl && this.models.has(`girl:${girl}`) ? `girl:${girl}` : skins[hash(id) % skins.length];
         b = this.makeBody(skin, TEAM_COLOUR[team], names.get(id) ?? 'Player');
         b.g.position.set(x, heightAt(this.arena, x, z), z);
         this.bodies.set(id, b);

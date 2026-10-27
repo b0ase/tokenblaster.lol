@@ -10,6 +10,7 @@
  * and renders the overlay on a transparent page (an OBS browser source over another scene); `&q=low` for a light
  * machine. If the websocket can't reach the game server the overlay keeps updating from the HTTP state endpoint.
  */
+import { girlOf } from '@/lib/teammode/bots';
 import { useEffect, useRef, useState } from 'react';
 import { Brand } from '@/components/Brand';
 import { TeamClient, type TeamStatus } from '@/lib/teammode/client';
@@ -40,10 +41,12 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
   const lastSnapAt = useRef(0);
   const levelRef = useRef<PublicState['level'] | null>(null);
   const eroRef = useRef(false);
+  const bots = useRef(new Map<string, string>());
 
   const onState = (s: PublicState) => {
     setState(s);
-    names.current = new Map(s.players.map((p) => [p.id, p.name]));
+    names.current = new Map(s.players.map((p) => [p.id, p.bot ? `AI · ${p.name}` : p.name]));
+    bots.current = new Map(s.players.filter((p) => p.bot).map((p) => [p.id, girlOf(p.name) ?? 'aika']));
     const t = Date.now();
     samples.current = [...samples.current.filter((x) => t - x.at < 10_000), { at: t, tx: s.txShots ?? s.players.reduce((a, p) => a + p.txShots, 0), shots: s.shots ?? s.players.reduce((a, p) => a + p.shots, 0) }];
     setRate(txRate(samples.current));
@@ -60,7 +63,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
         onState,
         onSnap: (s: Snapshot) => {
           lastSnapAt.current = Date.now();
-          scene.current?.apply(s, names.current);
+          scene.current?.apply(s, names.current, bots.current);
           setSnap({ wave: s.wave, frags: s.frags, endsAt: s.endsAt, alive: new Set(s.p.filter((p) => p[5]).map((p) => p[0])), c: s.c ?? null });
         },
         onWelcome: () => undefined,
@@ -180,7 +183,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
                 <li key={p.id} className="flex items-center gap-2 rounded bg-white/[0.04] px-2 py-0.5 text-[13px]">
                   <span className="w-5 text-right font-black tabular-nums text-white/60">{i + 1}</span>
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: COLOUR[p.team] }} />
-                  <span className="min-w-0 flex-1 truncate font-semibold">{p.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-semibold">{p.bot ? 'AI · ' : ''}{p.name}</span>
                   {p.streamSlot && <span className="rounded bg-[#ff2a46] px-1 text-[9px] font-black">LIVE</span>}
                   <span className="tabular-nums text-white/80">{fmt(p.score)}</span>
                   <span className="w-10 text-right tabular-nums text-[#ffd21a]">{fmt(p.txShots)}</span>
@@ -206,7 +209,7 @@ export function Spectator({ room, hudOnly = false }: { room: string; hudOnly?: b
                       return (
                         <li key={p.id} className={`flex items-center gap-1.5 rounded bg-white/[0.04] px-1.5 ${dense ? 'py-px text-[11px]' : 'py-1 text-[13px]'}`} data-player={p.id}>
                           <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: !p.connected ? '#555' : alive ? COLOUR[t] : '#ff2a46' }} />
-                          <span className="min-w-0 flex-1 truncate font-semibold">{p.name}</span>
+                          <span className="min-w-0 flex-1 truncate font-semibold">{p.bot ? 'AI · ' : ''}{p.name}</span>
                           {p.streamSlot && <span className="rounded bg-[#ff2a46] px-0.5 text-[8px] font-black">LIVE</span>}
                           <span className="tabular-nums text-white/70">{p.kills}</span>
                         </li>
