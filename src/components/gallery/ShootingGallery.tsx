@@ -61,6 +61,8 @@ import { Icon, Modal, Ticker } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
 import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
 import { useReceipts } from './useReceipts';
+import { fetchSplit, reportSplit, splitAvailable } from '@/lib/launch/splitClient';
+import { SPLIT_LINE, splitOutputs } from '@/lib/launch/split';
 import { PER_SHOT_BURN, type AmmoCoin } from '@/lib/launch/ammoCoins';
 import { GunUnload, UnloadButton } from '../GunUnload';
 import { INFO_URL } from './AssaultInfo';
@@ -96,7 +98,6 @@ import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
 
-const HOUSE = process.env.NEXT_PUBLIC_TB_HOUSE_ADDRESS || '192nuX6cz81MH3T2gwsam3FxYoDrvzDYpU'; // bCorp's receiving address (public, not a key)
 const FALLBACK_USD = 17.4;
 const PREFS = 'tb:gallery-prefs';
 /** Trigger held this long with rounds queued and none sent: the gun shows JAMMED (ms). */
@@ -996,6 +997,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     }
     setLocking(true);
     try {
+      // TERRORNODE revenue goes 50/50 to NPG Ltd and bCorp (src/lib/launch/split.ts). If their destinations can't be
+      // resolved and pinned right now, no paid session starts (free practice still works); nothing goes anywhere else.
+      if (!(await splitAvailable())) throw new Error('PAYUNAVAIL');
       // End the previous session first: stop its sender, release the gun's lock, save its change.
       stop.current = true;
       sessionGen.current++;
@@ -1045,7 +1049,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       if (plan.short || shots <= 0) throw new Error('SHORT');
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
-        await b.fireBatch(0, [[GALLERY_GAME, 'fee']], { address: HOUSE, sats: feeSats }, ammo ?? DEFAULT_AMMO);
+        // The platform fee is TERRORNODE revenue: two outputs, 50/50 NPG Ltd · bCorp (odd sat → bCorp), then reported
+        // so each company's wallet is credited.
+        const split = await fetchSplit();
+        if (!split) throw new Error('PAYUNAVAIL');
+        const [feeTx] = await b.fireBatch(0, [[GALLERY_GAME, 'fee']], splitOutputs(split, feeSats), ammo ?? DEFAULT_AMMO);
+        if (feeTx) void reportSplit(feeTx, split).then((ok) => ok || console.warn(`[tb-split] fee ${feeTx} not credited yet`));
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots) - rc.rangeCost(shots)) / perShot));
       }
       if (rc.live) while (shots > 0 && shots * perShot + rc.rangeCost(shots) + overheadSats(shots) > avail - feeSats) shots--;
@@ -1063,7 +1072,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       boughtRef.current = firedRef.current;
       setBought(firedRef.current);
       setLoadout(true);
-      setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
+      setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       setLocking(false);
       setCoinStatus(null);
@@ -1734,7 +1743,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                 name={name}
                 hasPaymail={hasPaymail}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
-                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'No platform fee until 1 Nov: you only pay for your rounds.' : ''}`}
+                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'No platform fee until 1 Nov: you only pay for your rounds.' : ''}${dry ? '' : ` Receipts${fee ? ' and fee' : ''} ${SPLIT_LINE}.`}`}
                 buys={buys}
                 unit="shots"
                 startLabel={ready ? 'Lock & load' : 'Loading…'}

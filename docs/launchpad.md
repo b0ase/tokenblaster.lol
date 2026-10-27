@@ -85,9 +85,20 @@ Every LIVE bullet in Escape from TERRORNODE buys 1 receipt. Receipt #n costs
 conversion). A range is summed in closed form with bigint and rounded up once (`rangeSats` in
 `src/lib/launch/receipts.ts`); the gun pays that and the server checks the same sum (db/022's reserve with
 `p_penny = 200`, no migration). Example: a 1,000,000-shot session from #1 pays 1,099,500 sats of receipts. At session end the gun sends
-ONE settlement tx: an OP_RETURN `tokenblaster.lol terrornode receipts <count> <recipient> <session> <handle>`, the
-receipt money to the creator `1F4J9KkMoqtznXPJuCgb98LRymssc8MFfd` and 300 sats of transfer gas to the pool's token
-address. `POST /api/terrornode/receipts {txid}` reads it from the chain, reserves the receipt range in the ledger
+ONE settlement tx: an OP_RETURN `tokenblaster.lol terrornode receipts <count> <recipient> <session> <handle> split
+<npg prefix> <npg suffix> <npg ref> <bcorp prefix> <bcorp suffix> <bcorp ref>`, the receipt money split 50/50 to NPG
+Ltd and The Bitcoin Corporation (odd sat → bCorp) and 300 sats of transfer gas to the pool's token address.
+
+**Revenue split (owner, 27 Oct 2026; TERRORNODE only).** Receipt money and the platform fee on TERRORNODE rounds go
+50/50 to `npg@bwalletx.com` and `bcorp@bwalletx.com` (`src/lib/launch/split.ts`). The server
+(`src/lib/launch/payees.ts`, `GET /api/terrornode/split`) reads bwalletx.com's bsvalias, checks each paymail's pki
+pubkey equals the pinned identity key, and takes a one-time BRC-29 P2P destination whose script it re-derives from that
+key (sender = anyone). The derivations ride in the settlement's tag, so verification re-derives them from the pinned
+keys (never trusting the tx or the client), requires exactly 50/50, and credits each half via the paymail's receive-tx
+(which only accepts its own reference: proof the destination was issued; same txid = "already received"). If the
+destinations can't be resolved and pinned, paid play refuses to start ("Payments temporarily unavailable"); free
+practice still works. Settlements paid to the old creator `1F4J9KkMoqtznXPJuCgb98LRymssc8MFfd` before the split are
+still delivered until 3 Nov 2026, then refused. `POST /api/terrornode/receipts {txid}` reads it from the chain, reserves the receipt range in the ledger
 (`db/022_terrornode_receipts.sql`, checks the payment, idempotent per txid) and sends the tokens from the pool in one
 transfer. Off until `RECEIPTS_LIVE=1`.
 

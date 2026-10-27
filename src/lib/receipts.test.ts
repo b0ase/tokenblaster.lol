@@ -3,8 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { P2PKH, PrivateKey, Script, Transaction } from '@bsv/sdk';
 import {
-  RECEIPT_CREATOR, RECEIPT_GAS, RECEIPT_SUPPLY, TERRORNODE_ID, GRADUATE_AT, RECEIPT_TOP_SATS, affordableReceipts, checkPayment, priceSats, rangeSats, readSettlement, settlementAsm, shotsFor, soldOut, tradeRefusal, tradingOf,
+  LEGACY_RECEIPT_CREATOR, RECEIPT_GAS, RECEIPT_SUPPLY, TERRORNODE_ID, GRADUATE_AT, RECEIPT_TOP_SATS, affordableReceipts, checkPayment, priceSats, rangeSats, readSettlement, settlementAsm, shotsFor, soldOut, tradeRefusal, tradingOf,
 } from './launch/receipts';
+import { testQuote } from './splitFixture';
+import { splitOutputs } from './launch/split';
 import { settleReceipts, type Deps, type PoolRow, type ReceiptRow } from './launch/receiptsFlow';
 import { coinExtras } from './launch/coinMeta';
 import { tokenOut } from './launch/shape';
@@ -115,12 +117,16 @@ function fundingTx(sats: number, to: string) {
   t.addOutput({ lockingScript: new P2PKH().lock(to), satoshis: sats });
   return t;
 }
-async function settlementTx(count: number, paid: number, gas = RECEIPT_GAS, recipient = player) {
+const QUOTE = testQuote();
+async function settlementTx(count: number, paid: number, gas = RECEIPT_GAS, recipient = player, legacy = false) {
   const src = fundingTx(1_000_000, gunKey.toAddress());
   const t = new Transaction();
   t.addInput({ sourceTransaction: src, sourceOutputIndex: 0, unlockingScriptTemplate: new P2PKH().unlock(gunKey) });
-  t.addOutput({ lockingScript: Script.fromASM(settlementAsm({ count, recipient, session: 'abc123', handle: 'neo@bwalletx.com' })), satoshis: 0 });
-  t.addOutput({ lockingScript: new P2PKH().lock(RECEIPT_CREATOR), satoshis: paid });
+  const asm = settlementAsm({ count, recipient, session: 'abc123', handle: 'neo@bwalletx.com' }, QUOTE);
+  // legacy: a pre-split settlement (tag without the split, money to the old creator address)
+  t.addOutput({ lockingScript: Script.fromASM(legacy ? asm.split(' ').slice(0, 9).join(' ') : asm), satoshis: 0 });
+  if (legacy) t.addOutput({ lockingScript: new P2PKH().lock(LEGACY_RECEIPT_CREATOR), satoshis: paid });
+  else for (const o of splitOutputs(QUOTE, paid)) t.addOutput({ lockingScript: new P2PKH().lock(o.address), satoshis: o.sats });
   t.addOutput({ lockingScript: new P2PKH().lock(POOL), satoshis: gas });
   t.addOutput({ lockingScript: new P2PKH().lock(gunKey.toAddress()), change: true });
   await t.fee(50);
@@ -138,7 +144,10 @@ function world() {
   const rows = new Map<string, ReceiptRow>();
   let issued = 0;
   const broadcasts: Transaction[] = [];
+  const notified: string[] = [];
   const d: Deps = {
+    legacyOk: false,
+    notify: async (hex) => (notified.push(Transaction.fromHex(hex).id('hex')), { ok: true }),
     toleranceBps: 0,
     txHex: async (id) => chain.get(id)?.toHex() ?? null,
     get: async (id) => rows.get(id) ?? null,
@@ -172,7 +181,7 @@ function world() {
     mergeBeef: (b) => b,
     newLease: () => Math.random().toString(36),
   };
-  return { d, chain, pool, rows, broadcasts, issued: () => issued };
+  return { d, chain, pool, rows, broadcasts, notified, issued: () => issued };
 }
 
 test('flow: verifies payment on chain, reserves the range, ONE transfer to the recipient', async () => {
@@ -224,7 +233,7 @@ test('flow: underpaid, short gas, and non-settlement txs are refused; nothing mo
   const w = world();
   const low = await settlementTx(1000, Number(rangeSats(1, 1000, PENNY)) - 50);
   const noGas = await settlementTx(10, Number(rangeSats(1, 10, PENNY)), 10);
-  const plain = fundingTx(1000, RECEIPT_CREATOR);
+  const plain = fundingTx(1000, LEGACY_RECEIPT_CREATOR);
   for (const t of [low, noGas, plain]) w.chain.set(t.id('hex'), t);
   assert.equal((await settleReceipts(low.id('hex'), POOL, w.d)) .ok, false);
   assert.equal((await settleReceipts(noGas.id('hex'), POOL, w.d)).ok, false);
@@ -266,4 +275,35 @@ test('a settlement only takes what one coin can afford; the rest is carried forw
   assert.equal(affordableReceipts(first, 200, budget), 200, 'never more than owed');
   assert.equal(affordableReceipts(first, 200, 0), 0);
   assert.equal(affordableReceipts(first, 200, -50), 0);
+});
+
+test('flow (split): pays 50/50 to NPG Ltd and bCorp, notifies once, a refused notify moves nothing', async () => {
+  const w = world();
+  const st = await settlementTx(10, Number(rangeSats(1, 10, PENNY)));
+  w.chain.set(st.id('hex'), st);
+  assert.ok((await settleReceipts(st.id('hex'), POOL, w.d)).ok);
+  assert.ok((await settleReceipts(st.id('hex'), POOL, w.d)).ok); // idempotent: the ledger row answers, no re-notify
+  assert.deepEqual(w.notified, [st.id('hex')]);
+  assert.equal(w.broadcasts.length, 1);
+
+  const w2 = world();
+  w2.d.notify = async () => ({ ok: false, why: 'unknown-reference', retry: false });
+  const st2 = await settlementTx(10, Number(rangeSats(1, 10, PENNY)));
+  w2.chain.set(st2.id('hex'), st2);
+  const r = await settleReceipts(st2.id('hex'), POOL, w2.d);
+  assert.equal(!r.ok && r.status, 402);
+  assert.equal(w2.issued(), 0);
+  w2.d.notify = async () => ({ ok: false, why: 'down', retry: true });
+  const r3 = await settleReceipts(st2.id('hex'), POOL, w2.d);
+  assert.equal(!r3.ok && r3.status, 202);
+});
+
+test('flow (split): a pre-split settlement to the old creator is refused once the grace ends', async () => {
+  const w = world();
+  const st = await settlementTx(5, Number(rangeSats(1, 5, PENNY)), RECEIPT_GAS, player, true);
+  w.chain.set(st.id('hex'), st);
+  const r = await settleReceipts(st.id('hex'), POOL, w.d);
+  assert.equal(!r.ok && r.status, 402);
+  w.d.legacyOk = true; // grace: already-paid queued deliveries still arrive
+  assert.ok((await settleReceipts(st.id('hex'), POOL, w.d)).ok);
 });

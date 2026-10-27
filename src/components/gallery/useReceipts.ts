@@ -6,8 +6,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RECEIPT_GAS, affordableReceipts, rangeSats, settlementAsm } from '@/lib/launch/receipts';
 import { SETTLE_FEE, shotsForSats, type ReceiptCurve } from '@/lib/coinop/shots';
+import { fetchSplit } from '@/lib/launch/splitClient';
+import { splitOutputs } from '@/lib/launch/split';
 
-export type ReceiptQuote = { live: boolean; issued: number; nextPriceSats: number | null; graduateAt?: number; graduated?: boolean; soldOut?: boolean; creator: string; gasAddress: string | null; gasSats: number };
+export type ReceiptQuote = { live: boolean; issued: number; nextPriceSats: number | null; graduateAt?: number; graduated?: boolean; soldOut?: boolean; split?: string; gasAddress: string | null; gasSats: number };
 
 async function quote(): Promise<ReceiptQuote | null> {
   const r = await fetch('/api/terrornode/receipts', { cache: 'no-store' }).catch(() => null);
@@ -148,6 +150,10 @@ export function useReceipts(on: boolean) {
         }
         if (!fresh?.live || !fresh.gasAddress) throw new Error('Receipts are offline: your rounds are kept and settle next time.');
         const gasAddress = fresh.gasAddress;
+        // The receipt money goes 50/50 to NPG Ltd and bCorp, to destinations the server resolved and pinned.
+        // Unresolvable → nothing is paid (never to anyone else): the rounds stay owed for the next settlement.
+        const split = await fetchSplit();
+        if (!split) throw new Error('Payments temporarily unavailable: your rounds are kept and settle next time.');
         setNote(`Paying for ${owedNow.toLocaleString('en-US')} $TERRORNODE receipts from your gun…`);
         // Only what the gun's one coin can pay (receipts + gas + network fee); the rest stays owed for the next settle.
         let count = 0;
@@ -157,11 +163,8 @@ export function useReceipts(on: boolean) {
           if (!count) return null;
           total = Number(rangeSats(fresh.issued + 1, count));
           return {
-            asm: settlementAsm({ count, recipient, session: a.session, handle: a.handle }),
-            outs: [
-              { address: fresh.creator, sats: total },
-              { address: gasAddress, sats: RECEIPT_GAS },
-            ],
+            asm: settlementAsm({ count, recipient, session: a.session, handle: a.handle }, split),
+            outs: [...splitOutputs(split, total), { address: gasAddress, sats: RECEIPT_GAS }],
           };
         });
         if (!txid) throw new Error('Not enough in the gun to pay for them yet: they are kept and settle after your next load.');

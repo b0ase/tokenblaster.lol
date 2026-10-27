@@ -424,7 +424,7 @@ export function useBlaster() {
 
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
-    async (startN: number, extras: string[][], pay?: { address: string; sats: number }, tokenLabel?: string, signal?: AbortSignal) => {
+    async (startN: number, extras: string[][], pay?: { address: string; sats: number } | { address: string; sats: number }[], tokenLabel?: string, signal?: AbortSignal) => {
       const g = gun.current;
       if (!g) throw new Error('No gun.');
       const txids = await g.fireBatch(tokenLabel ?? token?.id ?? '', startN, extras, pay, signal);
