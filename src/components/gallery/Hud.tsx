@@ -153,7 +153,7 @@ export function Hud(p: {
 
 export function HudControls(p: { hint: string; locked: boolean; canLock: boolean; onLoadout: () => void; onLock: () => void; onStop: () => void; onEnd: () => void; canEnd: boolean }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-2 p-1.5 sm:p-3">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-2 p-1.5 sm:p-3" data-hud-controls>
       <div className="tbx-glass tbx-rise max-w-[56%] px-3 py-2 text-[11px] text-[var(--tbx-dim)] sm:text-xs" role="status">
         {p.hint}
       </div>

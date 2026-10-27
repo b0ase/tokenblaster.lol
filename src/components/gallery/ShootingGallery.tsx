@@ -73,7 +73,7 @@ import { TUNING } from '@/lib/galleryGame/tuning';
 import { BannerStage, RescuedBeat, useBanners } from './Banners';
 import { Loadout } from './Loadout';
 import { RotatePrompt } from './RotatePrompt';
-import { isMobileLite } from '@/lib/mobileLite';
+import { isMobileLite, isPhone } from '@/lib/mobileLite';
 import type { RunSummary } from './Results';
 import dynamic from 'next/dynamic';
 import type { LevelId, Progress } from '@/lib/terrornode/levels';
@@ -1143,7 +1143,22 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   };
   const startRef = useRef(startCabinet);
   // START on the start card: free practice (guest), or the house free play when production runs it.
-  const startFree = () => (freePlayProp ? (unlockAudio(), ready ? startCabinet() : (setGuestPending(true), setLoadout(false))) : startGuest());
+  // Phones: START also asks for real fullscreen where the browser has it (Android Chrome). iPhone Safari has no element
+  // fullscreen; there the phone game-mode layout (globals.css, html[data-phone-game]) is the fullscreen.
+  const phoneFullscreen = () => {
+    if (!isPhone()) return;
+    const el = document.documentElement;
+    if (document.fullscreenElement || !el.requestFullscreen) return;
+    try {
+      void el
+        .requestFullscreen({ navigationUI: 'hide' })
+        .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> })?.lock?.('landscape'))
+        .catch(() => undefined);
+    } catch {
+      /* refused: the layout still fills the screen */
+    }
+  };
+  const startFree = () => (phoneFullscreen(), freePlayProp ? (unlockAudio(), ready ? startCabinet() : (setGuestPending(true), setLoadout(false))) : startGuest());
   useEffect(() => {
     startRef.current = startCabinet;
   });
@@ -1276,6 +1291,46 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     return () => window.removeEventListener('keydown', kd, { capture: true });
   }, [loadout]);
 
+  // PHONE GAME MODE (owner, 27 Oct 2026): a phone on its side plays full screen once START is pressed. The stage is
+  // fixed over the whole viewport and every bit of page chrome is hidden (globals.css, html[data-phone-game]).
+  // Turning the phone upright mid-round pauses (the rotate prompt covers it); back on its side resumes.
+  const [phoneLand, setPhoneLand] = useState(false);
+  const [phoneUp, setPhoneUp] = useState(false);
+  useEffect(() => {
+    if (!isPhone()) return;
+    const mq = window.matchMedia('(orientation: landscape)');
+    const on = () => (setPhoneLand(mq.matches), setPhoneUp(!mq.matches));
+    on();
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const inPlay = !loadout && !over;
+  const gameMode = phoneLand && inPlay;
+  useEffect(() => {
+    const h = document.documentElement;
+    if (gameMode) h.dataset.phoneGame = '1';
+    else delete h.dataset.phoneGame;
+    return () => void delete h.dataset.phoneGame;
+  }, [gameMode]);
+  useEffect(() => {
+    if (inPlay) return;
+    if (document.fullscreenElement === document.documentElement) void document.exitFullscreen().catch(() => undefined);
+  }, [inPlay]);
+  const rotatePaused = useRef(false);
+  useEffect(() => {
+    if (!inPlay) {
+      rotatePaused.current = false;
+      return;
+    }
+    if (phoneUp && !pausedRef.current && modeRef.current === 'live') {
+      rotatePaused.current = true;
+      togglePause();
+    } else if (!phoneUp && rotatePaused.current) {
+      rotatePaused.current = false;
+      if (pausedRef.current) togglePause();
+    }
+  }, [phoneUp, inPlay, togglePause]);
+
   return (
     <div className={`game-root flex flex-col gap-3 ${drFontClass} ${tbxFontClass}`}>
       <GameAudio track="terror" />
@@ -1287,7 +1342,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       )}
       <section className="game-stage panel relative overflow-hidden p-0" style={{ background: '#04080d' }}>
         <canvas ref={canvas} className="block h-full min-h-[420px] w-full touch-none select-none" style={{ cursor: 'none' }} aria-label="Shooting Gallery: hold to fire" />
-        <div ref={reticle} className="pointer-events-none absolute left-0 top-0 h-11 w-11" aria-hidden>
+        <div ref={reticle} className="pointer-events-none absolute left-0 top-0 h-11 w-11" aria-hidden data-reticle>
           <svg viewBox="0 0 44 44" className="h-full w-full" style={{ filter: 'drop-shadow(0 0 4px rgba(0,0,0,.95)) drop-shadow(0 0 6px rgba(63,216,232,.5))' }}>
             <path d="M22 5a17 17 0 0117 17M39 22a17 17 0 01-17 17M22 39A17 17 0 015 22M5 22A17 17 0 0122 5" fill="none" stroke="#e8f1f6" strokeWidth="1.6" strokeDasharray="14 12.6" strokeLinecap="round" />
             <path d="M22 1v7M22 36v7M1 22h7M36 22h7" stroke="#3fd8e8" strokeWidth="1.8" strokeLinecap="round" />
@@ -1596,10 +1651,10 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
               <section className="tbx-glass relative overflow-hidden rounded-xl p-0" data-start-card>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/hero/assault.jpg" alt="" aria-hidden className="absolute inset-0 h-full w-full object-cover opacity-70" />
-                <div className="relative flex flex-col gap-3 bg-gradient-to-t from-black/90 via-black/55 to-black/10 p-4 pt-24 sm:flex-row sm:items-end sm:justify-between sm:p-6 sm:pt-32">
+                <div className="relative flex flex-col gap-3 bg-gradient-to-t from-black/90 via-black/55 to-black/10 p-4 pt-24 sm:flex-row sm:items-end sm:justify-between sm:p-6 sm:pt-32" data-start-body>
                   <div>
                     <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">{freePlay ? 'FREE PRACTICE · NO WALLET · NOTHING ON CHAIN' : 'NEW HERE? PLAY FREE FIRST'}</p>
-                    <p className="mt-1 max-w-[440px] text-sm text-white/85">Practice rounds are simulated: nothing is paid, signed or broadcast. Pick PAID ROUNDS later to fire real BSV transactions.</p>
+                    <p className="mt-1 max-w-[440px] text-sm text-white/85" data-start-copy>Practice rounds are simulated: nothing is paid, signed or broadcast. Pick PAID ROUNDS later to fire real BSV transactions.</p>
                   </div>
                   <div className="flex flex-col gap-2 sm:items-end">
                     <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-10 py-2 text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>

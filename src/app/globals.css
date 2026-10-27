@@ -882,6 +882,87 @@ body:has(.gs-lock) {
   padding: 0 8px;
 }
 
+/* PHONE GAME MODE (owner, 27 Oct 2026; ShootingGallery sets html[data-phone-game] on a phone on its side after START).
+   iPhone Safari has no element fullscreen, so the layout is the fullscreen: the stage covers the whole viewport,
+   every bit of page chrome is hidden, nothing scrolls or bounces, and the HUD keeps clear of the notch. */
+html[data-phone-game],
+html[data-phone-game] body {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  height: 100%;
+}
+html[data-phone-game] .gs-bar,
+html[data-phone-game] .gs-below,
+html[data-phone-game] body > nav,
+html[data-phone-game] body > footer {
+  display: none !important;
+}
+html[data-phone-game] .gs-stage .game-stage {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 900;
+  width: 100dvw !important;
+  height: 100dvh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+}
+html[data-phone-game] .game-stage canvas {
+  min-height: 0 !important;
+  touch-action: none;
+}
+/* HUD and controls sit inside the safe area; the canvas, poster and touch stick stay full bleed. */
+html[data-phone-game] .game-stage > :not(canvas):not([data-poster]):not([data-reticle]):not([data-move-stick]) {
+  margin-left: env(safe-area-inset-left);
+  margin-right: env(safe-area-inset-right);
+  margin-bottom: env(safe-area-inset-bottom);
+}
+/* Phone-sized HUD: the desktop panels scaled down so the street stays visible. */
+html[data-phone-game] .game-stage [data-hud],
+html[data-phone-game] .game-stage [data-health],
+html[data-phone-game] .game-stage [data-hud-controls],
+html[data-phone-game] .game-stage [data-ammo-col] {
+  zoom: 0.62;
+}
+/* Thumb reach: FIRE low on the right where the right thumb rests, PAUSE just above it. */
+html[data-phone-game] .game-stage [data-fire] {
+  bottom: calc(64px + env(safe-area-inset-bottom)) !important;
+  right: 18px !important;
+  width: 96px;
+  height: 96px;
+}
+html[data-phone-game] .game-stage [data-pause] {
+  top: auto !important;
+  bottom: calc(172px + env(safe-area-inset-bottom)) !important;
+  right: 22px !important;
+  padding: 9px 14px;
+}
+
+/* Phone on its side, before START: title and START fit the first screen; the rest of the loadout is below it. */
+@media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+  [data-loadout] > div {
+    gap: 10px;
+    padding: 8px calc(12px + env(safe-area-inset-right)) 12px calc(12px + env(safe-area-inset-left));
+  }
+  [data-loadout] h2 {
+    font-size: 34px;
+    margin-top: 2px;
+  }
+  [data-start-copy] {
+    display: none;
+  }
+  [data-start-body] {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 64px 16px 14px;
+  }
+  [data-start-body] [data-play-free] {
+    width: auto;
+  }
+}
+
 /* Gallery: the big pulsing LOCK & LOAD button. */
 @keyframes lock-load-pulse {
   0%, 100% { box-shadow: 0 0 24px rgba(232, 38, 29, 0.55), 0 0 0 0 rgba(232, 38, 29, 0.6); }
