@@ -219,6 +219,9 @@ export default function Home() {
         </dl>
        </div>
       </section>
+      <p className="dr-band text-center text-sm text-dim">
+        <a href="https://bwalletx.com/b-family" className="hover:text-[var(--accent)]">Part of the bWalletX family</a>
+      </p>
     <BAdsRail docked={false} />
     </main>
   );
