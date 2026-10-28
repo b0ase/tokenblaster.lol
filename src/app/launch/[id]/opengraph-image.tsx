@@ -10,6 +10,7 @@ import { GRAD_SOLD, marketCap, price, progress } from '@/lib/launch/curve';
 import { rpc } from '@/lib/launch/server';
 import { bsvUsd } from '@/lib/price';
 import { GAME_COINS } from '@/lib/gameCoins';
+import { tokenPageRule } from '@/lib/launch/tokenPage';
 
 /** Game coins get their game's artwork behind the card (owner, 7 Oct 2026: themed cards). */
 const GAME_ART: Record<string, { file: string; line: string }> = {
@@ -62,6 +63,16 @@ const money = (sats: number, rate: number) => {
 
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  // A token with its own finished share art (TOKEN_PAGE_RULES.ogImage) uses it as is.
+  const og = tokenPageRule(id).ogImage;
+  if (og) {
+    const jpg = await readFile(join(process.cwd(), 'src/assets/og', og)).catch(() => null);
+    if (jpg) {
+      const src = `data:image/jpeg;base64,${jpg.toString('base64')}`;
+      // eslint-disable-next-line @next/next/no-img-element
+      return new ImageResponse(<img src={src} width={1200} height={630} alt="" />, { ...size });
+    }
+  }
   const font = await readFile(join(process.cwd(), 'src/assets/fonts/SpaceMono-Bold.ttf'));
   const [rows, rate] = await Promise.all([
     /^[0-9a-f]{64}_\d+$/.test(id) ? rpc<Row[]>('tokenblaster_launch_coin', { p_token: id }, false).catch(() => []) : Promise.resolve([]),
