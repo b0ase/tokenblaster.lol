@@ -82,12 +82,12 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
       <div data-game-shell className={`gs-shell${lock ? ' gs-lock' : ''}`}>
         <div ref={root} className="gs-root">
           {/* Owner, 8 Oct 2026: the game bar is drawn to bWalletX's side-panel header too (components/walletbar). */}
-          <header data-gs-bar className="gs-bar">
+          <header data-gs-bar className="gs-bar" data-gs-tabs={tabs ? '' : undefined}>
             <WalletBar
               sticky={false}
               label="Game"
               primaryConnect
-              logo={<SiteLogo />}
+              logo={<span className="gs-logo contents"><SiteLogo /></span>}
               title={title}
               tools={
                 <>
@@ -100,7 +100,7 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
                     <LeaderboardButton />
                     <SoundButton />
                   </span>
-                  {canFs && <FullscreenButton on={fs} onToggle={() => (fs ? exit() : enter())} />}
+                  {canFs && <span className="gs-fs contents"><FullscreenButton on={fs} onToggle={() => (fs ? exit() : enter())} /></span>}
                   {/* A game's own mode tabs live in the bar, not above the stage (owner, 25 Oct 2026: TERRORNODE SOLO / TEAM). */}
                   {tabs}
                 </>

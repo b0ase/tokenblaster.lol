@@ -14,6 +14,9 @@ importers:
       '@bsv/sdk':
         specifier: ^2.8.11
         version: 2.8.11
+      '@bwalletx/connect':
+        specifier: 0.5.4
+        version: 0.5.4(@bsv/sdk@2.8.11)(next@16.3.8(@babel/core@7.29.7)(@types/node@20.19.43)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
       '@noble/curves':
         specifier: 1.9.7
         version: 1.9.7
@@ -192,6 +195,19 @@ packages:
 
   '@bufbuild/protobuf@1.10.1':
     resolution: {integrity: sha512-wJ8ReQbHxsAfXhrf9ixl0aYbZorRuOWpBNzm8pL8ftmSxQx/wnJD5Eg861NwJU/czy2VXFIebCeZnZrI9rktIQ==}
+
+  '@bwalletx/connect@0.5.4':
+    resolution: {integrity: sha512-fWqwX8wY0sSGSi27SeIyG2Y5Dbm+Cf78dDAfgINzpJpBNA05q+Eq87hBFwJvDqASc+A4ZU+4YQGOqd764NKm1w==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@bsv/sdk': '>=2.2.0 <4'
+      next: '>=14'
+      react: '>=18'
+    peerDependenciesMeta:
+      next:
+        optional: true
+      react:
+        optional: true
 
   '@cto.af/wtf8@0.0.6':
     resolution: {integrity: sha512-xp/zbWLXuh2WBxi9tIc+Jep7BAwLu8ETTI8xN68ks10bxOBMISs/jcu9DBEkOeGXLaTKUbA0Y2Ficx/jmmPABg==}
@@ -2155,6 +2171,9 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  qrcode-generator@1.5.2:
+    resolution: {integrity: sha512-pItrW0Z9HnDBnFmgiNrY1uxRdri32Uh9EjNYLPVC2zZ3ZRIIEqBoDgm4DkvDwNNDHTK7FNkmr8zAa77BYc9xNw==}
+
   qrcode@1.5.4:
     resolution: {integrity: sha512-1ca71Zgiu6ORjHqFBDpnSMTR2ReToX4l1Au1VFLyVeBTFavzQnv5JxMFr3ukHVKpSrSA2MCk0lNJSykjUfz7Zg==}
     engines: {node: '>=10.13.0'}
@@ -2656,6 +2675,14 @@ snapshots:
   '@bsv/sdk@2.8.11': {}
 
   '@bufbuild/protobuf@1.10.1': {}
+
+  '@bwalletx/connect@0.5.4(@bsv/sdk@2.8.11)(next@16.3.8(@babel/core@7.29.7)(@types/node@20.19.43)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@bsv/sdk': 2.8.11
+      qrcode-generator: 1.5.2
+    optionalDependencies:
+      next: 16.3.8(@babel/core@7.29.7)(@types/node@20.19.43)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react: 19.2.8
 
   '@cto.af/wtf8@0.0.6': {}
 
@@ -4636,6 +4663,8 @@ snapshots:
       long: 5.3.2
 
   punycode@2.3.1: {}
+
+  qrcode-generator@1.5.2: {}
 
   qrcode@1.5.4:
     dependencies:
