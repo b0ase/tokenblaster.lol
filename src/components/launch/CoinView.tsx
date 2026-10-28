@@ -10,7 +10,7 @@ import { trade } from '@/lib/launch/client';
 import { ROUTES } from '@/lib/launch/shape';
 import { tokenCoins } from '@/lib/tokens';
 import { BAdsRail } from '@/components/BAdsRail';
-import { isOurToken, tokenPageRule, type Banner, type BgVideo } from '@/lib/launch/tokenPage';
+import { isOurToken, tokenPageRule, type BgVideo } from '@/lib/launch/tokenPage';
 import { receiptCurveView, receiptPrice } from '@/lib/launch/receiptCurve';
 import { ledgerCheck, type Reserves } from '@/lib/launch/reserves';
 import { TokenBgVideo } from './TokenBgVideo';
@@ -87,7 +87,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
 
   const rule = tokenPageRule(id);
   const shell = (body: React.ReactNode) => (
-    <Shell wallet={wallet} open={open} busy={busy} chooserEl={chooserEl} feed={board.feed} bg={rule.bgVideo} banner={rule.banner}>
+    <Shell wallet={wallet} open={open} busy={busy} chooserEl={chooserEl} feed={board.feed} bg={rule.bgVideo}>
       {body}
     </Shell>
   );
@@ -128,7 +128,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
     <div className="grid gap-3 lg:grid-cols-[1fr_360px]">
       <div className="flex min-w-0 flex-col gap-3">
         <Hero
-          c={rule.description ? { ...c, description: rule.description } : c}
+          c={{ ...c, name: rule.name ?? c.name, description: rule.description ?? c.description }}
           grad={grad}
           king={kingId === c.token_id}
           trading={trading}
@@ -139,6 +139,8 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
           copied={copied}
           onCopy={copy}
           onShare={share}
+          banner={rule.banner}
+          bannerTitle={rule.bannerTitle}
         />
 
         <section className="tb-stats grid grid-cols-2 gap-2 md:grid-cols-4" aria-label={`$${c.sym} live stats`}>
@@ -256,7 +258,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   );
 }
 
-function Shell({ wallet, open, busy, chooserEl, feed, bg, banner, children }: { wallet: { address: string } | null; open: () => void; busy: boolean; chooserEl: React.ReactNode; feed: Trade[]; bg?: BgVideo; banner?: Banner; children: React.ReactNode }) {
+function Shell({ wallet, open, busy, chooserEl, feed, bg, children }: { wallet: { address: string } | null; open: () => void; busy: boolean; chooserEl: React.ReactNode; feed: Trade[]; bg?: BgVideo; children: React.ReactNode }) {
   return (
     <>
     {bg && <TokenBgVideo v={bg} />}
@@ -264,7 +266,6 @@ function Shell({ wallet, open, busy, chooserEl, feed, bg, banner, children }: { 
       <LaunchNav wallet={wallet} onConnect={open} busy={busy} />
       {chooserEl}
       <Ticker feed={feed} />
-      {banner && <TokenBanner b={banner} />}
       {children}
       <BAdsRail rating="17" slots={4} docked={false} slotType="token-page" />
       <p className="text-center text-xs text-muted">
@@ -962,19 +963,5 @@ function ReceiptCurvePanel({ rc, sym }: { rc: ReturnType<typeof receiptCurveView
         Linear from 1 sat (receipt #1) to {rc.top} sats (#{rc.supply.toLocaleString('en-US')}) across the whole 1B. {rc.graduated ? 'Graduated: it also trades on BlastPad now.' : `Trades on BlastPad once ${fmtTokens(rc.graduateAt)} receipts are out.`}
       </p>
     </section>
-  );
-}
-
-/** Token art banner: banner 3 at desktop width, banner 2 (taller crop) on phones and tablets. */
-function TokenBanner({ b }: { b: Banner }) {
-  return (
-    <picture className="block overflow-hidden rounded-xl border border-border/60 shadow-[0_20px_60px_-30px_#ff2a2a]" data-token-banner>
-      <source media="(min-width: 768px)" type="image/avif" srcSet={b.wide.avif} sizes="(min-width: 1300px) 1280px, 100vw" />
-      <source media="(min-width: 768px)" type="image/webp" srcSet={b.wide.webp} sizes="(min-width: 1300px) 1280px, 100vw" />
-      <source type="image/avif" srcSet={b.narrow.avif} sizes="100vw" />
-      <source type="image/webp" srcSet={b.narrow.webp} sizes="100vw" />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={b.narrow.src} alt={b.alt} className="block aspect-[1200/580] w-full object-cover md:aspect-[1500/430]" fetchPriority="high" />
-    </picture>
   );
 }

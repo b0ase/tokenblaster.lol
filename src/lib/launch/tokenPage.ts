@@ -31,6 +31,7 @@ export type BgVideo = { webm: string; mp4: string; poster: string };
 /**
  * Per-token page rules, keyed by token_id. Every field is optional.
  *  - bgVideo: shown behind the page (poster only on reduced motion, Save-Data and the phone lite tier).
+ *  - name: a page-level display name (the signed launch name is unchanged; the ticker never changes).
  *  - description: a page-level override. The coin's own description is part of the creator's SIGNED launch message,
  *    so it is never edited; the signed text still shows, unchanged, under "Launch signature".
  */
@@ -42,10 +43,13 @@ export type Banner = { wide: { avif: string; webp: string; src: string }; narrow
  *    this only changes what our pages draw.
  *  - ogImage: a ready-made 1200x630 JPEG in src/assets/og/ used as the share card (versioned filename, so caches refresh).
  */
-export type TokenPageRule = { bgVideo?: BgVideo; description?: string; banner?: Banner; icon?: string; ogImage?: string };
+/** A title image drawn in the banner's sky (a render of the game's real title, never AI-drawn text). `on` switches it on. */
+export type BannerTitle = { src: string; srcSet: string; alt: string; on: boolean };
+export type TokenPageRule = { bgVideo?: BgVideo; name?: string; description?: string; banner?: Banner; bannerTitle?: BannerTitle; icon?: string; ogImage?: string };
 export const TOKEN_PAGE_RULES: Record<string, TokenPageRule> = {
   // $TERRORNODE (owner, 28 Oct 2026)
   'd5ffbbfd8310dcb6763c7180b8dbc725b708d0ce990f93cd27d00ff24aa0de02_1': {
+    name: 'WELCOME TO TERRORNODE', // the game's name (owner, 28 Oct 2026); ticker stays $TERRORNODE
     bgVideo: { webm: '/terrornode/bg/token-loop.webm', mp4: '/terrornode/bg/token-loop.mp4', poster: '/terrornode/bg/token-poster.jpg' },
     description: 'Ammo for WELCOME TO TERRORNODE. Every live shot pays you a $TERRORNODE receipt on chain.',
     // Owner's picks, 28 Oct 2026: banners 2 + 3, logo 4 (art-2026-10-28/OWNER-PICKS.md).
@@ -54,6 +58,8 @@ export const TOKEN_PAGE_RULES: Record<string, TokenPageRule> = {
       narrow: { avif: '/terrornode/token/banner-2-800.avif 800w, /terrornode/token/banner-2-1200.avif 1200w', webp: '/terrornode/token/banner-2-800.webp 800w, /terrornode/token/banner-2-1200.webp 1200w', src: '/terrornode/token/banner-2-1200.webp' },
       alt: 'NPG fighters face the TERRORNODE war machine over a red neon city',
     },
+    // terrornode.com's 3D title (WELCOME TO + dripping TERRORNODE), rendered from b0ase/terrornode. On (owner, 28 Oct 2026).
+    bannerTitle: { src: '/terrornode/token/title-1200.webp', srcSet: '/terrornode/token/title-700.webp 700w, /terrornode/token/title-1200.webp 1200w', alt: 'Welcome to TERRORNODE', on: true },
     icon: '/terrornode/token/logo-4-256.webp',
     ogImage: 'terrornode-og-v1.jpg',
   },
