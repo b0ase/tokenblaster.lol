@@ -95,7 +95,7 @@ export async function trade(
   let plan: TradePlan | null = null;
   for (let tries = 0; !plan; tries++) {
     try {
-      ({ plan } = await post<{ plan: TradePlan }>('/api/launch/trade', {
+      ({ plan } = await post<{ plan: TradePlan }>('/api/launch/trade?step=prepare', {
         step: 'prepare',
         token: coin.id,
         side,

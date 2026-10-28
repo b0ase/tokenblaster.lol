@@ -45,7 +45,7 @@ export type Deps = {
   instantMax?: number;
   confirmations?(txid: string): Promise<number | null>;
   /** Daily token outflow cap: tokens sent in the last 24 h, and the cap. Omitted: no cap. */
-  dailyCap?: { sentToday(): number; cap: number; add(n: number): void };
+  dailyCap?: { sentToday(adding: number): number | Promise<number>; cap: number; add(n: number): void };
 };
 
 export type SettleResult = { ok: true; count: number; first: number; recipient: string; transfer: string } | { ok: false; why: string; status?: number };
@@ -86,7 +86,7 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
     if (!conf || conf < 1)
       return { ok: false, why: `${n.toLocaleString('en-US')} receipts are sent once the settlement has 1 confirmation (about 10 minutes). They are reserved for you.`, status: 202 };
   }
-  if (!resend && d.dailyCap && d.dailyCap.sentToday() + n > d.dailyCap.cap)
+  if (!resend && d.dailyCap && (await d.dailyCap.sentToday(n)) + n > d.dailyCap.cap)
     return { ok: false, why: 'TERRORNODE receipts have hit today’s limit. Yours are reserved and will be sent later; try again tomorrow.', status: 503 };
 
   const lease = d.newLease();

@@ -80,6 +80,21 @@ export class DailyCounter {
   }
 }
 
+/**
+ * Tokens sent in the last 24 h across the fleet (db/027 tokenblaster_receipts_sent_24h), with this instance's
+ * counter as the fallback when the ledger call fails. Fail closed: if the ledger is unreachable, a send above
+ * `instantMax` is refused (returns Infinity); smaller sends use the local counter.
+ */
+export async function fleetSentToday(ledger: () => Promise<number>, local: DailyCounter, adding: number, instantMax: number): Promise<number> {
+  try {
+    const n = Number(await ledger());
+    if (!Number.isFinite(n) || n < 0) throw new Error('bad ledger total');
+    return Math.max(n, local.total());
+  } catch {
+    return adding > instantMax ? Number.POSITIVE_INFINITY : local.total();
+  }
+}
+
 // ── rate limits ────────────────────────────────────────────────
 
 /** Sliding-window limiter, in memory. `allow` records the hit when it passes. */
