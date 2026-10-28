@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { BWALLETX_WEB, RISK_LINE, chatRoomUrl, issuerLine } from '@/lib/launch/tokenPage';
+import { BWALLETX_WEB, RISK_LINE, chatRoomUrl, issuerLine, type Banner, type BannerTitle } from '@/lib/launch/tokenPage';
 import { ago, imageOf, short } from './data';
 
 const WOC = 'https://whatsonchain.com';
@@ -36,6 +36,8 @@ export function Hero({
   copied,
   onCopy,
   onShare,
+  banner,
+  bannerTitle,
 }: {
   c: HeroCoin;
   grad: boolean;
@@ -48,15 +50,32 @@ export function Hero({
   copied: boolean;
   onCopy: () => void;
   onShare: () => void;
+  banner?: Banner;
+  bannerTitle?: BannerTitle;
 }) {
+  const showTitle = !!banner && !!bannerTitle?.on;
   const art = imageOf(c.token_id);
   const issuer = c.launched_by?.paymail || `wallet ${short(c.launched_by?.address || c.creator)}`;
   const play = c.earn_url ? '/arcade/terrornode' : '/arena';
   return (
-    <section className="tb-hero" data-token-hero>
+    <section className={`tb-hero${banner ? ' tb-hero-has-banner' : ''}${showTitle ? ' tb-hero-has-title' : ''}`} data-token-hero>
       <style>{CSS}</style>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={art} alt="" aria-hidden className="tb-hero-bg" />
+      {banner ? (
+        <>
+          {/* The token's banner art sits behind the whole header block, like a game store hero. */}
+          <picture className="tb-hero-banner" data-token-banner>
+            <source media="(min-width: 768px)" type="image/avif" srcSet={banner.wide.avif} sizes="(min-width: 1300px) 920px, 100vw" />
+            <source media="(min-width: 768px)" type="image/webp" srcSet={banner.wide.webp} sizes="(min-width: 1300px) 920px, 100vw" />
+            <source type="image/avif" srcSet={banner.narrow.avif} sizes="100vw" />
+            <source type="image/webp" srcSet={banner.narrow.webp} sizes="100vw" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={banner.narrow.src} alt={banner.alt} fetchPriority="high" />
+          </picture>
+          <div className="tb-hero-scrim" aria-hidden />
+        </>
+      ) : (
+        <img src={art} alt="" aria-hidden className="tb-hero-bg" /> // eslint-disable-line @next/next/no-img-element
+      )}
       <div className="tb-hero-glow" aria-hidden />
       <div className="tb-hero-in">
         <p className="text-xs text-muted">
@@ -68,6 +87,10 @@ export function Hero({
             All tokens
           </Link>
         </p>
+        {showTitle && bannerTitle && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="tb-hero-btitle" src={bannerTitle.src} srcSet={bannerTitle.srcSet} sizes="(min-width: 768px) 560px, 86vw" alt={bannerTitle.alt} />
+        )}
         <div className="tb-hero-row">
           <div className="tb-hero-icon">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -157,6 +180,24 @@ const CSS = `
 .tb-hero-bg{position:absolute;inset:-40px;width:calc(100% + 80px);height:calc(100% + 80px);object-fit:cover;filter:blur(48px) saturate(1.4);opacity:.35;z-index:-2}
 .tb-hero-glow{position:absolute;inset:0;z-index:-1;background:radial-gradient(120% 90% at 0% 0%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 60%),linear-gradient(180deg,transparent 30%,var(--panel) 100%)}
 .tb-hero-in{padding:clamp(16px,3vw,32px)}
+.tb-hero-banner{position:absolute;top:0;left:0;right:0;z-index:-2;display:block}
+.tb-hero-banner img{display:block;width:100%;aspect-ratio:1200/580;object-fit:cover;object-position:50% 30%}
+@media (min-width:768px){.tb-hero-banner img{aspect-ratio:1500/430}}
+/* Scrim: light at the top so the art reads, dark by the banner's lower edge so the block on top is legible, then the panel. */
+.tb-hero-scrim{position:absolute;top:0;left:0;right:0;z-index:-1;aspect-ratio:1200/580;background:linear-gradient(180deg,rgba(0,0,0,.25) 0%,rgba(0,0,0,.1) 25%,color-mix(in srgb,var(--panel) 70%,transparent) 70%,var(--panel) 100%)}
+@media (min-width:768px){.tb-hero-scrim{aspect-ratio:1500/430}}
+.tb-hero-has-banner .tb-hero-glow{background:radial-gradient(80% 60% at 0% 100%,color-mix(in srgb,var(--accent) 18%,transparent),transparent 60%)}
+/* The block starts part-way down the banner, so the icon straddles its lower edge. Padding % is of the hero's width. */
+.tb-hero-has-banner .tb-hero-in{padding-top:calc(48.33% - 120px)}
+@media (min-width:768px){.tb-hero-has-banner .tb-hero-in{padding-top:max(16px,calc(28.67% - 150px))}}
+.tb-hero-has-banner .tb-hero-in>p:first-child a,.tb-hero-has-banner .tb-hero-in>p:first-child{text-shadow:0 1px 6px #000}
+.tb-hero-has-banner .tb-hero-title,.tb-hero-has-banner .tb-hero-desc{text-shadow:0 2px 12px #000,0 0 2px #000}
+.tb-hero-has-banner .tb-hero-desc{color:var(--text)}
+/* Optional title in the banner's sky: drips stay inside the hero, clear of the icon and doors. */
+.tb-hero-btitle{display:block;width:min(86%,560px);height:auto;margin:4px auto 0;filter:drop-shadow(0 6px 18px rgba(0,0,0,.55))}
+.tb-hero-has-title .tb-hero-in{padding-top:12px}
+@media (min-width:768px){.tb-hero-has-title .tb-hero-in{padding-top:16px}.tb-hero-has-title .tb-hero-btitle{width:min(48%,560px)}}
+
 .tb-hero-row{display:flex;gap:clamp(14px,2.5vw,28px);align-items:center;margin-top:12px;flex-wrap:wrap}
 .tb-hero-icon{flex:none;width:clamp(84px,14vw,140px);aspect-ratio:1;border-radius:24px;padding:3px;background:conic-gradient(from 210deg,var(--accent),var(--accent-2),var(--accent));box-shadow:0 0 40px -6px var(--accent),0 20px 40px -20px #000}
 .tb-hero-icon img{width:100%;height:100%;object-fit:cover;border-radius:21px;background:var(--bg)}
