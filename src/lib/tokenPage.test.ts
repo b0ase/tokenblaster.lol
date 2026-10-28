@@ -28,6 +28,8 @@ test('no banned words in the token page copy (outside the risk line)', () => {
 test('ours vs third-party', () => {
   assert.ok(isOurToken(TERRORNODE));
   assert.ok(!isOurToken('0'.repeat(64) + '_1'));
+  assert.ok(isOurToken('0'.repeat(64) + '_1', '17B7drUMTBEELCKX89676iV5CegcZuz2m1'));
+  assert.ok(!isOurToken('0'.repeat(64) + '_1', '1BoatSLRHtKNngkdXEeobR76b53LETtpyT'));
 });
 
 test('chat room link', () => {
