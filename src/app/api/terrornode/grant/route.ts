@@ -1,7 +1,8 @@
 /**
  * One owner-approved $TERRORNODE grant out of the receipt pool (db/026_terrornode_grant.sql).
- *   POST { to, gasTxid }  (Authorization: Bearer <LAUNCH_SECRET>)
- * Only one purpose exists: the Twetch airdrop (27 Oct 2026), a fixed 1,286,000 TERRORNODE to `to`. The fees come from
+ *   POST { gasTxid, to? }  (Authorization: Bearer <LAUNCH_SECRET>)
+ * `to` is fixed to the airdrop wallet GRANT_TO (src/lib/terrornodeGrant.ts); a body `to` that differs is refused.
+ * Only one purpose exists: the Twetch airdrop (27 Oct 2026), a fixed 1,286,000 TERRORNODE to GRANT_TO. The fees come from
  * `gasTxid`, a tx that paid the pool's gas address (the pool token address) at least GAS_MIN sats: it covers the
  * GorillaPool index fee (1,000 sats per token output) and the network fee; the change goes back to the gas address.
  * Idempotent: once the purpose is booked it returns the booked transfer and never sends again.
@@ -14,6 +15,7 @@ import { INDEX_FEE } from '@/lib/launch/curve';
 import { TERRORNODE_ID, isAddress } from '@/lib/launch/receipts';
 import { broadcast, configured, fundAddressOf, poolKey, rpc } from '@/lib/launch/server';
 import { tokenOut } from '@/lib/launch/shape';
+import { grantDestination } from '@/lib/terrornodeGrant';
 
 export const dynamic = 'force-dynamic';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
@@ -35,16 +37,16 @@ function authorised(req: Request) {
 export async function POST(req: Request) {
   if (!configured()) return NextResponse.json({ error: 'The launchpad is not configured.' }, { status: 503 });
   if (!authorised(req)) return NextResponse.json({ error: 'Forbidden.' }, { status: 403 });
-  let to = '';
+  let to: string | null = null;
   let gasTxid = '';
   try {
     const b = (await req.json()) as { to?: unknown; gasTxid?: unknown };
-    to = String(b.to ?? '');
+    to = grantDestination(b.to);
     gasTxid = String(b.gasTxid ?? '');
   } catch {
     return NextResponse.json({ error: 'Bad request.' }, { status: 400 });
   }
-  if (!isAddress(to)) return NextResponse.json({ error: 'Bad destination address.' }, { status: 400 });
+  if (!to || !isAddress(to)) return NextResponse.json({ error: 'The grant only pays the airdrop wallet.' }, { status: 400 });
   if (!/^[0-9a-f]{64}$/.test(gasTxid)) return NextResponse.json({ error: 'Bad gasTxid.' }, { status: 400 });
 
   const [booked] = await rpc<Grant[]>('tokenblaster_grant_get', { p_purpose: PURPOSE });
