@@ -1,4 +1,5 @@
 'use client';
+import { tokenPageRule } from '@/lib/launch/tokenPage';
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { GRAD_SOLD, marketCap, price, progress } from '@/lib/launch/curve';
@@ -39,7 +40,8 @@ export type Trade = {
   created_at: string;
 };
 
-export const imageOf = (tokenId: string) => `https://ordfs.network/${tokenId.split('_')[0]}_0`;
+/** A coin's picture: the page-level icon override if it has one (TOKEN_PAGE_RULES), else its inscribed on-chain icon. */
+export const imageOf = (tokenId: string) => tokenPageRule(tokenId).icon ?? `https://ordfs.network/${tokenId.split('_')[0]}_0`;
 export const short = (a: string) => (a ? `${a.slice(0, 4)}…${a.slice(-3)}` : '');
 export const mcapSats = (sold: number) => marketCap(BigInt(sold));
 export const priceSats = (sold: number) => price(BigInt(sold));

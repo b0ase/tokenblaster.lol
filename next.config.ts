@@ -7,6 +7,8 @@ if (process.env.VERCEL && (process.env.NEXT_PUBLIC_TB_CAPTURE === '1' || process
 
 const nextConfig: NextConfig = {
   // next/image: AVIF first (smallest), WebP fallback. The home page's arcade art and hero posters are 1200-1920px JPGs.
+  // Ready-made token share cards read at request time by /launch/[id]/opengraph-image (TOKEN_PAGE_RULES.ogImage).
+  outputFileTracingIncludes: { '/launch/[id]/opengraph-image': ['./src/assets/og/**'], '/launch/[id]/twitter-image': ['./src/assets/og/**'] },
   images: { formats: ['image/avif', 'image/webp'], qualities: [75, 80] },
   // bWalletX opens bGames inside its own frame: the web and desktop wallets, and capacitor://localhost on iOS.
   // Allow exactly those, plus ourselves (owner-approved 15 Oct 2026). Android (https://localhost) opens games
