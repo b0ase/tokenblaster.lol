@@ -78,11 +78,11 @@ export const TOKEN_PAGE_RULES: Record<string, TokenPageRule> = {
     // NPGX audio only, hard and heavy, never VexVoid (owner, 28 Oct 2026). Each track's lyrics transcript in
     // npgx/public/music/lyrics-sync/<slug>.json was checked clean (no profanity). Molotov Kiss, Shinobi Girls and
     // Akihabara Fury are left out: no lyrics on file to check.
+    // Owner, 28 Oct 2026: Shibuya Mosh Pit leads; Harajuku Chainsaw removed from this page.
     music: [
-      { src: '/music/arena/chrome-fist.m4a', title: 'Chrome Fist', site: 'NPG-X.com' },
       { src: '/music/arena/shibuya-mosh-pit.m4a', title: 'Shibuya Mosh Pit', site: 'NPG-X.com' },
+      { src: '/music/arena/chrome-fist.m4a', title: 'Chrome Fist', site: 'NPG-X.com' },
       { src: '/music/city/tokaido-reload.m4a', title: 'Tokaido Reload', site: 'NPG-X.com' },
-      { src: '/music/arena/harajuku-chainsaw.m4a', title: 'Harajuku Chainsaw', site: 'NPG-X.com' },
     ],
   },
 };
