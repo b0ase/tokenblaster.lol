@@ -786,6 +786,7 @@ export class TeamScene {
     this.look?.dispose();
     this.composer?.dispose();
     this.renderer?.dispose();
+    this.renderer?.forceContextLoss(); // free the GPU now: shared model caches keep the renderer reachable (see galleryGame/engine.ts)
   }
 }
 

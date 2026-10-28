@@ -2145,7 +2145,12 @@ export class GalleryEngine {
     this.droneGeo.forEach((g) => g.dispose());
     this.droneMat.forEach((m) => m.dispose());
     this.composer?.dispose();
+    // Release the GPU NOW. renderer.dispose() alone leaves the context alive until the renderer is garbage
+    // collected, and it never is: the page-wide model caches (squad girls, guns, the mocap library) keep their
+    // geometries' and textures' dispose listeners, which close over this renderer. Every remount of the game
+    // (the 20 s demo and back, 28 Oct) leaked a whole city's context: desktop Chrome "Out of memory".
     this.renderer?.dispose();
+    this.renderer?.forceContextLoss();
   }
 }
 
