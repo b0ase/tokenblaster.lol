@@ -46,7 +46,15 @@ export type Banner = { wide: { avif: string; webp: string; src: string }; narrow
  */
 /** A title image drawn in the banner's sky (a render of the game's real title, never AI-drawn text). `on` switches it on. */
 export type BannerTitle = { src: string; srcSet: string; alt: string; on: boolean };
-export type TokenPageRule = { bgVideo?: BgVideo; name?: string; metaTitle?: string; description?: string; banner?: Banner; bannerTitle?: BannerTitle; icon?: string; ogImage?: string };
+/**
+ *  - announcer: a voice line played once per visit near the banner (first scroll, else first tap/key). `src` lists the
+ *    sources in order of preference (m4a, then mp3). Swap the voice by changing these paths (versioned filenames).
+ *  - music: the page's own background playlist, started after the announcer finishes. It replaces the site-wide shuffle
+ *    on this page (the site player still shows it and its mute/volume). First song opens, then the list loops.
+ */
+export type Announcer = { src: string[] };
+export type PageSong = { src: string; title: string; site: string };
+export type TokenPageRule = { bgVideo?: BgVideo; name?: string; metaTitle?: string; description?: string; banner?: Banner; bannerTitle?: BannerTitle; icon?: string; ogImage?: string; announcer?: Announcer; music?: PageSong[] };
 export const TOKEN_PAGE_RULES: Record<string, TokenPageRule> = {
   // $TERRORNODE (owner, 28 Oct 2026)
   'd5ffbbfd8310dcb6763c7180b8dbc725b708d0ce990f93cd27d00ff24aa0de02_1': {
@@ -65,6 +73,17 @@ export const TOKEN_PAGE_RULES: Record<string, TokenPageRule> = {
     bannerTitle: { src: '/terrornode/token/title-1200.webp', srcSet: '/terrornode/token/title-700.webp 700w, /terrornode/token/title-1200.webp 1200w', alt: 'Welcome to TERRORNODE', on: true },
     icon: '/terrornode/token/logo-4-256.webp',
     ogImage: 'terrornode-og-v1.jpg',
+    // "WELCOME TO TERRORNODE" voice, take welcome-1d-fall-g1 (owner, 28 Oct 2026: good enough for now, not final).
+    announcer: { src: ['/terrornode/voice/welcome-v1.m4a', '/terrornode/voice/welcome-v1.mp3'] },
+    // NPGX audio only, hard and heavy, never VexVoid (owner, 28 Oct 2026). Each track's lyrics transcript in
+    // npgx/public/music/lyrics-sync/<slug>.json was checked clean (no profanity). Molotov Kiss, Shinobi Girls and
+    // Akihabara Fury are left out: no lyrics on file to check.
+    music: [
+      { src: '/music/arena/chrome-fist.m4a', title: 'Chrome Fist', site: 'NPG-X.com' },
+      { src: '/music/arena/shibuya-mosh-pit.m4a', title: 'Shibuya Mosh Pit', site: 'NPG-X.com' },
+      { src: '/music/city/tokaido-reload.m4a', title: 'Tokaido Reload', site: 'NPG-X.com' },
+      { src: '/music/arena/harajuku-chainsaw.m4a', title: 'Harajuku Chainsaw', site: 'NPG-X.com' },
+    ],
   },
 };
 export const tokenPageRule = (tokenId: string): TokenPageRule => TOKEN_PAGE_RULES[tokenId] ?? {};
