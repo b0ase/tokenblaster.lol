@@ -21,6 +21,7 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
   const count = useSyncExternalStore(coinStore.subscribe, coinStore.prepaidCount, () => 0);
   const credit = useSyncExternalStore(coinStore.subscribe, coinStore.credit, () => 0);
   const hasPayer = useSyncExternalStore(coinStore.subscribe, () => coinStore.payer() !== null, () => false);
+  const demo = useSyncExternalStore(coinStore.subscribe, coinStore.demo, () => false);
   const [paying, setPaying] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string; txid?: string } | null>(null);
   const priceUsd = playPriceUsd(tag);
@@ -28,7 +29,7 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
   /** Pay one play from the loaded credit (no wallet prompt: the credit is already in the player's gun). */
   const insert = useCallback(async (): Promise<boolean> => {
     const pay = coinStore.payer();
-    if (!pay || paying) return false;
+    if (!pay || paying || coinStore.demo()) return false;
     setPaying(true);
     setMsg(null);
     try {
@@ -46,6 +47,8 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
 
   const playPaid = useCallback(
     (start: (paid: boolean) => void) => {
+      // Demo (taste) mode: an unpaid run under the INSERT $b banner. Nothing is charged, nothing is scored.
+      if (coinStore.demo()) return start(false);
       if (coinStore.prepaidCount() > 0) return start(true);
       void insert().then((ok) => ok && start(true));
     },
@@ -69,7 +72,8 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
     playPaid,
     consume,
     chooserEl: null,
-    enabled: hasPayer,
+    enabled: hasPayer || demo,
+    demo,
     game,
   };
 }
@@ -78,8 +82,10 @@ export type CoinOp = ReturnType<typeof useCoinOp>;
 
 /** The game's PLAY button: PLAY · 1 CREDIT when a play is paid, else PLAY · $0.10 from your credit. */
 export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void }) {
-  const short = co.credits === 0 && co.creditUsd + 1e-9 < co.priceUsd;
-  const label = !co.enabled
+  const short = !co.demo && co.credits === 0 && co.creditUsd + 1e-9 < co.priceUsd;
+  const label = co.demo && start
+    ? `▶ ${playLabel} · DEMO`
+    : !co.enabled
     ? 'INSERT $b AT THE CABINET'
     : co.paying
       ? 'PAYING…'
@@ -101,16 +107,16 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }
       >
         {label.includes('INSERT $b') ? <>{label.split('INSERT $b')[0]}INSERT <span className="normal-case">$b</span>{label.split('INSERT $b')[1]}</> : label}
       </button>
-      <p className="text-[10px] text-dim">
+      {co.demo ? <p className="text-[10px] text-dim">Demo: a short taste, no score. Tap the INSERT $b banner to play properly.</p> : <p className="text-[10px] text-dim">
         {perCredit ?? `1 play = 1 game, ${LIVES_PER_CREDIT} lives.`} {fmtCredit(co.priceUsd)} a play from your credit ({fmtCredit(co.creditUsd)} left), paid to the house on chain. No payouts.
-      </p>
+      </p>}
       {short && co.credits === 0 && <p className="text-xs text-accent">Out of credit. Reload the page to get back to the cabinet and insert coin.</p>}
       {co.msg && !co.msg.ok && <p className="text-xs text-accent">{co.msg.text}</p>}
     </div>
   );
 }
 
-/** Title / game-over controls. Owner, 24 Oct 2026: no PRACTICE, only paid play. Extra props kept for callers. */
+/** Title / game-over controls. Owner, 24 Oct 2026: no PRACTICE, only paid play (or the 28 Oct demo). */
 export function CoinOpButtons({
   co,
   start,
@@ -122,7 +128,6 @@ export function CoinOpButtons({
   start: (paid: boolean) => void;
   perCredit?: string;
   playLabel?: string;
-  practiceLabel?: string;
   onPress?: () => void;
 }) {
   return (

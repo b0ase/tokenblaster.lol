@@ -1101,7 +1101,7 @@ export function BRacer() {
                         </button>
                       </>
                     ) : (
-                      <CoinOpButtons co={co} start={lobbyReady} perCredit="1 credit = 1 race." playLabel="READY" practiceLabel="READY · PRACTICE" />
+                      <CoinOpButtons co={co} start={lobbyReady} perCredit="1 credit = 1 race." playLabel="READY" />
                     )
                   }
                 />
@@ -1148,7 +1148,7 @@ export function BRacer() {
                 />
               </details>
               <div className="flex flex-wrap items-center gap-2">
-                {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" practiceLabel="▶ RACE · PRACTICE" />}
+                {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race (3 laps, or a time trial)." playLabel="RACE" />}
                 {bestTime ? <span className="text-sm" style={{ color: DR.colour.amber }}>BEST {fmt(bestTime)}</span> : null}
               </div>
               <details className="text-[11px] text-dim">
@@ -1282,7 +1282,7 @@ export function BRacer() {
                   )}
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
-                  {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" practiceLabel="▶ RACE AGAIN · PRACTICE" />}
+                  {!mpOn && <CoinOpButtons co={co} start={start} perCredit="1 credit = 1 race." playLabel="RACE AGAIN" />}
                   <button onClick={toMenu} className={mpOn ? 'btn-fire px-5 py-2' : 'btn'}>
                     {mpOn ? 'BACK TO THE LOBBY' : 'TITLE / NEW RIVALS'}
                   </button>

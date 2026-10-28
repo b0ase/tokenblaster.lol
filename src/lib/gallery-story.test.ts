@@ -121,20 +121,21 @@ test('story: the lines are deadpan hostage lines, short enough for a radio capti
   assert.equal(KWEG.clear.length, STAGE_COUNT - 1);
 });
 
-test('free play: no copy claims live rounds, a chain, the record, real transactions or acceptance', () => {
+test('demo: no copy claims live rounds, a chain, the record, real transactions or acceptance', () => {
   // The hostage's "accepted, with required revisions" is a peer-review joke about the rescue, not about rounds.
   const text = practiceCopy().join('\n').replace(/accepted, with required revisions/gi, 'reviewed')
     .replace(/\b(nothing|not)( goes| is)? on chain/gi, 'ok'); // the honest negation ("nothing goes on chain") is the point
   assert.doesNotMatch(text, /\blive\b|on chain|on the record|real transaction|real BSV|\baccepted\b/i);
-  assert.match(PRACTICE.loaded.bottom, /PRACTICE ROUNDS/);
+  assert.match(PRACTICE.loaded.bottom, /DEMO ROUNDS/);
   assert.equal(PRACTICE.loaded.top, 'GUN LOADED.');
   assert.match(PRACTICE.badge, /nothing on chain/);
-  assert.match(PRACTICE.kicker, /FREE PLAY/);
+  assert.match(PRACTICE.kicker, /DEMO/);
+  assert.doesNotMatch(practiceCopy().join("\n"), /free play|practice/i);
 });
 
-test('live copy keeps its claims (the swap only applies in free play)', () => {
+test('live copy keeps its claims (the swap only applies in the demo)', () => {
   assert.match(BANNERS.loaded.bottom, /LIVE ROUNDS/);
-  assert.match(forPractice(BANNERS.loaded.bottom), /PRACTICE ROUNDS/);
+  assert.match(forPractice(BANNERS.loaded.bottom), /DEMO ROUNDS/);
 });
 
 test('story: two acts, STORM THE NODE then ESCAPE FROM TERRORNODE; enemies are Erobotz in all text', () => {

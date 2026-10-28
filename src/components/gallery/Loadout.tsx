@@ -107,7 +107,7 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
                     <span className="relative"><GunPreview url={w.def.url} active={on} /></span>
                     <span className="tbx-ord-name relative text-[clamp(17px,1.8vw,22px)]" style={{ color: on ? '#fff' : '#fff1dc' }}>{w.name}</span>
                     <span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: p.kind === 'stream' ? 'var(--tbx-teal)' : 'var(--tbx-amber)' }}>
-                      <Icon name={p.kind === 'stream' ? 'bolt' : 'stack'} size={12} /> {practice ? (p.kind === 'stream' ? `PRACTICE · ${p.rate.toLocaleString()} rounds/s, simulated` : `PRACTICE · ${p.n} rounds per pull`) : patternLabel(p)}
+                      <Icon name={p.kind === 'stream' ? 'bolt' : 'stack'} size={12} /> {practice ? (p.kind === 'stream' ? `DEMO · ${p.rate.toLocaleString()} rounds/s, simulated` : `DEMO · ${p.n} rounds per pull`) : patternLabel(p)}
                     </span>
                     <span className="text-[10px] leading-snug text-[var(--tbx-dim)]" data-live-rate>{rateNote(p, rounds, practice)}</span>
                     {(['rate', 'spread', 'power'] as const).map((key) => (
@@ -148,7 +148,7 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
 /** The honest tx/s line under each gun (src/lib/gallery.ts liveCeiling): free play never claims on chain. */
 function rateNote(p: TxPattern, rounds: number, practice: boolean) {
   if (p.kind !== 'stream') return null;
-  if (practice) return 'Practice only: nothing is sent on chain.';
+  if (practice) return 'Demo only: nothing is sent on chain.';
   const full = roundsForFullRate(p.rate);
   if (rounds > 0) return `LIVE with ${rounds.toLocaleString()} rounds loaded: up to ${liveRate(p, rounds).toLocaleString()} tx/s (sender ceiling ${liveCeiling(rounds).toLocaleString()}; network-limited).`;
   return `LIVE: up to ${p.rate.toLocaleString()} tx/s once ${full.toLocaleString()}+ rounds are loaded (10,000 rounds: up to ${liveRate(p, 10_000).toLocaleString()} tx/s). Network-limited.`;

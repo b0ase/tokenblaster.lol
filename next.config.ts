@@ -1,5 +1,10 @@
 import type { NextConfig } from 'next';
 
+// Dev-only switches (src/lib/devFlags.ts) must never ship: refuse a Vercel build with either set.
+if (process.env.VERCEL && (process.env.NEXT_PUBLIC_TB_CAPTURE === '1' || process.env.NEXT_PUBLIC_GALLERY_PAID === '0')) {
+  throw new Error('NEXT_PUBLIC_TB_CAPTURE / NEXT_PUBLIC_GALLERY_PAID=0 are dev-only and must not be set on Vercel.');
+}
+
 const nextConfig: NextConfig = {
   // next/image: AVIF first (smallest), WebP fallback. The home page's arcade art and hero posters are 1200-1920px JPGs.
   images: { formats: ['image/avif', 'image/webp'], qualities: [75, 80] },
