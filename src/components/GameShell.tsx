@@ -86,6 +86,7 @@ export function GameShell({ title, game, back = '/arcade', backLabel = 'ARCADE',
             <WalletBar
               sticky={false}
               label="Game"
+              primaryConnect
               logo={<SiteLogo />}
               title={title}
               tools={
