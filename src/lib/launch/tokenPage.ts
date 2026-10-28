@@ -13,7 +13,9 @@ export const issuerLine = (issuer: string) => `Made by ${issuer}, not by bCorp.`
 
 /** Coins made by us (bCorp / b0ase / NPG): the cabinet ammo coins and the portfolio tokens. Everything else is third-party. */
 const OURS = new Set<string>([...AMMO_COINS.map((c) => c.tokenId), ...OUR_TOKENS.map((t) => t.id)].filter(Boolean));
-export const isOurToken = (tokenId: string) => OURS.has(tokenId);
+/** Our BlastPad launch wallet (owner confirmed 28 Oct 2026): every coin it launched is ours (BSVGUN, FROGGER, DOUBLEO, ARENA…). */
+export const OUR_LAUNCH_WALLETS = new Set<string>(['17B7drUMTBEELCKX89676iV5CegcZuz2m1']);
+export const isOurToken = (tokenId: string, creator?: string) => OURS.has(tokenId) || (!!creator && OUR_LAUNCH_WALLETS.has(creator));
 
 /** The coin's token-gated room on bChatX. */
 export const chatRoomUrl = (sym: string) => `https://www.bchatx.com/chat?room=${encodeURIComponent(sym.replace(/^\$/, '').toUpperCase())}`;

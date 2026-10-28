@@ -104,7 +104,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   const money = (sats: number) => (rate ? usd(sats, rate) : bsv(sats));
   const icon = `${c.token_id.split('_')[0]}_0`;
   const trading = Boolean(c.trading ?? tradingOf(c.token_id, c.receipts_issued ?? null));
-  const ours = isOurToken(c.token_id);
+  const ours = isOurToken(c.token_id, c.creator);
   const deployTx = c.token_id.split('_')[0];
   const share = () => {
     const text = `$${c.sym} is on BlastPad, ${(pct(sold) * 100).toFixed(1)}% of the way to graduation. Every coin is ammo in the TokenBlaster games.`;
