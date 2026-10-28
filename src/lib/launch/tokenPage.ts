@@ -25,3 +25,21 @@ export const BWALLETX_WEB = 'https://web.bwalletx.com';
 
 /** Words the token page must never use (src/lib/tokenPage.test.ts checks the page source, with RISK_LINE taken out first). */
 export const BANNED_WORDS = [/\binvest/i, /\breturns\b/i, /\bmoon/i, /\bearn(s|ed|ing)?\b/i, /\bprofit/i, /\bprice will\b/i, /\bx10\b/i];
+
+/** A muted looping background video for one token's page (existing footage only). */
+export type BgVideo = { webm: string; mp4: string; poster: string };
+/**
+ * Per-token page rules, keyed by token_id. Every field is optional.
+ *  - bgVideo: shown behind the page (poster only on reduced motion, Save-Data and the phone lite tier).
+ *  - description: a page-level override. The coin's own description is part of the creator's SIGNED launch message,
+ *    so it is never edited; the signed text still shows, unchanged, under "Launch signature".
+ */
+export type TokenPageRule = { bgVideo?: BgVideo; description?: string };
+export const TOKEN_PAGE_RULES: Record<string, TokenPageRule> = {
+  // $TERRORNODE (owner, 28 Oct 2026)
+  'd5ffbbfd8310dcb6763c7180b8dbc725b708d0ce990f93cd27d00ff24aa0de02_1': {
+    bgVideo: { webm: '/terrornode/bg/token-loop.webm', mp4: '/terrornode/bg/token-loop.mp4', poster: '/terrornode/bg/token-poster.jpg' },
+    description: 'Ammo for WELCOME TO TERRORNODE. Every live shot pays you a $TERRORNODE receipt on chain.',
+  },
+};
+export const tokenPageRule = (tokenId: string): TokenPageRule => TOKEN_PAGE_RULES[tokenId] ?? {};
