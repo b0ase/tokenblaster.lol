@@ -2747,7 +2747,6 @@ export function SatoshiCity() {
             <CoinOpButtons
               co={co}
               playLabel="ENTER THE CITY"
-              practiceLabel="▶ ENTER · PRACTICE"
               perCredit="1 coin = 1 visit to the city."
               start={(paid) => {
                 if (paid && !co.consume()) return;

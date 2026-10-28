@@ -116,7 +116,7 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }
   );
 }
 
-/** Title / game-over controls. Owner, 24 Oct 2026: no PRACTICE, only paid play. Extra props kept for callers. */
+/** Title / game-over controls. Owner, 24 Oct 2026: no PRACTICE, only paid play (or the 28 Oct demo). */
 export function CoinOpButtons({
   co,
   start,
@@ -128,7 +128,6 @@ export function CoinOpButtons({
   start: (paid: boolean) => void;
   perCredit?: string;
   playLabel?: string;
-  practiceLabel?: string;
   onPress?: () => void;
 }) {
   return (

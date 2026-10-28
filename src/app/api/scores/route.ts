@@ -33,7 +33,7 @@ function limited(ip: string) {
 
 const bad = (error: string, status = 400) => Response.json({ ok: false, error }, { status });
 
-/** POST /api/scores { game, mode: 'practice'|'live', name, score, secs, meta?, txid? } */
+/** POST /api/scores { game, mode: 'live', name, score, secs, meta?, txid? }. No practice scores (owner 24/28 Oct 2026: no free practice). */
 export async function POST(request: Request) {
   const ip = (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || request.headers.get('x-real-ip') || 'unknown';
   if (limited(ip)) return bad('Too many submissions, try again in a minute', 429);
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   }
   const { game, mode, name, score, secs, meta, txid } = body;
   if (typeof game !== 'string' || !isScoreGame(game)) return bad('Unknown game');
-  if (mode !== 'practice' && mode !== 'live') return bad('Bad mode');
+  if (mode !== 'live') return bad('Bad mode');
   if (typeof name !== 'string' || name.length > 32 || !cleanName(name)) return bad('Bad name');
   if (typeof score !== 'number' || !Number.isInteger(score) || score < 0 || score > 1e9) return bad('Bad score');
   if (typeof secs !== 'number' || !Number.isFinite(secs) || secs < 0 || secs > 6 * 3600) return bad('Bad time');
@@ -76,7 +76,6 @@ export async function POST(request: Request) {
     if (typeof txid !== 'string' || !/^[0-9a-f]{64}$/i.test(txid)) return bad('Bad txid');
     tx = txid.toLowerCase();
   }
-  if (mode === 'practice') tx = null;
   const verified = mode === 'live' && tx ? await verifyRunTx(tx, game === 'gallery' ? GALLERY_TAGS : SCORE_GAMES[game].tag, game === 'gallery' && typeof m.x === 'string' ? m.x.toLowerCase() : undefined) : false;
   const ipHash = createHash('sha256').update(`tokenblaster-scores:${ip}`).digest('hex').slice(0, 32);
   try {

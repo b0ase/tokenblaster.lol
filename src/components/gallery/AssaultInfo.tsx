@@ -59,7 +59,7 @@ export function AssaultInfo({ paid }: { paid: boolean }) {
         <p className="mt-3 text-xs text-[var(--tbx-mute)]">
           Accepted LIVE shots carrying your handle, checked on chain by the tokenblaster.lol &quot;gallery&quot; tag.{' '}
           {clock && inEvent(clock) ? 'The event is on now.' : `Event: ${new Date(PRIZE.start).toUTCString().slice(0, 16)} (UTC).`}
-          {!paid && ' Free play is on: practice rounds are not scored.'}
+          {!paid && ' Demo rounds are not scored.'}
         </p>
       </section>
 
@@ -78,7 +78,7 @@ export function AssaultInfo({ paid }: { paid: boolean }) {
         <p className="mt-2">
           {paid
             ? 'In paid play every round is a real tagged BSV transaction ("tokenblaster.lol" … "gallery"), signed in your browser from a gun your wallet funds, so you can watch them land on bsv.lol.'
-            : 'Free play: these are practice rounds. Nothing is paid, signed or sent on chain.'}
+            : 'Demo: simulated rounds. Nothing is paid, signed or sent on chain. Insert $b to play.'}
         </p>
         <p className="mt-3 text-[11px] uppercase tracking-[0.2em] text-[var(--tbx-mute)]" data-credit>{CREDIT}</p>
       </section>

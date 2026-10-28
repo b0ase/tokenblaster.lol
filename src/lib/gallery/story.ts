@@ -297,7 +297,7 @@ export const BRIEFING = {
   from: 'The Ninja Punk Girls',
   objective: 'Act 1, STORM THE NODE: the street, the HQ floors and the core, where Dr Kweg is freed. Act 2, ESCAPE FROM TERRORNODE: get him to the roof, past the Liquid Unit. He keeps running the wrong way: protect him. You have 100 health: stay alive.',
   rules: [
-    'Hold the trigger to fire. In paid play every round is real; in free play they are practice rounds and nothing is sent.',
+    'Hold the trigger to fire. In paid play every round is real; in the demo they are simulated and nothing is sent.',
     'Clear the Erobotz to move up a stage. In the server core, sustained fire on the core jams the whole tower.',
     'The Liquid Unit is pushed back by sustained fire. Stop and it closes in fast. Erobotz shoot and swing: keep the gun moving.',
     'Smash the glass, drop the racks and clear the Erobotz for points.',
@@ -367,33 +367,33 @@ export const TIPS: string[] = [
   'Lead the Frog-bots. They land where you were.',
 ];
 
-// ── Free play / dry run: honest copy ─────────────────────────────────────────────────────
-// In free play (and the dev dry run) nothing is paid, signed, broadcast or counted on chain, and the words LIVE,
+// ── Demo (taste) run / dry run: honest copy ─────────────────────────────────────────────────────
+// In the demo (and the dev dry run) nothing is paid, signed, broadcast or counted on chain, and the words LIVE,
 // "on chain", "on the record", "real transaction" and "accepted" must never describe the player's own rounds.
 // Every player-visible string above that says so goes through `forPractice` when the game is simulated.
 // (The hostage's "accepted, with required revisions" is a peer-review joke about the rescue, not about rounds.)
 
 export const PRACTICE = {
-  badge: 'PRACTICE · nothing on chain',
-  kicker: 'FREE PLAY · PRACTICE',
-  loaded: { top: 'GUN LOADED.', bottom: 'PRACTICE ROUNDS', sub: 'Free play: practice rounds, nothing goes on chain.' },
-  nothing: 'Free play: nothing is paid and nothing goes on chain.',
-  warmup: 'Getting your practice rounds ready…',
-  results: 'Practice run: nothing was paid or sent, so there is no proof to check.',
+  badge: 'DEMO · nothing on chain',
+  kicker: 'DEMO · INSERT $b TO PLAY',
+  loaded: { top: 'GUN LOADED.', bottom: 'DEMO ROUNDS', sub: 'Demo: simulated rounds, nothing goes on chain. Insert $b to play.' },
+  nothing: 'Demo: nothing is paid and nothing goes on chain.',
+  warmup: 'Getting your demo rounds ready…',
+  results: 'Demo run: nothing was paid or sent, so there is no proof to check.',
 } as const;
 
 const SWAPS: [RegExp, string][] = [
-  [/Every round goes on the record\./g, 'Practice rounds: nothing goes on chain.'],
-  [/Every round you fire goes on the record and jams the Erobotz’ control of the network\./g, 'Every practice round you fire jams the Erobotz’ control of the network, in the story.'],
-  [/Every round you fire is on the record\./g, 'Free play: practice rounds, nothing goes on chain.'],
-  [/Every round you fire is written where nobody can erase it, and every one jams the Erobotz’ control of the tower\./g, 'In the story, every round you fire jams the Erobotz’ control of the tower. This is free play: practice rounds, nothing goes on chain.'],
-  [/Hold the trigger to fire\. Every round is real and goes on the record\./g, 'Hold the trigger to fire. Free play: practice rounds, nothing goes on chain.'],
-  [/Hold the trigger\. Every round is real\./g, 'Hold the trigger. These are practice rounds.'],
-  [/A million rounds on the record\./g, 'A million practice rounds.'],
-  [/Every round is on the record\. Beat that\./g, 'Free play, practice rounds. Beat that.'],
-  [/\bLIVE ROUNDS\b/g, 'PRACTICE ROUNDS'],
+  [/Every round goes on the record\./g, 'Demo rounds: nothing goes on chain.'],
+  [/Every round you fire goes on the record and jams the Erobotz’ control of the network\./g, 'Every demo round you fire jams the Erobotz’ control of the network, in the story.'],
+  [/Every round you fire is on the record\./g, 'Demo: simulated rounds, nothing goes on chain.'],
+  [/Every round you fire is written where nobody can erase it, and every one jams the Erobotz’ control of the tower\./g, 'In the story, every round you fire jams the Erobotz’ control of the tower. This is a demo: simulated rounds, nothing goes on chain.'],
+  [/Hold the trigger to fire\. Every round is real and goes on the record\./g, 'Hold the trigger to fire. Demo: simulated rounds, nothing goes on chain.'],
+  [/Hold the trigger\. Every round is real\./g, 'Hold the trigger. These are demo rounds.'],
+  [/A million rounds on the record\./g, 'A million demo rounds.'],
+  [/Every round is on the record\. Beat that\./g, 'Demo rounds. Insert $b to play for real.'],
+  [/\bLIVE ROUNDS\b/g, 'DEMO ROUNDS'],
 ];
-/** Free-play wording for a story string (identity for strings that never mention the record). */
+/** Demo wording for a story string (identity for strings that never mention the record). */
 export function forPractice(s: string): string {
   let o = s;
   for (const [re, to] of SWAPS) o = o.replace(re, to);

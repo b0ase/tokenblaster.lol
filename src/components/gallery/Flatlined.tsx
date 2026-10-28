@@ -112,9 +112,9 @@ export function Flatlined(p: {
         {p.freePlay && (
           <section aria-label="Continue" className="flex w-full max-w-[560px] flex-col items-center gap-2">
             <button type="button" data-fs-skip onClick={p.onContinue} className="tbx-btn tbx-btn-red !min-h-[52px] !px-7 !text-base" data-free-continue>
-              Continue (free play)
+              Continue (demo)
             </button>
-            <p className="text-[11px] text-white/55">Free play: nothing is paid.</p>
+            <p className="text-[11px] text-white/55">Demo: nothing is paid, no score.</p>
           </section>
         )}
         {!p.freePlay && <section aria-label="Insert coin to continue" className="flex w-full max-w-[560px] flex-col items-center gap-2">
