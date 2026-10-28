@@ -5,6 +5,7 @@ import { rpc } from '@/lib/launch/server';
 import { parseBuyUsd } from '@/lib/buyPreset';
 import { isOutpoint } from '@/lib/launch/ticker';
 import { outpointForTicker } from '@/lib/launch/tickerServer';
+import { tokenPageRule } from '@/lib/launch/tokenPage';
 
 type Props = { params: Promise<{ id: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> };
 
@@ -15,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const c = rows[0];
   if (!c) return { title: 'Coin · BlastPad · TokenBlaster.lol' };
   const title = `$${c.sym} · ${c.name} on BlastPad`;
-  const description = c.description || `$${c.sym} on BlastPad: a BSV-21 coin on a bonding curve. Buy it, sell it, shoot it in the Arena.`;
+  const description = tokenPageRule(id).description || c.description || `$${c.sym} on BlastPad: a BSV-21 coin on a bonding curve. Buy it, sell it, shoot it in the Arena.`;
   return {
     title: `${title} · TokenBlaster.lol`,
     description,

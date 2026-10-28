@@ -10,7 +10,10 @@ import { trade } from '@/lib/launch/client';
 import { ROUTES } from '@/lib/launch/shape';
 import { tokenCoins } from '@/lib/tokens';
 import { BAdsRail } from '@/components/BAdsRail';
-import { isOurToken } from '@/lib/launch/tokenPage';
+import { isOurToken, tokenPageRule, type BgVideo } from '@/lib/launch/tokenPage';
+import { receiptCurveView, receiptPrice } from '@/lib/launch/receiptCurve';
+import { ledgerCheck, type Reserves } from '@/lib/launch/reserves';
+import { TokenBgVideo } from './TokenBgVideo';
 import { Hero, StatCard } from './TokenHero';
 import { Change, Segments } from './Board';
 import { LaunchNav } from './LaunchNav';
@@ -49,7 +52,6 @@ type Coin = {
   receipts_issued?: number | null;
   graduate_at?: number;
 };
-type Reserves = { expected: { bsv: number; tokens: number }; ledger: { bsv: number; tokens: number }; chain: { bsv: number | null; tokens: number | null; checkedAt: number } };
 
 const WOC = 'https://whatsonchain.com';
 const WINDOWS = [
@@ -67,7 +69,7 @@ function soldAt(trades: Trade[], now: number, ms: number) {
 export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: number | null }) {
   const { wallet, open, busy, chooserEl } = useLaunchWallet();
   const rate = useBsvUsd();
-  const [data, refreshCoin] = usePoll<{ coin?: Coin; reserves?: Reserves; indexed?: boolean | null; error?: string }>(`/api/launch/coin?token=${id}`, 5000, {});
+  const [data, refreshCoin] = usePoll<{ coin?: Coin; reserves?: Reserves; indexed?: boolean | null; holders?: number | null; error?: string }>(`/api/launch/coin?token=${id}`, 5000, {});
   const [tr, refreshTrades] = usePoll<{ trades: Trade[] }>(`/api/launch/trades?token=${id}&limit=1000`, 5000, { trades: [] });
   const [board] = usePoll<{ coins: BoardCoin[]; feed: Trade[] }>('/api/launch/coins', 8000, { coins: [], feed: [] });
   const { list: watch, toggle } = useWatchlist();
@@ -83,8 +85,9 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   }, [trades]);
   const kingId = useMemo(() => board.coins.filter((x) => !graduated(x)).sort((a, b) => b.sold - a.sold)[0]?.token_id, [board.coins]);
 
+  const rule = tokenPageRule(id);
   const shell = (body: React.ReactNode) => (
-    <Shell wallet={wallet} open={open} busy={busy} chooserEl={chooserEl} feed={board.feed}>
+    <Shell wallet={wallet} open={open} busy={busy} chooserEl={chooserEl} feed={board.feed} bg={rule.bgVideo}>
       {body}
     </Shell>
   );
@@ -106,6 +109,10 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   const trading = Boolean(c.trading ?? tradingOf(c.token_id, c.receipts_issued ?? null));
   const ours = isOurToken(c.token_id, c.creator);
   const deployTx = c.token_id.split('_')[0];
+  // A receipts coin shows ITS curve: 1 → 200 sats across the 1B, graduating at 10M receipts.
+  const rc = c.earn_url && c.receipts_issued != null ? receiptCurveView(c.receipts_issued) : null;
+  // On-chain holders (curve buyers and receipt holders alike); else only what the curve ledger shows, labelled so.
+  const chainHolders = data.holders ?? null;
   const share = () => {
     const text = `$${c.sym} is on BlastPad, ${(pct(sold) * 100).toFixed(1)}% of the way to graduation. Every coin is ammo in the TokenBlaster games.`;
     window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(location.href)}`, '_blank', 'noopener');
@@ -121,7 +128,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
     <div className="grid gap-3 lg:grid-cols-[1fr_360px]">
       <div className="flex min-w-0 flex-col gap-3">
         <Hero
-          c={c}
+          c={rule.description ? { ...c, description: rule.description } : c}
           grad={grad}
           king={kingId === c.token_id}
           trading={trading}
@@ -136,7 +143,11 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
 
         <section className="tb-stats grid grid-cols-2 gap-2 md:grid-cols-4" aria-label={`$${c.sym} live stats`}>
           <StatCard label="Supply" value={fmtTokens(Number(SUPPLY))} sub="fixed · no mint" />
-          <StatCard label="Holders" value={String(holders.length)} sub={`top 10 hold ${((top10 / Number(SUPPLY)) * 100).toFixed(1)}% · dev ${((devHeld / Number(SUPPLY)) * 100).toFixed(2)}%`} />
+          {chainHolders != null ? (
+            <StatCard label="Holders" value={chainHolders.toLocaleString('en-US')} sub={rc ? 'on chain · players with receipts + curve buyers' : 'on chain · not counting the pool'} />
+          ) : (
+            <StatCard label="Curve buyers" value={String(holders.length)} sub={`top 10 hold ${((top10 / Number(SUPPLY)) * 100).toFixed(1)}% · dev ${((devHeld / Number(SUPPLY)) * 100).toFixed(2)}%`} />
+          )}
           {trading ? (
             <StatCard
               label="Curve price"
@@ -147,7 +158,11 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
           ) : (
             <StatCard label="Curve price" value="Not trading yet" sub="no price until it is on the curve" />
           )}
-          <StatCard label="To graduation" value={`${(pct(sold) * 100).toFixed(1)}%`} sub={grad ? 'graduated' : `${fmtTokens(Math.max(0, Number(GRAD_SOLD) - sold))} tokens to go`} bar={pct(sold)} />
+          {rc ? (
+            <StatCard label="To graduation" value={`${(rc.progress * 100).toFixed(2)}%`} sub={rc.graduated ? 'graduated' : `${fmtTokens(rc.toGraduation)} shots to go of ${fmtTokens(rc.graduateAt)}`} bar={rc.progress} />
+          ) : (
+            <StatCard label="To graduation" value={`${(pct(sold) * 100).toFixed(1)}%`} sub={grad ? 'graduated' : `${fmtTokens(Math.max(0, Number(GRAD_SOLD) - sold))} tokens to go`} bar={pct(sold)} />
+          )}
         </section>
 
         {trading && (
@@ -193,6 +208,9 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
           }}
         />
         )}
+        {rc ? (
+          <ReceiptCurvePanel rc={rc} sym={c.sym} />
+        ) : (
         <section className="panel text-sm">
           <div className="mb-2 flex items-center justify-between">
             <p className="panel-title">Bonding curve</p>
@@ -216,6 +234,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
             {grad ? 'Graduated. The curve stays as permanent liquidity: keep trading.' : 'Graduates at 100%. The curve then stays as permanent liquidity.'}
           </p>
         </section>
+        )}
         {(c.route.kind === 'buyback' || c.burned > 0) && <Burns c={c} trades={trades} />}
         <section className="panel text-sm">
           <p className="panel-title mb-2">Play ${c.sym}</p>
@@ -237,9 +256,11 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   );
 }
 
-function Shell({ wallet, open, busy, chooserEl, feed, children }: { wallet: { address: string } | null; open: () => void; busy: boolean; chooserEl: React.ReactNode; feed: Trade[]; children: React.ReactNode }) {
+function Shell({ wallet, open, busy, chooserEl, feed, bg, children }: { wallet: { address: string } | null; open: () => void; busy: boolean; chooserEl: React.ReactNode; feed: Trade[]; bg?: BgVideo; children: React.ReactNode }) {
   return (
-    <main className="mx-auto flex w-full max-w-[1300px] flex-col gap-3 p-2.5">
+    <>
+    {bg && <TokenBgVideo v={bg} />}
+    <main className={`mx-auto flex w-full max-w-[1300px] flex-col gap-3 p-2.5 ${bg ? 'relative z-[1]' : ''}`}>
       <LaunchNav wallet={wallet} onConnect={open} busy={busy} />
       {chooserEl}
       <Ticker feed={feed} />
@@ -250,6 +271,7 @@ function Shell({ wallet, open, busy, chooserEl, feed, children }: { wallet: { ad
         <span className="text-hot">Memecoins are toys:</span> prices can go to zero and every trade is final. Only spend what you are happy to lose.
       </p>
     </main>
+    </>
   );
 }
 
@@ -416,7 +438,7 @@ function TradesAndHolders({ c, trades, holders, rate }: { c: Coin; trades: Trade
           Trades
         </button>
         <button className={`btn ${tab === 'holders' ? 'btn-on' : ''}`} onClick={() => setTab('holders')}>
-          Holders <span className="text-muted">{holders.length}</span>
+          Curve holders <span className="text-muted">{holders.length}</span>
         </button>
         {tab === 'trades' && (
           <div className="ml-auto flex gap-1 text-xs">
@@ -494,7 +516,7 @@ function TradesAndHolders({ c, trades, holders, rate }: { c: Coin; trades: Trade
               </li>
             ))}
           </ol>
-          {!holders.length && <p className="text-dim">No holders yet.</p>}
+          {!holders.length && <p className="text-dim">No curve holders yet.</p>}
         </>
       )}
     </section>
@@ -507,12 +529,12 @@ function TradesAndHolders({ c, trades, holders, rate }: { c: Coin; trades: Trade
  * answer for is "unverified", never quietly counted as a match.
  */
 function reserveState(r: Reserves) {
-  const ledgerOk = r.expected.bsv === r.ledger.bsv && r.expected.tokens === r.ledger.tokens;
+  const check = ledgerCheck(r);
   const side = (chain: number | null, ledger: number) => (chain === null ? 'unverified' : chain >= ledger ? 'ok' : 'short');
   const bsvSide = side(r.chain.bsv, r.ledger.bsv);
   const tokSide = side(r.chain.tokens, r.ledger.tokens);
-  if (!ledgerOk) return { tone: 'text-red-400', bsvSide, tokSide, text: 'Ledger and curve disagree. Trading on this coin should be treated as unsafe until this is explained.' };
-  if (bsvSide === 'ok' && tokSide === 'ok') return { tone: 'text-green-400', bsvSide, tokSide, text: '✓ Reserves match: on chain, the pool holds all the BSV and all the tokens the curve owes.' };
+  if (!check.ok) return { tone: 'text-red-400', bsvSide, tokSide, text: `Ledger and curve disagree (${check.why}) Trading on this coin should be treated as unsafe until this is explained.` };
+  if (bsvSide === 'ok' && tokSide === 'ok') return { tone: 'text-green-400', bsvSide, tokSide, text: `✓ Reserves match: on chain, the pool holds all the BSV and all the tokens the curve owes${r.receipts?.tokens ? ', after the receipts paid to players' : ''}.` };
   if (bsvSide === 'short' || tokSide === 'short')
     return { tone: 'text-yellow-400', bsvSide, tokSide, text: `On chain shows less ${bsvSide === 'short' ? 'BSV' : 'tokens'} than the ledger. The index can lag a fresh trade by a few seconds; if this stays, something is wrong.` };
   return { tone: 'text-yellow-400', bsvSide, tokSide, text: `${[bsvSide === 'unverified' && 'BSV', tokSide === 'unverified' && 'Tokens'].filter(Boolean).join(' and ')} not verified on chain right now (the index didn’t answer). Not counted as a match.` };
@@ -601,8 +623,21 @@ function Audit({ c, reserves, route }: { c: Coin; reserves?: Reserves; route: (t
                     <td className="py-1 text-muted">EXPECTED</td>
                     <td>{bsv(r.expected.bsv)}</td>
                     <td>{fmtTokens(r.expected.tokens)}</td>
-                    <td className="text-muted">what the curve owes</td>
+                    <td className="text-muted">{r.receipts ? 'supply − sold − receipts' : 'what the curve owes'}</td>
                   </tr>
+                  {r.receipts && (
+                    <tr className="border-t border-line-dim" data-receipts-row>
+                      <td className="py-1 text-muted">RECEIPTS</td>
+                      <td>—</td>
+                      <td>{fmtTokens(r.receipts.tokens)}</td>
+                      <td className="text-muted">
+                        Paid to players as receipts ·{' '}
+                        <a className="underline" href="/api/terrornode/receipts" target="_blank" rel="noreferrer">
+                          ledger ↗
+                        </a>
+                      </td>
+                    </tr>
+                  )}
                   <tr className="border-t border-line-dim">
                     <td className="py-1 text-muted">LEDGER</td>
                     <td>{bsv(r.ledger.bsv)}</td>
@@ -868,6 +903,63 @@ function EarnPanel({ c }: { c: Coin }) {
         Play Welcome to TERRORNODE
       </a>
       <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt, 1 sat for the first rising to 200 sats for the last of the 1B. Coins collected this way are not sold back.</p>
+    </section>
+  );
+}
+
+/**
+ * A receipts coin's real curve (src/lib/launch/receipts.ts): linear 1 → 200 sats per token across the 1B,
+ * graduating at 10M receipts. The chart shows the run to graduation, with the dot at receipts issued.
+ */
+function ReceiptCurvePanel({ rc, sym }: { rc: ReturnType<typeof receiptCurveView>; sym: string }) {
+  const W = 300;
+  const H = 110;
+  const end = rc.graduateAt;
+  const low = receiptPrice(1);
+  const top = receiptPrice(end);
+  const x = (n: number) => (Math.min(n, end) / end) * W;
+  const y = (n: number) => H - 6 - ((receiptPrice(Math.min(Math.max(n, 1), end)) - low) / (top - low)) * (H - 16);
+  const at = rc.issued;
+  return (
+    <section className="panel text-sm" data-receipt-curve>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="panel-title">Receipt curve</p>
+        <p className="text-2xl font-bold text-hot">{(rc.progress * 100).toFixed(2)}%</p>
+      </div>
+      <Segments v={rc.progress} />
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="inset p-2">
+          <p className="text-xs text-muted">Next receipt</p>
+          <p>{rc.nextSats == null ? 'all issued' : `${rc.nextSats} sat${rc.nextSats === 1 ? '' : 's'}`}</p>
+          <p className="text-xs text-dim">per ${sym}, rounded up</p>
+        </div>
+        <div className="inset p-2">
+          <p className="text-xs text-muted">To graduation</p>
+          <p>{fmtTokens(rc.toGraduation)}</p>
+          <p className="text-xs text-dim">shots of {fmtTokens(rc.graduateAt)}</p>
+        </div>
+      </div>
+      <div className="mt-2">
+        <div className="flex justify-between text-[10px] text-muted">
+          <span>
+            {low} sat → {top.toFixed(2)} sats at graduation
+          </span>
+          <span className="text-accent">GRADUATION</span>
+        </div>
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Receipt curve, ${rc.issued.toLocaleString('en-US')} of ${rc.graduateAt.toLocaleString('en-US')} receipts to graduation`}>
+          <path d={`M0,${H} L${x(at).toFixed(1)},${y(at).toFixed(1)} L${x(at).toFixed(1)},${H} Z`} fill="var(--accent)" opacity={0.18} />
+          <path d={`M0,${y(1).toFixed(1)} L${W},${y(end).toFixed(1)}`} fill="none" stroke="var(--accent)" strokeWidth={1.5} />
+          <line x1={W - 1} x2={W - 1} y1={0} y2={H} stroke="var(--accent)" strokeDasharray="3 3" opacity={0.6} />
+          <circle cx={x(at)} cy={y(at)} r={4} fill="var(--hot)" />
+        </svg>
+        <div className="flex justify-between text-[10px] text-muted">
+          <span>0 shots</span>
+          <span>{fmtTokens(rc.graduateAt)} shots</span>
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-muted">
+        Linear from 1 sat (receipt #1) to {rc.top} sats (#{rc.supply.toLocaleString('en-US')}) across the whole 1B. {rc.graduated ? 'Graduated: it also trades on BlastPad now.' : `Trades on BlastPad once ${fmtTokens(rc.graduateAt)} receipts are out.`}
+      </p>
     </section>
   );
 }
