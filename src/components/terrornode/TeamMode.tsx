@@ -32,6 +32,7 @@ import TeamChat, { useTeamChat } from './TeamChat';
 import { MAX_PER_SIDE, MAX_PLAYERS, RULES, SIDE_STATS, TEAM_NAME, teamShotPushes, type Counters, type Mode, type PublicState, type Snapshot, type Team } from '@/lib/teammode/match';
 import type { TeamScene } from '@/lib/teammode/scene';
 import dynamic from 'next/dynamic';
+import { useGameAudio } from '@/lib/sfx';
 import { isLevelId, teamLevelOf, type LevelId } from '@/lib/teammode/levels';
 import { girlOf } from '@/lib/teammode/bots';
 import type { Progress } from '@/lib/terrornode/levels';
@@ -49,6 +50,8 @@ const fmtClock = (ms: number) => {
 };
 
 export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
+  // Team matches play the TERRORNODE soundtrack, not the site's general punk set (owner, 28 Oct 2026: no Harajuku Chainsaw).
+  useGameAudio('terror');
   const [code, setCode] = useState<string | null>(null);
   const [dry, setDry] = useState(false);
   const [state, setState] = useState<PublicState | null>(null);

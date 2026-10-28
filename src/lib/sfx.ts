@@ -659,7 +659,7 @@ const BRACER = [ARCADE[2], ARCADE[3], PUNK[2], PUNK[3], CITY[1], CITY[0], ARCADE
  * WELCOME TO TERRORNODE (owner, 28 Oct 2026: hard only, never gentle or 8-bit; a theme always opens the game, then
  * 5-6 tracks shuffled). Owned NPG-X tracks only. TERROR[0] is the theme: Chrome Fist (Industrial Punk), the closest
  * owned track to industrial, standing in until a real TERRORNODE theme exists. The game skips to the next song on
- * every new attempt and stage.
+ * every new attempt and stage. Never Harajuku Chainsaw (owner, 28 Oct 2026).
  */
 const TERROR = [
   PUNK[1],

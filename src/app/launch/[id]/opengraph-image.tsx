@@ -69,7 +69,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     const jpg = await readFile(join(process.cwd(), 'src/assets/og', og)).catch(() => null);
     if (jpg) {
       const src = `data:image/jpeg;base64,${jpg.toString('base64')}`;
-      // eslint-disable-next-line @next/next/no-img-element
+       
       return new ImageResponse(<img src={src} width={1200} height={630} alt="" />, { ...size });
     }
   }

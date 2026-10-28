@@ -68,7 +68,7 @@ export function Hero({
             <source media="(min-width: 768px)" type="image/webp" srcSet={banner.wide.webp} sizes="(min-width: 1300px) 920px, 100vw" />
             <source type="image/avif" srcSet={banner.narrow.avif} sizes="100vw" />
             <source type="image/webp" srcSet={banner.narrow.webp} sizes="100vw" />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+            { }
             <img src={banner.narrow.src} alt={banner.alt} fetchPriority="high" />
           </picture>
           <div className="tb-hero-scrim" aria-hidden />
