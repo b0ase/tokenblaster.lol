@@ -47,7 +47,7 @@ async function deliver(txid: string): Promise<{ ok: true; count?: number } | { o
   const r = await fetch('/api/terrornode/receipts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txid }) }).catch(() => null);
   const j = (await r?.json().catch(() => null)) as { ok?: boolean; count?: number; error?: string } | null;
   if (r?.ok && j?.ok) return { ok: true, count: j.count };
-  const retry = !r || [202, 404, 409, 500, 502, 503].includes(r.status);
+  const retry = !r || [202, 404, 409, 429, 500, 502, 503].includes(r.status);
   return { ok: false, retry, why: j?.error ?? (r ? `Receipts refused (${r.status}).` : 'Could not reach TokenBlaster.') };
 }
 

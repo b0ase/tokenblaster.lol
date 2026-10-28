@@ -7,6 +7,7 @@
  */
 import 'server-only';
 import { ARC, Beef, P2PKH, PrivateKey, Transaction } from '@bsv/sdk';
+import { LAUNCH_SIGNERS, arcAccepted, assertSigningOn, signingOff } from './guard';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -64,11 +65,19 @@ const root = () => {
   return PrivateKey.fromWif(WIF);
 };
 export type Role = 'token' | 'reserve' | 'vault' | 'index';
-export function poolKey(slot: string, role: Role): PrivateKey {
+const derive = (slot: string, role: Role) => {
   const r = root();
   return r.deriveChild(r.toPublicKey(), `tokenblaster launch ${slot} ${role}`);
+};
+/** Kill switch: LAUNCH_POOL_SIGNING_OFF=1 (or LAUNCH_SIGNING_OFF=1) stops every pool/vault/receipt signature at once. */
+export const launchSigningOff = () => signingOff(LAUNCH_SIGNERS);
+/** A pool SIGNING key. Refuses while the kill switch is on. Use poolAddress/poolPublicKey for anything that only needs the address. */
+export function poolKey(slot: string, role: Role): PrivateKey {
+  assertSigningOn(LAUNCH_SIGNERS);
+  return derive(slot, role);
 }
-export const poolAddress = (slot: string, role: Role) => poolKey(slot, role).toAddress();
+export const poolAddress = (slot: string, role: Role) => derive(slot, role).toAddress();
+export const poolPublicKey = (slot: string, role: Role) => derive(slot, role).toPublicKey().toString();
 
 /** Sign input `i` of `tx` (P2PKH, SIGHASH_ALL|FORKID) with `key`; returns the unlocking script hex. */
 export async function signInput(tx: Transaction, i: number, key: PrivateKey, source: Transaction): Promise<string> {
@@ -83,11 +92,10 @@ export async function signInput(tx: Transaction, i: number, key: PrivateKey, sou
 export async function broadcast(tx: Transaction): Promise<string> {
   const txid = tx.id('hex');
   const r = await tx.broadcast(new ARC(ARC_URL));
-  const ok =
-    (r.status === 'success' && !/ORPHAN|REJECT|DOUBLE/i.test((r as { txStatus?: string }).txStatus ?? '')) ||
-    /invalid competing transaction identifiers|already known|ALREADY_IN_MEMPOOL|SEEN_ON_NETWORK|MINED/i.test(JSON.stringify(r));
+  // A double-spend ("invalid competing transaction") is a failure, not success: another tx took our inputs.
+  const ok = arcAccepted(r);
   if (!ok) {
-    // Already in the mempool via the wallet is fine.
+    // THIS txid already in the mempool (e.g. via the wallet) is fine; a competing tx never has our txid.
     const seen = await fetch(`${WOC}/tx/hash/${txid}`).then((x) => x.ok).catch(() => false);
     if (!seen) throw new Error(`The network refused the trade: ${(r as { description?: string }).description ?? JSON.stringify(r).slice(0, 200)}`);
   }

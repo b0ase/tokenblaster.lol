@@ -5,14 +5,22 @@
  * browser hands it to the wallet as a payment (internalizeAction), so it shows up straight away.
  */
 import { NextResponse } from 'next/server';
-import { Beef, ProtoWallet, PublicKey, Transaction, Utils, P2PKH, SatoshisPerKilobyte } from '@bsv/sdk';
-import { broadcast, configured, poolKey, rpc } from '@/lib/launch/server';
+import { Beef, ProtoWallet, PublicKey, Utils } from '@bsv/sdk';
+import { broadcast, configured, launchSigningOff, poolKey, poolPublicKey, rpc, spentBy } from '@/lib/launch/server';
 import { confirmedUtxos } from '@/lib/launch/vault';
+import { RateLimiter, caps, clientIp } from '@/lib/launch/guard';
+import { claimSignatureUsed, vaultOutflowToday } from '@/lib/launch/limits';
+import { runClaim } from '@/lib/launch/claimFlow';
 
 export const dynamic = 'force-dynamic';
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 const isAddr = (a: unknown): a is string => typeof a === 'string' && /^1[1-9A-HJ-NP-Za-km-z]{25,34}$/.test(a);
-const senderKey = () => poolKey('claims', 'vault').toPublicKey().toString();
+const senderKey = () => poolPublicKey('claims', 'vault');
+const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
+const LEASE_SECS = 60;
+// Per warm instance: 10 claim attempts / 10 min per IP, 5 per address.
+const limiter = new RateLimiter();
+const usedSigs = new Set<string>();
 
 export async function GET(req: Request) {
   const address = new URL(req.url).searchParams.get('address');
@@ -27,6 +35,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   if (!configured()) return bad('Not open yet.', 503);
+  if (launchSigningOff()) return bad('Reward payouts are paused for maintenance. Your rewards are safe.', 503);
+  if (!limiter.allow(`ip:${clientIp(req)}`, 10, 10 * 60_000)) return bad('Too many claims. Wait a few minutes.', 429);
   let b: Record<string, unknown>;
   try {
     b = await req.json();
@@ -38,53 +48,48 @@ export async function POST(req: Request) {
     if (!isAddr(address) || !isAddr(payTo) || !/^0[23][0-9a-f]{64}$/.test(identityKey ?? '')) return bad('Bad claim.');
     if (PublicKey.fromString(identityKey).toAddress() !== address) return bad('That key is not this wallet.');
     if (!(Math.abs(Date.now() - Number(ts)) < 5 * 60_000)) return bad('Claim expired; try again.');
+    if (!limiter.allow(`addr:${address}`, 5, 10 * 60_000)) return bad('Too many claims for this wallet. Wait a few minutes.', 429);
     const message = `TokenBlaster claim\n${address}\npay to ${payTo}\n${ts}`;
     const { valid } = await new ProtoWallet('anyone')
       .verifySignature({ data: Utils.toArray(message, 'utf8'), signature: Utils.toArray(signature, 'hex'), protocolID: [1, 'tokenblaster claim'], keyID: String(ts), counterparty: identityKey })
       .catch(() => ({ valid: false }));
     if (!valid) return bad('Signature does not match.');
+    const sigKey = `${address}:${ts}`;
+    if (usedSigs.has(sigKey)) return bad('This claim signature was already used. Sign a new claim.', 409);
 
-    const rows = await rpc<{ id: number; slot: string; sats: number }[]>('tokenblaster_launch_owed_rows', { p_address: address });
-    if (!rows.length) return bad('Nothing to claim.');
-    const bySlot = new Map<string, number>();
-    for (const r of rows) bySlot.set(r.slot, (bySlot.get(r.slot) ?? 0) + Number(r.sats));
-    const total = [...bySlot.values()].reduce((n, s) => n + s, 0);
-    if (total < 1_000) return bad('Rewards are paid out from 1,000 sats.');
-
-    // Take from each vault exactly what it owes this wallet; change goes back to that vault.
-    const tx = new Transaction();
-    for (const [slot, sats] of bySlot) {
-      const [row] = await rpc<{ vault_address: string }[]>('tokenblaster_launch_get', { p_slot: slot });
-      const key = poolKey(slot, 'vault');
-      const utxos = await confirmedUtxos(row.vault_address);
-      let got = 0;
-      for (const u of utxos) {
-        if (got >= sats + 200) break;
-        tx.addInput({ sourceTransaction: u.tx, sourceOutputIndex: u.vout, unlockingScriptTemplate: new P2PKH().unlock(key) });
-        got += u.sats;
-      }
-      if (got < sats) return bad('A vault is waiting for a block before it can pay; try again in a few minutes.');
-      if (got - sats > 0) tx.addOutput({ lockingScript: new P2PKH().lock(row.vault_address), satoshis: got - sats });
-    }
-    // The network fee comes out of the payout.
-    tx.addOutput({ lockingScript: new P2PKH().lock(payTo), change: true });
-    await tx.fee(new SatoshisPerKilobyte(100));
-    await tx.sign();
-    const payIdx = tx.outputs.length - 1;
-    // change:true takes the leftover; we must make sure the payout output got exactly `total` minus the fee.
-    const paid = tx.outputs[payIdx].satoshis ?? 0;
-    if (paid <= 0) return bad('Too small to pay out after the network fee.');
-    const txid = await broadcast(tx);
-    await rpc('tokenblaster_launch_mark_claimed', { p_address: address, p_ids: rows.map((r) => r.id), p_txid: txid });
-    for (const [slot, sats] of bySlot) await rpc('tokenblaster_launch_payout', { p_txid: txid, p_slot: slot, p_kind: 'claim', p_sats: sats, p_tokens: 0, p_detail: { to: address } });
+    const r = await runClaim(
+      { address, payTo, ts: String(ts) },
+      {
+        signatureUsed: claimSignatureUsed,
+        owedRows: (addr) => rpc('tokenblaster_launch_owed_rows', { p_address: addr }),
+        coin: async (slot) => (await rpc<{ token_id: string; vault_address: string }[]>('tokenblaster_launch_get', { p_slot: slot }))[0] ?? null,
+        lease: async (tokenId, lease) => (await rpc<unknown[]>('tokenblaster_launch_lease', { p_token: tokenId, p_lease: lease, p_secs: LEASE_SECS })).length > 0,
+        release: (lease) => rpc('tokenblaster_launch_release', { p_lease: lease }),
+        utxos: (addr) => confirmedUtxos(addr),
+        vaultKey: (slot) => poolKey(slot, 'vault'),
+        markClaimed: (addr, ids, txid) => rpc('tokenblaster_launch_mark_claimed', { p_address: addr, p_ids: ids, p_txid: txid }),
+        reowe: (slot, addr, sats) => rpc('tokenblaster_launch_owe', { p_slot: slot, p_rows: [{ address: addr, sats }] }),
+        broadcast,
+        spentBy,
+        txKnown: (txid) => fetch(`${WOC}/tx/hash/${txid}`, { cache: 'no-store' }).then((x) => x.ok),
+        payout: (txid, slot, sats, detail) => rpc('tokenblaster_launch_payout', { p_txid: txid, p_slot: slot, p_kind: 'claim', p_sats: sats, p_tokens: 0, p_detail: detail }),
+        vaultOutflowToday: () => vaultOutflowToday(),
+        vaultCap: caps().vaultSats,
+        newLease: () => crypto.randomUUID(),
+      },
+    );
+    if (!r.ok) return bad(r.why, r.status);
+    usedSigs.add(sigKey); // single-use (also recorded on the payout rows for other instances)
+    if (usedSigs.size > 10_000) usedSigs.clear();
+    const { txid, tx, outputIndex, sats } = r;
     // The wallet wants the payout with its proven history (BEEF): the vault coins are all confirmed.
     const beef = new Beef();
     for (const src of new Set(tx.inputs.map((i) => i.sourceTransaction!.id('hex')))) {
-      const r = await fetch(`https://api.whatsonchain.com/v1/bsv/main/tx/${src}/beef`, { cache: 'no-store' });
-      if (r.ok) beef.mergeBeef(Beef.fromString((await r.text()).trim(), 'hex'));
+      const x = await fetch(`${WOC}/tx/${src}/beef`, { cache: 'no-store' });
+      if (x.ok) beef.mergeBeef(Beef.fromString((await x.text()).trim(), 'hex'));
     }
     beef.mergeTransaction(tx);
-    return NextResponse.json({ txid, beef: Utils.toHex(beef.toBinaryAtomic(txid)), outputIndex: payIdx, sats: paid, sender: senderKey() });
+    return NextResponse.json({ txid, beef: Utils.toHex(beef.toBinaryAtomic(txid)), outputIndex, sats, sender: senderKey() });
   } catch (e) {
     return bad(e instanceof Error ? e.message : String(e), 500);
   }
