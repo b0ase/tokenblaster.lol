@@ -111,7 +111,7 @@ export function unlockAudio() {
   if (c && c.state !== 'running') void c.resume().catch(() => {});
   if (c && wantTrack) {
     if (fallback) {
-      if (!seqTimer) startSeq();
+      if (!seqTimer && !NO_CHIPTUNE.has(wantTrack)) startSeq();
     } else if (!streaming) startStream();
     else syncStream();
     // iOS Safari only lets media start inside a gesture: kick the active deck here, not after resume().
@@ -655,8 +655,24 @@ const CITY = [
 ];
 /** bRacer: the fastest tracks on the site (180-196 BPM). */
 const BRACER = [ARCADE[2], ARCADE[3], PUNK[2], PUNK[3], CITY[1], CITY[0], ARCADE[1]];
-/** ESCAPE FROM TERRORNODE: the hard NPG-X rock only (no Harajuku Chainsaw). The game skips to the next song on every new attempt and stage. */
-const TERROR = [PUNK[0], PUNK[1], PUNK[3], CITY[2]];
+/**
+ * WELCOME TO TERRORNODE (owner, 28 Oct 2026: hard only, never gentle or 8-bit; a theme always opens the game, then
+ * 5-6 tracks shuffled). Owned NPG-X tracks only. TERROR[0] is the theme: Chrome Fist (Industrial Punk), the closest
+ * owned track to industrial, standing in until a real TERRORNODE theme exists. The game skips to the next song on
+ * every new attempt and stage.
+ */
+const TERROR = [
+  PUNK[1],
+  PUNK[0],
+  PUNK[3],
+  CITY[2],
+  S('terror', 'molotov-kiss', 'Molotov Kiss', 'NPG-X.com'),
+  S('terror', 'shinobi-girls', 'Shinobi Girls', 'NPG-X.com'),
+];
+/** Playlists whose first song is a theme: it always opens the game, the rest shuffle after it. */
+const THEMED = new Set<Track>(['terror']);
+/** Playlists that never fall back to the procedural chiptune loop (silence instead). */
+const NO_CHIPTUNE = new Set<Track>(['terror']);
 export const PLAYLISTS: Record<Track, Song[]> = {
   bracer: BRACER,
   terror: TERROR,
@@ -735,7 +751,7 @@ function makeDecks() {
         streaming = false;
         fallback = true;
         setNow(null);
-        startSeq();
+        if (!(wantTrack && NO_CHIPTUNE.has(wantTrack))) startSeq();
       } else advance(true);
     });
     decks.push(d);
@@ -767,7 +783,9 @@ function advance(immediate = false, pick?: Song) {
   }
   qi++;
   if (qi >= queue.length) {
-    queue = shuffle(list, queue[queue.length - 1]);
+    // A themed playlist plays its theme once per session of the game; after that the rest reshuffle.
+    const pool = !station && wantTrack && THEMED.has(wantTrack) && list.length > 1 ? list.slice(1) : list;
+    queue = shuffle(pool, queue[queue.length - 1]);
     qi = 0;
   }
   const song = queue[qi];
@@ -808,7 +826,9 @@ function startStream() {
   stopTimer = null;
   streaming = true;
   fails = 0;
-  queue = shuffle(playlist());
+  const list = playlist();
+  const themed = !station && wantTrack && THEMED.has(wantTrack);
+  queue = themed ? [list[0], ...shuffle(list.slice(1))] : shuffle(list);
   qi = -1;
   advance();
 }

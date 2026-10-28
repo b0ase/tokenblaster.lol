@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const c = rows[0];
   if (!c) return { title: 'Coin · BlastPad · TokenBlaster.lol' };
   const rule = tokenPageRule(id);
-  const title = `$${c.sym} · ${rule.name ?? c.name} on BlastPad`;
+  const title = rule.metaTitle ?? `$${c.sym} · ${rule.name ?? c.name} on BlastPad`;
   const description = rule.description || c.description || `$${c.sym} on BlastPad: a BSV-21 coin on a bonding curve. Buy it, sell it, shoot it in the Arena.`;
   return {
     title: `${title} · TokenBlaster.lol`,

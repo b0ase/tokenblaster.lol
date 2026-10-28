@@ -32,6 +32,7 @@ export type BgVideo = { webm: string; mp4: string; poster: string };
  * Per-token page rules, keyed by token_id. Every field is optional.
  *  - bgVideo: shown behind the page (poster only on reduced motion, Save-Data and the phone lite tier).
  *  - name: a page-level display name (the signed launch name is unchanged; the ticker never changes).
+ *  - metaTitle: the page's meta/OG title, used as is (no "on BlastPad" suffix).
  *  - description: a page-level override. The coin's own description is part of the creator's SIGNED launch message,
  *    so it is never edited; the signed text still shows, unchanged, under "Launch signature".
  */
@@ -45,11 +46,13 @@ export type Banner = { wide: { avif: string; webp: string; src: string }; narrow
  */
 /** A title image drawn in the banner's sky (a render of the game's real title, never AI-drawn text). `on` switches it on. */
 export type BannerTitle = { src: string; srcSet: string; alt: string; on: boolean };
-export type TokenPageRule = { bgVideo?: BgVideo; name?: string; description?: string; banner?: Banner; bannerTitle?: BannerTitle; icon?: string; ogImage?: string };
+export type TokenPageRule = { bgVideo?: BgVideo; name?: string; metaTitle?: string; description?: string; banner?: Banner; bannerTitle?: BannerTitle; icon?: string; ogImage?: string };
 export const TOKEN_PAGE_RULES: Record<string, TokenPageRule> = {
   // $TERRORNODE (owner, 28 Oct 2026)
   'd5ffbbfd8310dcb6763c7180b8dbc725b708d0ce990f93cd27d00ff24aa0de02_1': {
-    name: 'WELCOME TO TERRORNODE', // the game's name (owner, 28 Oct 2026); ticker stays $TERRORNODE
+    // The token is $TERRORNODE; the game is WELCOME TO TERRORNODE (named once, in the one-liner). Owner, 28 Oct 2026.
+    name: '$TERRORNODE',
+    metaTitle: '$TERRORNODE · ammo for WELCOME TO TERRORNODE',
     bgVideo: { webm: '/terrornode/bg/token-loop.webm', mp4: '/terrornode/bg/token-loop.mp4', poster: '/terrornode/bg/token-poster.jpg' },
     description: 'Ammo for WELCOME TO TERRORNODE. Every live shot pays you a $TERRORNODE receipt on chain.',
     // Owner's picks, 28 Oct 2026: banners 2 + 3, logo 4 (art-2026-10-28/OWNER-PICKS.md).
