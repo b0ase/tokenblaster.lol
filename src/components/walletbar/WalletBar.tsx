@@ -10,6 +10,7 @@ import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { DECLINED_TEXT } from '@/lib/pair/site';
 import { getAudioPrefs, subscribeAudio, toggleMute } from '@/lib/sfx';
 import { BWALLETX_WEB, WALLET_BAR as W, GET_NAME_URL, chipState, getBarWallet, idLabel, subBarWallet } from '@/lib/walletBar';
+import { BwalletButton } from './BwalletButton';
 import { GiftIcon, MaximizeIcon, MenuIcon, MinimizeIcon, MuteIcon, PhoneIcon, TrophyIcon, VolumeIcon } from './icons';
 
 /**
@@ -97,7 +98,7 @@ export function FullscreenButton({ on, onToggle }: { on?: boolean; onToggle?: ()
 }
 
 /** `@handle ●` when a BRC-100 wallet is connected (✓ once the handle is verified), else "Connect wallet". */
-export function WalletBarChip() {
+export function WalletBarChip({ primary = false }: { primary?: boolean } = {}) {
   const bar = useSyncExternalStore(subBarWallet, getBarWallet, () => null);
   const site = useSiteWallet();
   // The site's wallet is the truth (owner, 25 Oct 2026: paid and played, yet the chip said "Connect wallet"): if the
@@ -118,6 +119,9 @@ export function WalletBarChip() {
 
   return (
     <div ref={ref} className="relative min-w-0" data-wallet-chip={state.kind}>
+      {primary && state.kind === 'disconnected' && !err ? (
+        <BwalletButton onSignIn={() => void openSiteWallet()} />
+      ) : (
       <button
         type="button"
         aria-haspopup="menu"
@@ -162,6 +166,7 @@ export function WalletBarChip() {
           </span>
         )}
       </button>
+      )}
       {open && (
         <div role="menu" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-[#1d1f24] bg-[#101114] p-1 shadow-xl shadow-black/60" style={{ fontFamily: font }}>
           {err && (
@@ -239,7 +244,7 @@ export function WalletBarChip() {
 }
 
 /** The bar itself. `tools` are round buttons; `menu` fills the ☰ drawer (wallet tools are appended). */
-export function WalletBar({ logo, title, tools, menu, className = '', sticky = true, label = 'Site' }: { logo: ReactNode; title?: string; tools: ReactNode; menu: ReactNode; className?: string; sticky?: boolean; label?: string }) {
+export function WalletBar({ logo, title, tools, menu, className = '', sticky = true, label = 'Site', primaryConnect = false }: { logo: ReactNode; title?: string; tools: ReactNode; menu: ReactNode; className?: string; sticky?: boolean; label?: string; /** The yellow bWallet button in place of the plain Connect chip (arcade games). */ primaryConnect?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
   const name = (
@@ -269,7 +274,7 @@ export function WalletBar({ logo, title, tools, menu, className = '', sticky = t
         <div className="flex min-w-0 items-center sm:hidden">{name}</div>
         {tools}
         <div className="flex-1" />
-        <WalletBarChip />
+        <WalletBarChip primary={primaryConnect} />
       </div>
     </nav>
   );
