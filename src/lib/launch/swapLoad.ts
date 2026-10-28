@@ -61,7 +61,7 @@ export async function swapLoad(
   const t0 = now();
   for (let tries = 0; !plan; tries++) {
     try {
-      ({ plan } = await post<{ plan: TradePlan }>('/api/launch/trade', {
+      ({ plan } = await post<{ plan: TradePlan }>('/api/launch/trade?step=prepare', {
         step: 'prepare',
         purpose: 'ammo',
         token: coin.tokenId,

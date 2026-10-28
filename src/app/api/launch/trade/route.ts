@@ -60,6 +60,9 @@ export async function POST(req: Request) {
     if (no) return bad(no, 403);
   }
   const ip = clientIp(req);
+  // The Vercel firewall rate-limits prepares by the ?step=prepare query (it cannot read the body), so a prepare
+  // must carry it: dropping the query to dodge the stricter rule is refused.
+  if (body.step === 'prepare' && new URL(req.url).searchParams.get('step') !== 'prepare') return bad('Prepare must be posted to /api/launch/trade?step=prepare.');
   if (body.step === 'prepare' || body.step === 'sign') {
     if (launchSigningOff()) return bad('Trading is paused for maintenance. Nothing was signed.', 503);
   }

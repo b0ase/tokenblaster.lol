@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { P2PKH, PrivateKey, Script, Transaction } from '@bsv/sdk';
-import { DailyCounter, LockBudget, RateLimiter, SigningOffError, arcAccepted, assertSigningOn, caps, envInt, safeEqual, signingOff, sumLastDay, underCap, LAUNCH_SIGNERS } from './launch/guard';
+import { DailyCounter, LockBudget, fleetSentToday, RateLimiter, SigningOffError, arcAccepted, assertSigningOn, caps, envInt, safeEqual, signingOff, sumLastDay, underCap, LAUNCH_SIGNERS } from './launch/guard';
 import { runClaim, type ClaimDeps, type OwedRow, type Utxo } from './launch/claimFlow';
 import { settleReceipts, type Deps, type ReceiptRow } from './launch/receiptsFlow';
 import { RECEIPT_GAS, RECEIPT_SUPPLY, TERRORNODE_ID, rangeSats, settlementAsm } from './launch/receipts';
@@ -286,4 +286,35 @@ test('receipts: daily token cap holds a settlement before signing', async () => 
   sent = 0;
   assert.ok((await settleReceipts(st.id('hex'), POOL, w.d)).ok);
   assert.equal(sent, 500, 'counted after broadcast');
+});
+
+test('fleet cap: ledger total wins, local counter is the floor, ledger failure fails closed above instantMax', async () => {
+  const local = new DailyCounter();
+  local.add(300);
+  assert.equal(await fleetSentToday(async () => 1_500_000, local, 100, 25_000), 1_500_000, 'ledger total');
+  assert.equal(await fleetSentToday(async () => 0, local, 100, 25_000), 300, 'never below what this instance sent');
+  const down = async () => { throw new Error('ledger down'); };
+  assert.equal(await fleetSentToday(down, local, 100, 25_000), 300, 'small send: local fallback');
+  assert.equal(await fleetSentToday(down, local, 30_000, 25_000), Number.POSITIVE_INFINITY, 'large send: refused');
+  assert.equal(await fleetSentToday(async () => NaN, local, 30_000, 25_000), Number.POSITIVE_INFINITY, 'junk total counts as a failure');
+});
+
+test('receipts: fleet cap from the ledger holds a settlement; ledger down blocks a large one', async () => {
+  let fleet = 1_999_900;
+  const local = new DailyCounter();
+  const w = receiptWorld({ dailyCap: { sentToday: (n) => fleetSentToday(async () => fleet, local, n, 1_000), cap: 2_000_000, add: (n) => local.add(n) } });
+  const st = await settlement(500);
+  w.chain.set(st.id('hex'), st);
+  const r = await settleReceipts(st.id('hex'), POOL, w.d);
+  assert.equal(!r.ok && r.status, 503, 'another instance used the cap');
+  assert.equal(w.sends.length, 0);
+  fleet = 0;
+  assert.ok((await settleReceipts(st.id('hex'), POOL, w.d)).ok);
+
+  const w2 = receiptWorld({ dailyCap: { sentToday: (n) => fleetSentToday(async () => { throw new Error('down'); }, new DailyCounter(), n, 100), cap: 2_000_000, add: () => undefined } });
+  const big = await settlement(500);
+  w2.chain.set(big.id('hex'), big);
+  const r2 = await settleReceipts(big.id('hex'), POOL, w2.d);
+  assert.equal(!r2.ok && r2.status, 503, 'ledger down + above instantMax: fail closed');
+  assert.equal(w2.sends.length, 0);
 });

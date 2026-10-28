@@ -16,7 +16,7 @@ import { notifySplit } from '@/lib/launch/payees';
 import { markUsed } from '@/lib/launch/splitGate';
 import { PAYEES, SPLIT_LINE } from '@/lib/launch/split';
 import { broadcast, configured, launchSigningOff, poolKey, rpc, spentBy } from '@/lib/launch/server';
-import { DailyCounter, RateLimiter, caps, clientIp } from '@/lib/launch/guard';
+import { DailyCounter, RateLimiter, caps, clientIp, fleetSentToday } from '@/lib/launch/guard';
 
 export const dynamic = 'force-dynamic';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
@@ -26,8 +26,9 @@ const live = () => configured() && process.env.RECEIPTS_LIVE === '1';
 const LEGACY_UNTIL = Date.parse('2026-11-03T00:00:00Z');
 /**
  * 28 Oct audit: per-IP rate limit (POSTS_PER_MIN, per warm instance), large settlements wait for 1 confirmation
- * (RECEIPTS_INSTANT_MAX), and a daily token cap (RECEIPTS_DAILY_CAP_TOKENS). The cap counter is in-process: it
- * bounds each warm instance, not the fleet. A durable cap needs a ledger function (a migration, not in this change).
+ * (RECEIPTS_INSTANT_MAX), and a daily token cap (RECEIPTS_DAILY_CAP_TOKENS). The cap reads the fleet-wide total from
+ * the ledger (db/027 tokenblaster_receipts_sent_24h); if that call fails it falls back to this instance's counter
+ * and refuses any send above RECEIPTS_INSTANT_MAX (fail closed).
  */
 const POSTS_PER_MIN = 20;
 const limiter = new RateLimiter();
@@ -101,7 +102,11 @@ export async function POST(req: Request) {
       if (!x?.ok) return null;
       return Number(((await x.json().catch(() => null)) as { confirmations?: number } | null)?.confirmations ?? 0);
     },
-    dailyCap: { sentToday: () => sentToday.total(), cap: caps().receiptTokens, add: (n) => sentToday.add(n) },
+    dailyCap: {
+      sentToday: (adding) => fleetSentToday(() => rpc<number>('tokenblaster_receipts_sent_24h', { p_token: TERRORNODE_ID }), sentToday, adding, caps().receiptInstantMax),
+      cap: caps().receiptTokens,
+      add: (n) => sentToday.add(n),
+    },
   });
   if (!r.ok) return NextResponse.json({ error: r.why }, { status: r.status ?? 500 });
   return NextResponse.json(r);
