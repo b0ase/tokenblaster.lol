@@ -25,8 +25,13 @@ loudness-normalised (ffmpeg loudnorm, target -16 LUFS / -1.5 dBTP), edge silence
 | kweg/echo-chamber.m4a | Echo Chamber | b0ase.com | b0ase.com/public/music/Echo Chamber.mp3 |
 | city/veins-of-the-city.m4a | Toshi no Jōmyaku (Veins of the City) | CherryX.space | cherry-xxx/public/music/都市の静脈 (Veins of the City).wav |
 | city/neon-rust.m4a | Neon Rust | CherryX.space | cherry-xxx/public/music/Neon Rust.wav |
+| terror/molotov-kiss.m4a | Molotov Kiss (Hardcore Punk, 190 BPM) | NPG-X.com | npgx/public/music/albums/neon-blood-riot/06-a.mp3 |
+| terror/shinobi-girls.m4a | Shinobi Girls (Speed Punk, 200 BPM) | NPG-X.com | npgx/public/music/albums/neon-blood-riot/07-a.mp3 |
 | city/tokaido-reload.m4a | Tokaido Reload | NPG-X.com | npgx/public/music/albums/tokyo-gutter-punk/11-a.mp3 |
 
 Playlists (src/lib/sfx.ts `PLAYLISTS`): doubleo → doubleo/; arena + gun → arena/;
 hopper + invaders + snake → arcade/; kweg → kweg/; frogger + city → city/;
 bracer → the fast ones (180-196 BPM): arcade/kintsugi-breaks, arcade/shattered-frequencies, arena/harajuku-chainsaw, arena/akihabara-fury, city/neon-rust, city/veins-of-the-city, arcade/pxel-optik.
+
+terror (WELCOME TO TERRORNODE): theme arena/chrome-fist always opens, then shuffled arena/shibuya-mosh-pit,
+arena/akihabara-fury, city/tokaido-reload, terror/molotov-kiss, terror/shinobi-girls. No chiptune fallback.

@@ -98,7 +98,7 @@ export function Hero({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="tb-chip tb-chip-sym">${c.sym}</span>
+              {c.name !== `$${c.sym}` && <span className="tb-chip tb-chip-sym">${c.sym}</span>}
               {grad ? <span className="tb-chip">Graduated #{c.grad_rank}</span> : trading ? <span className="tb-chip tb-chip-live">● Live on the curve</span> : <span className="tb-chip">Not trading yet</span>}
               {king && <span className="tb-chip tb-chip-hot">King of the hill</span>}
               <span className="tb-chip">BSV-21</span>
