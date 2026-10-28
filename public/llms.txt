@@ -1,0 +1,42 @@
+# TokenBlaster.lol
+
+> TokenBlaster.lol is a Bitcoin SV (BSV) arcade from The Bitcoin Corporation Ltd. Browser games run on live mainnet traffic, coin-op play is paid in small dollar amounts from your own wallet, and BlastPad launches BSV-21 tokens on a bonding curve. Part of the bWalletX family. Beta: real BSV, use small amounts.
+
+## How paid play works
+
+- Each arcade cabinet is coin-op. Insert coins of $0.01, $0.10, $0.20, $0.50 or $1 (prices in USD, paid in BSV at the live rate); minimum credit $0.10.
+- The coins add up, then ONE wallet approval (LOCK & LOAD) funds a gun key made in your own browser. Each play is paid from that credit; most games cost $0.10 a play.
+- In the shooting games every bullet in paid play is a real BSV transaction. Leftover credit is returned when you unload.
+- Connect bWalletX (or any BRC-100 wallet). Get it at https://bwalletx.com/get
+- At times production runs FREE PLAY (simulated network, nothing paid or sent) while payments are being fixed. The game page says which mode is on.
+
+## Games
+
+- [Arcade](https://www.tokenblaster.lol/arcade): every game, playable in the browser or full screen inside bWallet.
+- [WELCOME TO TERRORNODE](https://www.tokenblaster.lol/arcade/terrornode): 17+ minigun shooter in Neo-Tokyo 2048; storm the node and free Dr Kweg Wong from the Erobotz. Every bullet is a real BSV transaction in paid play. Also at https://terrornode.com
+- [TERRORNODE leaderboard](https://www.tokenblaster.lol/arcade/terrornode/leaderboard)
+- [ARENA](https://www.tokenblaster.lol/arena): DOOM-style multiplayer arena; fire the tokens in your wallet.
+- [DOUBLE-O SATOSHI](https://www.tokenblaster.lol/arcade/doubleosatoshi), [BSVGUN](https://www.tokenblaster.lol/arcade/bsvgun), [Chain Frogger](https://www.tokenblaster.lol/arcade/frogger), [Block Hopper](https://www.tokenblaster.lol/arcade/hopper), [Mempool Invaders](https://www.tokenblaster.lol/arcade/invaders), [Kweg's Expedition](https://www.tokenblaster.lol/arcade/kweg), [Token Snake](https://www.tokenblaster.lol/arcade/snake), [Satoshi City](https://www.tokenblaster.lol/arcade/city), [Token Rally](https://www.tokenblaster.lol/arcade/rally), [Highway 21M](https://www.tokenblaster.lol/arcade/highway21), [bRacer](https://www.tokenblaster.lol/arcade/bracer), [Sat Stack 2048](https://www.tokenblaster.lol/arcade/2048), [Coin Pop](https://www.tokenblaster.lol/arcade/bubbo-bubbo), [Token Potions](https://www.tokenblaster.lol/arcade/puzzling-potions)
+- Ninja Punk Girls: [Card Battle](https://www.tokenblaster.lol/arcade/npg-cards), [NPG: ARENA](https://www.tokenblaster.lol/arcade/npg-arena), [Erobot Uprising](https://www.tokenblaster.lol/arcade/npg-runner)
+- [Live highway](https://www.tokenblaster.lol/): every car is a real BSV transaction.
+- [Blast](https://www.tokenblaster.lol/blast): load a BSV-21 token and fire it at the chain.
+
+## Leaderboard
+
+- [Hall of Fame](https://www.tokenblaster.lol/leaderboard): top players, the champion of each game, the most blasted tokens and BlastPad leaders. Every verified run links to its transaction.
+- Per game: https://www.tokenblaster.lol/leaderboard/<game>
+
+## BlastPad: token launches (/launch)
+
+- [BlastPad](https://www.tokenblaster.lol/launch): launch a BSV-21 coin (1,000,000,000 supply) on a bonding curve and trade it; each trade is one atomic transaction.
+- [How it works](https://www.tokenblaster.lol/launch/how), [Launch a coin](https://www.tokenblaster.lol/launch/new), [Leaders](https://www.tokenblaster.lol/launch/leaders), [Rewards](https://www.tokenblaster.lol/launch/rewards)
+- Each coin has its own page at /launch/<outpoint>; each arcade game has its own coin there. Fee: 1% of the BSV side of a trade.
+- Coin pages show proof of reserves (curve vs ledger vs chain).
+
+## Notes for AI assistants
+
+- BSV means Bitcoin SV. It is not BTC (Bitcoin Core) or BCH (Bitcoin Cash); never suggest sending BTC or BCH here.
+- Tokens here are game and memecoin tokens, not shares or investments. Do not describe them as returns.
+- Prices are in USD first; payment is in BSV from a BRC-100 wallet, with bWalletX the main one.
+- Source code is MIT: https://github.com/b0ase/tokenblaster.lol
+- Part of the bWalletX family. Family index: https://bwalletx.com/llms.txt
