@@ -5,7 +5,8 @@
  * then the top 10. <HighScoresPanel> is the compact top 5 under a game. useRunClock() times a run.
  * LIVE runs whose last tx checks out on chain get a ✓ linking to WhatsOnChain.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { coinStore } from './coinop/store';
 import { cleanHandle } from '@/lib/identity';
 import { cachedProof, type XProof } from '@/lib/xproof';
 import { IdentityPicker, PlayerBadge, useMyHandle } from './PlayerBadge';
@@ -117,7 +118,14 @@ function SortTabs({ sorts, sort, setSort, label }: { sorts: ScoreSort[]; sort: S
 }
 
 /** Game-over block: submit this run, then the top 10. `sorts` lets a board offer fastest time too. */
-export function HighScores({
+/** Demo (taste) runs post no score (owner, 28 Oct 2026): the run-end panel says so instead. */
+export function HighScores(props: Parameters<typeof HighScoresRun>[0]) {
+  const demo = useSyncExternalStore(coinStore.subscribe, coinStore.demo, () => false);
+  if (demo) return <p className="panel text-center text-xs text-dim" data-demo-noscore>Demo run: no score is kept. Insert $b to play for the high-score table.</p>;
+  return <HighScoresRun {...props} />;
+}
+
+function HighScoresRun({
   game,
   score,
   secs,

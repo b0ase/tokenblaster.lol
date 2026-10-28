@@ -196,3 +196,76 @@
 .tbx .tbx-ord-tag { font: 700 9px Menlo, 'Courier New', monospace; letter-spacing: 0.08em; color: var(--rc); border: 1.5px solid var(--rc); padding: 1px 4px; background: rgba(0, 0, 0, 0.55); }
 .tbx .tbx-ord-name { font-family: 'Arial Black', Impact, sans-serif; font-weight: 900; text-transform: uppercase; letter-spacing: 0.01em; line-height: 1; }
 .tbx .tbx-ord[aria-pressed='true'] { border-color: var(--rc); box-shadow: 0 0 0 1px var(--rc), 0 0 30px color-mix(in srgb, var(--rc) 35%, transparent); }
+
+/* Demo (taste) mode banner: src/components/coinop/DemoOverlay.tsx. Flash = 1 cycle / 1.2 s (< 3 per second). */
+.tbx-demo {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12%;
+}
+.tbx-demo-ended {
+  pointer-events: auto;
+  align-items: center;
+  padding-top: 0;
+  background: rgba(4, 7, 11, 0.72);
+}
+.tbx-demo-banner {
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  padding: 14px 16px;
+  border-block: 3px solid #ffd36a;
+  background: rgba(10, 6, 2, 0.82);
+  color: #ffd36a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  animation: tbx-demo-flash 1.2s steps(1, end) infinite;
+}
+.tbx-demo-banner:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: -6px;
+}
+.tbx-demo-text {
+  position: relative;
+  font-family: var(--font-display, Impact, sans-serif);
+  font-weight: 900;
+  font-size: clamp(28px, 7vw, 72px);
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-shadow: 0 0 18px rgba(255, 211, 106, 0.55);
+}
+.tbx-demo-sub {
+  position: relative;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #f4e7c4;
+}
+.tbx-demo-sweep {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 211, 106, 0.35), transparent);
+  animation: tbx-demo-sweep 2.4s linear infinite;
+}
+@keyframes tbx-demo-flash {
+  0% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@keyframes tbx-demo-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(260%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tbx-demo-banner { animation: none; }
+  .tbx-demo-sweep { display: none; }
+}

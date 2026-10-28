@@ -5,6 +5,7 @@
  * START pays this game's play price (src/lib/coinop/credit.ts PLAY_PRICE_USD) from the gun to the HOUSE in one
  * transaction tagged "tokenblaster.lol" … "coinop" <game> <name>, records it as one prepaid play and opens the
  * game. The game's own PLAY button uses that play; PLAY AGAIN pays another from the same credit (store.payer).
+ * "Try a demo" opens the game unpaid under the INSERT $b banner instead (DemoOverlay; no free practice).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useBlaster } from '@/lib/useBlaster';
@@ -14,6 +15,7 @@ import { HOUSE } from '@/lib/usePaidPlay';
 import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } from '@/lib/coinop/credit';
 import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { CoinCabinet } from './CoinCabinet';
+import { DemoOverlay } from './DemoOverlay';
 import { tbxFontClass } from './fonts';
 import { coinStore } from './store';
 import { useCabinet } from './useCabinet';
@@ -38,6 +40,34 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
   const { name, hasPaymail } = usePlayerName();
   useEffect(() => coinStore.setName(name), [name]);
   const [open, setOpen] = useState(false);
+  /** Demo (taste) mode, owner 28 Oct 2026: the game opens unpaid under the INSERT $b banner (DemoOverlay). */
+  const [demo, setDemo] = useState(false);
+  const [demoRun, setDemoRun] = useState(0);
+  useEffect(() => {
+    coinStore.setDemo(demo);
+    return () => coinStore.setDemo(false);
+  }, [demo]);
+  const startDemo = () => {
+    loadMark('demo: started');
+    setDemoRun((n) => n + 1);
+    setDemo(true);
+    setOpen(true);
+  };
+  // ?demo=1 opens straight into the demo (a shareable taste link; it is unpaid and unscored anyway).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('demo') !== '1') return;
+    void Promise.resolve().then(() => {
+      setDemoRun(1);
+      setDemo(true);
+      setOpen(true);
+    });
+  }, []);
+  // The banner's one tap: back to this cabinet, the existing credit / pay flow (the demo game unmounts).
+  const insertFromDemo = () => {
+    loadMark('demo: INSERT $b tapped');
+    setDemo(false);
+    setOpen(false);
+  };
   const [starting, setStarting] = useState(false);
   const n = useRef(0);
 
@@ -98,7 +128,12 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
 
   return (
     <>
-      {open ? (
+      {open && demo ? (
+        <div key={demoRun} className="relative" data-demo-run>
+          {children}
+          <DemoOverlay onInsert={insertFromDemo} />
+        </div>
+      ) : open ? (
         children
       ) : (
         <div className={`${tbxFontClass} coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_50%_-10%,#12303a,#071018_55%,#04070b)] px-4 py-4 sm:items-center`}>
@@ -124,6 +159,7 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
               unit="plays"
               starting={starting}
               error={cab.err}
+              onDemo={startDemo}
             />
           </div>
         </div>
