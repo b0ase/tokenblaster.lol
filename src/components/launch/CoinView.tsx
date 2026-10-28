@@ -15,6 +15,7 @@ import { receiptCurveView, receiptPrice } from '@/lib/launch/receiptCurve';
 import { ledgerCheck, type Reserves } from '@/lib/launch/reserves';
 import { TokenBgVideo } from './TokenBgVideo';
 import { Hero, StatCard } from './TokenHero';
+import { TokenAnnouncer } from './TokenAnnouncer';
 import { Change, Segments } from './Board';
 import { LaunchNav } from './LaunchNav';
 import { PriceChart } from './PriceChart';
@@ -127,6 +128,11 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   return shell(
     <div className="grid gap-3 lg:grid-cols-[1fr_360px]">
       <div className="flex min-w-0 flex-col gap-3">
+        {(rule.announcer || rule.music) && (
+          <div className="-mb-2 flex justify-end">
+            <TokenAnnouncer tokenId={c.token_id} announcer={rule.announcer} music={rule.music} />
+          </div>
+        )}
         <Hero
           c={{ ...c, name: rule.name ?? c.name, description: rule.description ?? c.description }}
           grad={grad}

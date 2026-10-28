@@ -88,7 +88,13 @@ type SfxMod = typeof import('@/lib/sfx');
 let lib: Promise<SfxMod> | null = null;
 const loadLib = () => (lib ??= import('@/lib/sfx'));
 
-const shouldPlay = () => unlocked && state.enabled && !state.paused && !state.suppressed && !docHidden;
+/** A page that owns the bed (e.g. a token page's own playlist): only these songs, in order, looped. */
+let pageSongs: Song[] | null = null;
+let pageIdx = 0;
+/** A page holding the bed silent for a moment (the token-page announcer line): nothing plays until released. */
+let held = false;
+
+const shouldPlay = () => unlocked && state.enabled && !state.paused && !state.suppressed && !held && !docHidden;
 
 function getDecks() {
   if (!decks.length) {
@@ -190,6 +196,7 @@ function crossTo(song: Song, frac: number, ms: number, as: 'bed' | 'preview') {
 let queue: Song[] = [];
 let qi = 0;
 async function nextBed(): Promise<Song | null> {
+  if (pageSongs?.length) return pageSongs[pageIdx++ % pageSongs.length];
   const { PLAYLISTS } = await loadLib();
   if (qi >= queue.length) {
     const seen = new Set<string>();
@@ -385,7 +392,7 @@ export function setSuppressed(on: boolean) {
 }
 
 export async function startPreview(key: string, track: Track) {
-  if (!shouldPlay() || typeof window === 'undefined') return;
+  if (pageSongs || !shouldPlay() || typeof window === 'undefined') return;
   if (returnTimer) clearTimeout(returnTimer);
   if (state.key === key && mode === 'preview' && active >= 0 && decks[active]?.target > 0) return;
   const mine = ++seq;
@@ -425,3 +432,33 @@ export const usePreview = () =>
     () => state,
     () => SERVER,
   );
+
+/**
+ * A page's own playlist replaces the site-wide shuffle while it is mounted (null gives it back). The first song opens,
+ * then the list loops in order. Anything already playing from outside the list is faded across to it.
+ */
+export function setPagePlaylist(songs: Song[] | null) {
+  pageSongs = songs?.length ? songs : null;
+  pageIdx = 0;
+  queue = [];
+  qi = 0;
+  seq++;
+  pendingBed = false;
+  if (returnTimer) clearTimeout(returnTimer);
+  set({ key: null });
+  if (!pageSongs || pageSongs.some((s) => s.src === state.song?.src)) return;
+  // The current song isn't the page's: start the page list now, or drop the old song so a later resume can't revive it.
+  if (shouldPlay() && active >= 0) void startBed(500);
+  else {
+    for (const d of decks) fade(d, 0, 300);
+    active = -1;
+    if (state.playing) set({ playing: false });
+  }
+}
+
+/** Hold the bed silent (fades out) or release it (starts or resumes under the usual unlock rules). */
+export function holdBed(on: boolean) {
+  if (held === on) return;
+  held = on;
+  if (typeof window !== 'undefined') sync();
+}
