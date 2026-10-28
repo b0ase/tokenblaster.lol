@@ -13,7 +13,7 @@ export const HOME_CARD = card(
 );
 export const ARCADE_CARD = card(
   'arcade-dr-v3.jpg',
-  'Play the TokenBlaster arcade: 17 games on the live BSV chain, shown as an A-Z grid of tilted game screenshots including Token Snake, Block Hopper, Mempool Invaders and BSVGun. Every bullet = 1 real BSV tx.',
+  'Play the TokenBlaster arcade: 19 games on the live BSV chain, shown as an A-Z grid of tilted game screenshots including Token Snake, Block Hopper, Mempool Invaders and BSVGun. Every bullet = 1 real BSV tx.',
 );
 export const LAUNCH_CARD = card(
   'launch-dr-v1.jpg',

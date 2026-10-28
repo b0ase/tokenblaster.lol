@@ -121,7 +121,7 @@ function SortTabs({ sorts, sort, setSort, label }: { sorts: ScoreSort[]; sort: S
 /** Demo (taste) runs post no score (owner, 28 Oct 2026): the run-end panel says so instead. */
 export function HighScores(props: Parameters<typeof HighScoresRun>[0]) {
   const demo = useSyncExternalStore(coinStore.subscribe, coinStore.demo, () => false);
-  if (demo) return <p className="panel text-center text-xs text-dim" data-demo-noscore>Demo run: no score is kept. Insert $b to play for the high-score table.</p>;
+  if (demo || !props.live) return <p className="panel text-center text-xs text-dim" data-demo-noscore>{demo ? 'Demo run: no score is kept.' : 'Only paid runs are scored.'} Insert $b to play for the high-score table.</p>;
   return <HighScoresRun {...props} />;
 }
 
@@ -178,7 +178,7 @@ function HighScoresRun({
       const r = await fetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ game, mode: live ? 'live' : 'practice', name: n, score: sc, secs: sx, meta, txid: live ? (txid ?? null) : null, x: handle ?? undefined, xp: xp ?? undefined }),
+        body: JSON.stringify({ game, mode: 'live', name: n, score: sc, secs: sx, meta, txid: live ? (txid ?? null) : null, x: handle ?? undefined, xp: xp ?? undefined }),
       });
       const j = (await r.json()) as { ok?: boolean; id?: number; verified?: boolean; error?: string };
       if (!r.ok || !j.ok) throw new Error(j.error ?? 'Rejected');

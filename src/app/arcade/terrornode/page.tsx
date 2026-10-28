@@ -1,4 +1,5 @@
 import { GameShell } from '@/components/GameShell';
+import { GALLERY_PAID } from '@/lib/devFlags';
 import { ModeSwitch } from '@/components/terrornode/ModeSwitch';
 import { GalleryDemo } from '@/components/gallery/GalleryDemo';
 import { TERRORNODE_CARD, shareImages } from '@/lib/og';
@@ -15,10 +16,8 @@ export const metadata = {
   twitter: { card: 'summary_large_image', title: 'TokenBlaster: Welcome to TERRORNODE', description: shareDescription, images: shareImages(TERRORNODE_CARD).twitter },
 };
 
-// Paid play only (owner 24 Oct; free-practice button removed in #144). The 28 Oct demo (taste) mode runs the
-// simulated network unscored under the INSERT $b banner (GalleryDemo).
-// Paid play is the default (owner, 25 Oct: LOCK & LOAD = connect and pay). NEXT_PUBLIC_GALLERY_PAID=0 brings free play back.
-const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
+// Paid play always in production; NEXT_PUBLIC_GALLERY_PAID=0 is dev-only (src/lib/devFlags.ts).
+const PAID = GALLERY_PAID;
 
 export default function GalleryPage() {
   return (

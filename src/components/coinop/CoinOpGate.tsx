@@ -9,6 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useBlaster } from '@/lib/useBlaster';
+import { CAPTURE_BUILD } from '@/lib/devFlags';
 import { loadMark } from '@/lib/gun';
 import { startPlay } from '@/lib/coinop/startPlay';
 import { HOUSE } from '@/lib/usePaidPlay';
@@ -21,12 +22,7 @@ import { coinStore } from './store';
 import { useCabinet } from './useCabinet';
 import { usePlayerName } from './usePlayerName';
 
-/**
- * CAPTURE BUILDS ONLY (owner 27 Oct: gameplay captures for bGamesX cards / bAds). A local build made with
- * NEXT_PUBLIC_TB_CAPTURE=1 opens the game with no gate, for headless recording. It is inlined at build time;
- * never set it on Vercel, or the public gets free play.
- */
-const CAPTURE_BUILD = process.env.NEXT_PUBLIC_TB_CAPTURE === '1';
+// CAPTURE_BUILD (owner 27 Oct: gameplay captures for bGamesX cards / bAds) is dev-only: src/lib/devFlags.ts.
 
 export function CoinOpGate(props: { game: string; title: string; children: ReactNode }) {
   if (CAPTURE_BUILD) return <>{props.children}</>;

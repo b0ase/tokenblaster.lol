@@ -1,4 +1,5 @@
 import { GameShell } from '@/components/GameShell';
+import { GALLERY_PAID } from '@/lib/devFlags';
 import { ModeSwitch } from '@/components/terrornode/ModeSwitch';
 import { TeamMode } from '@/components/terrornode/TeamMode';
 import { TERRORNODE_CARD, shareImages } from '@/lib/og';
@@ -11,8 +12,8 @@ export const metadata = {
   twitter: { card: 'summary_large_image', title: 'TokenBlaster: TERRORNODE team mode', description, images: shareImages(TERRORNODE_CARD).twitter },
 };
 
-// Same switch as solo: paid by default, NEXT_PUBLIC_GALLERY_PAID=0 is free play.
-const PAID = process.env.NEXT_PUBLIC_GALLERY_PAID !== '0';
+// Paid play always in production; NEXT_PUBLIC_GALLERY_PAID=0 is dev-only (src/lib/devFlags.ts).
+const PAID = GALLERY_PAID;
 
 export default function TeamPage() {
   return (
