@@ -11,10 +11,22 @@ import { GRAD_SOLD, INDEX_FEE, MAX_BUY, MIN_BUY, quoteBuy, quoteSell } from '@/l
 import { bsv20Json, matchesPlan, p2pkh, tokenOut, type OutSpec, type TradePlan } from '@/lib/launch/shape';
 import { NO_TRADE, tradeRefusal } from '@/lib/launch/receipts';
 import { receiptsIssued } from '@/lib/launch/receiptsIssued';
-import { HOUSE, broadcast, compactBeef, configured, fundAddressOf, indexedTokenAmt, poolKey, rpc, signInput, spentBy, type CoinRow } from '@/lib/launch/server';
+import { HOUSE, broadcast, compactBeef, configured, fundAddressOf, indexedTokenAmt, launchSigningOff, poolKey, rpc, signInput, spentBy, type CoinRow } from '@/lib/launch/server';
+import { LockBudget, RateLimiter, caps, clientIp, underCap } from '@/lib/launch/guard';
+import { reserveOutflowToday } from '@/lib/launch/limits';
 
 export const dynamic = 'force-dynamic';
 const LEASE_SECS = 90;
+/**
+ * Lease griefing (28 Oct audit): an unauthenticated prepare holds a coin for LEASE_SECS. Per warm instance, a
+ * requester gets PREPARE_PER_MIN prepares a minute and at most LIVE_LEASES unexpired leases at once, per IP and per
+ * trader address; other steps get STEP_PER_MIN.
+ */
+const PREPARE_PER_MIN = 10;
+const STEP_PER_MIN = 60;
+const LIVE_LEASES = 2;
+const limiter = new RateLimiter();
+const leases = new LockBudget();
 
 type Stored = TradePlan & {
   trader: string;
@@ -47,8 +59,14 @@ export async function POST(req: Request) {
     const no = tradeRefusal(token, await receiptsIssued());
     if (no) return bad(no, 403);
   }
+  const ip = clientIp(req);
+  if (body.step === 'prepare' || body.step === 'sign') {
+    if (launchSigningOff()) return bad('Trading is paused for maintenance. Nothing was signed.', 503);
+  }
+  if (!limiter.allow(`${body.step === 'prepare' ? 'prep' : 'step'}:${ip}`, body.step === 'prepare' ? PREPARE_PER_MIN : STEP_PER_MIN, 60_000))
+    return bad('Too many trade requests. Wait a minute and try again.', 429);
   try {
-    if (body.step === 'prepare') return await prepare(body);
+    if (body.step === 'prepare') return await prepare(body, ip);
     if (body.step === 'sign') return await sign(body);
     if (body.step === 'commit') return await commit(body);
     if (body.step === 'cancel') return await cancel(body);
@@ -78,15 +96,26 @@ async function reconcile(token: string) {
   await rpc('tokenblaster_launch_release', { p_lease: row.lease_id });
 }
 
-async function prepare(b: Record<string, unknown>) {
+/** Sell payouts come out of the curve reserves: refuse past the daily reserve cap (LAUNCH_RESERVE_DAILY_CAP_SATS). */
+async function sellCapOk(curveSats: bigint) {
+  return underCap(await reserveOutflowToday(), Number(curveSats), caps().reserveSats);
+}
+const CAP_HIT = 'Sells have hit today’s limit for the curve reserves. Try again tomorrow; buys still work.';
+
+async function prepare(b: Record<string, unknown>, ip: string) {
   const token = String(b.token ?? '');
   const side = b.side === 'sell' ? 'sell' : 'buy';
   const trader = b.trader;
   if (!isOutpoint(token) || !isAddr(trader)) return bad('Bad coin or wallet address.');
+  if (!leases.canTake(`ip:${ip}`, LIVE_LEASES) || !leases.canTake(`trader:${trader}`, LIVE_LEASES))
+    return bad('You already have a trade waiting. Finish or cancel it first.', 429);
   await reconcile(token);
   const lease = crypto.randomUUID();
   const [row] = await rpc<CoinRow[]>('tokenblaster_launch_lease', { p_token: token, p_lease: lease, p_secs: LEASE_SECS });
   if (!row) return bad('Someone else is trading this coin right now. Trying again in a moment…', 409);
+  const until = Date.now() + LEASE_SECS * 1000;
+  leases.take(`ip:${ip}`, lease, until);
+  leases.take(`trader:${trader}`, lease, until);
   try {
     if (!row.token_utxo || !row.beef) throw new Error('This coin’s pool is not ready yet.');
     const sold = BigInt(row.sold);
@@ -140,6 +169,7 @@ async function prepare(b: Record<string, unknown>) {
       allowed = have - tokens;
       q = quoteSell(sold, tokens);
       if (q.curveSats <= BigInt(0)) throw new Error('Too small to sell.');
+      if (!(await sellCapOk(q.curveSats))) throw new Error(CAP_HIT);
       tokenAmtAfter = tokenAmt + tokens;
       reserveAfter = reserve - q.curveSats;
       roles = { poolToken: 0, reserve: 1 };
@@ -196,6 +226,7 @@ async function prepare(b: Record<string, unknown>) {
     await rpc('tokenblaster_launch_set_quote', { p_lease: lease, p_quote: toStore });
     return NextResponse.json({ plan: { ...plan, trader: undefined, roles: undefined } });
   } catch (e) {
+    leases.drop(lease);
     await rpc('tokenblaster_launch_release', { p_lease: lease }).catch(() => undefined);
     throw e;
   }
@@ -240,6 +271,8 @@ async function sign(b: Record<string, unknown>) {
   if (!m.ok) throw new Error(`Refusing to sign: ${m.why}.`);
   const why = checkTokens(tx, plan);
   if (why) throw new Error(`Refusing to sign: ${why}`);
+  // Daily reserve cap, enforced again right before the pool signs (prepare only fails fast).
+  if (plan.side === 'sell' && !(await sellCapOk(BigInt(plan.quote.curveSats)))) throw new Error(CAP_HIT);
   const beef = Beef.fromString(row.beef!, 'hex');
   const spends: Record<number, string> = {};
   for (let i = 0; i < plan.inputs.length; i++) {
@@ -301,12 +334,16 @@ async function commit(b: Record<string, unknown>) {
   if (tx.inputs.some((i) => !i.unlockingScript)) throw new Error('The transaction is not fully signed.');
   await broadcast(tx);
   const txid = await book(plan.lease, plan, tx, row.beef!, beef);
+  leases.drop(plan.lease);
   return NextResponse.json({ txid, graduated: BigInt(plan.quote.soldAfter) >= GRAD_SOLD });
 }
 
 async function cancel(b: Record<string, unknown>) {
   const { plan } = await leased(b.lease).catch(() => ({ plan: null as Stored | null }));
   // A signed quote can still reach the chain: leave it for reconcile() once it expires.
-  if (plan && !plan.signed) await rpc('tokenblaster_launch_release', { p_lease: plan.lease });
+  if (plan && !plan.signed) {
+    leases.drop(plan.lease);
+    await rpc('tokenblaster_launch_release', { p_lease: plan.lease });
+  }
   return NextResponse.json({ ok: true });
 }

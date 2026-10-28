@@ -15,7 +15,8 @@ import { settleReceipts, type PoolRow, type ReceiptRow } from '@/lib/launch/rece
 import { notifySplit } from '@/lib/launch/payees';
 import { markUsed } from '@/lib/launch/splitGate';
 import { PAYEES, SPLIT_LINE } from '@/lib/launch/split';
-import { broadcast, configured, poolKey, rpc, spentBy } from '@/lib/launch/server';
+import { broadcast, configured, launchSigningOff, poolKey, rpc, spentBy } from '@/lib/launch/server';
+import { DailyCounter, RateLimiter, caps, clientIp } from '@/lib/launch/guard';
 
 export const dynamic = 'force-dynamic';
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
@@ -23,6 +24,14 @@ const LEASE_SECS = 90;
 const live = () => configured() && process.env.RECEIPTS_LIVE === '1';
 /** Settlements paid to the pre-split creator address are still delivered until then (already-paid, queued ones). */
 const LEGACY_UNTIL = Date.parse('2026-11-03T00:00:00Z');
+/**
+ * 28 Oct audit: per-IP rate limit (POSTS_PER_MIN, per warm instance), large settlements wait for 1 confirmation
+ * (RECEIPTS_INSTANT_MAX), and a daily token cap (RECEIPTS_DAILY_CAP_TOKENS). The cap counter is in-process: it
+ * bounds each warm instance, not the fleet. A durable cap needs a ledger function (a migration, not in this change).
+ */
+const POSTS_PER_MIN = 20;
+const limiter = new RateLimiter();
+const sentToday = new DailyCounter();
 const TOL = Math.max(0, Math.min(1000, Number(process.env.RECEIPTS_TOLERANCE_BPS ?? 300) || 0));
 
 async function pool() {
@@ -50,6 +59,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   if (!live()) return NextResponse.json({ error: 'TERRORNODE receipts are not switched on yet.' }, { status: 503 });
+  if (launchSigningOff()) return NextResponse.json({ error: 'Receipt delivery is paused for maintenance. Yours are safe; try again later.' }, { status: 503 });
+  if (!limiter.allow(clientIp(req), POSTS_PER_MIN, 60_000)) return NextResponse.json({ error: 'Too many requests. Wait a minute.' }, { status: 429 });
   let txid = '';
   try {
     txid = String(((await req.json()) as { txid?: unknown }).txid ?? '');
@@ -84,6 +95,13 @@ export async function POST(req: Request) {
       return n;
     },
     legacyOk: Date.now() < LEGACY_UNTIL,
+    instantMax: caps().receiptInstantMax,
+    confirmations: async (id) => {
+      const x = await fetch(`${WOC}/tx/hash/${id}`, { cache: 'no-store' }).catch(() => null);
+      if (!x?.ok) return null;
+      return Number(((await x.json().catch(() => null)) as { confirmations?: number } | null)?.confirmations ?? 0);
+    },
+    dailyCap: { sentToday: () => sentToday.total(), cap: caps().receiptTokens, add: (n) => sentToday.add(n) },
   });
   if (!r.ok) return NextResponse.json({ error: r.why }, { status: r.status ?? 500 });
   return NextResponse.json(r);

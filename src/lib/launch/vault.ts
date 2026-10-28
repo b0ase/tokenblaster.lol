@@ -13,7 +13,9 @@ import { BURN_ADDRESS } from '../gun';
 import { BUYBACK_MIN, bookBroadcastBurn, burnStats, buybackSpend } from './burn';
 import { INDEX_FEE, INDEX_THRESHOLD, quoteBuy } from './curve';
 import { p2pkh, tokenOut } from './shape';
-import { HOUSE, broadcast, compactBeef, fundAddressOf, poolKey, rpc, type CoinRow } from './server';
+import { HOUSE, broadcast, compactBeef, fundAddressOf, poolAddress, poolKey, rpc, type CoinRow } from './server';
+import { caps, underCap } from './guard';
+import { vaultOutflowToday } from './limits';
 
 const WOC = 'https://api.whatsonchain.com/v1/bsv/main';
 const FEE_RATE = 100;
@@ -57,7 +59,7 @@ export async function spend(coins: Utxo[], key: PrivateKey, outputs: { address: 
  * Unconfirmed coins are fine. No-op until the indexer knows the token (it then publishes the fund address).
  */
 export async function forwardIndexFund(slot: string, tokenId: string): Promise<number> {
-  const from = poolKey(slot, 'index').toAddress();
+  const from = poolAddress(slot, 'index');
   const r = await fetch(`${WOC}/address/${from}/unspent/all`, { cache: 'no-store' });
   if (!r.ok) return 0;
   const list = ((await r.json()) as { result?: { tx_hash: string; tx_pos: number; value: number }[] }).result ?? [];
@@ -108,6 +110,12 @@ export async function runVaults() {
         const minBps = Math.min(...c.route.to.map((t) => t.bps));
         if ((free * minBps) / 10_000 < SPLIT_MIN) continue;
         const outs = c.route.to.map((t) => ({ address: t.address, sats: Math.floor((free * t.bps) / 10_000) }));
+        const paying = outs.reduce((n, o) => n + o.sats, 0);
+        // Daily vault outflow cap, checked before signing (LAUNCH_VAULT_DAILY_CAP_SATS).
+        if (!underCap(await vaultOutflowToday(), paying, caps().vaultSats)) {
+          log.push(`${c.sym}: split of ${paying} held: daily vault cap reached`);
+          continue;
+        }
         const tx = await spend(utxos, key, outs, c.vault_address);
         await rpc('tokenblaster_launch_payout', { p_txid: tx.id('hex'), p_slot: c.slot, p_kind: 'split', p_sats: outs.reduce((n, o) => n + o.sats, 0), p_tokens: 0, p_detail: { outs } });
         log.push(`${c.sym}: split ${free}`);

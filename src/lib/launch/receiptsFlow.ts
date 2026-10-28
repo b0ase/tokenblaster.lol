@@ -38,6 +38,14 @@ export type Deps = {
   notify(txHex: string, q: SplitQuote, total: number): Promise<{ ok: true } | { ok: false; why: string; retry: boolean }>;
   /** Still honour settlements paid to the pre-split creator address (a short grace for queued deliveries). */
   legacyOk: boolean;
+  /**
+   * 0-conf guard (28 Oct audit): a settlement for more than `instantMax` receipts is only paid once it has
+   * ≥1 confirmation (a double-spent settlement can no longer take a large batch). Omitted: no wait.
+   */
+  instantMax?: number;
+  confirmations?(txid: string): Promise<number | null>;
+  /** Daily token outflow cap: tokens sent in the last 24 h, and the cap. Omitted: no cap. */
+  dailyCap?: { sentToday(): number; cap: number; add(n: number): void };
 };
 
 export type SettleResult = { ok: true; count: number; first: number; recipient: string; transfer: string } | { ok: false; why: string; status?: number };
@@ -70,6 +78,16 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
   }
   const done = (r: ReceiptRow, transfer: string): SettleResult => ({ ok: true, count: Number(r.count), first: Number(r.first_n), recipient: r.recipient, transfer });
   if (row.status === 'sent' && row.transfer_txid) return done(row, row.transfer_txid);
+
+  const n = Number(row.count);
+  const resend = row.status === 'sending' && !!row.transfer_txid; // may only need booking: never blocked
+  if (!resend && d.instantMax != null && d.confirmations && n > d.instantMax) {
+    const conf = await d.confirmations(txid).catch(() => null);
+    if (!conf || conf < 1)
+      return { ok: false, why: `${n.toLocaleString('en-US')} receipts are sent once the settlement has 1 confirmation (about 10 minutes). They are reserved for you.`, status: 202 };
+  }
+  if (!resend && d.dailyCap && d.dailyCap.sentToday() + n > d.dailyCap.cap)
+    return { ok: false, why: 'TERRORNODE receipts have hit today’s limit. Yours are reserved and will be sent later; try again tomorrow.', status: 503 };
 
   const lease = d.newLease();
   const pool = await d.lease(lease);
@@ -121,6 +139,7 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
     await d.sending(txid, transfer);
     await d.broadcast(tx);
     broadcasted = true;
+    d.dailyCap?.add(n);
     await d.sent({ txid, lease, transfer, tokenUtxo: rest > BigInt(0) ? `${transfer}_1` : null, tokenAmt: rest, beef: d.mergeBeef(pool.beef, tx) });
     return done(row, transfer);
   } catch (e) {
