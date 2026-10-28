@@ -174,6 +174,14 @@ export class GirlBody {
   dispose() {
     this.mixer.stopAllAction();
     this.mixer.uncacheRoot(this.model);
+    // each clone has its own Skeleton, whose bone DataTexture lives on the GPU until disposed
+    const seen = new Set<THREE.Skeleton>();
+    this.model.traverse((o) => {
+      const sk = (o as THREE.SkinnedMesh).skeleton;
+      if (!sk || seen.has(sk)) return;
+      seen.add(sk);
+      sk.dispose();
+    });
     this.root.removeFromParent();
   }
 }

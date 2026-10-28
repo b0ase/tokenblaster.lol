@@ -18,6 +18,10 @@ export type PreviewView = {
 };
 
 let renderer: THREE.WebGLRenderer | null = null;
+const size = new THREE.Vector2();
+/** Previews are small: 1.5x is sharp enough and keeps the shared back buffer (and its MSAA copy) bounded. */
+const PREVIEW_DPR = 1.5;
+const MAX_SIDE = 2048;
 const views = new Set<PreviewView>();
 let raf = 0;
 let prev = 0;
@@ -27,7 +31,7 @@ function frame(now: number) {
   if (!renderer || document.hidden) return;
   const dt = Math.min(0.05, prev ? (now - prev) / 1000 : 0);
   prev = now;
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const dpr = Math.min(PREVIEW_DPR, window.devicePixelRatio || 1);
   for (const v of views) {
     if (v.every && v.last && now - v.last < v.every) continue;
     const cv = v.canvas;
@@ -35,14 +39,19 @@ function frame(now: number) {
     const r = cv.getBoundingClientRect();
     if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.top > innerHeight) continue;
     v.last = now;
-    const w = Math.round(r.width * dpr);
-    const h = Math.round(r.height * dpr);
+    const w = Math.min(MAX_SIDE, Math.round(r.width * dpr));
+    const h = Math.min(MAX_SIDE, Math.round(r.height * dpr));
     if (cv.width !== w || cv.height !== h) {
       cv.width = w;
       cv.height = h;
     }
-    const size = renderer.getSize(new THREE.Vector2());
-    if (size.x !== w || size.y !== h) renderer.setSize(w, h, false);
+    // The drawing buffer only ever GROWS (to the largest view), never resizes per view: the gun cards and the
+    // girl picker are different sizes, and resizing the buffer back and forth every frame reallocated the
+    // (multisampled) back buffer dozens of times a second, which Chrome's GPU process could not free fast enough
+    // (desktop "Aw, Snap! Out of memory", 28 Oct). Each view renders into the bottom-left w x h corner.
+    renderer.getSize(size);
+    if (size.x < w || size.y < h) renderer.setSize(Math.max(size.x, w), Math.max(size.y, h), false);
+    const bufH = renderer.domElement.height;
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, w, h);
     renderer.setClearColor(0x000000, 0);
@@ -51,7 +60,7 @@ function frame(now: number) {
     const ctx = cv.getContext('2d');
     if (!ctx) continue;
     ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(renderer.domElement, 0, 0, w, h, 0, 0, w, h);
+    ctx.drawImage(renderer.domElement, 0, bufH - h, w, h, 0, 0, w, h);
   }
 }
 
