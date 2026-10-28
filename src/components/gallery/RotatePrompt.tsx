@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { isPhone } from '@/lib/mobileLite';
+import { SignedOutBwalletButton } from '@/components/walletbar/BwalletButton';
 import { PlayInBwalletButton, usePlayInBwallet } from './PlayInBwallet';
 
 /** Phones in portrait: TERRORNODE plays in landscape, so a full-screen prompt asks for the phone on its side. */
@@ -27,6 +28,7 @@ export function RotatePrompt() {
       </svg>
       <p className="text-lg font-bold tracking-[0.08em] text-[#e8f1f6]">Turn your phone sideways</p>
       {playInBwallet && <PlayInBwalletButton className="max-w-[320px]" />}
+      <SignedOutBwalletButton />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import { RARITY_COLOR } from '@/lib/ordnance';
 const RARITY_WORD = { common: 'STANDARD ISSUE', rare: 'RARE', epic: 'EPIC', legendary: 'LEGENDARY' } as const;
 import { NpgBackdrop } from '../terrornode/NpgBackdrop';
 import { OfficialNpg } from '../terrornode/OfficialNpg';
+import { SignedOutBwalletButton } from '@/components/walletbar/BwalletButton';
 
 export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, levels, practice = false, rounds = 0 }: { start?: ReactNode; player?: ReactNode; levels?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
@@ -39,6 +40,8 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
             <h2 className="mt-1 text-[clamp(38px,6vw,76px)]"><BloodTitle /></h2>
           </div>
           <div className="flex flex-col items-end gap-2">
+            {/* The game bar (and its yellow bWallet button) is hidden in phone game mode: the button comes along here. */}
+            <SignedOutBwalletButton className="gs-bar-hidden-only" />
             <Link href="/arcade/terrornode/leaderboard" data-fs-skip className="tbx-btn !min-h-[36px] !px-3 !text-xs" data-info-link>
               <Icon name="trophy" size={14} /> Scores &amp; info
             </Link>
