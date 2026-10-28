@@ -9,11 +9,14 @@ import { burnStats, fmtBurn } from '@/lib/launch/burn';
 import { trade } from '@/lib/launch/client';
 import { ROUTES } from '@/lib/launch/shape';
 import { tokenCoins } from '@/lib/tokens';
+import { BAdsRail } from '@/components/BAdsRail';
+import { isOurToken } from '@/lib/launch/tokenPage';
+import { Hero, StatCard } from './TokenHero';
 import { Change, Segments } from './Board';
 import { LaunchNav } from './LaunchNav';
 import { PriceChart } from './PriceChart';
 import { Ticker } from './Ticker';
-import { ago, bsv, graduated, imageOf, mcapSats, pct, priceSats, short, usd, useBsvUsd, useNow, usePoll, useWatchlist, type BoardCoin, type Trade } from './data';
+import { ago, bsv, graduated, mcapSats, pct, priceSats, short, usd, useBsvUsd, useNow, usePoll, useWatchlist, type BoardCoin, type Trade } from './data';
 import { useLaunchWallet } from './useLaunchWallet';
 
 type Coin = {
@@ -100,9 +103,11 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   };
   const money = (sats: number) => (rate ? usd(sats, rate) : bsv(sats));
   const icon = `${c.token_id.split('_')[0]}_0`;
+  const trading = Boolean(c.trading ?? tradingOf(c.token_id, c.receipts_issued ?? null));
+  const ours = isOurToken(c.token_id);
   const deployTx = c.token_id.split('_')[0];
   const share = () => {
-    const text = `$${c.sym} is on BlastPad: ${money(mcapSats(sold))} market cap, ${(pct(sold) * 100).toFixed(1)}% up the curve. Every coin is ammo in the TokenBlaster games.`;
+    const text = `$${c.sym} is on BlastPad, ${(pct(sold) * 100).toFixed(1)}% of the way to graduation. Every coin is ammo in the TokenBlaster games.`;
     window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(location.href)}`, '_blank', 'noopener');
   };
   const copy = () => {
@@ -115,95 +120,52 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
   return shell(
     <div className="grid gap-3 lg:grid-cols-[1fr_360px]">
       <div className="flex min-w-0 flex-col gap-3">
-        <section className="panel flex flex-wrap gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageOf(c.token_id)} alt="" className="h-28 w-28 rounded object-cover" />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted">
-              <Link href="/launch" className="hover:text-hot">
-                ← Board
-              </Link>
-            </p>
-            <h1 className="flex flex-wrap items-center gap-2 text-3xl font-bold text-hot">
-              {c.name} <span className="text-xl text-fg">${c.sym}</span>
-              {grad ? (
-                <span className="border border-accent px-1.5 text-xs text-accent">GRAD #{c.grad_rank}</span>
-              ) : (
-                <span className="border border-green-400 px-1.5 text-xs text-green-400">● LIVE</span>
-              )}
-              {kingId === c.token_id && <span className="border border-hot px-1.5 text-xs text-hot shadow-[0_0_10px_-2px_var(--hot)]">👑 KING OF THE HILL</span>}
-            </h1>
-            <p className="mt-1 text-xs text-muted">
-              Token{' '}
-              <a className="underline" href={`${WOC}/tx/${deployTx}`} target="_blank" rel="noreferrer">
-                {short(deployTx)}_{c.token_id.split('_')[1]}
-              </a>{' '}
-              · Dev{' '}
-              <a className="underline" href={`${WOC}/address/${c.creator}`} target="_blank" rel="noreferrer">
-                {short(c.creator)}
-              </a>{' '}
-              · launched {ago(c.created_at)} ago
-            </p>
-            <p className="mt-1 text-xs text-muted">
-              {c.launched_by?.paymail ? (
-                <>
-                  Launched by <span className="text-accent">{c.launched_by.paymail}</span>
-                </>
-              ) : (
-                <>
-                  Launched by wallet {(c.launched_by?.key || c.creator_key).slice(0, 4)}…{(c.launched_by?.key || c.creator_key).slice(-4)} ·{' '}
-                  <a className="underline" href={`${WOC}/address/${c.launched_by?.address || c.creator}`} target="_blank" rel="noreferrer">
-                    {c.launched_by?.address || c.creator}
-                  </a>{' '}
-                  · no paymail yet
-                </>
-              )}
-            </p>
-            <p className="mt-1 text-sm text-dim">{c.description}</p>
-          </div>
-          <div className="flex w-full flex-col gap-1 text-xs sm:w-auto sm:items-end">
-            <div className="flex flex-wrap gap-1 sm:justify-end">
-              <span className="btn">✓ Fixed supply</span>
-              <span className="btn">✓ No mint</span>
-              <span className="btn">Dev {((devHeld / Number(SUPPLY)) * 100).toFixed(2)}%</span>
-            </div>
-            <div className="flex flex-wrap gap-1 sm:justify-end">
-              <span className="btn">Top 10 {((top10 / Number(SUPPLY)) * 100).toFixed(1)}%</span>
-              <span className="btn">Holders {holders.length}</span>
-            </div>
-            <div className="flex flex-wrap gap-1 sm:justify-end">
-              <button className="btn" onClick={() => toggle(c.token_id)}>
-                {watch.includes(c.token_id) ? '★ Watching' : '☆ Watch'}
-              </button>
-              <button className="btn" onClick={copy}>
-                {copied ? 'Copied ✓' : 'Copy link'}
-              </button>
-              <button className="btn" onClick={share}>
-                Share on X
-              </button>
-              <a className="btn" href={`${WOC}/tx/${deployTx}`} target="_blank" rel="noreferrer">
-                Deploy tx ↗
-              </a>
-            </div>
-          </div>
+        <Hero
+          c={c}
+          grad={grad}
+          king={kingId === c.token_id}
+          trading={trading}
+          ours={ours}
+          deployTx={deployTx}
+          watching={watch.includes(c.token_id)}
+          onWatch={() => toggle(c.token_id)}
+          copied={copied}
+          onCopy={copy}
+          onShare={share}
+        />
+
+        <section className="tb-stats grid grid-cols-2 gap-2 md:grid-cols-4" aria-label={`$${c.sym} live stats`}>
+          <StatCard label="Supply" value={fmtTokens(Number(SUPPLY))} sub="fixed · no mint" />
+          <StatCard label="Holders" value={String(holders.length)} sub={`top 10 hold ${((top10 / Number(SUPPLY)) * 100).toFixed(1)}% · dev ${((devHeld / Number(SUPPLY)) * 100).toFixed(2)}%`} />
+          {trading ? (
+            <StatCard
+              label="Curve price"
+              value={rate ? usd(priceSats(sold) * 1e6, rate) : `${(priceSats(sold) * 1e6).toFixed(0)} sats`}
+              sub={`per 1M · ${priceSats(sold).toPrecision(4)} sats/token`}
+              live
+            />
+          ) : (
+            <StatCard label="Curve price" value="Not trading yet" sub="no price until it is on the curve" />
+          )}
+          <StatCard label="To graduation" value={`${(pct(sold) * 100).toFixed(1)}%`} sub={grad ? 'graduated' : `${fmtTokens(Math.max(0, Number(GRAD_SOLD) - sold))} tokens to go`} bar={pct(sold)} />
         </section>
 
-        <section className="panel grid grid-cols-2 gap-3 text-sm md:grid-cols-[1fr_1fr_repeat(4,auto)]">
-          <Stat label="Price" value={rate ? usd(priceSats(sold) * 1e6, rate) : `${(priceSats(sold) * 1e6).toFixed(0)} sats`} sub={`per 1M · ${priceSats(sold).toPrecision(4)} sats/token`} />
-          <Stat label="Market cap" value={money(mcapSats(sold))} sub={bsv(mcapSats(sold))} />
-          {WINDOWS.map(([l, ms]) => (
-            <div key={l} className="text-center">
-              <p className="text-xs text-muted">{l}</p>
-              <p className="inset mt-1 px-2 py-0.5 text-xs">
-                <Change v={changeOver(ms)} />
-              </p>
-            </div>
-          ))}
-          <Stat label="In the curve" value={money(c.reserve_sats)} sub={bsv(c.reserve_sats)} />
-          <Stat label="24h volume" value={money(day.reduce((n, t) => n + t.curve_sats, 0))} sub={`${day.length} txns`} />
-          <Stat label="Holders" value={String(holders.length)} />
-          <Stat label="ATH market cap" value={money(mcapSats(c.ath_sold))} sub={bsv(mcapSats(c.ath_sold))} />
-        </section>
+        {trading && (
+          <section className="panel grid grid-cols-2 gap-3 text-sm md:grid-cols-[1fr_1fr_repeat(4,auto)]">
+            <Stat label="Market cap" value={money(mcapSats(sold))} sub={bsv(mcapSats(sold))} />
+            <Stat label="In the curve" value={money(c.reserve_sats)} sub={bsv(c.reserve_sats)} />
+            {WINDOWS.map(([l, ms]) => (
+              <div key={l} className="text-center">
+                <p className="text-xs text-muted">{l}</p>
+                <p className="inset mt-1 px-2 py-0.5 text-xs">
+                  <Change v={changeOver(ms)} />
+                </p>
+              </div>
+            ))}
+            <Stat label="24h volume" value={money(day.reduce((n, t) => n + t.curve_sats, 0))} sub={`${day.length} txns`} />
+            <Stat label="ATH market cap" value={money(mcapSats(c.ath_sold))} sub={bsv(mcapSats(c.ath_sold))} />
+          </section>
+        )}
 
         <PriceChart trades={trades} rate={rate} />
 
@@ -216,7 +178,7 @@ export function CoinView({ id, presetUsd = null }: { id: string; presetUsd?: num
 
       <aside className="flex flex-col gap-3">
         {c.earn_url && <EarnPanel c={c} />}
-        {!(c.trading ?? tradingOf(c.token_id, c.receipts_issued ?? null)) ? null : (
+        {!trading ? null : (
         <TradePanel
           presetUsd={presetUsd}
           indexed={data.indexed ?? null}
@@ -282,6 +244,7 @@ function Shell({ wallet, open, busy, chooserEl, feed, children }: { wallet: { ad
       {chooserEl}
       <Ticker feed={feed} />
       {children}
+      <BAdsRail rating="17" slots={4} docked={false} slotType="token-page" />
       <p className="text-center text-xs text-muted">
         Every trade is ONE atomic Bitcoin transaction: tokens and BSV move together or not at all. You never send funds first.{' '}
         <span className="text-hot">Memecoins are toys:</span> prices can go to zero and every trade is final. Only spend what you are happy to lose.
@@ -891,8 +854,8 @@ function EarnPanel({ c }: { c: Coin }) {
   const grad = n != null && n >= goal;
   return (
     <section className="panel text-sm" data-earn-panel>
-      <p className="panel-title">Play to earn</p>
-      <p className="mt-2">{grad ? `Graduated: $${c.sym} now trades on BlastPad, and playing still earns it.` : `$${c.sym} is earned by playing. It trades on BlastPad once ${(goal / 1e6).toLocaleString('en-US')}M shots are fired.`}</p>
+      <p className="panel-title">Collect by playing</p>
+      <p className="mt-2">{grad ? `Graduated: $${c.sym} now trades on BlastPad, and playing still hands it out.` : `$${c.sym} is handed out to players as receipts for shots. It trades on BlastPad once ${(goal / 1e6).toLocaleString('en-US')}M shots are fired.`}</p>
       {n != null && !grad && (
         <>
           <Segments v={Math.min(1, n / goal)} />
@@ -902,9 +865,9 @@ function EarnPanel({ c }: { c: Coin }) {
         </>
       )}
       <a className="btn btn-on mt-3 block text-center" href="/arcade/terrornode">
-        Earn ${c.sym} by playing Welcome to TERRORNODE
+        Play Welcome to TERRORNODE
       </a>
-      <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt, 1 sat for the first rising to 200 sats for the last of the 1B. Earned coins are not sold back.</p>
+      <p className="mt-2 text-xs text-muted">Every live shot buys 1 receipt, 1 sat for the first rising to 200 sats for the last of the 1B. Coins collected this way are not sold back.</p>
     </section>
   );
 }

@@ -16,12 +16,13 @@ const CSS = `
 }`;
 
 /** docked: fixed in the left gutter on wide screens (pages with a centred column). Full-bleed pages (home) keep the row. */
-export function BAdsRail({ rating = '17', slots = 4, docked = true }: { rating?: 'pg' | '17' | '18'; slots?: number; docked?: boolean }) {
+/** slotType 'token-page': house squares only (no paid third-party ads next to a token); bit-sign /api/bads/serve enforces it. */
+export function BAdsRail({ rating = '17', slots = 4, docked = true, slotType }: { rating?: 'pg' | '17' | '18'; slots?: number; docked?: boolean; slotType?: 'token-page' }) {
   return (
     <>
       <style>{CSS}</style>
       <aside className={docked ? 'tb-bads docked' : 'tb-bads'} aria-label="Ads">
-        <div data-bads-rail data-site="tokenblaster.lol" data-rating={rating} data-slots={slots} />
+        <div data-bads-rail data-site="tokenblaster.lol" data-rating={rating} data-slots={slots} data-slot-type={slotType || undefined} />
       </aside>
       <Script src="https://www.bchatx.com/bads/rail.js" strategy="lazyOnload" />
     </>
