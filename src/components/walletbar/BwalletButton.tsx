@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BwalletxSignin } from '@bwalletx/connect/react';
 import { GET_BWALLETX_URL } from '@/lib/pair/site';
 import { detectPhone, isAppParent, isBwalletInAppUa } from '@/lib/pair/phoneUi';
 import { WALLET_BAR as W } from '@/lib/walletBar';
@@ -55,34 +56,25 @@ export function useWalletPresence(): WalletPresence {
   return p;
 }
 
-const btn =
-  'inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-3 text-[12px] font-extrabold tracking-wide text-black shadow-[0_0_0_1px_rgba(0,0,0,0.4)] transition-[filter] hover:brightness-110 sm:px-4 sm:text-[13px]';
-
 /**
- * The obvious yellow bWallet button in the arcade bar (owner, 28 Oct 2026), shown while signed out. Connected,
- * the bar's own handle chip takes its place. Colour: the bar's gold (WALLET_BAR.accent, bWalletX's #F5B800).
+ * The official bWalletX sign-in button (<bwalletx-signin> from @bwalletx/connect: gold b mark, brand gradient,
+ * radius and shadow; owner 28 Oct 2026: no knock-offs) in the arcade bar while signed out. Event-only mode: the
+ * click runs this site's own connect (openSiteWallet), whose chooser also offers Get bWalletX. Connected, the bar's
+ * handle chip takes its place. No wallet detected (or a phone that can't tell): a small "Get bWalletX" link under it.
  */
-export function BwalletButton({ onSignIn }: { onSignIn: () => void }) {
+export function BwalletButton({ onSignIn, size = 'sm' }: { onSignIn: () => void; size?: 'sm' | 'md' | 'lg' }) {
   const presence = useWalletPresence();
-  const style = { background: W.accent };
-  if (presence === 'none') {
-    return (
-      <a href={GET_BWALLETX_URL} target="_blank" rel="noreferrer" className={btn} style={style} data-bwallet-button="get">
-        GET bWALLET
-      </a>
-    );
-  }
   const signIn = (
-    <button type="button" onClick={onSignIn} className={btn} style={style} data-bwallet-button="sign-in" aria-label="Sign in with bWallet">
-      SIGN IN<span className="hidden sm:inline">&nbsp;WITH bWALLET</span>
-    </button>
+    <span data-bwallet-button="sign-in" className="inline-flex shrink-0">
+      <BwalletxSignin size={size} subtitle={size === 'sm' ? false : undefined} onClick={() => onSignIn()} />
+    </span>
   );
   if (presence === 'installed') return signIn;
   return (
-    <span className="flex shrink-0 flex-col items-center leading-none" data-bwallet-unknown>
+    <span className="flex shrink-0 flex-col items-center leading-none" data-bwallet-unknown={presence}>
       {signIn}
       <a href={GET_BWALLETX_URL} target="_blank" rel="noreferrer" className="mt-0.5 text-[10px] font-semibold underline" style={{ color: W.accent }} data-bwallet-get-link>
-        Get bWallet
+        Get bWalletX
       </a>
     </span>
   );
@@ -92,12 +84,12 @@ export function BwalletButton({ onSignIn }: { onSignIn: () => void }) {
  * The same yellow button for screens that hide the game bar (TERRORNODE's rotate prompt and phone-landscape loadout,
  * owner 28 Oct 2026). Renders nothing once a wallet is connected: the bar's chip has it then.
  */
-export function SignedOutBwalletButton({ className = '' }: { className?: string }) {
+export function SignedOutBwalletButton({ className = '', size = 'sm' }: { className?: string; size?: 'sm' | 'md' | 'lg' }) {
   const site = useSiteWallet();
   if (site.wallet) return null;
   return (
     <span className={className}>
-      <BwalletButton onSignIn={() => void openSiteWallet()} />
+      <BwalletButton size={size} onSignIn={() => void openSiteWallet()} />
     </span>
   );
 }

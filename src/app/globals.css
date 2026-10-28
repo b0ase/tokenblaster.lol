@@ -891,6 +891,13 @@ html[data-phone-game] body {
   overscroll-behavior: none;
   height: 100%;
 }
+/* Narrow phones with mode tabs (TERRORNODE SOLO / TEAM): the site logo gives way so the official bWalletX button fits. */
+@media (max-width: 440px) {
+  .gs-bar[data-gs-tabs] .gs-logo,
+  .gs-bar[data-gs-tabs] .gs-fs {
+    display: none;
+  }
+}
 /* Shown only where the game bar is hidden (phone game mode): the bar's yellow bWallet button, inline. */
 .gs-bar-hidden-only {
   display: none;

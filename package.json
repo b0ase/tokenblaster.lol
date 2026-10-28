@@ -29,6 +29,7 @@
   "dependencies": {
     "@1sat/templates": "0.0.43",
     "@bsv/sdk": "^2.8.11",
+    "@bwalletx/connect": "0.5.4",
     "@noble/curves": "1.9.7",
     "@noble/hashes": "1.8.0",
     "centrifuge": "^5.7.4",
