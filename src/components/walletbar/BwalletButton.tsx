@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { GET_BWALLETX_URL } from '@/lib/pair/site';
 import { detectPhone, isAppParent, isBwalletInAppUa } from '@/lib/pair/phoneUi';
 import { WALLET_BAR as W } from '@/lib/walletBar';
+import { openSiteWallet } from '@/lib/siteWallet';
+import { useSiteWallet } from '@/lib/useSiteWallet';
 import { isBwalletxOrigin, walletPresence, type WalletPresence } from '@/lib/walletDetect';
 
 /** How long to listen for an extension's brc100 announce before calling it "none". */
@@ -82,6 +84,20 @@ export function BwalletButton({ onSignIn }: { onSignIn: () => void }) {
       <a href={GET_BWALLETX_URL} target="_blank" rel="noreferrer" className="mt-0.5 text-[10px] font-semibold underline" style={{ color: W.accent }} data-bwallet-get-link>
         Get bWallet
       </a>
+    </span>
+  );
+}
+
+/**
+ * The same yellow button for screens that hide the game bar (TERRORNODE's rotate prompt and phone-landscape loadout,
+ * owner 28 Oct 2026). Renders nothing once a wallet is connected: the bar's chip has it then.
+ */
+export function SignedOutBwalletButton({ className = '' }: { className?: string }) {
+  const site = useSiteWallet();
+  if (site.wallet) return null;
+  return (
+    <span className={className}>
+      <BwalletButton onSignIn={() => void openSiteWallet()} />
     </span>
   );
 }

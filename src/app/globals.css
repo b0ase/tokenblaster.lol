@@ -891,6 +891,13 @@ html[data-phone-game] body {
   overscroll-behavior: none;
   height: 100%;
 }
+/* Shown only where the game bar is hidden (phone game mode): the bar's yellow bWallet button, inline. */
+.gs-bar-hidden-only {
+  display: none;
+}
+html[data-phone-game] .gs-bar-hidden-only {
+  display: contents;
+}
 html[data-phone-game] .gs-bar,
 html[data-phone-game] .gs-below,
 html[data-phone-game] body > nav,
