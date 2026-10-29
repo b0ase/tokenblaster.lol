@@ -8,6 +8,7 @@ import { DEFAULT_ROSTER, STATS, STAT_ABBR, allowedWeapons, girlImg, modsFor, nor
 import type { NpgOwned } from '@/lib/npgLoadout';
 
 // Live 3D girls in the full card (not the phone strip, not the mobile-lite tier): three.js loads only when used.
+import { engineReady } from '@/lib/galleryGame/engineReady';
 const Girls3D = dynamic(() => import('./Girls3D').then((m) => m.Girls3D), { ssr: false });
 const noSub = () => () => {};
 const want3d = () => !isMobileLite() && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -43,7 +44,8 @@ export function CharacterSelect({
   const [ready3d, setReady3d] = useState(false);
   const ids = useMemo(() => DEFAULT_ROSTER.map((g) => g.id), []);
   const can3d = useSyncExternalStore(noSub, want3d, () => false);
-  const three = !compact && can3d;
+  const playable = useSyncExternalStore(engineReady.subscribe, engineReady.get, () => false);
+  const three = !compact && can3d && playable; // after the game is ready (engineReady.ts): 2D art until then
   const hand = (h: 'right' | 'left') => {
     const list = allowedWeapons(girl, h, owned.elements);
     const cur = weaponById(pick[h]);

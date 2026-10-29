@@ -88,7 +88,7 @@ test('no payment from AI shots: the squad never touches wallet / pay / broadcast
   for (const f of ['squad.ts', 'squadView.ts', 'squadBodies.ts']) {
     const src = readFileSync(new URL(`./galleryGame/${f}`, import.meta.url), 'utf8');
     const imports = [...src.matchAll(/from '([^']+)'/g)].map((x) => x[1]);
-    assert.deepEqual(imports.filter((i) => !(i === 'three' || i.startsWith('three/examples/') || ['./squad', './squadBodies'].includes(i))), [], `${f} imports ${imports}`);
+    assert.deepEqual(imports.filter((i) => !(i === 'three' || i.startsWith('three/examples/') || ['./squad', './squadBodies', './skinnedBox'].includes(i))), [], `${f} imports ${imports}`);
     assert.doesNotMatch(src.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''), /pull\(|accept\(|broadcast|wallet|split|receipt/i);
   }
   // the engine applies AI shots straight to the robots, without the paid hooks

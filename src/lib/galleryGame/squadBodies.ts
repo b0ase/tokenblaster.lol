@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { skinnedBox } from './skinnedBox';
 
 /**
  * The NPG girls in 3D (squadmates in TERRORNODE, and CHOOSE YOUR GIRL): the Tripo rigged girls NPG Arena uses
@@ -25,7 +27,7 @@ export type GirlTemplate = { scene: THREE.Object3D; clips: Map<Move, THREE.Anima
 const keyOf = (n: string) => n.replace(/^mixamorig\d*[:_]?/, '');
 const KIMIKO_HIPS = new THREE.Vector3(-0.0172, 0.2806, 0.0248);
 let loader: GLTFLoader | null = null;
-const gl = () => (loader ??= new GLTFLoader());
+const gl = () => (loader ??= new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)); // the squad GLBs are meshopt-packed
 let lib: Promise<THREE.AnimationClip[]> | null = null;
 const library = () => (lib ??= gl().loadAsync(ANIMS).then((g) => g.animations));
 
@@ -99,14 +101,12 @@ export function loadGirl(slug: string): Promise<GirlTemplate> {
     mx.clipAction(idle).play();
     mx.update(0.2);
     probe.updateMatrixWorld(true);
-    const box = new THREE.Box3();
+    // sized from a sample of the skinned vertices (skinnedBox.ts), not all ~30k skinned on the CPU per girl
+    const meshes: THREE.SkinnedMesh[] = [];
     probe.traverse((o) => {
-      const sm = o as THREE.SkinnedMesh;
-      if (!sm.isSkinnedMesh) return;
-      sm.skeleton.update();
-      sm.computeBoundingBox();
-      box.union(sm.boundingBox!.clone().applyMatrix4(sm.matrixWorld));
+      if ((o as THREE.SkinnedMesh).isSkinnedMesh) meshes.push(o as THREE.SkinnedMesh);
     });
+    const box = skinnedBox(meshes);
     mx.stopAllAction();
     mx.uncacheRoot(probe);
     const h = box.max.y - box.min.y || 1;

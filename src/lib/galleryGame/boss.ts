@@ -25,6 +25,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { skinnedBox } from './skinnedBox';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { halo } from '../bsvgun/targets';
 import { TUNING, ramp } from './tuning';
@@ -426,9 +427,8 @@ export class LiquidUnit {
     eb('Head')?.scale.set(0.86, 1.14, 0.9);
     eb('Hips')?.scale.set(1.08, 1, 1.05);
     model.updateMatrixWorld(true);
-    for (const m of kept) m.skeleton?.update();
-    const box = new THREE.Box3();
-    for (const m of kept) box.union(new THREE.Box3().setFromObject(m, true));
+    // a vertex sample, not every vertex skinned on the CPU (skinnedBox.ts)
+    const box = skinnedBox(kept.filter((m) => m.isSkinnedMesh));
     const size = box.getSize(new THREE.Vector3());
     const k = HEIGHT / Math.max(0.001, size.y);
     const holder = new THREE.Group();
@@ -499,8 +499,23 @@ export class LiquidUnit {
         }
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(out, 3));
-        if (m.geometry.index) g.setIndex(m.geometry.index);
-        g.groups = m.geometry.groups;
+        // keep only the triangles near the head: every ray only ever hits the head, and testing the whole body's
+        // triangles 50 times was still a ~260 ms main-thread block while the game loads
+        const inv = m.matrixWorld.clone().invert();
+        const c = eyeC.clone().applyMatrix4(inv);
+        const r2 = (hh * 3 / Math.max(1e-6, m.matrixWorld.getMaxScaleOnAxis())) ** 2;
+        const near = (i: number) => (out[i * 3] - c.x) ** 2 + (out[i * 3 + 1] - c.y) ** 2 + (out[i * 3 + 2] - c.z) ** 2 < r2;
+        const srcIdx = m.geometry.index;
+        const tri = srcIdx ? srcIdx.array : null;
+        const n = tri ? tri.length : src.count;
+        const keep: number[] = [];
+        for (let i = 0; i + 2 < n; i += 3) {
+          const a = tri ? tri[i] : i;
+          const b = tri ? tri[i + 1] : i + 1;
+          const d = tri ? tri[i + 2] : i + 2;
+          if (near(a) || near(b) || near(d)) keep.push(a, b, d);
+        }
+        g.setIndex(keep);
         const f = new THREE.Mesh(g, m.material);
         f.matrixWorld.copy(m.matrixWorld);
         return f;

@@ -1,4 +1,5 @@
 'use client';
+import { engineReady } from '@/lib/galleryGame/engineReady';
 
 /**
  * TokenBlaster Shooting Gallery (3D). First person behind the BSVGun arsenal on a rain-wet night street,
@@ -320,7 +321,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     eng.mods = girlModsRef.current;
     if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = eng; // dev only: screenshot scripts poke the combat
     let alive = true;
-    void eng.init((p) => alive && setProgress(p)).then(() => alive && setReady(true));
+    void eng.init((p) => alive && setProgress(p)).then(() => {
+      if (!alive) return;
+      setReady(true);
+      engineReady.set(true);
+    });
     let raf = 0;
     const tick = () => {
       const r = reticle.current;
@@ -333,6 +338,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     raf = requestAnimationFrame(tick);
     return () => {
       alive = false;
+      engineReady.set(false);
       cancelAnimationFrame(raf);
       eng.dispose();
       engine.current = null;
