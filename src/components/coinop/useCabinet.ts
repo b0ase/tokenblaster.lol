@@ -25,7 +25,8 @@ export function plainError(e: string | null | undefined): string {
   if (isRefusal(t)) return 'Your wallet said no. Press LOCK & LOAD to try again.';
   if (/insufficient|not enough|funds/i.test(t)) return 'Your wallet does not have enough money for that. Take a coin out and try again.';
   if (/unlock|did not answer|locked/i.test(t)) return 'Your wallet did not answer. Open and unlock it, then press LOCK & LOAD again.';
-  return 'That did not go through. If your wallet shows a payment, it is safe in your gun: press LOCK & LOAD and it will be used, not charged again.';
+  // The 'failed' modal already says it did not go through and adds the safe-in-your-gun note: don't repeat either.
+  return 'Your wallet could not make that payment.';
 }
 
 export function useBsvUsd() {
