@@ -115,10 +115,10 @@ async function cmdPrep() {
   if (fit < coins) say(`only enough for ${fit} of ${coins} coins: the ramp will stop early (out of coins)`);
   const t = s.fanOut(ins, Array(fit).fill(coinValue), 'ramp-29oct-prep', fee);
   if (t.fee > cap) throw new Error(`prep fee ${t.fee} > --max-sats ${cap}`);
+  mkdirSync(RAMP, { recursive: true }); // before the ledger: its journal lives in RAMP (first run failed with ENOENT)
   const ledger = new Ledger({ journal: join(RAMP, 'spent.jsonl') });
   for (const c of ins) ledger.addMined(c.txid, c.vout, c.value);
   ledger.spend(t.txid, ins.map((c) => `${c.txid}:${c.vout}`), t.outputs);
-  mkdirSync(RAMP, { recursive: true });
   writeFileSync(join(RAMP, 'prep.json'), JSON.stringify({ txid: t.txid, outputs: t.outputs, coinValue, at: new Date().toISOString() }, null, 2));
   const r = (await arc.submit([{ txid: t.txid, bytes: t.ef }]))[0];
   say(`prep ${t.txid}: ${r.outcome} ${r.txStatus ?? ''} ${r.reason ?? ''}. Fee ${t.fee} sats. Wait for it to be MINED, then run the ramp.`);
