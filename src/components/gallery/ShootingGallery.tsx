@@ -1,4 +1,5 @@
 'use client';
+import { AI_TEAMMATES } from '@/lib/aiTeammates';
 import { engineReady } from '@/lib/galleryGame/engineReady';
 
 /**
@@ -351,7 +352,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   // (src/lib/galleryGame/squad.ts). Their rounds are never paid; only yours are transactions.
   useEffect(() => {
     if (!ready) return;
-    const off = new URLSearchParams(location.search).get('squad') === '0';
+    // AI squadmates are off for now (src/lib/aiTeammates.ts): no bodies, no GLBs; ?squad=1 shows them for testing
+    const q = new URLSearchParams(location.search).get('squad');
+    const off = q === '0' || (!AI_TEAMMATES && q !== '1');
     engine.current?.setSquad(off ? [] : GIRLS, girlPick.girl, girlImg);
   }, [ready, girlPick.girl]);
   useEffect(() => {

@@ -27,6 +27,7 @@ import { BOSS_KIND, RULES, SIDE_STATS, dirOf, type Snapshot, type Team } from '.
 import { STREET, arenaById, heightAt, resolve, type Arena } from './arena';
 import { teamLevelOf } from './levels';
 import { BOT_GIRLS } from './bots';
+import { AI_TEAMMATES } from '../aiTeammates';
 import type { MeleeScene } from './meleeScene';
 import { levelOf, type LevelId } from '../terrornode/levels';
 import type { Dressing } from '../terrornode/dressing';
@@ -242,7 +243,7 @@ export class TeamScene {
     const total = ids.length;
     if (this.erobotz) await this.loadErobots();
     // the AI NPG girls the server seats (bots.ts): the solo squad's Tripo girls, desktop only (phones keep the skins)
-    if (this.high) await this.loadGirls();
+    if (this.high && AI_TEAMMATES) await this.loadGirls(); // off for now (aiTeammates.ts): no AI girls, no GLBs
     await Promise.all(
       ids.map(async (id) => {
         const g = await loader.loadAsync(`/gallery/erobots/${dir}/${id}.glb`).catch(() => null);
