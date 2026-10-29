@@ -1,9 +1,10 @@
 /**
  * GET /api/coins?address=1… → the address's spendable sats coins with each parent tx's hex:
- * [{ txid, vout, sats, hex }]. Server-side because WhatsOnChain rate-limits browsers (503), and
+ * [{ txid, vout, sats, hex }]. With `&amounts=1` the hex is left out ([{ txid, vout, sats }]): enough for the
+ * CREDIT, two WOC calls, so the first read on page load is fast. The hex is fetched only when a spend needs it. Server-side because WhatsOnChain rate-limits browsers (503), and
  * GorillaPool's index can lag on mempool spends (it would hand back coins that are already spent).
  */
-import { NONE, txHexCached, woc } from '@/lib/wocServer';
+import { NONE, txHexBulk, woc } from '@/lib/wocServer';
 
 export async function GET(req: Request) {
   const address = new URL(req.url).searchParams.get('address') ?? '';
@@ -19,14 +20,15 @@ export async function GET(req: Request) {
       .filter((x) => !x.isSpentInMempoolTx && x.value > 1)
       .sort((a, b) => b.value - a.value)
       .slice(0, 200);
+    if (new URL(req.url).searchParams.get('amounts') === '1') {
+      return Response.json(list.map((x) => ({ txid: x.tx_hash, vout: x.tx_pos, sats: x.value })), { headers: { 'cache-control': 'no-store' } });
+    }
     // The browser already holds these txs' bytes: skip them (owner log, 25 Oct: 104 coins took 56 s, one by one).
     const have = new Set((new URL(req.url).searchParams.get('have') ?? '').split(',').filter((t) => /^[0-9a-f]{64}$/.test(t)));
     const need = [...new Set(list.map((x) => x.tx_hash))].filter((t) => !have.has(t));
-    const hex = new Map<string, string>();
-    // In parallel, 8 at a time, each tx's hex cached for the life of this server instance (a txid never changes).
-    for (let i = 0; i < need.length; i += 8) {
-      await Promise.all(need.slice(i, i + 8).map(async (t) => hex.set(t, await txHexCached(t))));
-    }
+    // WOC's bulk endpoint, 20 per call; cached for the life of this server instance (a txid never changes).
+    // A tx it could not fetch goes back without hex: the browser fetches that one itself via /api/tx.
+    const hex = await txHexBulk(need);
     return Response.json(
       list.map((x) => ({ txid: x.tx_hash, vout: x.tx_pos, sats: x.value, ...(have.has(x.tx_hash) ? {} : { hex: hex.get(x.tx_hash) }) })),
       { headers: { 'cache-control': 'no-store' } },

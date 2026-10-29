@@ -18,10 +18,12 @@ function ownerGun() {
   const sent: Transaction[] = [];
   const priv = g as unknown as {
     coinsOnChain: () => Promise<{ tx: Transaction; vout: number }[]>;
+    amountsOnChain: () => Promise<{ txid: string; vout: number; sats: number }[]>;
     broadcastChain: (txs: Transaction[]) => Promise<{ accepted: number }>;
     send: (tx: Transaction) => Promise<void>;
   };
   priv.coinsOnChain = async () => [{ tx: paid, vout: 0 }];
+  priv.amountsOnChain = async () => [{ txid: paid.id('hex'), vout: 0, sats: CREDIT_SATS }]; // the CREDIT's amounts-only read
   priv.broadcastChain = async (txs) => (sent.push(...txs), { accepted: txs.length });
   priv.send = async (tx) => void sent.push(tx);
   return { g, paid, sent };
