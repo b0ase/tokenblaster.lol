@@ -1038,7 +1038,7 @@ html[data-phone-game] .game-stage [data-onchain] {
     padding: 8px calc(12px + env(safe-area-inset-right)) 12px calc(12px + env(safe-area-inset-left));
   }
   [data-loadout] h2 {
-    font-size: 34px;
+    font-size: 48px;
     margin-top: 2px;
   }
   [data-start-copy] {

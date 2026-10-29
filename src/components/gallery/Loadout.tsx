@@ -37,7 +37,7 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
               <span className="inline-block h-[2px] w-6 bg-[var(--tbx-red)]" /> {SETTING}
             </p>
             <OfficialNpg className="mt-2" />
-            <h2 className="mt-1 text-[clamp(38px,6vw,76px)]"><BloodTitle /></h2>
+            <h2 className="mt-1 text-[clamp(44px,16.5vw,150px)]"><BloodTitle /></h2>
           </div>
           <div className="flex flex-col items-end gap-2">
             {/* The game bar (and its yellow bWallet button) is hidden in phone game mode: the button comes along here. */}

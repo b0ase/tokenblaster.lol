@@ -56,6 +56,7 @@ import {
 } from '../../src/lib/teammode/match';
 import { performance } from 'node:perf_hooks';
 import { CHAT_FEATURE, allowChat, routeChat } from '../../src/lib/teammode/chat';
+import { AI_TEAMMATES } from '../../src/lib/aiTeammates';
 import { BOT_TEAM_SIZE, fillBots, stepBots, withSeatFor } from '../../src/lib/teammode/bots';
 
 /**
@@ -67,7 +68,7 @@ const FEATURES = [CHAT_FEATURE, EROBOTZ_FEATURE, 'bots'];
  * AI NPG girls (src/lib/teammode/bots.ts): empty NPG seats are filled up to this many. TEAM_BOTS=0 turns them off;
  * a match made with {bots: false} (or bots: 0) has none.
  */
-const TEAM_BOTS = Math.max(0, Math.min(8, Number(process.env.TEAM_BOTS ?? BOT_TEAM_SIZE) || 0));
+const TEAM_BOTS = Math.max(0, Math.min(8, Number(process.env.TEAM_BOTS ?? (AI_TEAMMATES ? BOT_TEAM_SIZE : 0)) || 0)); // AI girls off by default for now (aiTeammates.ts)
 const botSize = new Map<Match, number>();
 const seats = (m: Match) => botSize.get(m) ?? 0;
 
