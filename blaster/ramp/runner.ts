@@ -152,6 +152,8 @@ export async function runRamp(o: RunOpts): Promise<{ stages: StageStats[]; stop?
     fanCount++;
     const f = { at: Date.now(), lanes: fit, settled: false as boolean, status: undefined as string | undefined };
     fans.set(t.txid, f);
+    // Fan-out txids for GorillaPool to separate our traffic on ARC (a callback token alone isn't stored there).
+    if (o.outDir) { mkdirSync(o.outDir, { recursive: true }); appendFileSync(join(o.outDir, `${o.run}-fanouts.txt`), t.txid + '\n'); }
     // Sent alone; its children wait for SEEN.
     void (async () => {
       let r: SubmitResult | undefined;
