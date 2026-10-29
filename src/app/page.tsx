@@ -10,6 +10,7 @@ import { HeroKick, HeroShowcase, HeroTitle } from '@/components/HeroShowcase';
 // Paid play always in production; NEXT_PUBLIC_GALLERY_PAID=0 is dev-only (src/lib/devFlags.ts).
 const PAID = GALLERY_PAID;
 import { HeroSound } from '@/components/HeroSound';
+import { TerrornodePrefetch } from '@/components/terrornode/TerrornodePrefetch';
 import { ArcadeGrid } from '@/components/ArcadeGrid';
 import { HeroLive } from '@/components/HeroLive';
 import { GalleryCard } from '@/components/home/GalleryCard';
@@ -81,6 +82,7 @@ export default function Home() {
               </HeroKick>
             </div>
             <div className="mt-4"><HeroSound /></div>
+            <TerrornodePrefetch />
             {/* Fixed headline CTA (flow test, 25 Oct): always Escape from TERRORNODE, whatever the hero rotation shows. */}
             <Link href="/arcade/terrornode" data-cta-terrornode className="btn-fire mb-3 mt-1 inline-flex w-full items-center justify-center gap-2 !text-2xl sm:w-auto sm:!px-10 sm:!text-3xl">
               Play Welcome to TERRORNODE &raquo;

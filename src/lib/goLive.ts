@@ -10,7 +10,8 @@
  *
  * No keys here: the token is minted by bChatX per player. Base URL is public config (NEXT_PUBLIC_BCHAT_URL).
  */
-import { Room, Track, type LocalTrack, LocalVideoTrack, LocalAudioTrack } from 'livekit-client';
+// livekit-client (~615 KB) loads only when GO LIVE is pressed (29 Oct audit): type-only import here.
+import type { Room, LocalTrack } from 'livekit-client';
 import type { Wallet } from './wallet';
 import { gameAudioStream } from './sfx';
 
@@ -67,7 +68,7 @@ async function publishToken(w: Wallet, ticker: string) {
 
 /** Start streaming `canvas` (and the game sound) into `ticker`'s room. Throws with bChatX's message (e.g. room full). */
 export async function goLive(w: Wallet, ticker: string, canvas: HTMLCanvasElement, onEnded?: () => void): Promise<LiveSession> {
-  const t = await publishToken(w, ticker);
+  const [t, { Room, Track, LocalVideoTrack, LocalAudioTrack }] = await Promise.all([publishToken(w, ticker), import('livekit-client')]);
   const room = new Room({ adaptiveStream: false, dynacast: true });
   await room.connect(t.url, t.token);
   const tracks: LocalTrack[] = [];
