@@ -57,7 +57,15 @@ const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
 
 export class Horde {
-  ready: Promise<void>;
+  /** Settles when the current background load queue has drained (see `prefetch`). */
+  ready: Promise<void> = Promise.resolve();
+  /** Compile and upload a freshly built kind (its bodies, still hidden) before it joins the pool. */
+  onKind?: (bodies: THREE.Object3D) => Promise<unknown> | void;
+  private loader: GLTFLoader | null = null;
+  private queue: string[] = [];
+  private pumping = false;
+  private requested = new Set<string>();
+  private loaded = new Set<string>();
   private mobs: Mob[] = [];
   private group = new THREE.Group();
   private spawnT = 1;
@@ -83,7 +91,6 @@ export class Horde {
   ) {
     this.group.name = 'horde';
     scene.add(this.group);
-    this.ready = this.load().catch(() => undefined);
   }
 
   /** Live mobs' ground positions (Act 2: they go for Dr Kweg too). */
@@ -97,56 +104,96 @@ export class Horde {
     return n;
   }
 
-  private async load() {
-    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  /**
+   * PROGRESSIVE LOAD (owner, 29 Oct: "loads far too slowly"): nothing is fetched while the page loads. The run's
+   * first-wave kinds (heaviest level weight first) come down one at a time once the game starts, the rest follow
+   * in the background. A kind joins the spawn pool only once its shaders are compiled (`onKind`), so a kind that
+   * is still loading is simply not drawn: the weighted pick hands its spawn to a kind that is ready, and the
+   * Erobots hold the street meanwhile. Never blocks GO.
+   */
+  prefetch(first: readonly string[] = []) {
     const H = TUNING.horde;
-    // lite (phones): the heaviest models are never fetched; the weighted pick only draws kinds that have bodies
-    const defs = H.kinds.map((k) => MONSTERS.find((d) => d.id === k.id)).filter((d): d is (typeof MONSTERS)[number] => !!d && !(this.opts.lite && LITE_SKIP_MONSTERS.includes(d.id)));
-    const gl = await Promise.all(defs.map((d) => loader.loadAsync(d.url).catch(() => null)));
-    if (this.disposed) return;
-    H.kinds.forEach((k) => {
-      const i = defs.findIndex((d) => d.id === k.id);
-      const g = i >= 0 ? gl[i] : null;
-      if (!g) return;
-      const n = this.opts.high ? k.pool : Math.max(1, Math.ceil(k.pool * H.lowPool));
-      const nf = FUSED.on && FUSED.kinds.includes(k.id) ? FUSED.perKind : 0;
-      for (let j = 0; j < n + nf; j++) {
-        const fused = j >= n;
-        const m = new Monster(defs[i], g);
-        const tint = { value: 0 };
-        m.root.traverse((o) => {
-          const mesh = o as THREE.Mesh;
-          if (!mesh.isMesh || mesh === m.hitbox) return;
-          mesh.castShadow = false; // a swarm of shadow casters would eat the frame
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          const out = mats.map((mt) => {
-            const c = (mt as THREE.MeshStandardMaterial).clone();
-            if (fused && 'emissive' in c) {
-              // Erobot skin: keep the texture's light and dark as relief, push it pink and mirror-glossy
-              c.color.set('#ff6fb8');
-              c.metalness = 0.85;
-              c.roughness = 0.22;
-              c.envMapIntensity = 1.6;
-            }
-            if ('emissive' in c) {
-              const rim = fused ? '\nfloat fr = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 2.5);\ntotalEmissiveRadiance += vec3(1.0, 0.18, 0.62) * fr * 1.4;' : '';
-              c.onBeforeCompile = (sh) => {
-                sh.uniforms.uHit = tint;
-                sh.fragmentShader = sh.fragmentShader
-                  .replace('#include <common>', '#include <common>\nuniform float uHit;')
-                  .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.42, 0.12) * uHit * 1.6;' + rim);
-              };
-              if (fused) c.customProgramCacheKey = () => 'erobot-fused';
-            }
-            return c;
-          });
-          mesh.material = Array.isArray(mesh.material) ? out : out[0];
-        });
-        m.root.visible = false;
-        this.group.add(m.root);
-        this.mobs.push({ m, kind: k, state: 'off', t: 0, hp: 0, size: 1, speed: 1, stopZ: -3, aimX: 0, swing: 0, odd: j % 2 === 0, acc: 0, tint, fused });
+    const wt = (id: string) => this.weights?.[id] ?? H.kinds.find((k) => k.id === id)?.weight ?? 0;
+    const want = H.kinds.map((k) => k.id).filter((id) => !this.requested.has(id) && !(this.opts.lite && LITE_SKIP_MONSTERS.includes(id)));
+    // first-wave kinds first (in the order asked), then the rest by weight (a 0-weight kind last)
+    want.sort((a, b) => (first.includes(b) ? 1 : 0) - (first.includes(a) ? 1 : 0) || wt(b) - wt(a));
+    this.queue = want;
+    if (!this.pumping) this.ready = this.pump();
+    return this.ready;
+  }
+
+  /** Kinds whose bodies are in the pool. */
+  get loadedKinds(): ReadonlySet<string> {
+    return this.loaded;
+  }
+
+  private async pump() {
+    this.pumping = true;
+    try {
+      while (this.queue.length && !this.disposed) {
+        const id = this.queue.shift()!;
+        if (this.requested.has(id)) continue;
+        this.requested.add(id);
+        await this.loadKind(id).catch(() => undefined);
       }
-    });
+    } finally {
+      this.pumping = false;
+    }
+  }
+
+  private async loadKind(id: string) {
+    const H = TUNING.horde;
+    const k = H.kinds.find((x) => x.id === id);
+    const def = MONSTERS.find((d) => d.id === id);
+    if (!k || !def) return;
+    const g = await (this.loader ??= new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)).loadAsync(def.url);
+    if (this.disposed) return;
+    const n = this.opts.high ? k.pool : Math.max(1, Math.ceil(k.pool * H.lowPool));
+    const nf = FUSED.on && FUSED.kinds.includes(k.id) ? FUSED.perKind : 0;
+    const fresh: Mob[] = [];
+    const holder = new THREE.Group();
+    for (let j = 0; j < n + nf; j++) {
+      const fused = j >= n;
+      const m = new Monster(def, g);
+      const tint = { value: 0 };
+      m.root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || mesh === m.hitbox) return;
+        mesh.castShadow = false; // a swarm of shadow casters would eat the frame
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        const out = mats.map((mt) => {
+          const c = (mt as THREE.MeshStandardMaterial).clone();
+          if (fused && 'emissive' in c) {
+            // Erobot skin: keep the texture's light and dark as relief, push it pink and mirror-glossy
+            c.color.set('#ff6fb8');
+            c.metalness = 0.85;
+            c.roughness = 0.22;
+            c.envMapIntensity = 1.6;
+          }
+          if ('emissive' in c) {
+            const rim = fused ? '\nfloat fr = pow(1.0 - abs(dot(normalize(vNormal), normalize(vViewPosition))), 2.5);\ntotalEmissiveRadiance += vec3(1.0, 0.18, 0.62) * fr * 1.4;' : '';
+            c.onBeforeCompile = (sh) => {
+              sh.uniforms.uHit = tint;
+              sh.fragmentShader = sh.fragmentShader
+                .replace('#include <common>', '#include <common>\nuniform float uHit;')
+                .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.42, 0.12) * uHit * 1.6;' + rim);
+            };
+            if (fused) c.customProgramCacheKey = () => 'erobot-fused';
+          }
+          return c;
+        });
+        mesh.material = Array.isArray(mesh.material) ? out : out[0];
+      });
+      m.root.visible = false;
+      holder.add(m.root);
+      fresh.push({ m, kind: k, state: 'off', t: 0, hp: 0, size: 1, speed: 1, stopZ: -3, aimX: 0, swing: 0, odd: j % 2 === 0, acc: 0, tint, fused });
+    }
+    // compile + upload off the frame (the engine's hook), THEN join the pool: a new kind never hitches its first frame
+    await Promise.resolve(this.onKind?.(holder)).catch(() => undefined);
+    if (this.disposed) return;
+    for (const f of fresh) this.group.add(f.m.root);
+    this.mobs.push(...fresh);
+    this.loaded.add(id);
   }
 
   /** Pick a kind by weight among the ones with a free body. */

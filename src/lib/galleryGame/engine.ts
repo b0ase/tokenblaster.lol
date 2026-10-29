@@ -402,6 +402,17 @@ export class GalleryEngine {
       melee: (from, dmg) => this.hurt(from, dmg, 'melee'),
     });
     this.horde = new Horde(this.scene, this.fx, { high, lite: this.lite, flash: (at, c, i, ms) => this.flash(at, c, i, ms), melee: (from, dmg) => this.hurt(from, dmg, 'melee') });
+    // the horde streams in after GO (horde.ts prefetch): each kind compiles against the street's lights and
+    // uploads a texture a frame before it joins the pool, so a new kind never stalls the frame it first appears
+    this.horde.onKind = async (bodies) => {
+      await this.compileFor(bodies, this.scene);
+      for (const t of this.texturesOf(bodies)) {
+        if (this.disposed) return;
+        if (this.lite) capTexture(t, LITE_TEX);
+        r.initTexture(t);
+        await new Promise((ok) => requestAnimationFrame(ok));
+      }
+    };
     this.kweg = new KwegBody(this.scene, high, this.canvas);
     this.boss.onEvent = (k, at) => this.bossEvent(k, at);
     this.boss.onAttack = (a) => this.bossAttack(a);
@@ -450,14 +461,15 @@ export class GalleryEngine {
     // PRE-WARM: every set, the boss, the swarm and the effects compile now, off the frame loop, against the
     // final light set-up (it never changes during the run), so nothing compiles mid-run
     onProgress(0.7);
-    await r.compileAsync(this.scene, this.camera).catch(() => undefined);
-    this.warmTextures();
+    await this.compileFor(this.scene);
+    await this.compilePost(r);
+    await this.warmTextures();
     this.warmFrame();
-    void Promise.all([this.erobots.ready, this.horde.ready]).then(async () => {
+    void this.erobots.ready.then(async () => {
       if (this.disposed) return;
-      await r.compileAsync(this.scene, this.camera).catch(() => undefined);
+      await this.compileFor(this.scene);
       if (this.disposed) return;
-      this.warmTextures();
+      await this.warmTextures();
       this.warmFrame();
     });
     if (this.disposed) return;
@@ -472,6 +484,45 @@ export class GalleryEngine {
     onProgress(1);
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /**
+   * Compile `root`'s materials (lit by `lights`) for the target the scene is really drawn into: the post chain's
+   * half-float buffer when there is one. Compiling for the canvas makes tone-mapped variants the RenderPass never
+   * uses, so its first frame compiled everything again in one long block.
+   */
+  private async compileFor(root: THREE.Object3D, lights: THREE.Scene | null = null) {
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(this.composer ? this.composer.readBuffer : null);
+    const p = r.compileAsync(root, this.camera, lights);
+    r.setRenderTarget(prev);
+    await p.catch(() => undefined);
+  }
+
+  /**
+   * The post chain's own shaders (GTAO, bloom, shafts, grade, output) compile in parallel off the main thread here,
+   * on throwaway quads, so the warm-up frame finds them linked instead of waiting on each in turn (a ~600 ms block).
+   */
+  private async compilePost(r: THREE.WebGLRenderer) {
+    if (!this.composer) return;
+    const mats = new Set<THREE.Material>();
+    const take = (v: unknown) => {
+      if (v instanceof THREE.Material) mats.add(v);
+      else if (Array.isArray(v)) for (const x of v) if (x instanceof THREE.Material) mats.add(x);
+    };
+    for (const pass of this.composer.passes) {
+      for (const v of Object.values(pass as unknown as Record<string, unknown>)) {
+        take(v);
+        if (v && typeof v === 'object' && 'material' in (v as object)) take((v as { material: unknown }).material); // FullScreenQuad
+      }
+    }
+    if (!mats.size) return;
+    const tmp = new THREE.Scene();
+    const geo = new THREE.PlaneGeometry(2, 2);
+    for (const m of mats) tmp.add(new THREE.Mesh(geo, m));
+    await r.compileAsync(tmp, this.camera).catch(() => undefined);
+    geo.dispose();
   }
 
   private buildPost(r: THREE.WebGLRenderer) {
@@ -1281,9 +1332,25 @@ export class GalleryEngine {
   }
 
   /** Upload every texture in the scene now (a first-use upload mid-run is a visible hitch). */
-  private warmTextures() {
+  private async warmTextures() {
+    const seen = this.texturesOf(this.scene);
+    if (this.lite) for (const t of seen) capTexture(t, LITE_TEX);
+    // a few ms of uploads a frame, not every texture in one long main-thread block
+    let t0 = performance.now();
+    for (const t of seen) {
+      if (this.disposed) return;
+      this.renderer.initTexture(t);
+      if (performance.now() - t0 > 8) {
+        await new Promise((ok) => requestAnimationFrame(ok));
+        t0 = performance.now();
+      }
+    }
+  }
+
+  /** Every texture the meshes under `root` draw with. */
+  private texturesOf(root: THREE.Object3D) {
     const seen = new Set<THREE.Texture>();
-    this.scene.traverse((o) => {
+    root.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if (!m) return;
       for (const mt of Array.isArray(m) ? m : [m]) {
@@ -1292,8 +1359,7 @@ export class GalleryEngine {
         if (u) for (const x of Object.values(u)) if (x && x.value instanceof THREE.Texture && !seen.has(x.value)) seen.add(x.value);
       }
     });
-    if (this.lite) for (const t of seen) capTexture(t, LITE_TEX);
-    for (const t of seen) this.renderer.initTexture(t);
+    return seen;
   }
 
   /** Metres along the route at `t` seconds into the block: each stage walks its leg in its share of the ten minutes. */
@@ -1396,6 +1462,7 @@ export class GalleryEngine {
     this.invuln = 0;
     this.erobots.grace = TUNING.player.openingGrace;
     this.horde.grace = TUNING.player.openingGrace;
+    void this.horde.prefetch(); // the monsters stream in now (this level's heaviest-weighted kinds first), never before GO
   }
 
   /** Which stage the block clock says we are in. */
@@ -1611,7 +1678,7 @@ export class GalleryEngine {
     if (host !== this.city.group) d.group.traverse((o) => o.layers.set(2));
     host.add(d.group);
     this.dressing = d;
-    this.warmTextures();
+    await this.warmTextures();
   }
 
   /** The Liquid Unit has just gone down (its melt begins): the street is cleared, nothing more can hurt. */

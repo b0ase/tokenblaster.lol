@@ -23,6 +23,13 @@ const nextConfig: NextConfig = {
         has: [{ type: 'query', key: 'embed', value: '1' }],
         headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://web.bwalletx.com https://desktop.bwalletx.com capacitor://localhost https://www.bchatx.com https://bchatx.com" }],
       },
+      // Game models, textures and HDRs (TERRORNODE loads ~80 of them): cached a day, then served stale while they
+      // revalidate, instead of a round trip per file on every visit (Vercel's default is max-age=0). Not immutable:
+      // the names carry no hash and a model can be replaced in place. Music is left on the default on purpose.
+      {
+        source: '/:dir(arena|terrornode|gallery|npg|doubleo|city)/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }],
+      },
       // 1Sat Ordnance models and art, loadable by wallets' 3D display cabinets (bWalletX).
       { source: '/arena/models/guns/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
       { source: '/ordnance/:file*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
