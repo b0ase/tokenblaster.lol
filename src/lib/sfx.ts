@@ -645,7 +645,7 @@ const ARCADE = [
 ];
 const QUIRKY = [
   S('kweg', 'unicorn-dreamscape', 'Unicorn Dreamscape', 'ninjapunkgirls.com'),
-  S('kweg', 'midnight-graffiti-symphony', 'Midnight Graffiti Symphony', 'b0ase.com'),
+  S('kweg', 'midnight-graffiti-symphony', 'Midnight Graffiti Symphony', 'CherryX.space'),
   S('kweg', 'echo-chamber', 'Echo Chamber', 'b0ase.com'),
 ];
 const CITY = [

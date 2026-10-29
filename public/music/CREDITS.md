@@ -21,7 +21,7 @@ loudness-normalised (ffmpeg loudnorm, target -16 LUFS / -1.5 dBTP), edge silence
 | arcade/kintsugi-breaks.m4a | Kintsugi Breaks | CherryX.space | cherry-xxx/public/music/Kintsugi Breaks.wav |
 | arcade/shattered-frequencies.m4a | Shattered Frequencies | CherryX.space | cherry-xxx/public/music/Shattered Frequencies.wav |
 | kweg/unicorn-dreamscape.m4a | Unicorn Dreamscape | ninjapunkgirls.com | ninja-punk-girls-com/public/music/Unicorn Dreamscape.mp3 |
-| kweg/midnight-graffiti-symphony.m4a | Midnight Graffiti Symphony | b0ase.com | b0ase.com/public/music/Midnight Graffiti Symphony.mp3 |
+| kweg/midnight-graffiti-symphony.m4a | Midnight Graffiti Symphony | CherryX.space (owner, 28 Oct 2026; file copied from b0ase.com) | b0ase.com/public/music/Midnight Graffiti Symphony.mp3 |
 | kweg/echo-chamber.m4a | Echo Chamber | b0ase.com | b0ase.com/public/music/Echo Chamber.mp3 |
 | city/veins-of-the-city.m4a | Toshi no Jōmyaku (Veins of the City) | CherryX.space | cherry-xxx/public/music/都市の静脈 (Veins of the City).wav |
 | city/neon-rust.m4a | Neon Rust | CherryX.space | cherry-xxx/public/music/Neon Rust.wav |
