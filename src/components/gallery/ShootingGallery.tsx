@@ -1156,7 +1156,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   // A smooth bar: ease forward inside each stage, never frozen on one number.
   const target = load?.kind === 'loading' ? load.pct : load?.kind === 'ready' ? 100 : 0;
   const [eased, setEased] = useState(0);
+  // Only ticks while the bar is on screen: a 10 Hz state update re-renders this whole (large) component, which made
+  // the menus and the game janky when it ran all the time.
+  const barOn = mode === 'warm' || cab.stage === 'loading';
   useEffect(() => {
+    if (!barOn || target <= 0) {
+      const z = setTimeout(() => setEased(0), 0); // reset for the next load (bails out when already 0)
+      return () => clearTimeout(z);
+    }
     const i = setInterval(() => {
       setLoadNow(performance.now());
       setEased((e) => {
@@ -1167,7 +1174,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       });
     }, 100);
     return () => clearInterval(i);
-  }, [target]);
+  }, [target, barOn]);
   const warmPct = Math.round(Math.max(target, eased));
   // seconds left on the load, from how fast the bar has moved so far (whole seconds, never negative)
   const loadEta = (() => {

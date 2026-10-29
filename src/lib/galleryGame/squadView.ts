@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import type { Mate } from './squad';
-import { loadSquadBodies, type GirlBody } from './squadBodies';
+import { loadSquadBodies, type GirlBody, type Move } from './squadBodies';
 
 /**
  * The AI squad on screen: each girl as a standing billboard of her NPG portrait (placeholder until the 3D
  * girls land; `setBody` swaps one in) with her name, a small "AI" tag and a health bar above her head.
  * Labels redraw only when what they show changes. Lite: smaller label textures, no shadows of any kind.
  */
-type View = { g: THREE.Group; body: THREE.Sprite; label: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; mat: THREE.SpriteMaterial; model?: GirlBody; px: number; pz: number };
+type View = { g: THREE.Group; body: THREE.Sprite; label: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture; key: string; mat: THREE.SpriteMaterial; model?: GirlBody; px: number; pz: number; yaw: number; sp: number; mv: Move };
 
 const BODY_H = 1.75;
 
@@ -65,7 +65,7 @@ export class SquadView {
     label.renderOrder = 5;
     g.add(label);
     this.group.add(g);
-    this.views.set(m.id, { g, body, label, ctx, tex: lt, key: '', mat, px: m.x, pz: m.z });
+    this.views.set(m.id, { g, body, label, ctx, tex: lt, key: '', mat, px: m.x, pz: m.z, yaw: m.yaw, sp: 0, mv: 'idle' });
   }
 
   /** Swap a girl's placeholder billboard for a real body (the 3D NPG girls, when they are in). */
@@ -124,19 +124,35 @@ export class SquadView {
       const v = this.views.get(m.id);
       if (!v) continue;
       const down = m.state === 'downed';
-      v.g.position.set(m.x, 0, m.z);
+      // The squad AI steps at 30 Hz (10 Hz on lite) while we draw every frame: follow its positions smoothly
+      // instead of snapping, or the girls stutter and their run clip flickers idle/jog on every other frame.
+      const jump = (m.x - v.px) ** 2 + (m.z - v.pz) ** 2 > 64; // a respawn or a new run: snap, don't glide
+      const k = dt > 0 && !jump ? 1 - Math.exp(-dt * 12) : 1;
+      const nx = v.px + (m.x - v.px) * k;
+      const nz = v.pz + (m.z - v.pz) * k;
+      const inst = dt > 0 && !jump ? Math.hypot(nx - v.px, nz - v.pz) / dt : 0;
+      v.sp += (inst - v.sp) * (dt > 0 ? 1 - Math.exp(-dt * 6) : 0);
+      v.px = nx;
+      v.pz = nz;
+      v.g.position.set(nx, 0, nz);
       // downed: she drops to a knee (sunk, greyed); up: a light bob on the move
       v.body.position.y = down ? -0.7 : Math.abs(Math.sin(t * 6 + m.phase)) * 0.04;
       v.mat.color.set(down ? '#6a6a7a' : '#ffffff');
       if (v.model) {
         // the 3D girl faces her target and runs, shoots or crouches with real clips
-        const sp = dt > 0 ? Math.hypot(m.x - v.px, m.z - v.pz) / dt : 0;
-        v.model.root.rotation.set(0, Math.PI - m.yaw, 0);
-        v.model.play(down ? 'down' : sp > 4.5 ? 'sprint' : sp > 0.6 ? 'jog' : m.state === 'engage' && m.target ? 'shoot' : 'idle');
+        let d = m.yaw - v.yaw;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        v.yaw += d * (dt > 0 ? 1 - Math.exp(-dt * 10) : 1);
+        v.model.root.rotation.set(0, Math.PI - v.yaw, 0);
+        // hysteresis so a speed near a threshold never flips the clip back and forth
+        const sp = v.sp;
+        const moving = v.mv === 'jog' || v.mv === 'sprint' ? sp > 0.35 : sp > 0.9;
+        const fast = v.mv === 'sprint' ? sp > 3.8 : sp > 5;
+        const mv: Move = down ? 'down' : moving ? (fast ? 'sprint' : 'jog') : m.state === 'engage' && m.target ? 'shoot' : 'idle';
+        v.mv = mv;
+        v.model.play(mv);
         v.model.update(dt);
       }
-      v.px = m.x;
-      v.pz = m.z;
       v.label.position.y = down ? BODY_H - 0.5 : BODY_H + 0.15;
       this.paint(v, m);
     }
