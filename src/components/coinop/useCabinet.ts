@@ -144,7 +144,7 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
       return;
     }
     // The paid coin is saved in the gun from the wallet's own response; refresh the CREDIT from the real balance.
-    void b.refreshGun().catch(() => undefined);
+    void b.refreshGun('after pay').catch(() => undefined);
     setPending(0);
     setStage('ready');
     setStageText(null);

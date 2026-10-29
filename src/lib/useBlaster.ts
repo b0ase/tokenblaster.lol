@@ -81,9 +81,7 @@ export function useBlaster() {
     const g = new Gun();
     gun.current = g;
     void Promise.resolve().then(() => setGunAddress(g.address)); // client-only key
-    g.balance()
-      .then(setAmmo)
-      .catch(() => setAmmo(g.sats));
+    // The balance is read once by refreshGun's mount effect below (29 Oct audit: two reads on load).
   }, []);
 
   /** The stored gun could not be read and no wallet backup restored it yet: nothing loads into it (no orphaned coins). */
@@ -105,7 +103,7 @@ export function useBlaster() {
     return gate.current('press', w, g, restoreGunIfNeeded).then((r) => {
       if (r === 'restored') {
         setGunAddress(g.address);
-        void g.balance().then(setAmmo).catch(() => undefined);
+        void g.balance('gun restored').then(setAmmo).catch(() => undefined);
       }
       setGunLocked(g.locked);
       if (r === 'locked') setError(`${GUN_LOCKED}. This browser has a gun record it can't read, and no backup in this wallet matched. It has been kept, not replaced.`);
@@ -255,7 +253,7 @@ export function useBlaster() {
           latePay.current = null;
           unknownPay.current = null;
           setAmmo(g.sats);
-          void g.balance().then(setAmmo).catch(() => undefined);
+          void g.balance('after payment').then(setAmmo).catch(() => undefined);
           loadMark('retry: the first request paid, no new charge');
           return 'ok';
         }
@@ -272,7 +270,7 @@ export function useBlaster() {
         setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
         const landed = await g.findPayment(unk.ref, unk.txid);
         setSiteWalletWaiting(null);
-        void g.balance().then(setAmmo).catch(() => undefined);
+        void g.balance('after payment').then(setAmmo).catch(() => undefined);
         if (landed) {
           unknownPay.current = null;
           loadMark(`the earlier payment ${unk.ref} landed: using it, no new charge`);
@@ -318,14 +316,14 @@ export function useBlaster() {
             unknownPay.current = null;
             loadMark('late approval arrived: paid, no new charge');
             setAmmo(g.sats);
-            void g.balance().then(setAmmo).catch(() => undefined);
+            void g.balance('after payment').then(setAmmo).catch(() => undefined);
             setLatePaid((n) => n + 1);
           });
           return 'timeout';
         }
         // The coin is in the gun from the wallet's own response: the CREDIT shows it at once, the chain read follows.
         setAmmo(g.sats);
-        void g.balance().then(setAmmo).catch(() => undefined);
+        void g.balance('after payment').then(setAmmo).catch(() => undefined);
         return 'ok';
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
@@ -347,7 +345,7 @@ export function useBlaster() {
           for (let i = 0; i < 15; i++) {
             await new Promise((r) => setTimeout(r, 2000));
             if (await g.findPayment(ref, txid)) {
-              void g.balance().then(setAmmo).catch(() => undefined);
+              void g.balance('after payment').then(setAmmo).catch(() => undefined);
               loadMark('gun has the coin (found the payment on chain)');
               return 'ok';
             }
@@ -436,7 +434,7 @@ export function useBlaster() {
         return await g.storm(tokenLabel ?? token?.id ?? '', total, onProgress, stop, onStatus, tag, perBlast, paused, step);
       } finally {
         holdWalletForPlay(false, 'storm');
-        setAmmo(await g.balance().catch(() => g.sats)); // the session's saved change, from the real coin set
+        setAmmo(await g.balance('after storm').catch(() => g.sats)); // the session's saved change, from the real coin set
       }
     },
     [token, wallet],
@@ -451,7 +449,7 @@ export function useBlaster() {
     } finally {
       // Never block the start on a chain read (owner log, 25 Oct: stuck at 100% for 68 s on this balance).
       setAmmo(g.sats);
-      void g.balance().then(setAmmo).catch(() => undefined);
+      void g.balance('after prepare').then(setAmmo).catch(() => undefined);
     }
   }, []);
 
@@ -494,9 +492,7 @@ export function useBlaster() {
   }, [token]);
   useEffect(() => {
     if (mode !== 'tokens') return;
-    void Promise.resolve().then(refreshTokens);
-    const t = setInterval(refreshTokens, 8000);
-    return () => clearInterval(t);
+    void Promise.resolve().then(refreshTokens); // once on entering token mode; loads re-read it, no idle timer
   }, [mode, refreshTokens]);
 
   /** Burn real tokens: one whole token per bullet, chained and sent to ARC in one batch. */
@@ -606,18 +602,18 @@ export function useBlaster() {
   /** What's in the gun right now: tokens by id (for the Wallet → Gun → Fired strip). */
   const [gunTokens, setGunTokens] = useState<{ id: string; amt: bigint }[]>([]);
   /** Re-read the gun: tokens held and the REAL spendable sats (chain + wallet responses + own change). */
-  const refreshGun = useCallback(async (): Promise<number> => {
+  const refreshGun = useCallback(async (caller = 'refresh'): Promise<number> => {
     const g = gun.current;
     if (!g) return 0;
     setGunTokens(await g.tokensHeld().catch(() => []));
-    const sats = await g.balance().catch(() => g.sats);
+    const sats = await g.balance(caller).catch(() => g.sats);
     setAmmo(sats);
     return sats;
   }, []);
+  // Read once on load; after that only after a pay, load, send or unload (29 Oct audit: a 15 s timer re-read the
+  // chain all the time while idle).
   useEffect(() => {
-    void Promise.resolve().then(refreshGun);
-    const t = setInterval(refreshGun, 15000);
-    return () => clearInterval(t);
+    void Promise.resolve().then(() => refreshGun('page load'));
   }, [refreshGun]);
 
 
@@ -654,7 +650,7 @@ export function useBlaster() {
         // Keep the sats in the gun: they pay the token transfer once topped up.
         setError(`Your ${short.join(', ')} tokens are still in the gun: it needs ${need.toLocaleString()} more sats to pay the network fee to return them. Load at least ${need.toLocaleString()} sats, then UNLOAD again.`);
       } else if (opts.sats !== false) {
-        const before = await g.balance().catch(() => g.sats);
+        const before = await g.balance('before unload').catch(() => g.sats);
         const txid = await g.unload(wallet.address);
         if (txid) {
           parts.push(`about ${before.toLocaleString()} sats (less the network fee)`);
@@ -664,7 +660,7 @@ export function useBlaster() {
       }
       if (parts.length) setReceipt({ text: `Back in your wallet: ${parts.join(' and ')}`, txid: last });
       else setReceipt(null);
-      await refreshGun();
+      await refreshGun('after unload');
       walletTokens(wallet)
         .then(setTokens)
         .catch(() => undefined);
@@ -731,7 +727,7 @@ export function useBlaster() {
         return await g.coinStorm(onProgress, stop, paused, tag, step);
       } finally {
         holdWalletForPlay(false, 'storm');
-        setAmmo(await g.balance().catch(() => g.sats));
+        setAmmo(await g.balance('after coin storm').catch(() => g.sats));
       }
     },
     [],
