@@ -1620,7 +1620,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
             {load.text}
           </Modal>
         )}
-        <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} cancel={cab.cancel} retry={cab.retry} giveUp={cab.giveUp} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} />
+        <CabinetModals modal={cab.modal} setModal={cab.setModal} reconnect={cab.reconnect} cancel={cab.cancel} retry={cab.retry} giveUp={cab.giveUp} approving={cab.stage === 'approve'} approveSince={cab.approveSince} walletName={cab.walletName} error={cab.err} walletSaid={cab.walletSaid} />
 
         {!loadout && !over && mode === 'live' && !dry && <LiveTxBadge last={run.last} sent={run.sent} seen={netSeen} />}
         {!loadout && !over && <DamageFx ref={dmgFx} hp={hud?.hp ?? TUNING.player.hp} hpMax={hud?.hpMax ?? TUNING.player.hp} />}

@@ -58,9 +58,14 @@ export function useBlaster() {
   const setChooser = useCallback((c: { note: string | null } | null) => (c ? openChooser(c.note) : closeChooser()), []);
   const [ownError, setOwnError] = useState<string | null>(null);
   const error = ownError ?? site.error;
+  /** The wallet's own words for the last failed payment, shown small under the friendly line (29 Oct audit). */
+  const [walletSaid, setWalletSaid] = useState<string | null>(null);
   const setError = useCallback((e: string | null) => {
     setOwnError(e);
-    if (!e) setSiteWalletError(null);
+    if (!e) {
+      setSiteWalletError(null);
+      setWalletSaid(null);
+    }
   }, []);
   /** 'sats': tagged blasts (tokens never move). 'tokens': every bullet burns a real token. */
   const [mode, setModeState] = useState<'sats' | 'tokens'>('sats');
@@ -129,6 +134,7 @@ export function useBlaster() {
 
   const fail = useCallback((e: unknown) => {
     const m = e instanceof Error ? e.message : String(e);
+    setWalletSaid(m.trim() || null);
     // The wallet's real reason, never a guess (owner, 25 Oct: "reload" in any error became "lost touch").
     setError(/reload/i.test(m) ? walletErrorText(e, wallet ? { kind: wallet.id === 'phone' ? 'phone' : 'extension', name: wallet.name } : undefined) : m);
   }, [setError, wallet]);
@@ -733,5 +739,5 @@ export function useBlaster() {
     [],
   );
 
-  return { latePaid, warmWallet, gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError };
+  return { latePaid, warmWallet, gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid };
 }
