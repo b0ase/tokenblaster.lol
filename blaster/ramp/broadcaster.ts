@@ -26,7 +26,7 @@ export const BSV_URLS = [
 ] as const;
 export const BSV_URL = BSV_URLS[0];
 export const CALLBACK_TOKEN = 'terrornode-ramp-29oct';
-export const MAX_BODY_BYTES = 256 * 1024 * 1024;
+export const MAX_BODY_BYTES = 10 * 1024 * 1024; // both sit behind Cloudflare: keep each request under ~10 MB (GorillaPool, 29 Oct)
 
 export type TxItem = { txid: string; bytes: Uint8Array };
 /** accepted: the broadcaster took it · rejected: final (400 / REJECTED) · retry: no answer after every resend (hold the same bytes). */
@@ -226,7 +226,8 @@ export function bsvBroadcaster(url: string = BSV_URL, o: Opts = {}): Broadcaster
 /** ARC (GorillaPool). Per-tx answers in a JSON array; a whole-request 4xx is bisected like the Broadcaster. */
 export function arcBroadcaster(url: string = ARC_URL, o: Opts = {}): Broadcaster {
   const token = o.callbackToken ?? CALLBACK_TOKEN;
-  const headers = { 'Content-Type': 'application/json', 'X-CallbackToken': token };
+  // X-WaitFor: STORED (GorillaPool, 29 Oct): answer once stored instead of holding the connection for network status; we poll.
+  const headers = { 'Content-Type': 'application/json', 'X-CallbackToken': token, 'X-WaitFor': 'STORED' };
   type ArcRow = { txid?: string; txStatus?: string; status?: number; extraInfo?: string; detail?: string };
   const rowResult = (txid: string, row: ArcRow | undefined): SubmitResult => {
     if (!row) return { txid, outcome: 'retry' };
