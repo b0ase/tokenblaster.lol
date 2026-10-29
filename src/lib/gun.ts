@@ -502,10 +502,16 @@ export class Gun {
     return chain.some((c) => match(c.tx));
   }
 
-  /** Spendable sats at the gun right now (what the CREDIT shows). */
+  /**
+   * Spendable sats at the gun right now (what the CREDIT shows). Reads amounts only (no parent tx hex), so the
+   * first read on page load is quick even for a gun holding hundreds of dust coins (29 Oct audit: 14 s). The hex
+   * is fetched only when a spend needs it (gather, consolidate, unload).
+   */
   async balance(): Promise<number> {
-    const coins = await this.candidates();
-    return coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0);
+    this.refresh();
+    const tag = (l: { tx: Transaction; vout: number }[]) => l.map((c) => ({ txid: c.tx.id('hex'), vout: c.vout, sats: c.tx.outputs[c.vout]?.satoshis ?? 0 }));
+    const chain = await this.amountsOnChain().catch(() => [] as { txid: string; vout: number; sats: number }[]);
+    return spendableCoins([tag(this.extra), tag(this.coin ? [this.coin] : []), chain], this.spent).reduce((n, c) => n + c.sats, 0);
   }
 
   /**
@@ -1361,6 +1367,32 @@ export class Gun {
     this.chainRead = { at: Date.now(), p };
     p.catch(() => {
       if (this.chainRead?.p === p) this.chainRead = null;
+    });
+    return p;
+  }
+  /** Amounts only (txid, vout, sats) for the CREDIT: reuses a fresh full read, else asks /api/coins?amounts=1. */
+  private amountRead: { at: number; p: Promise<{ txid: string; vout: number; sats: number }[]> } | null = null;
+  private amountsOnChain(): Promise<{ txid: string; vout: number; sats: number }[]> {
+    const full = this.chainRead;
+    if (full && Date.now() - full.at < 4000) return full.p.then((l) => l.map((c) => ({ txid: c.tx.id('hex'), vout: c.vout, sats: c.tx.outputs[c.vout]?.satoshis ?? 0 })));
+    const a = this.amountRead;
+    if (a && Date.now() - a.at < 4000) return a.p;
+    const p = (async () => {
+      for (let i = 0; i < 2; i++) {
+        const t0 = Date.now();
+        const r = await fetch(`/api/coins?address=${this.address}&amounts=1`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) }).catch(() => null);
+        if (r?.ok && r.headers.get('x-coins-upstream') !== 'failed') {
+          const list = (await r.json()) as { txid: string; vout: number; sats: number }[];
+          loadMark(`chain amounts: ${list.length} coin(s) in ${Date.now() - t0} ms`);
+          return list;
+        }
+        await new Promise((ok) => setTimeout(ok, 800));
+      }
+      throw new Error("Couldn't read the gun's coins from the network right now. Try again in a moment.");
+    })();
+    this.amountRead = { at: Date.now(), p };
+    p.catch(() => {
+      if (this.amountRead?.p === p) this.amountRead = null;
     });
     return p;
   }
