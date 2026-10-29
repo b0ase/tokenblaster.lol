@@ -1100,7 +1100,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       const t0 = performance.now();
       const avail = await b.gatherGun().catch(async (e) => {
         loadMark(`gather: ${e instanceof Error ? e.message : e}`);
-        return b.refreshGun();
+        return b.refreshGun('lock & load');
       });
       loadMark(`gather: ${Math.round(performance.now() - t0)} ms`);
       loadMark(`lock & load: gun has ${avail} sats`);
@@ -1129,7 +1129,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     } catch (e) {
       const m = e instanceof Error ? e.message : '';
       loadMark(`load failed: ${m || 'unknown'}`);
-      const have = await b.refreshGun().catch(() => 0);
+      const have = await b.refreshGun('after load').catch(() => 0);
       setMode('off');
       boughtRef.current = firedRef.current;
       setBought(firedRef.current);

@@ -243,7 +243,7 @@ export function TeamMode({ freePlay = false }: { freePlay?: boolean }) {
       return;
     }
     try {
-      const avail = await b.refreshGun();
+      const avail = await b.refreshGun('team load');
       const n = Math.floor(avail / PER_SHOT);
       if (n <= 0) throw new Error('Not enough ammo in your gun for a round. Put another coin in.');
       roundsRef.current = n;

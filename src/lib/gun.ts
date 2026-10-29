@@ -301,10 +301,13 @@ const reportToWallet = (sats: number, left: number) => {
  */
 let loadT0 = 0;
 let loadLast = 0;
+/** A player's press starts a new timeline, so a "+19 s" never reads as 19 s of work that was really idle time. */
+const NEW_TIMELINE = /^(approve start|start pressed|retry pressed|pay:|lock & load|demo: INSERT)/;
 export function loadMark(stage: string) {
   const t = typeof performance !== 'undefined' ? performance.now() : Date.now();
-  if (stage === 'approve start' || !loadT0) loadT0 = loadLast = t;
-  console.info(`[tb-load] ${stage}: +${Math.round(t - loadLast)} ms (total ${Math.round(t - loadT0)} ms)`);
+  if (NEW_TIMELINE.test(stage) || !loadT0) loadT0 = loadLast = t;
+  // `at` is the absolute time since the page opened: compare lines across timelines with it.
+  console.info(`[tb-load] ${stage}: +${Math.round(t - loadLast)} ms (total ${Math.round(t - loadT0)} ms, at ${(t / 1000).toFixed(1)} s)`);
   loadLast = t;
 }
 
@@ -507,10 +510,10 @@ export class Gun {
    * first read on page load is quick even for a gun holding hundreds of dust coins (29 Oct audit: 14 s). The hex
    * is fetched only when a spend needs it (gather, consolidate, unload).
    */
-  async balance(): Promise<number> {
+  async balance(caller = 'unknown'): Promise<number> {
     this.refresh();
     const tag = (l: { tx: Transaction; vout: number }[]) => l.map((c) => ({ txid: c.tx.id('hex'), vout: c.vout, sats: c.tx.outputs[c.vout]?.satoshis ?? 0 }));
-    const chain = await this.amountsOnChain().catch(() => [] as { txid: string; vout: number; sats: number }[]);
+    const chain = await this.amountsOnChain(caller).catch(() => [] as { txid: string; vout: number; sats: number }[]);
     return spendableCoins([tag(this.extra), tag(this.coin ? [this.coin] : []), chain], this.spent).reduce((n, c) => n + c.sats, 0);
   }
 
@@ -1372,7 +1375,7 @@ export class Gun {
   }
   /** Amounts only (txid, vout, sats) for the CREDIT: reuses a fresh full read, else asks /api/coins?amounts=1. */
   private amountRead: { at: number; p: Promise<{ txid: string; vout: number; sats: number }[]> } | null = null;
-  private amountsOnChain(): Promise<{ txid: string; vout: number; sats: number }[]> {
+  private amountsOnChain(caller = 'unknown'): Promise<{ txid: string; vout: number; sats: number }[]> {
     const full = this.chainRead;
     if (full && Date.now() - full.at < 4000) return full.p.then((l) => l.map((c) => ({ txid: c.tx.id('hex'), vout: c.vout, sats: c.tx.outputs[c.vout]?.satoshis ?? 0 })));
     const a = this.amountRead;
@@ -1383,7 +1386,7 @@ export class Gun {
         const r = await fetch(`/api/coins?address=${this.address}&amounts=1`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) }).catch(() => null);
         if (r?.ok && r.headers.get('x-coins-upstream') !== 'failed') {
           const list = (await r.json()) as { txid: string; vout: number; sats: number }[];
-          loadMark(`chain amounts: ${list.length} coin(s) in ${Date.now() - t0} ms`);
+          loadMark(`chain amounts for ${caller}: ${list.length} coin(s) in ${Date.now() - t0} ms`);
           return list;
         }
         await new Promise((ok) => setTimeout(ok, 800));
