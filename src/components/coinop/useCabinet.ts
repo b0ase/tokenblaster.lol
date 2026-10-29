@@ -161,6 +161,29 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     },
     [pending, doPay],
   );
+  /**
+   * QUICK RELOAD (owner, 29 Oct): pay exactly `usd` (replacing anything pending) in the same ONE wallet request as
+   * LOCK & LOAD, then `then`. Ignored while a payment is already in flight, so a double tap or a held R never
+   * starts a second charge; after a success `pending` is already 0 (doPay clears it before anything else).
+   */
+  const [quick, setQuick] = useState<{ n: number; then: () => void } | null>(null);
+  const payUsdThen = useCallback(
+    (usd: number, then: () => void) => {
+      if (stage === 'approve' || stage === 'loading' || b.busy || quick) return false;
+      setPending(Math.min(MAX_PAY_USD, Math.max(0, usd)));
+      setQuick({ n: Date.now(), then });
+      return true;
+    },
+    [stage, b.busy, quick],
+  );
+  useEffect(() => {
+    if (!quick || pending <= 0) return;
+    const q = quick;
+    void Promise.resolve().then(() => {
+      setQuick(null);
+      payThen(q.then);
+    });
+  }, [quick, pending, payThen]);
   // The credit has landed and React has the new balance: run the continuation (start the game).
   useEffect(() => {
     if (!landed || !after.current) return;
@@ -258,5 +281,5 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
   }, [b.error]);
 
-  return { modal, setModal, reconnect, cancel, retry, giveUp, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
+  return { modal, setModal, reconnect, cancel, retry, giveUp, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, payUsdThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
 }
