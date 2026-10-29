@@ -111,6 +111,7 @@ export function shouldProbeLocal(a: { seen: boolean; query: string; injected: bo
   return !a.injected;
 }
 
+let localRefused = false;
 const withTimeout = <T,>(p: Promise<T>, ms: number) =>
   Promise.race([p, new Promise<never>((_, no) => setTimeout(() => no(new Error('timeout')), ms))]);
 
@@ -137,7 +138,23 @@ export function diagLine(d: DiscoveryDiag | null): string {
   return `Discovery ${d.ms} ms: announced ${ann}; window.CWI ${d.cwi ? 'present' : 'absent'}; offered ${d.found.length ? d.found.join(', ') : 'none'}.`;
 }
 
-export async function discoverWallets(): Promise<WalletEntry[]> {
+/**
+ * One discovery at a time, and its answer reused for a moment (29 Oct audit: the chooser and the site wallet both ran
+ * discovery on one press, so localhost:3321 was probed twice and logged two red ERR_CONNECTION_REFUSED lines).
+ */
+let running: { at: number; p: Promise<WalletEntry[]> } | null = null;
+export function discoverWallets(): Promise<WalletEntry[]> {
+  const now = Date.now();
+  if (running && now - running.at < 3000) return running.p;
+  const p = discoverOnce();
+  running = { at: now, p };
+  p.catch(() => {
+    if (running?.p === p) running = null;
+  });
+  return p;
+}
+
+async function discoverOnce(): Promise<WalletEntry[]> {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const list = await discoverAll();
   const cwi = typeof window !== 'undefined' && Boolean((window as { CWI?: unknown }).CWI);
@@ -197,14 +214,15 @@ async function discoverAll(): Promise<WalletEntry[]> {
   // 2026), so only probe when a local wallet was seen before, ?wallet=cli asks for it, or no browser wallet showed up
   // (announce/CWI, after the ~400 ms wait above). getVersion stays the probe (bwalletx-cli keeps it open).
   const injected = list.some((w) => w.kind === 'extension' || w.kind === 'in-app') || Boolean(cwi);
-  if (!isPhone() && shouldProbeLocal({ seen: localWalletSeen(), query: window.location.search, injected })) {
+  // A refused probe is not repeated in this page: once is enough to know nothing listens.
+  if ((!localRefused || /[?&]wallet=cli/.test(window.location.search)) && !isPhone() && shouldProbeLocal({ seen: localWalletSeen(), query: window.location.search, injected })) {
     try {
       const desk = new HTTPWalletJSON(window.location.host, CLI_URL, cliFetch());
       await withTimeout(desk.getVersion({}), 1500);
       markLocalWalletSeen();
       list.push({ id: 'metanet.desktop', name: 'BSV Desktop', icon: '/wallets/bsv-desktop.png', kind: 'desktop', wallet: desk });
     } catch {
-      /* not running */
+      localRefused = true; // not running
     }
   }
   return list;
