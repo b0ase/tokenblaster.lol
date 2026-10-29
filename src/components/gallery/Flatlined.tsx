@@ -12,6 +12,7 @@ import { COINS_USD, fmtCredit } from '@/lib/coinop/credit';
 import { TUNING } from '@/lib/galleryGame/tuning';
 import { FLATLINED, KWEG } from '@/lib/gallery/story';
 import { CoinFace } from '../coinop/hardware';
+import { RELOAD_USD } from './QuickReload';
 import { Icon, Ticker } from '../coinop/ui';
 
 export type FlatStats = { fired: number; score: number; wave: number; kills: number; secs: number };
@@ -29,6 +30,8 @@ export function Flatlined(p: {
   onCoin: (usd: number) => void;
   onClear: () => void;
   onContinue: () => void;
+  /** One tap: pay this preset in one approval and continue (QuickReload's presets). */
+  onPayContinue?: (usd: number) => void;
   onGameOver: () => void;
   walletName?: string | null;
   /** Free play: no coins; CONTINUE is free. */
@@ -118,8 +121,18 @@ export function Flatlined(p: {
           </section>
         )}
         {!p.freePlay && <section aria-label="Insert coin to continue" className="flex w-full max-w-[560px] flex-col items-center gap-2">
+          {p.onPayContinue && (
+            <div className="flex w-full flex-wrap justify-center gap-2" data-pay-continue>
+              {RELOAD_USD.map((u, i) => (
+                <button key={u} type="button" data-fs-skip disabled={p.hold} onClick={() => p.onPayContinue?.(u)} className={`min-h-[64px] rounded-lg px-4 text-lg font-black tracking-[0.06em] text-white disabled:opacity-40 sm:px-6 sm:text-xl ${i === 1 ? 'lock-load bg-[var(--tbx-red)]' : 'border border-white/25 bg-black/60'}`} data-pay-continue-usd={u}>
+                  Pay {fmtCredit(u)} and continue
+                  <span className="block text-[10px] font-bold tracking-[0.2em] text-white/75">{(p.buys(u) ?? 0).toLocaleString('en-US')} ROUNDS · ONE TAP</span>
+                </button>
+              ))}
+            </div>
+          )}
           <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}>
-            <Icon name="coin" size={14} /> {FLATLINED.coin}
+            <Icon name="coin" size={14} /> {p.onPayContinue ? 'Or pick your own coins' : FLATLINED.coin}
           </p>
           <div className="grid w-full grid-cols-5 gap-1.5 sm:gap-3">
             {COINS_USD.map((c) => (

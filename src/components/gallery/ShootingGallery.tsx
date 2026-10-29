@@ -100,6 +100,7 @@ import { CabinetModals, CoinCabinet } from '../coinop/CoinCabinet';
 import { STORM_RELEASED, loadMark } from '@/lib/gun';
 import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo';
 import { useCabinet } from '../coinop/useCabinet';
+import { QuickReload } from './QuickReload';
 import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
@@ -1271,11 +1272,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     };
   });
   /** CONTINUE: the coins on the death screen were paid in ONE approval. Health resets, the new rounds ADD to what is loaded, play resumes. */
-  const resumeAfterPay = async (paidUsd: number) => {
+  const resumeAfterPay = async (paidUsd: number, revive = true) => {
     const remaining = Math.max(0, boughtRef.current - firedRef.current);
-    flatRef.current = false;
-    setFlat(null);
-    engine.current?.revive();
+    if (revive) {
+      flatRef.current = false;
+      setFlat(null);
+      engine.current?.revive();
+    }
     if (dry || freePlay) {
       const extra = freePlay ? blockRounds(pattern) : roundsFor(usdToSats(paidUsd, bsvUsd) ?? 0, perShotAll);
       goLive(remaining + extra, true);
@@ -1287,6 +1290,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     setBought(firedRef.current);
     for (let i = 0; i < 40 && sentRef.current < firedRef.current; i++) await new Promise((r) => setTimeout(r, 250));
     await lockRef.current(true);
+  };
+
+  /** QUICK RELOAD mid-run (QuickReload.tsx): the preset in ONE approval, the rounds add to the gun, the run carries on. */
+  const quickReload = (usd: number) => {
+    if (freePlay || usd <= 0) return void resumeAfterPay(1, false);
+    cab.payUsdThen(usd, () => void resumeAfterPay(usd, false));
   };
 
   // ON CHAIN feed: sample the latest accepted txid a few times a second (no polling per tx).
@@ -1592,6 +1601,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         )}
         {/* JAMMED: a small screen-fixed toast, never a modal (owner, 25 Oct: the old box could not be reached while
             pointer-locked and stayed after the gun recovered). R reloads from the keyboard; ESC frees the mouse. */}
+        {mode === 'live' && !loadout && !over && !flat && !paused && !jammed && packLeft <= Math.max(30, Math.round(loadedRounds * 0.1)) && (
+          <QuickReload left={packLeft} buys={buys} busy={cab.stage === 'approve' || cab.stage === 'loading' || locking} freePlay={freePlay} onReload={quickReload} />
+        )}
         {jammed && mode === 'live' && !loadout && !over && (
           <div className="pointer-events-none fixed inset-x-0 top-[72px] z-[60] flex justify-center px-4" role="status" aria-live="polite" data-jam-toast>
             <div className="tbx-glass tbx-pop pointer-events-auto flex items-center gap-3 rounded-full px-4 py-2 text-sm" style={{ borderColor: 'var(--tbx-red)' }}>
@@ -1661,6 +1673,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
             onCoin={cab.onCoin}
             onClear={cab.onClear}
             onContinue={() => (freePlay ? void resumeAfterPay(1) : cab.payThen(() => void resumeAfterPay(cab.pending)))}
+            onPayContinue={freePlay ? undefined : (usd) => void cab.payUsdThen(usd, () => void resumeAfterPay(usd))}
             onGameOver={() => finishRef.current()}
             walletName={cab.walletName}
             freePlay={freePlay}
