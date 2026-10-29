@@ -22,8 +22,13 @@ export function GunPreview({ url, active }: { url: string; active: boolean }) {
   }, []);
   // Mobile-lite: the game holds the only WebGL context, so the cards show no 3D model at all (read on the
   // client before the first effect, so a phone never opens a second context even briefly)
-  const [lite] = useState(() => typeof window !== 'undefined' && isMobileLite());
-  const live = !lite && (!coarse || active);
+  // Read after mount (29 Oct audit: reading it during render made the server and client markup differ on phones,
+  // React #418). Until then no card is live, so no WebGL context opens before we know.
+  const [lite, setLite] = useState<boolean | null>(null);
+  useEffect(() => {
+    void Promise.resolve().then(() => setLite(isMobileLite()));
+  }, []);
+  const live = lite === false && (!coarse || active);
   useEffect(() => {
     const cv = ref.current;
     if (!cv || !live) return;
