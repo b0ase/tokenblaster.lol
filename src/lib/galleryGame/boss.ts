@@ -486,6 +486,25 @@ export class LiquidUnit {
       eyeC.addScaledVector(fwd, -fwd.dot(eyeC.clone().sub(centre))); // slide back onto the head's axis
       const half = hh * 0.07; // half the visor's height
       const ray = new THREE.Raycaster();
+      // Skin each mesh ONCE into a plain stand-in and ray-test that: a SkinnedMesh raycast re-skins every vertex on
+      // the CPU for every ray (50 rays = a ~1.7 s main-thread freeze while the game loads). Same hits, one pass.
+      const flat = kept.map((m) => {
+        const src = m.geometry.getAttribute('position');
+        const out = new Float32Array(src.count * 3);
+        const v = new THREE.Vector3();
+        for (let i = 0; i < src.count; i++) {
+          v.fromBufferAttribute(src, i);
+          m.applyBoneTransform(i, v);
+          v.toArray(out, i * 3);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(out, 3));
+        if (m.geometry.index) g.setIndex(m.geometry.index);
+        g.groups = m.geometry.groups;
+        const f = new THREE.Mesh(g, m.material);
+        f.matrixWorld.copy(m.matrixWorld);
+        return f;
+      });
       const N = 25;
       const rowTop: THREE.Vector3[] = [];
       const rowBot: THREE.Vector3[] = [];
@@ -501,7 +520,7 @@ export class LiquidUnit {
           const o = eyeC.clone().addScaledVector(up, dy).addScaledVector(dir, hh * 2);
           ray.set(o, dir.clone().negate());
           ray.far = hh * 3;
-          const hit = ray.intersectObjects(kept, false)[0];
+          const hit = ray.intersectObjects(flat, false)[0];
           // lift 1.5% of the head height off the skin so the strip never z-fights
           const pt = hit ? hit.point.clone().addScaledVector(dir, hh * 0.015) : eyeC.clone().addScaledVector(up, dy).addScaledVector(dir, hh * 0.5);
           dst.push(head.worldToLocal(pt));
@@ -509,6 +528,7 @@ export class LiquidUnit {
           if (i === (N - 1) / 2 && dy === half) mid = pt.clone();
         }
       }
+      for (const f of flat) f.geometry.dispose();
       const pos: number[] = [];
       const nor: number[] = [];
       const idx: number[] = [];
