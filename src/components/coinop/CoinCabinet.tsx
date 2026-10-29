@@ -323,6 +323,8 @@ export function CabinetModals(p: {
   approveSince: number | null;
   walletName: string | null;
   error?: string | null;
+  /** The wallet's own message for a failed payment: shown small, so a wallet fault reads differently from a site fault. */
+  walletSaid?: string | null;
   /** Give up on the open wallet request and close this (Cancel, X, Escape, a click outside). */
   cancel?: () => void;
   /** After "didn't respond": send the same payment again (checked first, never charged twice). */
@@ -332,6 +334,15 @@ export function CabinetModals(p: {
 }) {
   const secs = useWaitSecs(p.approving ? p.approveSince : null);
   const name = p.walletName ?? 'your wallet';
+  // When our error text is just the wallet's words, show our friendly line and put the wallet's words underneath.
+  const rawOnly = Boolean(p.walletSaid && (p.error ?? '').includes(p.walletSaid));
+  const friendly = (fallback: string) => (rawOnly ? fallback : (p.error ?? fallback));
+  const said =
+    p.walletSaid ? (
+      <span className="mt-2 block text-xs opacity-70" data-wallet-said>
+        {p.walletName ?? 'Your wallet'} said: {p.walletSaid}
+      </span>
+    ) : null;
   if (p.modal === 'disconnected')
     return (
       <Modal title="Your wallet disconnected" tone="bad" action="Reconnect to pay" onAction={p.reconnect} pulse secondary="Not now" onSecondary={() => p.setModal(null)}>
@@ -347,13 +358,15 @@ export function CabinetModals(p: {
   if (p.modal === 'failed')
     return (
       <Modal title="That did not go through" tone="bad" action="OK, try again" onAction={() => p.setModal(null)} onClose={() => p.setModal(null)}>
-        {p.error ?? 'The payment did not complete.'} If your wallet shows a payment, it is safe in your gun: LOCK &amp; LOAD uses it, never charges twice.
+        {friendly('The payment did not complete.')} If your wallet shows a payment, it is safe in your gun: LOCK &amp; LOAD uses it, never charges twice.
+        {said}
       </Modal>
     );
   if (p.modal === 'refused')
     return (
       <Modal title="Your wallet said no" tone="bad" action="OK, try again" onAction={() => p.setModal(null)} onClose={() => p.setModal(null)}>
-        {p.error ?? `${name} did not approve the payment. Nothing was charged.`} Press LOCK &amp; LOAD to try again.
+        {friendly(`${name} did not approve the payment. Nothing was charged.`)} Press LOCK &amp; LOAD to try again.
+        {said}
       </Modal>
     );
   if (p.approving)

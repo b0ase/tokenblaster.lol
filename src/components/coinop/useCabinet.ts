@@ -282,5 +282,5 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
   }, [b.error]);
 
-  return { modal, setModal, reconnect, cancel, retry, giveUp, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, payUsdThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit };
+  return { modal, setModal, reconnect, cancel, retry, giveUp, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, payUsdThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit, walletSaid: b.walletSaid };
 }
