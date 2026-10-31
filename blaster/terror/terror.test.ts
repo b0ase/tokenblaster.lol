@@ -81,3 +81,69 @@ test('runner: kill switch halts the run', async () => {
     assert.ok(r.totals.signed < 1_000_000);
   } finally { await m.stop(); }
 });
+
+test('runner: fan-out POSTs capped at --fan-concurrency, bots staggered', async () => {
+  const m = new Mock({ seenAfterMs: 10 });
+  const url = await m.start();
+  try {
+    let now = 0, peak = 0;
+    const slow = (i: number) => {
+      const inner = bsvBroadcaster(url, { tries: 2 });
+      return { ...inner, async submit(items: Parameters<typeof inner.submit>[0]) {
+        if (items.length !== 1) return inner.submit(items);
+        now++; peak = Math.max(peak, now);
+        await new Promise((r) => setTimeout(r, 80));
+        try { return await inner.submit(items); } finally { now--; }
+      } } as ReturnType<typeof bsvBroadcaster>;
+    };
+    const first = new Map<string, number>();
+    const t0 = Date.now();
+    const r = await runStress({ bots: bots(6, 12, 40_000, slow, 1500), sign: signer(randomBytes(32)), satsPerKb: 100, rate: 0, maxSats: 1e9, fanWidth: 1500, pollMs: 50, fanSettleMs: 5000,
+      fanConcurrency: 2, staggerMs: 60, halted: () => false, onSigned: (b, kind) => { if (kind === 'fan' && !first.has(b)) first.set(b, Date.now() - t0); } });
+    assert.equal(r.totals.accepted, 9000);
+    assert.ok(peak <= 2, `peak ${peak} fan-out POSTs at once`);
+    for (let k = 0; k < 6; k++) assert.ok(first.get(botName(k + 1))! >= k * 60 - 5, `bot ${k + 1} started at ${first.get(botName(k + 1))}`);
+  } finally { await m.stop(); }
+});
+
+test('runner: a fan-out whose POST got no answer but landed is used, not abandoned', async () => {
+  const m = new Mock({ seenAfterMs: 10 });
+  const url = await m.start();
+  try {
+    const lost = (i: number) => {
+      const inner = bsvBroadcaster(url, { tries: 2 });
+      return { ...inner, async submit(items: Parameters<typeof inner.submit>[0]) {
+        const r = await inner.submit(items); // it reaches the server…
+        return items.length === 1 ? r.map((x) => ({ txid: x.txid, outcome: 'retry' as const })) : r; // …but the answer is lost
+      } } as ReturnType<typeof bsvBroadcaster>;
+    };
+    const r = await runStress({ bots: bots(2, 4, 40_000, lost, 1000), sign: signer(randomBytes(32)), satsPerKb: 100, rate: 0, maxSats: 1e9, fanWidth: 1000, pollMs: 50, fanSettleMs: 5000, fanTries: 1, halted: () => false });
+    assert.equal(r.totals.accepted, 2000);
+    assert.equal(r.totals.fanouts, 2);
+  } finally { await m.stop(); }
+});
+
+test('coins: wallet-wide journal + GorillaPool + WoC, any "spent" skips the coin', async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { journalSpent, gorillaSpends, wocSpends, usableCoins } = await import('./coins');
+  const P = 'ab'.repeat(32);
+  const coins = Array.from({ length: 6 }, (_, v) => ({ txid: P, vout: v, value: 499_986 }));
+  const dir = mkdtempSync(join(tmpdir(), 'terror-'));
+  writeFileSync(join(dir, 'spent-terrornode-bot01.jsonl'), `S ${P}:0 aa\nS ${P}:5 bb\nR ${P}:5\n`);
+  writeFileSync(join(dir, 'spent-terrornode-bot07.jsonl'), `S ${P}:1 cc\n`); // spent under another bot's slice
+  const j = journalSpent(dir);
+  assert.deepEqual([...j.keys()].sort(), [`${P}:0`, `${P}:1`]);
+  const fake = (async (u: string | URL | Request, init?: RequestInit) => {
+    const s = String(u);
+    if (s.includes('/api/spends')) { const ops = JSON.parse(String(init!.body)) as string[]; return new Response(JSON.stringify(ops.map((o) => (o.endsWith('_2') ? 'dd' : '')))); }
+    if (s.endsWith(`/${P}/3/spent`)) return new Response(JSON.stringify({ txid: 'ee' }));
+    return new Response('Not Found', { status: 404 });
+  }) as typeof fetch;
+  const gp = await gorillaSpends(coins, { fetch: fake });
+  const woc = await wocSpends(coins, { fetch: fake, perSec: 1000 });
+  const r = usableCoins(coins, { journal: j, gorillapool: gp, woc });
+  assert.deepEqual(r.usable.map((c) => c.vout), [4, 5]);
+  assert.deepEqual(r.skipped.map((s) => [s.coin.vout, s.by.join('+')]), [[0, 'journal'], [1, 'journal'], [2, 'gorillapool'], [3, 'woc']]);
+});
