@@ -46,6 +46,10 @@ export const ARC_MAX_TIMEOUT_S = 8;
 export const POLL_MS = 1000;
 export const POLL_TRIES = 20;
 export const RESENDS = 2;
+/** Status checks for a tx whose POST got no answer (Arcade NO_ANSWER after ~31 s): its fate is asked, never guessed. */
+export const UNANSWERED_CHECKS = 3;
+/** Most status asks for one fan-out tx in settleTxs (owner log, 31 Oct 2026: the same 8 leaves asked dozens of times). */
+export const SETTLE_MAX_POLLS = 30;
 const BAD = /REJECT|DOUBLE|INVALID|ERROR/i;
 /** On the network now (not just held by the broadcaster). Arcade adds SEEN_MULTIPLE_NODES. */
 export const isSeen = (s: string | undefined) => !!s && /^(SEEN_ON_NETWORK|SEEN_MULTIPLE_NODES|ACCEPTED_BY_NETWORK|MINED|IMMUTABLE|CONFIRMED)$/.test(s);
@@ -265,16 +269,31 @@ export function dualBroadcaster(primary: Broadcaster, second: Broadcaster): Broa
     if (b?.txStatus && !badB) return b;
     return a ?? b ?? null;
   };
+  // Once either source says the network has a tx, neither is asked about it again (owner log, 31 Oct 2026: the same
+  // leaves were asked of both ARC and Arcade, 404 after 404, after they were already seen).
+  const seenOnce = new Map<string, TxResult>();
+  const remember = (r: TxResult | null) => {
+    if (r?.txid && isSeen(r.txStatus)) {
+      if (seenOnce.size > 50_000) seenOnce.clear();
+      seenOnce.set(r.txid, r);
+    }
+    return r;
+  };
   return {
     kind: primary.kind,
     url: `${primary.url}+${second.url}`,
     async post(efs, txids) {
       const [a, b] = await Promise.all([primary.post(efs, txids).catch(() => [] as TxResult[]), second.post(efs, txids).catch(() => [] as TxResult[])]);
-      return txids.map((txid, i) => pick(a[i], b[i]) ?? { txid, txStatus: 'NO_ANSWER' });
+      return txids.map((txid, i) => remember(pick(a[i], b[i]) ?? { txid, txStatus: 'NO_ANSWER' })!);
     },
     async status(txid) {
-      const [a, b] = await Promise.all([primary.status(txid).catch(() => null), second.status(txid).catch(() => null)]);
-      return pick(a, b);
+      const known = seenOnce.get(txid);
+      if (known) return known;
+      // Ask the primary first; the second only when the primary does not say seen.
+      const a = await primary.status(txid).catch(() => null);
+      if (isSeen(a?.txStatus)) return remember(a);
+      const b = await second.status(txid).catch(() => null);
+      return remember(pick(a, b) ?? null);
     },
   };
 }
@@ -287,7 +306,7 @@ export function dualBroadcaster(primary: Broadcaster, second: Broadcaster): Broa
 export async function settleTxs(
   bc: Broadcaster,
   txs: { ef: Uint8Array; txid: string }[],
-  o: { deadlineMs?: number; pollMs?: number; stop?: () => boolean } = {},
+  o: { deadlineMs?: number; pollMs?: number; stop?: () => boolean; maxPolls?: number } = {},
 ): Promise<{ seen: Set<string>; statuses: Record<string, string>; bad: string[] }> {
   const end = Date.now() + (o.deadlineMs ?? 60_000);
   const seen = new Set<string>();
@@ -303,8 +322,11 @@ export async function settleTxs(
     if (r?.txStatus && BAD.test(`${r.txStatus} ${r.extraInfo ?? ''}`)) bad.push(t.txid);
     if (isSeen(r?.txStatus)) seen.add(t.txid);
   });
-  while (seen.size + bad.length < txs.length && Date.now() < end && !o.stop?.()) {
-    await new Promise((r) => setTimeout(r, o.pollMs ?? POLL_MS));
+  // Asks back off after the first 10 (x1.5 a round, up to 5 s) and stop after SETTLE_MAX_POLLS per tx; a seen tx is never asked again.
+  let wait = o.pollMs ?? POLL_MS;
+  for (let round = 0; seen.size + bad.length < txs.length && Date.now() < end && !o.stop?.() && round < (o.maxPolls ?? SETTLE_MAX_POLLS); round++) {
+    await new Promise((r) => setTimeout(r, wait));
+    if (round >= 10) wait = Math.min(5000, Math.max(wait + 1, Math.round(wait * 1.5))); // the first ~10 s at full speed (GO)
     await Promise.all(
       txs
         .filter((t) => !seen.has(t.txid) && !bad.includes(t.txid))
@@ -333,6 +355,8 @@ type Lane = {
   polls: number;
   resends: number;
   due: number;
+  /** The tip's POST got no answer: not counted as sent; asked by status until the network has it (or checks run out). */
+  unanswered?: boolean;
   tok?: { txidLE: Uint8Array; vout: number; amt: bigint; lock: Uint8Array };
 };
 
@@ -512,12 +536,22 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
       const r = res[i];
       const s = r?.txStatus ?? 'NO_ANSWER';
       statuses[s] = (statuses[s] ?? 0) + 1;
-      if (!r || !r.txStatus || isBad(r)) {
-        // No answer after every try, or a rejection: re-sending from a coin of unknown fate risks a double spend.
-        lane.state = 'done';
-        if (r) ctl.emit({ type: 'why', text: `${r.txStatus ?? r.status ?? ''} ${r.extraInfo ?? r.detail ?? ''}`.trim() });
+      if (!r || !r.txStatus || r.txStatus === 'NO_ANSWER') {
+        // No answer after every try (31 Oct 2026: Arcade, 600 at once after ~31 s). Not counted as sent; its fate is
+        // checked by GET status: seen → counted and the lane carries on; NOT_FOUND → the SAME bytes again (never a
+        // new spend of the coin); still unknown after UNANSWERED_CHECKS → the lane stops there.
+        lane.unanswered = true;
+        lane.polls = Math.max(lane.polls, POLL_TRIES - UNANSWERED_CHECKS);
+        hold(lane);
         return;
       }
+      if (isBad(r)) {
+        // A rejection: re-sending from a coin of unknown fate risks a double spend.
+        lane.state = 'done';
+        ctl.emit({ type: 'why', text: `${r.txStatus ?? r.status ?? ''} ${r.extraInfo ?? r.detail ?? ''}`.trim() });
+        return;
+      }
+      lane.unanswered = false;
       got++;
       last = txidHex(lane.pending!.txidLE);
       if (s === ORPHAN) orphans++;
@@ -538,14 +572,23 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
     const due = lanes.filter((l) => l.state === 'held' && l.due <= now()).slice(0, 50);
     for (const l of due) l.state = 'flight';
     let seen = 0;
+    let recovered = 0;
+    let last: string | undefined;
     const statuses: Record<string, number> = {};
     await Promise.all(
       due.map(async (lane) => {
-        const r = await lane.bc.status(txidHex(lane.pending!.txidLE));
+        const txid = txidHex(lane.pending!.txidLE);
+        const r = await lane.bc.status(txid);
         const s = r?.txStatus;
         if (s) statuses[s] = (statuses[s] ?? 0) + 1;
         if (isSeen(s)) {
           seen++;
+          if (lane.unanswered) {
+            // Its POST never answered, but the network has it: NOW it counts as sent.
+            lane.unanswered = false;
+            recovered++;
+            last = txid;
+          }
           advance(lane);
         } else if (s === NOT_FOUND && lane.resends < RESENDS) {
           lane.resends++;
@@ -556,7 +599,8 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
         } else hold(lane);
       }),
     );
-    if (seen) ctl.emit({ type: 'sent', n: 0, seen, orphans: 0, statuses });
+    if (recovered) stats.accepted += recovered;
+    if (seen) ctl.emit({ type: 'sent', n: recovered, last, seen, orphans: 0, statuses });
   }
 
   const inflight = new Set<Promise<void>>();

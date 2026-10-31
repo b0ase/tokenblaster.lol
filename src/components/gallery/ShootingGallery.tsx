@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
 import { holdWalletForPlay, walletHeld } from '@/lib/wallet';
-import { midRunReload } from '@/lib/midRunPay';
+import { loadAllowed, midRunReload } from '@/lib/midRunPay';
 import { getSiteWallet } from '@/lib/siteWallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { LiveTxBadge } from './LiveTxBadge';
@@ -107,6 +107,7 @@ import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo'
 import { useCabinet } from '../coinop/useCabinet';
 import { QuickReload } from './QuickReload';
 import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
+import { freshReportState, reportAnswered, reportWait } from '@/lib/scoreThrottle';
 import { fmtClock, triggerTick, pacedRate, secsLeft, shouldAutoLoad, spinUp, trulyEmpty } from '@/lib/firePace';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
@@ -268,7 +269,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     cabRef.current = cab;
   });
   // $TERRORNODE receipts (owner, 25 Oct): every LIVE bullet also buys 1 receipt at the curve price (src/lib/launch/receipts.ts).
-  const rc = useReceipts(!freePlay && !dry);
+  const rc = useReceipts(!freePlay && !dry, b.payReceipts);
   // The receipts go to the connected wallet. No wallet attached right now: they stay owed (and say so), never dropped.
   const settleReceipts = () => {
     const w = b.wallet ?? getSiteWallet().wallet;
@@ -928,18 +929,31 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
 
 
   /** Report this session's accepted shots (LIVE, named, real chain only); verified on chain by the last txid. */
-  const lastReport = useRef(0);
+  const reportState = useRef(freshReportState());
+  const reportLater = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => void (reportLater.current && clearTimeout(reportLater.current)), []);
   const reportRef = useRef<(force: boolean) => Promise<void>>(async () => undefined);
   useEffect(() => {
     reportRef.current = async (force: boolean) => {
       if (!live || dry || !handle || !run.last || !sentRef.current) return;
-      if (!force && Date.now() - lastReport.current < 60_000) return;
+      // At most one report per 10 s, backing off on 429 (owner log, 31 Oct 2026: dozens of 429s during play,
+      // src/lib/scoreThrottle.ts). A forced report that has to wait goes later, once, with the latest count.
+      const wait = reportWait(reportState.current, Date.now(), force);
+      if (wait > 0) {
+        if (force && !reportLater.current) {
+          reportLater.current = setTimeout(() => {
+            reportLater.current = null;
+            void reportRef.current(true);
+          }, wait);
+        }
+        return;
+      }
       const secs = Math.round((Date.now() - run.started) / 100) / 10;
       // The scores function rejects a run under MIN_REPORT_SECS as "implausible run" (400): the first report fired the
       // moment the first round landed (owner, 26 Oct 2026). Wait until the run is long enough.
       if (!run.started || secs < MIN_REPORT_SECS) return;
-      lastReport.current = Date.now();
-      await fetch('/api/scores', {
+      reportState.current = reportAnswered(reportState.current, Date.now(), null); // in flight counts as a report
+      const res = await fetch('/api/scores', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -953,7 +967,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
           x: handle,
           xp: cachedProof(handle) ?? undefined,
         }),
-      }).catch(() => undefined);
+      }).catch(() => null);
+      if (res?.status === 429) reportState.current = reportAnswered(reportState.current, Date.now(), 429, Number(res.headers.get('Retry-After')) || null);
     };
   });
   const sending = fired > run.sent;
@@ -1114,6 +1129,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const lockAndLoad = async (continued = false) => {
     // One load at a time: a second START / LOCK & LOAD press while this one runs is ignored (never a second load).
     if (loadingNow.current) return loadMark('lock & load: already loading, press ignored');
+    // A mid-run RELOAD payment is open: nothing may start a session (and re-take the wallet) until it is answered.
+    if (midPayRef.current) return loadMark('lock & load: a reload payment is open, load skipped');
     loadingNow.current = true;
     try {
       await lockAndLoadOnce(continued);
@@ -1465,6 +1482,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       releaseWallet: async () => {
         holdWalletForPlay(false);
         await Promise.race([b.endSession().catch(() => undefined), new Promise((r) => setTimeout(r, LOAD_STEP_MS))]);
+        // The sender is stopped and the session ended: the gun signs nothing more, so its hold goes too (a session
+        // still stuck after the bound above signs nothing either: stop.current is set).
+        holdWalletForPlay(false, 'storm');
       },
       walletHeld,
       pay: () =>
@@ -1506,7 +1526,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const roundSats = Math.ceil(perShotAll) + overheadSats(1);
   const spareSats = simulated || mode !== 'live' ? 0 : b.ammo;
   const empty = mode === 'live' && trulyEmpty({ left: packLeft, unsent, spareSats, roundSats });
-  const autoLoadOk = mode === 'live' && !simulated && !locking && shouldAutoLoad({ left: packLeft, unsent, spareSats, roundSats });
+  const autoLoadOk = mode === 'live' && !simulated && !locking && loadAllowed({ midPay, paused }) && shouldAutoLoad({ left: packLeft, unsent, spareSats, roundSats });
   const autoTried = useRef(0);
   useEffect(() => {
     if (!autoLoadOk || autoTried.current === bought) return;
