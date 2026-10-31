@@ -99,5 +99,12 @@ export const FLAGS = [
   '👻👻👻🎃🎃🎃💀💀 Welcome to TERRORNODE · bmusicx.com/listen/terrornode 👹🧟🕷️🦇😈💀👻🎃',
   '🦇🕷️🕸️🧛🧟🧙🎃👻 STORM nSLAVE CORPORATION · terrornode.com 👹🧟🕷️🦇😈💀👻🎃',
   '💀☠️⚰️🪦👻😱🎃🔥 $TERRORNODE · bchatx.com/t/terrornode 👹🧟🕷️🦇😈💀👻🎃',
+  '🎃👻💀😈🦇🕷️🧟👹 bWalletX · bwalletx.com 👹🧟🕷️🦇😈💀👻🎃',
+  '😈👹👺💀☠️🔥🎃👻 bChatX · bchatx.com 👹🧟🕷️🦇😈💀👻🎃',
+  '👻👻👻🎃🎃🎃💀💀 ARCADE · tokenblaster.lol/arcade 👹🧟🕷️🦇😈💀👻🎃',
+  '🦇🕷️🕸️🧛🧟🧙🎃👻 NINJA PUNK GIRLS · ninjapunkgirls.com 👹🧟🕷️🦇😈💀👻🎃',
+  '💀☠️⚰️🪦👻😱🎃🔥 KWEGWONG · kwegwong.com 👹🧟🕷️🦇😈💀👻🎃',
+  '🎃👻💀😈🦇🕷️🧟👹 b0ase.com 👹🧟🕷️🦇😈💀👻🎃',
+  '😈👹👺💀☠️🔥🎃👻 bAdvertisingX · badvertisingx.com 👹🧟🕷️🦇😈💀👻🎃',
 ]
 export const botFlag = (i: number, flags: string[] = FLAGS) => flags[(i - 1) % flags.length];
