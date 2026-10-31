@@ -41,10 +41,10 @@ import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons'
 import { GalleryEngine, type Hooks, type Quality, type StageEvent, type Stats } from '@/lib/galleryGame/engine';
 import {
   DEFAULT_AMMO,
+  ammoFromPaymail,
   blockRounds,
   overheadSats,
   roundsFor,
-  ammoFromPaymail,
   fmtUsd,
   freeForStressTest,
   galleryPushes,
@@ -87,6 +87,7 @@ import { PlayInBwalletButton, usePlayInBwallet } from './PlayInBwallet';
 import type { RunSummary } from './Results';
 import dynamic from 'next/dynamic';
 import type { LevelId, Progress } from '@/lib/terrornode/levels';
+import { dropBacklog, mayBroadcast } from '@/lib/terrornode/fireGate';
 // LEVELS: the table, the select and the clear card are their own chunks (the first load stays the same size)
 const LevelSelect = dynamic(() => import('../terrornode/Levels').then((m) => m.LevelSelect), { ssr: false });
 const LevelClear = dynamic(() => import('../terrornode/Levels').then((m) => m.LevelClear), { ssr: false });
@@ -173,11 +174,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   const [dry, setDry] = useState(false);
   const [autofire, setAutofire] = useState(false);
   const [weaponId, setWeaponId] = useState('minigun');
-  // Rounds carry the player's paymail once a wallet pays; practice fires plain sats.
-  // The paymail from bWallet's lookup for this identity key (else plain DEFAULT_AMMO).
+  // Push 2 is the AMMO: "sats" (or the coin's token id, set where the coin storm starts). Never the paymail: that
+  // goes after <game> (31 Oct 2026: rounds carried "b0asex@bwalletx.com" in both places).
   const barWallet = useSyncExternalStore(subBarWallet, getBarWallet, () => null);
+  // The player's paymail (shown on the loadout; on chain it is the push after <game>, see `handle`).
   const paymail = b.wallet && barWallet?.publicKey === b.wallet.publicKey ? ammoFromPaymail(barWallet) : null;
-  const ammo = paymail ?? DEFAULT_AMMO;
+  const ammo = DEFAULT_AMMO;
   // The NAME is the wallet's paymail (owner, 25 Oct): the on-chain handle tag and the board name (src/lib/gallery.ts roundHandle).
   const handle = roundHandle(barWallet?.paymail, cleanName(name));
   const [netSeen, setNetSeen] = useState(0);
@@ -453,6 +455,26 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     modeRef.current = m;
     setModeState(m);
   }, []);
+  // The fire gate (src/lib/terrornode/fireGate.ts): every paid sender asks canSend() before it sends a round.
+  const loadoutRef = useRef(true);
+  const overRef = useRef(false);
+  useEffect(() => {
+    loadoutRef.current = loadout;
+    overRef.current = over !== null;
+  }, [loadout, over]);
+  const canSend = useCallback(
+    () =>
+      mayBroadcast({
+        mode: modeRef.current,
+        loadout: loadoutRef.current,
+        over: overRef.current,
+        flat: flatRef.current,
+        paused: pausedRef.current,
+        fired: firedRef.current,
+        sent: sentRef.current,
+      }),
+    [],
+  );
   const boughtRef = useRef(0);
   useEffect(() => {
     boughtRef.current = bought;
@@ -575,7 +597,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     void (async () => {
       while (alive) {
         const q = firedRef.current - sentRef.current;
-        if (q <= 0) {
+        if (!canSend()) {
           await new Promise((r) => setTimeout(r, 60));
           continue;
         }
@@ -597,7 +619,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     return () => {
       alive = false;
     };
-  }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed, liveCoin]);
+  }, [dry, mode, pattern.kind, fireBatch, handle, ammo, landed, liveCoin, canSend]);
 
   // Live, streams: one storm session over the prepared lanes, paused whenever the queue is empty. If it ends
   // with rounds still queued (a network failure), it reloads by itself and carries on; after 3 tries: jammed.
@@ -638,7 +660,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         { game: GALLERY_GAME, extra: galleryPushes(handle).slice(1) },
         perShot,
         coin ? coin.tokenId : ammo,
-        () => pausedRef.current || sentRef.current >= firedRef.current, // PAUSE or nothing queued: hold, keep the lanes
+        () => !canSend(), // not live, PAUSE or nothing queued: hold, keep the lanes (src/lib/terrornode/fireGate.ts)
         STREAM_STEP, // most blasts per lane per ARC round: up to 100 lanes x 100 a round
       )
         .catch((e) => {
@@ -682,7 +704,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       try {
         if (!dry) await b.prepareStorm(left, perShot);
         senderDead.current = false;
-        if (!dry) sessionRef.current(left);
+        // The round may have ended while the lanes loaded: only a live round starts sending again.
+        if (!dry && modeRef.current === 'live') sessionRef.current(left);
       } catch (e) {
         console.warn('[tb-fire] reload failed', e);
         senderDead.current = true;
@@ -711,7 +734,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           landed(d, last ?? null);
         },
         () => stop.current,
-        () => pausedRef.current || sentRef.current >= firedRef.current,
+        () => !canSend(),
         { game: GALLERY_GAME, extra: galleryPushes(handle).slice(1) },
         STREAM_STEP,
       )
@@ -1080,6 +1103,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     }
     unlockAudio();
     const stream = pattern.kind === 'stream';
+    // NO PAID ROUNDS WHILE LOADING (owner, 31 Oct 2026): the last round's sender stops NOW, before the loading screen
+    // goes up, and its unsent rounds are dropped (their sats stay in the gun). It used to keep draining its queue
+    // behind LOADING YOUR AMMO until the payments check had answered.
+    stop.current = true;
+    sessionGen.current++;
+    sessionAlive.current = false;
+    firedRef.current = dropBacklog({ fired: firedRef.current, sent: sentRef.current }).fired;
+    setFired(firedRef.current);
     setLoadout(false);
     setMode('warm');
     setJammed(false);
@@ -1107,10 +1138,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       // resolved and pinned right now, no paid session starts (free practice still works); nothing goes anywhere else.
       // (usually answered already: the check is prefetched when the loadout opens, splitClient.ts)
       if (!(await limit(splitAvailable(), LOAD_STEP_MS, 'payments check'))) throw new Error('PAYUNAVAIL');
-      // End the previous session first: stop its sender, release the gun's lock, save its change.
-      stop.current = true;
-      sessionGen.current++;
-      sessionAlive.current = false;
+      // End the previous session first (its sender was told to stop above): release the gun's lock, save its change.
       await limit(b.endSession(), LOAD_STEP_MS, 'closing the last session');
       if (ammoCoin) {
         // Swap on load: ONE approval buys the coin into the gun with the gunpowder (src/lib/launch/swapLoad.ts).
@@ -1206,6 +1234,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   useEffect(() => {
     if (loadout && modeRef.current === 'live') {
       setMode('off');
+      // Nothing is sent off the live round (src/lib/terrornode/fireGate.ts): unsent rounds go back to credit.
+      firedRef.current = dropBacklog({ fired: firedRef.current, sent: sentRef.current }).fired;
+      setFired(firedRef.current);
       boughtRef.current = firedRef.current;
       setBought(firedRef.current);
     }
@@ -1518,7 +1549,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
             <button type="button" onClick={() => location.reload()} className="tbx-btn tbx-btn-red">
               {!freePlay && cab.creditReady && cab.creditUsd > 0 ? 'Reload & PLAY' : 'Reload'}
             </button>
-            {!freePlay && cab.creditReady && <UnloadButton b={b} creditUsd={cab.creditUsd} />}
+            {!freePlay && <UnloadButton b={b} creditUsd={cab.creditUsd} />}
           </div>
           {!freePlay && <CreditNotices b={b} />}
         </div>
@@ -1791,7 +1822,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         )}
 
         {/* UNLOAD on the attract screen (owner, 25 Oct): nobody playing, the gun holds credit */}
-        {!loadout && !over && mode === 'off' && !dry && !freePlay && cab.creditReady && (
+        {!loadout && !over && mode === 'off' && !dry && !freePlay && (
           <div className="tbx-glass absolute right-3 top-3 z-40 rounded-lg px-2 py-1.5" data-attract-unload>
             <UnloadButton b={b} creditUsd={cab.creditUsd} />
           </div>
@@ -1860,7 +1891,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
               <button type="button" onClick={togglePause} className="btn btn-on px-4 py-2 font-bold tracking-widest">
                 RESUME
               </button>
-              {cab.creditUsd > 0 || b.gunTokens.length ? (
+              {cab.creditUsd > 0 || b.gunTokens.length || b.gunAddress ? (
                 <UnloadButton
                   b={b}
                   creditUsd={cab.creditUsd}
@@ -1952,6 +1983,10 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                 fee={fee}
                 bsvUsd={bsvUsd}
                 credit={fmtCredit(cab.creditUsd)}
+                sats={b.ammo}
+                checking={b.creditUnknown || !b.ammoKnown}
+                walletName={b.wallet?.name ?? cab.walletName}
+                onRescan={() => void b.refreshGun('rescan pressed')}
                 gunAddress={b.gunAddress}
                 packLeft={packLeft}
                 ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}
@@ -2001,7 +2036,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                 unload={
                   !dry && !freePlay ? (
                     <>
-                      {cab.creditReady && <UnloadButton b={b} creditUsd={cab.creditUsd} />}
+                      <UnloadButton b={b} creditUsd={cab.creditUsd} />
                       <CreditNotices b={b} />
                     </>
                   ) : null

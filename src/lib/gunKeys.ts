@@ -12,6 +12,7 @@
  * Never log a WIF. Pure apart from the injected storage and fetch, so the tests run in node.
  */
 import { PrivateKey } from '@bsv/sdk';
+import { bestCredit } from './creditRead';
 
 export const GUN_STORE = 'tokenblaster.gun';
 export const GUN_KEYS = 'tokenblaster.gun.keys';
@@ -103,7 +104,9 @@ export async function chainSats(address: string, f: Fetch = fetch): Promise<numb
   if (!r?.ok || r.headers.get('x-coins-upstream') === 'failed') return null;
   const list = (await r.json().catch(() => null)) as { sats?: number }[] | null;
   if (!Array.isArray(list)) return null;
-  return list.reduce((n, c) => n + (typeof c.sats === 'number' && c.sats > 0 ? c.sats : 0), 0);
+  // The list is the top 200 coins; the header is every page's total (src/lib/creditRead.ts). Show the higher.
+  const head = Number(r.headers.get('x-coins-total'));
+  return bestCredit([list.reduce((n, c) => n + (typeof c.sats === 'number' && c.sats > 0 ? c.sats : 0), 0), r.headers.has('x-coins-total') ? head : null]);
 }
 
 /** The credit the crash fallback shows: the stored gun's chain balance, no wallet involved. */
@@ -111,4 +114,32 @@ export async function peekCredit(st: KeyStore | null = browserStore(), f: Fetch 
   const address = storedGunAddress(st);
   if (!address) return { address: null, sats: null };
   return { address, sats: await chainSats(address, f) };
+}
+
+/** Every key this browser's guns used, with its address (current first): for "Send back to my wallet". Never logged. */
+export function gunKeysForSweep(st: KeyStore | null = browserStore()): { address: string; wif: string }[] {
+  if (!st) return [];
+  const out: { address: string; wif: string }[] = [];
+  try {
+    const s = JSON.parse(st.getItem(GUN_STORE) ?? 'null') as { wif?: unknown } | null;
+    if (typeof s?.wif === 'string') out.push({ address: PrivateKey.fromWif(s.wif).toAddress(), wif: s.wif });
+  } catch {
+    /* unreadable current gun: the archived keys still count */
+  }
+  for (const k of archivedKeys(st)) {
+    try {
+      // The address is derived from the key itself: a stored address that does not match its key is skipped.
+      if (PrivateKey.fromWif(k.wif).toAddress() === k.address && !out.some((o) => o.address === k.address)) out.push({ address: k.address, wif: k.wif });
+    } catch {
+      /* not a key */
+    }
+  }
+  return out;
+}
+
+/** The coins (with parent tx hex) at `address` from /api/coins: every page of the chain read, largest first. */
+export async function chainCoins(address: string, f: Fetch = fetch): Promise<{ txid: string; vout: number; sats: number; hex?: string }[]> {
+  const r = await f(`/api/coins?address=${address}`, { cache: 'no-store', signal: AbortSignal.timeout(30_000) });
+  if (!r.ok || r.headers.get('x-coins-upstream') === 'failed') throw new Error("Couldn't read this key's coins right now. Try again in a moment.");
+  return (await r.json()) as { txid: string; vout: number; sats: number; hex?: string }[];
 }

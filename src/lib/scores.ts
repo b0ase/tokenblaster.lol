@@ -122,6 +122,17 @@ function pushes(script: string): string[] {
 }
 
 /**
+ * One output's OP_RETURN against a game tag: "tokenblaster.lol" <ammo> <n> <game> [handle]. Push 2 (<ammo>) is not
+ * checked, so rounds from before the 31 Oct 2026 fix (paymail in push 2) and after it ("sats" / ticker) both count.
+ */
+export function runTagMatches(scriptHex: string, tag: string | string[], handle?: string): boolean {
+  if (!scriptHex.startsWith('006a')) return false;
+  const gameHex = (Array.isArray(tag) ? tag : [tag]).map((t) => Buffer.from(t).toString('hex'));
+  const p = pushes(scriptHex);
+  return p[0] === TAG_HEX && gameHex.includes(p[3]) && (!handle || p[4] === Buffer.from(handle).toString('hex'));
+}
+
+/**
  * A LIVE run is verified when its last tx is known to ARC (GorillaPool) and carries
  * OP_FALSE OP_RETURN "tokenblaster.lol" <token> <n> <game> with this game's tag.
  */
@@ -143,13 +154,7 @@ export async function verifyRunTx(txid: string, tag: string | string[], handle?:
     const { Transaction } = await import('@bsv/sdk');
     const tx = Transaction.fromHex(raw);
     if (tx.id('hex') !== txid) return false;
-    const gameHex = (Array.isArray(tag) ? tag : [tag]).map((t) => Buffer.from(t).toString('hex'));
-    return tx.outputs.some((o) => {
-      const s = o.lockingScript.toHex();
-      if (!s.startsWith('006a')) return false;
-      const p = pushes(s);
-      return p[0] === TAG_HEX && gameHex.includes(p[3]) && (!handle || p[4] === Buffer.from(handle).toString('hex'));
-    });
+    return tx.outputs.some((o) => runTagMatches(o.lockingScript.toHex(), tag, handle));
   } catch {
     return false;
   }

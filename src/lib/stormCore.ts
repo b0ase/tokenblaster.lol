@@ -297,9 +297,18 @@ type Lane = {
 };
 
 /** The <game> push and up to two short pushes after it (strings only). */
+/**
+ * The <ammo> push (push 2): "sats" or a token ticker / id, NEVER a name. A paymail or handle there (31 Oct 2026:
+ * TERRORNODE rounds carried "b0asex@bwalletx.com" as their ammo) falls back to "sats"; the name goes after <game>.
+ */
+export function ammoPush(token: string | null | undefined): string {
+  const t = (token ?? '').trim();
+  return !t || t.includes('@') ? 'sats' : t;
+}
+
 export function tagPushes(token: string, n: number, game: string | undefined, extra: unknown): string[] {
   const ex = Array.isArray(extra) ? extra.filter((x): x is string => typeof x === 'string' && x.length > 0).slice(0, 2) : [];
-  return [TAG, token || 'sats', String(n), game || 'bsvgun', ...ex];
+  return [TAG, ammoPush(token), String(n), game || 'bsvgun', ...ex];
 }
 
 export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {

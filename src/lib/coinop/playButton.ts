@@ -15,6 +15,9 @@ export function playButton(creditUsd: number, pendingUsd: number, priceUsd = MIN
   return { label: `LOCK & LOAD ${fmtCredit(Math.max(MIN_CREDIT_USD, priceUsd))}`, kind: 'quick', sub: null };
 }
 
-/** UNLOAD shows whenever the gun holds anything (sats credit or tokens). */
-export const showUnload = (creditUsd: number, tokens = 0) => creditUsd > 0 || tokens > 0;
-export const unloadLabel = (creditUsd: number) => `UNLOAD ${fmtCredit(creditUsd)} → wallet`;
+/**
+ * UNLOAD shows whenever the gun holds anything (sats credit or tokens), and ALWAYS when this browser has a gun key
+ * (owner, 31 Oct 2026: a short balance read hid UNLOAD over 5.8M sats). A low or failed read never hides it.
+ */
+export const showUnload = (creditUsd: number, tokens = 0, hasKey = false) => hasKey || creditUsd > 0 || tokens > 0;
+export const unloadLabel = (creditUsd: number) => (creditUsd > 0 ? `UNLOAD ${fmtCredit(creditUsd)} → wallet` : 'UNLOAD → wallet (check balance)');

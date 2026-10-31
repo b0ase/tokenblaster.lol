@@ -7,8 +7,9 @@
 import { spendableCoins } from './coinop/ammo';
 import { STREAM_STEP, fanoutPlan } from './gallery';
 import { runStorm, type StormBatch, type StormNet } from './stormRun';
-import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
+import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, ammoPush, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
 import { hasPayRef } from './payRef';
+import { buildSweep } from './sweep';
 import { archiveKey, archivedKeys, keyPersisted } from './gunKeys';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
@@ -714,7 +715,7 @@ export class Gun {
         for (let i = 0; i < extras.length; i++) {
           const tx = new Transaction();
           tx.addInput({ sourceTransaction: prev.tx, sourceOutputIndex: prev.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-          tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
+          tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, ammoPush(token), String(startN + i), ...extras[i]].map(hex).join(' ')}`), satoshis: 0 });
           for (const p of pays) tx.addOutput({ lockingScript: new P2PKH().lock(p.address), satoshis: p.sats });
           tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
           await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
@@ -1295,7 +1296,7 @@ export class Gun {
     if (!this.coin) throw new Error('The gun is empty. Load it first.');
     const tx = new Transaction();
     tx.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, token || 'sats', String(n), ...extra].map(hex).join(' ')}`), satoshis: 0 });
+    tx.addOutput({ lockingScript: Script.fromASM(`OP_FALSE OP_RETURN ${[TAG, ammoPush(token), String(n), ...extra].map(hex).join(' ')}`), satoshis: 0 });
     tx.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
     await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
     await tx.sign();
@@ -1367,13 +1368,10 @@ export class Gun {
   private async unloadNow(address: string): Promise<string | null> {
     const coins = await this.coinsOnChain();
     if (this.coin && !coins.some((c) => c.tx.id('hex') === this.coin!.tx.id('hex') && c.vout === this.coin!.vout)) coins.push(this.coin);
-    const total = coins.reduce((n, c) => n + (c.tx.outputs[c.vout].satoshis ?? 0), 0);
-    if (total < 50) return null;
-    const tx = new Transaction();
-    for (const c of coins) tx.addInput({ sourceTransaction: c.tx, sourceOutputIndex: c.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-    tx.addOutput({ lockingScript: new P2PKH().lock(address), change: true });
-    await tx.fee(new SatoshisPerKilobyte(FEE_RATE));
-    await tx.sign();
+    // Every coin worth more than its fee, largest first (src/lib/sweep.ts): thousands of 6-sat lane ends are left.
+    const built = await buildSweep(this.key, coins, address);
+    if (!built) return null;
+    const { tx } = built;
     await this.send(tx);
     this.coin = null;
     this.save();
