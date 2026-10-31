@@ -2115,6 +2115,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
                 checking={b.creditUnknown || !b.ammoKnown}
                 walletName={b.wallet?.name ?? cab.walletName}
                 onRescan={() => void b.refreshGun('rescan pressed')}
+                rescanNote={b.resyncNote}
                 gunAddress={b.gunAddress}
                 packLeft={packLeft}
                 ordnance={b.wallet ? { checking: ordnance.checking, checked: ordnance.walletChecked, check: () => void ordnance.checkWallet(), idle: mode === 'off' } : null}

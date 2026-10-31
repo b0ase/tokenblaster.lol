@@ -5,6 +5,7 @@
  * left back to the player. Same transaction shape as blaster/blast.ts.
  */
 import { spendableCoins } from './coinop/ammo';
+import { applyResync, resyncCandidates, type ResyncResult } from './gunResync';
 import { STREAM_STEP, fanoutPlan, lanesFor as plannedLanes } from './gallery';
 import { runStorm, type StormBase, type StormBatch, type StormLane, type StormNet } from './stormRun';
 import { streamLeaves, type LaneSpec } from './fanoutStream';
@@ -226,6 +227,8 @@ type Saved = {
   extra?: { tx: string; vout: number }[];
   /** Outpoints our own transactions spent (the index can lag): never reused. Most recent last, capped. */
   spent?: string[];
+  /** Spender txid of a journal outpoint, when we broadcast it ourselves (for the re-sync check, src/lib/gunResync.ts). */
+  spentBy?: Record<string, string>;
   /** Coin ammo (option A, 25 Oct 2026): rounds fired with this token's tag, not yet burned as tokens. */
   owed?: { id: string; n: string };
 };
@@ -350,6 +353,8 @@ export class Gun {
   private extra: { tx: Transaction; vout: number }[] = [];
   /** Outpoints our own broadcasts spent. */
   private spent = new Set<string>();
+  /** outpoint → the txid that spent it, when known (re-sync asks Arcade/ARC whether that spender is still held). */
+  private spentBy = new Map<string, string>();
   /** Storage held something we could not read: never write over it (the owner's key may be in it). */
   private readOnly = false;
   /** The running storm session (so a new LOCK & LOAD can end it) and its halt flag. */
@@ -435,6 +440,7 @@ export class Gun {
     this.coin = this.tok = this.owed = null;
     this.extra = [];
     this.spent = new Set();
+    this.spentBy = new Map();
     this.spentTok = new Set();
     this.lockedGun = this.readOnly = this.freshGun = false;
     this.save();
@@ -454,14 +460,77 @@ export class Gun {
       this.extra = [];
     }
     this.spent = new Set(s?.spent ?? []);
+    this.spentBy = new Map(Object.entries(s?.spentBy ?? {}).filter(([k]) => this.spent.has(k)));
   }
 
   /** Remember every input of a transaction we broadcast: those outpoints are spent, whatever the index says. */
   private markSpent(tx: Transaction) {
     for (const i of tx.inputs) {
       const id = i.sourceTXID ?? i.sourceTransaction?.id('hex');
-      if (id) this.spent.add(`${id}_${i.sourceOutputIndex}`);
+      if (!id) continue;
+      const k = `${id}_${i.sourceOutputIndex}`;
+      this.spent.add(k);
+      this.spentBy.set(k, tx.id('hex'));
     }
+  }
+
+  /**
+   * Re-sync the spent journal with the network (owner, 31 Oct 2026): outpoints marked spent locally whose spender
+   * never reached the network are unmarked, so the CREDIT and UNLOAD see them again. A coin whose spender is
+   * spent on chain, or still held by Arcade or ARC, stays spent. No wallet call. Skipped while a session runs
+   * (its lanes are being spent right now). Returns the per-outpoint verdicts.
+   */
+  async resyncSpent(caller = 'resync'): Promise<ResyncResult[]> {
+    if (this.lockedGun || this.session || this.moreRoundsLoading) return [];
+    this.refresh();
+    if (!this.spent.size) return [];
+    const chain = await this.amountsOnChain(caller);
+    const cands = resyncCandidates(this.spent, chain, (op) => this.spendersOf(op));
+    if (!cands.length) return [];
+    const r = await fetch('/api/gun/resync', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ candidates: cands }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(60_000),
+    }).catch(() => null);
+    if (!r?.ok) return [];
+    const { results } = (await r.json().catch(() => ({ results: [] }))) as { results: ResyncResult[] };
+    this.refresh(); // another tab may have fired meanwhile
+    const freed = applyResync(this.spent, results);
+    for (const k of freed) this.spentBy.delete(k);
+    if (freed.length) {
+      this.amountRead = this.chainRead = null;
+      this.save();
+    }
+    loadMark(`resync (${caller}): ${freed.length} freed of ${results.length} checked`);
+    return results;
+  }
+
+  /** Spender txids we know for `op`: the journal's record, plus any tx in this browser's cache that spends it. */
+  private spendersOf(op: string): string[] {
+    const out = new Set<string>();
+    const rec = this.spentBy.get(op);
+    if (rec) out.add(rec);
+    const [txid, v] = op.split('_');
+    const scan = (id: string, hex: string) => {
+      try {
+        const t = Transaction.fromHex(hex);
+        if (t.inputs.some((i) => i.sourceTXID === txid && i.sourceOutputIndex === Number(v))) out.add(id);
+      } catch {
+        /* unreadable cache entry */
+      }
+    };
+    for (const [id, hex] of HEX_MEM) scan(id, hex);
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(HEX_LS) && !HEX_MEM.has(k.slice(HEX_LS.length))) scan(k.slice(HEX_LS.length), localStorage.getItem(k) ?? '');
+      }
+    } catch {
+      /* no storage */
+    }
+    return [...out];
   }
 
   /** Another tab may have fired since: take the latest coin from storage. */
@@ -511,6 +580,7 @@ export class Gun {
     write({
       extra: this.extra.length ? this.extra.map((e) => ({ tx: e.tx.toHex(), vout: e.vout })) : undefined,
       spent: this.spent.size ? [...this.spent].slice(-2000) : undefined,
+      spentBy: this.spentBy.size ? Object.fromEntries([...this.spentBy].filter(([k]) => this.spent.has(k)).slice(-2000)) : undefined,
       wif: this.key.toWif(),
       tx: this.coin?.tx.toHex(),
       vout: this.coin?.vout,

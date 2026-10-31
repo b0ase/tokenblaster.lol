@@ -26,6 +26,7 @@ import { lookupPaymail, patchBarWallet } from './walletBar';
 import type { AmmoCoin, SwapLoadQuote } from './launch/ammoCoins';
 import { swapLoad } from './launch/swapLoad';
 import { BURN_FEE } from './launch/ammoCoins';
+import { resyncMessage } from './gunResync';
 
 /**
  * No background wallet calls (owner, 25 Oct 2026): connecting asks only for the identity key. The wallet's token
@@ -491,29 +492,54 @@ export function useBlaster() {
     [token, wallet],
   );
 
+  const [resyncNote, setResyncNote] = useState<string | null>(null);
+  /**
+   * Re-sync the gun's spent journal with the network (src/lib/gunResync.ts): coins marked spent locally whose spender
+   * never reached the network come back. Time-boxed so it never holds up a LOCK & LOAD or an UNLOAD; never throws.
+   */
+  const resyncGun = useCallback(async (caller: string, maxMs = 12_000): Promise<string | null> => {
+    const g = gun.current;
+    if (!g) return null;
+    const r = await Promise.race([g.resyncSpent(caller).catch(() => []), new Promise<[]>((ok) => setTimeout(() => ok([]), maxMs))]);
+    const shout = caller === 'rescan pressed';
+    if (!r.some((x) => x.verdict === 'freed' || x.verdict === 'pending')) {
+      if (shout) setResyncNote('Nothing stuck: your credit matches the chain');
+      return null;
+    }
+    const usd = await fetch('/api/price')
+      .then((x) => (x.ok ? x.json() : null))
+      .then((j: { bsvUsd?: number } | null) => j?.bsvUsd ?? 0)
+      .catch(() => 0);
+    const note = resyncMessage(r, usd);
+    setResyncNote(note);
+    return note;
+  }, []);
+
   /** LOCK & LOAD: find the coin, split it into lanes, wait for the network. Then storm() fires at once. */
   const prepareStorm = useCallback(async (total: number, perBlast: number, onStep?: (pct: number, slowSecs: number) => void) => {
     const g = gun.current;
     if (!g) throw new Error('No gun.');
     try {
+      await resyncGun('before lock & load', 8000);
       await g.prepareStorm(total, perBlast, onStep);
     } finally {
       // Never block the start on a chain read (owner log, 25 Oct: stuck at 100% for 68 s on this balance).
       setAmmo(g.sats);
       void g.balance('after prepare').then(setAmmo).catch(() => undefined);
     }
-  }, []);
+  }, [resyncGun]);
 
   /** Turn whatever credit is at the gun's address into its one firing coin (no wallet call). Returns the sats. */
   const gatherGun = useCallback(async () => {
     const g = gun.current;
     if (!g) throw new Error('No gun.');
     try {
+      await resyncGun('before gather');
       return await g.gather();
     } finally {
       setAmmo(g.sats);
     }
-  }, []);
+  }, [resyncGun]);
 
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
@@ -656,6 +682,8 @@ export function useBlaster() {
   const refreshGun = useCallback(async (caller = 'refresh'): Promise<number> => {
     const g = gun.current;
     if (!g) return 0;
+    // Page load and "Rescan the chain": re-sync the spent journal first (no wallet popup), so stuck coins count.
+    if (caller === 'page load' || caller === 'rescan pressed') await resyncGun(caller);
     setGunTokens(await g.tokensHeld().catch(() => []));
     // Strict: a chain read that failed is "unknown", never $0.00 (31 Oct: a reload after a paid load showed no credit).
     const sats = await g.balance(caller, true).catch(() => null);
@@ -667,7 +695,7 @@ export function useBlaster() {
     }
     setAmmo(sats);
     return sats;
-  }, []);
+  }, [resyncGun]);
   const creditTries = useRef(0);
   useEffect(() => {
     if (!creditUnknown || creditTries.current >= 4) return;
@@ -717,6 +745,7 @@ export function useBlaster() {
         // Keep the sats in the gun: they pay the token transfer once topped up.
         setError(`Your ${short.join(', ')} tokens are still in the gun: it needs ${need.toLocaleString()} more sats to pay the network fee to return them. Load at least ${need.toLocaleString()} sats, then UNLOAD again.`);
       } else if (opts.sats !== false) {
+        await resyncGun('before unload');
         const before = await g.balance('before unload').catch(() => g.sats);
         const txid = await g.unload(wallet.address);
         if (txid) {
@@ -736,7 +765,7 @@ export function useBlaster() {
     } finally {
       setBusy(null);
     }
-  }, [wallet, refreshGun, fail, setError]);
+  }, [wallet, refreshGun, resyncGun, fail, setError]);
 
   /**
    * Swap on load (owner, 25 Oct 2026): ONE approval buys an ammo coin on its BlastPad curve straight into the
@@ -800,5 +829,5 @@ export function useBlaster() {
     [],
   );
 
-  return { moreRoundsLoading, latePaid, warmWallet, gunLocked, gunMissing, creditUnknown, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid };
+  return { moreRoundsLoading, latePaid, warmWallet, gunLocked, gunMissing, creditUnknown, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid, resyncNote, setResyncNote };
 }
