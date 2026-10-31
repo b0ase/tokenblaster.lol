@@ -38,6 +38,7 @@ import { useOrdnance } from '@/lib/useOrdnance';
 import { useNpgCards } from '@/lib/useNpgCards';
 import { GIRLS, girlImg, loadPick, modsFor, normalizePick, savePick, statsFor, type Pick } from '@/lib/npgLoadout';
 import { CharacterSelect } from './CharacterSelect';
+import { StoryLoading } from '../terrornode/StoryLoading';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
 import type { GalleryEngine, Hooks, Quality, StageEvent, Stats } from '@/lib/galleryGame/engine';
 import {
@@ -63,7 +64,7 @@ import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { GameAudio } from '../SoundToggle';
 import { drFontClass } from '../dr/fonts';
 import { tbxFontClass } from '../coinop/fonts';
-import { Icon, Modal, Ticker } from '../coinop/ui';
+import { Icon, Modal } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
 import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
 import { useReceipts } from './useReceipts';
@@ -105,6 +106,7 @@ import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo'
 import { useCabinet } from '../coinop/useCabinet';
 import { QuickReload } from './QuickReload';
 import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
+import { fireAllowance, fmtClock, pacedRate, secsLeft, shouldAutoLoad, spinUp, trulyEmpty } from '@/lib/firePace';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
 import { OfficialNpg } from '../terrornode/OfficialNpg';
@@ -254,6 +256,10 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   // The wallet sheet names the game the player is in (owner, 25 Oct 2026: it said "Shooting Gallery" on TerrorNode).
   const cab = useCabinet(b, 'TerrorNode', { dry });
+  const cabRef = useRef(cab);
+  useEffect(() => {
+    cabRef.current = cab;
+  });
   // $TERRORNODE receipts (owner, 25 Oct): every LIVE bullet also buys 1 receipt at the curve price (src/lib/launch/receipts.ts).
   const rc = useReceipts(!freePlay && !dry);
   // The receipts go to the connected wallet. No wallet attached right now: they stay owed (and say so), never dropped.
@@ -525,6 +531,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     [setRun],
   );
 
+  const loadedRef = useRef(0);
+  const paceRef = useRef(0);
+  const simulatedRef = useRef(simulated);
+  useEffect(() => {
+    loadedRef.current = loadedRounds;
+    simulatedRef.current = simulated;
+  }, [loadedRounds, simulated]);
   // Visual fire: the stream ticker.
   useEffect(() => {
     let last = performance.now();
@@ -534,11 +547,18 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       const m = modeRef.current;
       const left = boughtRef.current - firedRef.current;
       s.on = held.current && !pausedRef.current && !loadout && !flatRef.current && pattern.kind === 'stream' && (m === 'warm' || (m === 'live' && left > 0));
-      s.target = pattern.kind === 'stream' ? pattern.rate : 0;
+      // PACING (src/lib/firePace.ts): the load spread over ~90 s (never above the gun's top rate), a spin-up on every
+      // pull, and paid fire never more than ~2 s ahead of the network. Same rounds per dollar, just paced.
+      const top = pattern.kind === 'stream' ? pattern.rate : 0;
+      const paced = m === 'live' ? pacedRate(top, loadedRef.current) || top : top;
+      paceRef.current = paced;
+      const spin = heldSince.current ? spinUp((t - heldSince.current) / 1000) : 1;
+      s.target = pattern.kind === 'stream' ? paced * spin : 0;
       let n = simTick(s, (t - last) / 1000);
       last = t;
       if (m === 'live') {
-        n = Math.max(0, Math.min(n, left));
+        const room = simulatedRef.current ? left : fireAllowance({ left, fired: firedRef.current, sent: sentRef.current, rate: paced });
+        n = Math.max(0, Math.min(n, room));
         firedRef.current += n;
       }
       if (n) engine.current?.accept(n);
@@ -828,6 +848,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
 
   // While firing: plain notes. The gun itself never waits on these.
   const [stall, setStall] = useState<string | null>(null);
+  // STREAMED AMMO: GO comes with the first leaf live; the rest arrive while you fire. A small HUD line says so.
+  const [moreLoading, setMoreLoading] = useState(false);
+  const moreRoundsLoading = b.moreRoundsLoading;
+  useEffect(() => {
+    if (mode !== 'live') return;
+    const t = setInterval(() => setMoreLoading(moreRoundsLoading()), 500);
+    return () => clearInterval(t);
+  }, [mode, moreRoundsLoading]);
   useEffect(() => {
     const i = setInterval(() => {
       let msg: string | null = null;
@@ -1039,12 +1067,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const perShotAll = perShot * (1 + fee);
   // Coin ammo quote: rounds = min(tokens, what the gunpowder pays at this gun's shot cost).
   const coinQ = useAmmoCoinQuote(ammoCoin, usdToSats(cab.pending, bsvUsd), b.ammo, slipBps, perShotAll);
-  // THE FULL BLOCK: how many rounds holding the trigger for all ten minutes takes at this gun's rate, and the price
-  const fullBlock = blockRounds(pattern);
-  const blockNote = freePlay ? `Free play loads ${fullBlock.toLocaleString('en-US')} practice rounds: enough for the full 10:00 block.` : `A full 10:00 block at this gun's rate needs ${fullBlock.toLocaleString('en-US')} rounds, about ${fmtUsd(usdOf(fullBlock * perShotAll, bsvUsd))}.`;
   const goLive = useCallback(
     (rounds: number, continued = false) => {
       setLoadedRounds(rounds);
+      loadedRef.current = rounds;
+      cabRef.current.loadedIntoRounds();
       setBought(firedRef.current + rounds);
       boughtRef.current = firedRef.current + rounds;
       sentRef.current = firedRef.current; // warm-up rounds were never queued
@@ -1055,13 +1082,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       setOver(null);
       sfx('coin');
       if (continued) return; // play resumes on the same stage: no new banners
-      // GO (the overlay below) is the "gun loaded" moment now; the stage banner follows once it has gone
+      // GO (the overlay below) is the "gun loaded" moment; then ONE short stage sting (owner, 31 Oct 2026: no title
+      // card flood or paragraphs over the action). The stage banner shows on later stages only.
       setTimeout(() => {
-        // the act card first (a level that starts on the roof is already Act 2), then its first stage
         const st = (engine.current?.stageIdx ?? 0) + 1;
         pushBanner({ kind: 'act', n: actOf(st).n });
-        pushBanner({ kind: 'stage', n: st });
-      }, 1300);
+      }, 900);
     },
     [setMode, setRun, setLoadedRounds, setBought, setLoad, pushBanner, setOver],
   );
@@ -1415,7 +1441,25 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const creditLive = mode === 'live' ? { usd: usdOf(Math.max(0, bought - (simulated ? fired : run.sent)) * (perShotAll + (rc.live && rc.q ? (rc.q.nextPriceSats ?? 0) : 0)), bsvUsd), practice: simulated } : null;
 
   const outMsg = freePlay ? 'Out of practice rounds. Press LOADOUT and LOCK & LOAD for more.' : 'Out of rounds. Press LOADOUT and put another coin in.';
-  const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? outMsg : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · ${coarse ? 'HOLD FIRE. Left thumb: move · right thumb: aim.' : 'HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.'}`));
+  // CREDIT → ROUNDS (owner, 31 Oct 2026: "OUT OF ROUNDS" with $0.09 still in the gun). Rounds fired but not yet sent,
+  // and any credit left in the gun, are still ammo: the spare credit loads by itself (no wallet prompt). Only a truly
+  // empty gun offers reload amounts.
+  const unsent = simulated ? 0 : Math.max(0, fired - run.sent);
+  const roundSats = Math.ceil(perShotAll) + overheadSats(1);
+  const spareSats = simulated || mode !== 'live' ? 0 : b.ammo;
+  const empty = mode === 'live' && trulyEmpty({ left: packLeft, unsent, spareSats, roundSats });
+  const autoLoadOk = mode === 'live' && !simulated && !locking && shouldAutoLoad({ left: packLeft, unsent, spareSats, roundSats });
+  const autoTried = useRef(0);
+  useEffect(() => {
+    if (!autoLoadOk || autoTried.current === bought) return;
+    autoTried.current = bought; // once per load: never a loop
+    loadMark('credit left in the gun: loading it into rounds (no wallet prompt)');
+    void lockRef.current(true);
+  }, [autoLoadOk, bought]);
+  const paceNow = mode === 'live' ? pacedRate(pattern.kind === 'stream' ? pattern.rate : 0, loadedRounds) : 0;
+  const left = secsLeft(packLeft, paceNow);
+  const timeLeft = mode === 'live' && left != null && packLeft > 0 ? fmtClock(left) : null;
+  const hint = mode === 'warm' ? 'WARM-UP SHOTS (not live) while your ammo loads. Nothing can hurt you yet. WASD to move, click to mouse-look.' : (stall ?? (packLeft <= 0 ? (empty ? outMsg : unsent > 0 ? 'Sending your last rounds…' : 'Loading the rest of your credit into rounds…') : `${simulated ? 'PRACTICE ROUNDS' : patternLabel(pattern)} · ${coarse ? 'HOLD FIRE. Left thumb: move · right thumb: aim.' : 'HOLD to fire (or SPACE). WASD move · mouse-look · ← → turn.'}`));
   const toBoard = () => {
     setOver(null);
     setLoadout(true);
@@ -1677,22 +1721,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
           />
         )}
         {(mode === 'warm' || cab.stage === 'loading') && !loadout && !over && (
-          <div className="tbx-in-d pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4" role="status" data-warmup>
-            {/* Big and centred (owner, 25 Oct: "the LOADING YOUR AMMO bar needs to be a lot bigger"). */}
-            <div className="tbx-glass w-full max-w-[880px] px-6 py-6 sm:px-10 sm:py-8">
-              <div className="flex items-baseline justify-between gap-4">
-                <span className="tbx-display flex items-center gap-3 text-[clamp(22px,4.2vw,48px)] leading-none text-white">
-                  <Icon name="chip" size={34} className="shrink-0 text-[var(--tbx-teal)]" /> LOADING YOUR AMMO
-                </span>
-                <Ticker value={warmPct} format={(n) => `${Math.round(n)}%`} className="tbx-display tbx-num text-[clamp(28px,5vw,60px)] leading-none text-[var(--tbx-teal)]" />
-              </div>
-              <div className="tbx-bar mt-5 !h-5 sm:!h-7">
-                <i style={{ transform: `scaleX(${warmPct / 100})`, transition: 'transform 0.25s linear' }} />
-              </div>
-              <p className="tbx-num mt-4 text-[clamp(15px,2vw,22px)] font-semibold text-white" data-load-line>{loadLine}</p>
-              <p className="mt-1.5 text-sm text-white/70 sm:text-base">{mode === 'warm' ? 'Warm-up shots while you wait (not live). No enemies until GO.' : 'No enemies until GO.'}</p>
-            </div>
-          </div>
+          <StoryLoading pct={warmPct} line={loadLine} coarse={coarse} practice={simulated} />
         )}
         {goAt > 0 && !loadout && !over && (
           <div className="pointer-events-none absolute inset-x-0 top-[38%] z-30 flex flex-col items-center" role="status" data-go>
@@ -1737,7 +1766,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
         )}
         {/* JAMMED: a small screen-fixed toast, never a modal (owner, 25 Oct: the old box could not be reached while
             pointer-locked and stayed after the gun recovered). R reloads from the keyboard; ESC frees the mouse. */}
-        {mode === 'live' && !loadout && !over && !flat && !paused && !jammed && packLeft <= Math.max(30, Math.round(loadedRounds * 0.1)) && (
+        {mode === 'live' && !loadout && !over && !flat && !paused && !jammed && !locking && (packLeft > 0 ? packLeft <= Math.max(30, Math.round(loadedRounds * 0.1)) : empty) && (
           <QuickReload left={packLeft} buys={buys} busy={cab.stage === 'approve' || cab.stage === 'loading' || locking} freePlay={freePlay} onReload={quickReload} />
         )}
         {jammed && mode === 'live' && !loadout && !over && (
@@ -1774,7 +1803,10 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
             sent={run.sent}
             weaponName={weapon.name}
             ammo={ammo ?? DEFAULT_AMMO}
-            creditUsd={cab.creditUsd}
+            creditUsd={cab.creditShown}
+            creditNote={!creditLive && cab.creditLoading ? 'loading into rounds…' : null}
+            timeLeft={timeLeft}
+            moreLoading={mode === 'live' && moreLoading && !simulated}
             live={creditLive}
             receipts={rc.live && rc.q ? { earned: rc.earned, priceSats: rc.q.nextPriceSats ?? 0 } : null}
             tps={run.tps}
@@ -2040,7 +2072,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
               {rc.note && <p className="mb-2 text-xs text-[var(--tbx-teal)]" data-receipt-note>{rc.note}</p>}
               <CoinCabinet
                 title="Shooting Gallery"
-                creditUsd={cab.creditUsd}
+                creditUsd={cab.creditShown}
                 creditReady={cab.creditReady}
                 pendingUsd={cab.pending}
                 bsvUsd={cab.bsvUsd}
@@ -2051,7 +2083,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
                 name={name}
                 hasPaymail={hasPaymail}
                 priceUsd={satsToUsd(perShotAll, bsvUsd)}
-                priceNote={`Rounds at cost price${fee ? `, plus a ${Math.round(fee * 100)}% fee` : ', no extra charge'}. ${blockNote} ${dry ? 'Free play: nothing is paid, broadcast or spent.' : free ? 'No platform fee until 1 Nov: you only pay for your rounds.' : ''}${dry ? '' : ` Receipts${fee ? ' and fee' : ''} ${SPLIT_LINE}.`}`}
+                priceNote={`${dry ? 'Free play: nothing is paid.' : `Each round is a real transaction: network cost${fee ? ` + ${Math.round(fee * 100)}% fee` : ''}${free ? ' (no fee until 1 Nov)' : ''}${fee ? ` (fee ${SPLIT_LINE})` : ''}.`}`}
                 buys={buys}
                 unit="shots"
                 startLabel={ready ? 'Lock & load' : 'Loading…'}

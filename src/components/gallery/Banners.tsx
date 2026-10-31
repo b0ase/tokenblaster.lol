@@ -12,7 +12,8 @@ import { Icon } from '../coinop/ui';
 export type BannerKind = { kind: 'loaded' } | { kind: 'stage'; n: number } | { kind: 'boss' } | { kind: 'act'; n: 1 | 2 } | { kind: 'freed' };
 type Item = BannerKind & { id: number; ms: number };
 
-const MS = { loaded: 2400, stage: 3400, boss: 2400, act: 3000, freed: 3200 } as const;
+// Stings, not title cards (owner, 31 Oct 2026): each one ≤ 1.5 s, no paragraphs over the action.
+const MS = { loaded: 1400, stage: 1400, boss: 1500, act: 1500, freed: 1500 } as const;
 
 /** Queue banners; each one shows for its own time, then the next. */
 export function useBanners() {
@@ -81,7 +82,6 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
           <Brand>{a.title}</Brand>
         </p>
         <span className="tbx-banner-line mt-2 h-[2px] w-[min(560px,76vw)] bg-gradient-to-r from-transparent via-[var(--tbx-red)] to-transparent" />
-        <p className="tbx-banner-sub mt-3 text-[clamp(12px,1.4vw,17px)] font-semibold uppercase tracking-[0.28em] text-white/85"><Brand>{a.line}</Brand></p>
       </div>
     );
   }
@@ -93,7 +93,6 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
         </p>
         <span className="tbx-banner-line mt-2 h-[2px] w-[min(520px,70vw)] bg-gradient-to-r from-transparent via-[var(--tbx-ok)] to-transparent" />
         <p className="tbx-banner-sub mt-3 text-[clamp(13px,1.6vw,20px)] font-bold uppercase tracking-[0.24em] text-white">{FREED.sub}</p>
-        <p className="tbx-banner-sub mt-2 hidden max-w-[560px] text-[clamp(11px,1.1vw,14px)] italic text-white/70 sm:block">“{KWEG.clear[2]}” <span className="not-italic">· {KWEG.name}</span></p>
       </div>
     );
   }
@@ -110,7 +109,6 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
         </p>
         <span className="tbx-banner-line mt-2 h-[3px] w-[min(560px,76vw)] bg-gradient-to-r from-transparent via-[var(--tbx-red)] to-transparent" />
         <p className="tbx-banner-sub mt-3 text-[clamp(14px,1.8vw,22px)] font-bold uppercase tracking-[0.34em] text-white">{BANNERS.boss.sub}</p>
-        <p className="tbx-banner-sub mt-2 hidden max-w-[560px] text-[clamp(12px,1.2vw,15px)] italic text-white/70 sm:block">“{KWEG.boss}” <span className="not-italic">· {KWEG.name}</span></p>
       </div>
     );
   }
@@ -123,8 +121,6 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
       </p>
       <span className="tbx-banner-line h-[2px] w-[min(520px,70vw)] bg-gradient-to-r from-transparent via-[var(--tbx-teal)] to-transparent" />
       <p className="tbx-banner-sub tbx-display mt-3 text-[clamp(20px,3vw,36px)]"><Brand>{w.title}</Brand></p>
-      <p className="tbx-banner-sub mt-2 max-w-[560px] text-[clamp(13px,1.3vw,16px)] font-medium text-white/85" style={{ textShadow: '0 2px 16px #000' }}><Brand>{w.brief}</Brand></p>
-      <p className="tbx-banner-sub mt-2 hidden max-w-[560px] text-[clamp(11px,1.1vw,14px)] italic text-white/60 sm:block">“{w.kweg}” <span className="not-italic">· {KWEG.name}</span></p>
     </div>
   );
 }

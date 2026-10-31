@@ -796,6 +796,13 @@ export class Gun {
 
   /** Lane coins fanned out ahead of time by prepareStorm(), so the first trigger pull fires at once. */
   private ready: Ammo | null = null;
+  /** The load whose leaves are still streaming in (set by prepareStorm, kept through its storm). */
+  private feeding: Ammo | null = null;
+  /** True while a streamed load's background leaves are still arriving ("loading more rounds…"). */
+  get moreRoundsLoading(): boolean {
+    const a = this.feeding;
+    return !!a && !a.ended && !a.cancelled;
+  }
 
   /** Stop a background fan-out feed (a new LOCK & LOAD, an ended session) and wait for its last POST to settle. */
   private async stopFeed(a: Ammo | null) {
@@ -931,6 +938,7 @@ export class Gun {
       }
       onStep(95, 0);
       this.ready = ammo;
+      this.feeding = ammo;
       loadMark('ready');
       onStep(100, 0);
     });

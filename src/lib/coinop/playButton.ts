@@ -9,8 +9,17 @@ import { MIN_CREDIT_USD, fmtCredit, hasCredit } from './credit';
 
 export type PlayButton = { label: string; kind: 'play' | 'pay' | 'quick'; sub: string | null };
 
-export function playButton(creditUsd: number, pendingUsd: number, priceUsd = MIN_CREDIT_USD): PlayButton {
-  if (pendingUsd > 0) return { label: `LOCK & LOAD ${fmtCredit(pendingUsd)}`, kind: 'pay', sub: creditUsd > 0 ? `+ ${fmtCredit(creditUsd)} credit` : null };
+/** "about 170,000 rounds": rounded to 2 significant figures, a plain promise, never more than is bought. */
+export function aboutRounds(n: number | null | undefined): string | null {
+  if (n == null || !(n > 0)) return null;
+  const k = 10 ** Math.max(0, Math.floor(Math.log10(n)) - 1);
+  return `about ${(Math.floor(n / k) * k).toLocaleString('en-US')} rounds`;
+}
+
+export function playButton(creditUsd: number, pendingUsd: number, priceUsd = MIN_CREDIT_USD, pendingRounds?: number | null): PlayButton {
+  // The amount picked, said once (owner, 31 Oct 2026: "LOCK & LOAD $1.00 + $0.10 credit" read as one bill). The
+  // wallet is asked for exactly this; credit already in the gun is shown on its own CREDIT readout.
+  if (pendingUsd > 0) return { label: `LOCK & LOAD ${fmtCredit(pendingUsd)}`, kind: 'pay', sub: aboutRounds(pendingRounds) };
   if (hasCredit(creditUsd, priceUsd)) return { label: `PLAY (${fmtCredit(creditUsd)} credit)`, kind: 'play', sub: 'no payment' };
   return { label: `LOCK & LOAD ${fmtCredit(Math.max(MIN_CREDIT_USD, priceUsd))}`, kind: 'quick', sub: null };
 }
