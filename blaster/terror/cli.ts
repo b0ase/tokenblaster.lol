@@ -37,7 +37,7 @@ import { PrivateKey } from '@bsv/sdk';
 import { arcBroadcaster, bsvBroadcaster, ARC_URL, BSV_URL, type Broadcaster, type Opts, type TxStatus } from '../ramp/broadcaster';
 import { Ledger } from '../ramp/ledger';
 import { signer, txidHex } from '../ramp/tx';
-import { NO_RECEIPTS, allocate, botName, checkLive, parseBots, project } from './plan';
+import { NO_RECEIPTS, allocate, botFlag, botName, checkLive, parseBots, project } from './plan';
 import { runStress, type BotSpec } from './runner';
 import { gorillaSpends, journalSpent, usableCoins, wocSpends } from './coins';
 
@@ -166,6 +166,8 @@ async function main() {
 
   const outDir = arg('out', join(DIR, 'terror', `${live ? 'live' : 'dry'}-${new Date().toISOString().replace(/[:.]/g, '-')}`))!;
   mkdirSync(outDir, { recursive: true });
+  // --no-flags: plain terrornode-botNN labels (the old shape)
+  const flags = !process.argv.includes('--no-flags');
   const specs: BotSpec[] = botNums.map((b, i) => {
     const name = botName(b);
     // live: per-bot journal of every spent output (never re-spend, survives restarts); dry: memory only
@@ -174,10 +176,11 @@ async function main() {
     for (const c of mine) ledger.addMined(c.txid, c.vout, c.value);
     const bc = live ? real[i % real.length] : dryBroadcaster(name);
     const fanBc = live ? fanReal[i % fanReal.length] : bc;
-    return { name, ledger, bc, fanBc, shots, maxSats: botMaxSats };
+    const tag = flags ? botFlag(b) : name;
+    return { name, tag, ledger, bc, fanBc, shots, maxSats: botMaxSats };
   });
   const walletSats = specs.reduce((s, b) => s + b.ledger.available('mined').reduce((a, u) => a + u.value, 0), 0);
-  const feePerShotEst = sign.blastFee(9_999_999, botName(1), satsPerKb) + 0.1;
+  const feePerShotEst = Math.max(...specs.map((s) => sign.blastFee(9_999_999, s.tag ?? s.name, satsPerKb))) + 0.1;
   let maxSats = Number(arg('max-sats', '0'));
   if (live) {
     if (!(maxSats > 0)) throw new Error('--live needs --max-sats N (hard cap on fees, the owner-approved budget)');
