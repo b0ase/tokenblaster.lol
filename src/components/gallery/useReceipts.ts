@@ -8,6 +8,7 @@ import { RECEIPT_GAS, affordableReceipts, rangeSats, settlementAsm } from '@/lib
 import { SETTLE_FEE, shotsForSats, type ReceiptCurve } from '@/lib/coinop/shots';
 import { fetchSplit } from '@/lib/launch/splitClient';
 import { splitOutputs } from '@/lib/launch/split';
+import { PENDING_SETTLE_KEY, withGunBusyRetry, type PendingSettle } from '@/lib/settleRetry';
 
 export type ReceiptQuote = { live: boolean; issued: number; nextPriceSats: number | null; graduateAt?: number; graduated?: boolean; soldOut?: boolean; split?: string; gasAddress: string | null; gasSats: number };
 
@@ -51,7 +52,16 @@ async function deliver(txid: string): Promise<{ ok: true; count?: number } | { o
   return { ok: false, retry, why: j?.error ?? (r ? `Receipts refused (${r.status}).` : 'Could not reach TokenBlaster.') };
 }
 
-export function useReceipts(on: boolean) {
+type SettleArgs = {
+  pay: (plan: (coinSats: number) => { asm: string; outs: { address: string; sats: number }[] } | null) => Promise<string | null>;
+  recipient: string | null;
+  session: string;
+  handle: string;
+  shownAs: string;
+};
+
+/** `pay`: the gun's settlement payer, so a settlement left pending by an earlier page load can run again here. */
+export function useReceipts(on: boolean, pay?: SettleArgs['pay']) {
   const [q, setQ] = useState<ReceiptQuote | null>(null);
   const [earned, setEarned] = useState(0); // receipts fired this session (paid at settlement)
   const [note, setNote] = useState<string | null>(null);
@@ -125,13 +135,7 @@ export function useReceipts(on: boolean) {
 
   /** Session end: one settlement tx from the gun, then ask the server to send the tokens. */
   const settle = useCallback(
-    async (a: {
-      pay: (plan: (coinSats: number) => { asm: string; outs: { address: string; sats: number }[] } | null) => Promise<string | null>;
-      recipient: string | null;
-      session: string;
-      handle: string;
-      shownAs: string;
-    }) => {
+    async (a: SettleArgs) => {
       const owedNow = owed.current;
       if (!owedNow || settling.current) return;
       if (!a.recipient) {
@@ -145,6 +149,7 @@ export function useReceipts(on: boolean) {
         const fresh = (await quote()) ?? q;
         if (fresh?.soldOut) {
           setOwed(0);
+          writeJson(PENDING_SETTLE_KEY, null);
           setNote('All $TERRORNODE earned: every receipt is issued. Play on.');
           return;
         }
@@ -158,7 +163,10 @@ export function useReceipts(on: boolean) {
         // Only what the gun's one coin can pay (receipts + gas + network fee); the rest stays owed for the next settle.
         let count = 0;
         let total = 0;
-        const txid = await a.pay((coinSats) => {
+        // Kept until paid: a settlement that can not run now (gun busy past every retry, page closed) runs next load.
+        writeJson(PENDING_SETTLE_KEY, { recipient, session: a.session, handle: a.handle, shownAs: a.shownAs, at: Date.now() } satisfies PendingSettle);
+        // The gun may be busy with the next LOCK & LOAD (owner log, 31 Oct 2026): wait for it, never fail on it.
+        const txid = await withGunBusyRetry(() => a.pay((coinSats) => {
           count = affordableReceipts(fresh.issued + 1, owedNow, coinSats - RECEIPT_GAS - SETTLE_FEE);
           if (!count) return null;
           total = Number(rangeSats(fresh.issued + 1, count));
@@ -166,10 +174,11 @@ export function useReceipts(on: boolean) {
             asm: settlementAsm({ count, recipient, session: a.session, handle: a.handle }, split),
             outs: [...splitOutputs(split, total), { address: gasAddress, sats: RECEIPT_GAS }],
           };
-        });
+        }), { onWait: (ms) => setNote(`Gun busy loading: paying your $TERRORNODE receipts in ${Math.round(ms / 1000)} s…`) });
         if (!txid) throw new Error('Not enough in the gun to pay for them yet: they are kept and settle after your next load.');
         if (count < owedNow) console.info(`[tb-receipts] settled ${count} of ${owedNow}; ${owedNow - count} carried forward`);
         writeJson(PAID_KEY, { txid, count, shownAs: a.shownAs } satisfies Paid);
+        if (owed.current - count <= 0) writeJson(PENDING_SETTLE_KEY, null);
         setOwed(owed.current - count);
         setNote(`Paid ${total.toLocaleString('en-US')} sats for ${count.toLocaleString('en-US')} $TERRORNODE receipts. Sending…`);
         for (let i = 0; i < 8; i++) {
@@ -193,6 +202,25 @@ export function useReceipts(on: boolean) {
     },
     [q, setOwed],
   );
+
+  // A settlement an earlier page load could not run (gun busy, tab closed): run it once receipts are live here.
+  const payRef = useRef(pay);
+  useEffect(() => {
+    payRef.current = pay;
+  });
+  const retried = useRef(false);
+  useEffect(() => {
+    if (!live || retried.current || !payRef.current) return;
+    const p = readJson<PendingSettle>(PENDING_SETTLE_KEY);
+    if (!p?.recipient) return;
+    if (!owed.current) return void writeJson(PENDING_SETTLE_KEY, null);
+    const payer = payRef.current;
+    const t = setTimeout(() => {
+      retried.current = true;
+      void settle({ pay: payer, recipient: p.recipient, session: p.session, handle: p.handle, shownAs: p.shownAs });
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [live, owedN, settle]);
 
   return { q, live, allEarned, curve, earned, owed: owedN, note, shots, rangeCost, fired, settle, resetSession: () => setEarned(0) };
 }

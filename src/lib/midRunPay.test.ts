@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { midRunReload, playerWords, RELOAD_STILL_HELD } from './midRunPay';
+import { loadAllowed, midRunReload, playerWords, RELOAD_STILL_HELD } from './midRunPay';
 
 function rig(o: { holdSticks?: boolean; pay?: () => Promise<boolean> } = {}) {
   const log: string[] = [];
@@ -13,6 +13,7 @@ function rig(o: { holdSticks?: boolean; pay?: () => Promise<boolean> } = {}) {
       if (!o.holdSticks) held = false;
     },
     walletHeld: () => held,
+    freeWaitMs: 50,
     pay: async () => {
       log.push(held ? 'pay-while-HELD' : 'pay');
       return o.pay ? o.pay() : true;
@@ -50,4 +51,45 @@ test('no raw error codes for players', () => {
   assert.ok(!/_/.test(playerWords('WALLET_HELD_DURING_PLAY') ?? ''));
   assert.equal(playerWords('ERR_SOMETHING_ODD'), null);
   assert.equal(playerWords('Insufficient funds'), 'Insufficient funds');
+});
+
+test('regression 31 Oct 11:46: pay() is never called while the wallet is held, even when a hold lingers a moment', async () => {
+  // The storm's own hold drops a few ticks after its session ends: wait for it, then pay.
+  const log: string[] = [];
+  let held = true;
+  const r = await midRunReload({
+    pause: () => void log.push('pause'),
+    stopSender: () => void log.push('stop'),
+    releaseWallet: async () => {
+      log.push('release');
+      setTimeout(() => (held = false), 120);
+    },
+    walletHeld: () => held,
+    pay: async () => (log.push(held ? 'pay-while-HELD' : 'pay'), true),
+    resume: () => void log.push('resume'),
+    fail: (m) => void log.push(`fail:${m}`),
+  });
+  assert.equal(r, 'paid');
+  assert.ok(!log.includes('pay-while-HELD'));
+  // A hold that never lets go: no pay at all.
+  let calls = 0;
+  const r2 = await midRunReload({
+    pause: () => undefined,
+    stopSender: () => undefined,
+    releaseWallet: async () => undefined,
+    walletHeld: () => true,
+    freeWaitMs: 100,
+    pay: async () => (calls++, true),
+    resume: () => undefined,
+    fail: () => undefined,
+  });
+  assert.equal(r2, 'failed');
+  assert.equal(calls, 0);
+});
+
+test('no load (auto-load / LOCK & LOAD) may start while a reload payment is open or the game is paused for it', () => {
+  assert.equal(loadAllowed({ midPay: true, paused: true }), false);
+  assert.equal(loadAllowed({ midPay: true, paused: false }), false);
+  assert.equal(loadAllowed({ midPay: false, paused: true }), false);
+  assert.equal(loadAllowed({ midPay: false, paused: false }), true);
 });

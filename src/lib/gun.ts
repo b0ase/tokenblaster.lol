@@ -262,6 +262,19 @@ const keepRaw = () => {
 };
 /** Shown (and thrown) when the stored gun can not be read: never a new key over it (its coins would be orphaned). */
 export const GUN_LOCKED = 'Gun locked: restore from wallet';
+/** The gun is busy in this or another tab (Web Locks timed out): the caller may wait and try again. */
+export const GUN_BUSY = 'Another TokenBlaster tab is using the gun. Close it and try again.';
+
+/**
+ * May prepareStorm fire from the coin this LOCK & LOAD already settled on, with no chain read and no merge? Only when
+ * it is the very coin gather/startCoin chose (`primed`), our transactions have not spent it, it holds sats and no
+ * other paid coin is waiting to be merged.
+ */
+export function primedCoinUsable(a: { primed: string | null; coin: { tx: { id: (e: 'hex') => string; outputs: { satoshis?: number }[] }; vout: number } | null; spent: Set<string>; extra: number }): boolean {
+  if (!a.primed || !a.coin || a.extra > 0) return false;
+  const k = `${a.coin.tx.id('hex')}_${a.coin.vout}`;
+  return k === a.primed && !a.spent.has(k) && (a.coin.tx.outputs[a.coin.vout]?.satoshis ?? 0) >= 1000;
+}
 
 /**
  * Storm sessions hold the shared 'tokenblaster-gun' Web Lock, so a session must not sit on it while nothing is being
@@ -347,6 +360,12 @@ export class Gun {
   private coin: { tx: Transaction; vout: number } | null = null;
   /** The coin the wallet just paid in (load()), used as-is by the next LOCK & LOAD: no chain read, no merge. */
   private justPaid: { tx: Transaction; vout: number } | null = null;
+  /**
+   * The coin this LOCK & LOAD already settled on (gather / the coin just paid), so prepareStorm fires from it with no
+   * second chain read and no merge (owner log, 31 Oct 2026 11:40: a 13 s chain read + a consolidate ran AGAIN after
+   * gather, 75 s from payment to GO). Outpoint key; cleared once used or when the coin changes.
+   */
+  private primed: string | null = null;
   private tok: TokCoin | null = null; // the token UTXO the gun is firing from
   private spentTok = new Set<string>(); // token outpoints we have spent (the indexer may lag)
   private arc = new ARC(ARC_URL);
@@ -554,7 +573,7 @@ export class Gun {
     // Don't wait forever on a tab that is stuck holding the gun.
     return (locks.request('tokenblaster-gun', { signal: AbortSignal.timeout(10_000) }, fn) as Promise<T>).catch((e) => {
       if (e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
-        throw new Error('Another TokenBlaster tab is using the gun. Close it and try again.');
+        throw new Error(GUN_BUSY);
       }
       throw e;
     });
@@ -901,7 +920,19 @@ export class Gun {
    * wallet broadcasts it itself), so when the index has nothing yet we fall back to the coin load() saved:
    * ARC accepts a chain that spends an accepted, unconfirmed parent. Merges several coins into one.
    */
-  private async startCoin(onWait: (secs: number) => void) {
+  private async startCoin(onWait: (secs: number) => void, reuse = false) {
+    // Second call in the same LOCK & LOAD (prepareStorm after gather): the coin gather settled on is still ours,
+    // unspent and alone, so use it as is. No chain read, no merge.
+    if (reuse && !this.justPaid && primedCoinUsable({ primed: this.primed, coin: this.coin, spent: this.spent, extra: this.extra.length })) {
+      this.primed = null;
+      loadMark(`using the coin gather settled on (${this.sats} sats): no chain read, no merge`);
+      return;
+    }
+    await this.startCoinFresh(onWait);
+    this.primed = this.coin ? `${this.coin.tx.id('hex')}_${this.coin.vout}` : null;
+  }
+
+  private async startCoinFresh(onWait: (secs: number) => void) {
     // Fresh payment (owner log, 31 Oct 2026: 44 s merging the paid coin with two coins WhatsOnChain wrongly listed
     // as unspent, which ARC then refused as a double spend): fire from the coin just paid, alone. Nothing to read,
     // nothing to merge; any other coins stay at the address for UNLOAD / the next gather / the re-sync.
@@ -970,7 +1001,7 @@ export class Gun {
       this.halt = false;
       loadMark(`prepare: ${total} rounds`);
       onStep(10, 0);
-      await this.startCoin((secs) => onStep(15, secs));
+      await this.startCoin((secs) => onStep(15, secs), true);
       if (!this.coin) throw new Error('EMPTY');
       onStep(30, 0);
       const plan = fanoutPlan(total, perBlast);

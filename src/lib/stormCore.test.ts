@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PrivateKey, Script, Transaction, Utils } from '@bsv/sdk';
-import { MAX_DEPTH, MAX_POST, arcadeBroadcaster, isSeen, runLanes, settleTxs, type Out } from './stormCore';
+import { MAX_DEPTH, MAX_POST, UNANSWERED_CHECKS, arcadeBroadcaster, isSeen, runLanes, settleTxs, type Out } from './stormCore';
 import { HANDLE_BUDGET, LANE_DEPTH, SPLIT_OUTPUTS, fanoutPlan, galleryPushes, lanesFor, overheadSats, roundHandle, shotSats, needsPaymail } from './gallery';
 
 const key = PrivateKey.fromRandom(); // throwaway: never funded, nothing leaves this process
@@ -289,8 +289,10 @@ test('a stalled ARC POST times out and the same bytes are re-sent; the storm nev
 
 test('an ARC POST that keeps stalling gives up after the bounded tries', async () => {
   let calls = 0;
-  const f = (async () => {
-    calls++;
+  let gets = 0;
+  const f = (async (_u: string, init?: { method?: string }) => {
+    if (init?.method === 'POST') calls++;
+    else gets++;
     return new Promise(() => {});
   }) as unknown as typeof fetch;
   const outs: Out[] = [];
@@ -304,8 +306,81 @@ test('an ARC POST that keeps stalling gives up after the bounded tries', async (
       step: 100,
       arcs: ['http://mock-arc.invalid'],
     },
-    { stopped: () => false, paused: () => false, emit: (o) => outs.push(o), fetch: f, postTimeoutMs: 30, postBackoffMs: 1 },
+    { stopped: () => false, paused: () => false, emit: (o) => outs.push(o), fetch: f, postTimeoutMs: 30, postBackoffMs: 1, pollMs: 1 },
   );
   assert.equal(calls, 3);
-  assert.ok(!outs.some((o) => o.type === 'sent'));
+  // NO_ANSWER is checked by status (bounded), never counted as sent, never re-signed.
+  assert.ok(gets > 0 && gets <= UNANSWERED_CHECKS, `gets ${gets}`);
+  assert.ok(!outs.some((o) => o.type === 'sent' && o.n > 0));
+});
+
+test('31 Oct: a POST with no answer is checked by GET status; seen → counted as sent then, not before', async () => {
+  let posts = 0;
+  const sentAt: number[] = [];
+  const outs: Out[] = [];
+  const f = (async (url: string, init?: { method?: string }) => {
+    if (init?.method === 'POST') {
+      posts++;
+      return new Promise(() => {}); // Arcade-style: no answer
+    }
+    const txid = url.split('/').pop()!;
+    return { status: 200, json: async () => ({ txid, txStatus: 'SEEN_ON_NETWORK' }) } as unknown as Response;
+  }) as unknown as typeof fetch;
+  await runLanes(
+    { priv, token: PAYMAIL, baseTxid: 'cd'.repeat(32), baseValues: [2 * 500], lanes: [{ vout: 0, count: 1, n: 1 }], step: 100, arcs: ['http://mock-arc.invalid'] },
+    {
+      stopped: () => false,
+      paused: () => false,
+      emit: (o) => {
+        outs.push(o);
+        if (o.type === 'sent') sentAt.push(o.n);
+      },
+      fetch: f,
+      postTimeoutMs: 20,
+      postBackoffMs: 1,
+      pollMs: 1,
+    },
+  );
+  assert.equal(posts, 3);
+  assert.deepEqual(sentAt, [1], 'counted once, by the status check');
+});
+
+test('31 Oct: an unanswered tx the broadcaster never got is re-sent with the SAME bytes (no new spend)', async () => {
+  const bodies: string[] = [];
+  let firstPost = true;
+  const f = (async (url: string, init?: { method?: string; body?: string }) => {
+    if (init?.method === 'POST') {
+      bodies.push(init.body!);
+      if (firstPost) {
+        firstPost = false;
+        return new Promise(() => {});
+      }
+      const b = JSON.parse(init.body!) as { rawTx: string }[];
+      return { status: 200, json: async () => b.map((x) => ({ txid: Transaction.fromHexEF(x.rawTx).id('hex'), txStatus: 'SEEN_ON_NETWORK' })) } as unknown as Response;
+    }
+    const txid = url.split('/').pop()!;
+    return { status: 404, json: async () => ({ txid }) } as unknown as Response;
+  }) as unknown as typeof fetch;
+  const outs: Out[] = [];
+  await runLanes(
+    { priv, token: PAYMAIL, baseTxid: 'cd'.repeat(32), baseValues: [2 * 500], lanes: [{ vout: 0, count: 1, n: 1 }], step: 100, arcs: ['http://mock-arc.invalid'] },
+    { stopped: () => false, paused: () => false, emit: (o) => outs.push(o), fetch: f, postTimeoutMs: 20, postBackoffMs: 1, pollMs: 1 },
+  );
+  const txids = new Set(bodies.map((b) => Transaction.fromHexEF((JSON.parse(b) as { rawTx: string }[])[0].rawTx).id('hex')));
+  assert.equal(txids.size, 1, 'only ever the same tx');
+  assert.equal(outs.filter((o) => o.type === 'sent').reduce((n, o) => n + (o.type === 'sent' ? o.n : 0), 0), 1);
+});
+
+test('dual broadcaster: a tx seen once is never asked again; the second source is asked only if the first has not seen it', async () => {
+  const { dualBroadcaster } = await import('./stormCore');
+  const asks: string[] = [];
+  const mk = (name: string, says: string) => ({
+    kind: 'arc' as const,
+    url: name,
+    post: async () => [],
+    status: async (txid: string) => (asks.push(name), { txid, txStatus: says }),
+  });
+  const bc = dualBroadcaster(mk('arcade', 'SEEN_ON_NETWORK'), mk('arc', 'NOT_FOUND'));
+  for (let i = 0; i < 5; i++) assert.ok(isSeen((await bc.status('aa'))?.txStatus));
+  assert.deepEqual(asks, ['arcade']);
 });
