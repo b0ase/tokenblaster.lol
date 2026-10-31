@@ -7,7 +7,10 @@
  * loading-ammo progress, and the caller starts the game by itself once the rounds are ready.
  * Presentational only: CoinOpGate and the Shooting Gallery feed it.
  */
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { holdPayDialog } from '@/lib/siteWallet';
+import { useSiteWallet } from '@/lib/useSiteWallet';
+import { payDialogView, payStep, type PayStep } from '@/lib/coinop/payFlow';
 import { playButton } from '@/lib/coinop/playButton';
 import { GET_NAME_URL } from '@/lib/walletBar';
 import { sfx, unlockAudio } from '@/lib/sfx';
@@ -332,7 +335,15 @@ export function CabinetModals(p: {
   /** After "didn't respond": close; a late approval is still honoured. */
   giveUp?: () => void;
 }) {
-  const secs = useWaitSecs(p.approving ? p.approveSince : null);
+  // ONE payment surface (owner, 31 Oct 2026): this dialog follows the payment's TRUE step from the site store, and the
+  // site's bottom waiting card hides while it shows. "Approve" appears only once the wallet has been asked.
+  const site = useSiteWallet();
+  const [lastStep, setLastStep] = useState<PayStep | null>(null);
+  const step = p.approving ? payStep(site.waiting, lastStep) : null;
+  if (step !== lastStep) setLastStep(step); // React's "previous value" pattern: keeps "Paid" up until the game starts
+  useEffect(() => (p.approving ? holdPayDialog() : undefined), [p.approving]);
+  const stepSince = site.waiting?.kind === 'pay' ? site.waiting.since : p.approveSince;
+  const secs = useWaitSecs(p.approving ? stepSince : null);
   const name = p.walletName ?? 'your wallet';
   // When our error text is just the wallet's words, show our friendly line and put the wallet's words underneath.
   const rawOnly = Boolean(p.walletSaid && (p.error ?? '').includes(p.walletSaid));
@@ -369,21 +380,27 @@ export function CabinetModals(p: {
         {said}
       </Modal>
     );
-  if (p.approving)
+  if (p.approving && step) {
+    const v = payDialogView(step, p.walletName);
+    const stuck = step === 'approve' && secs >= 20;
     return (
       <Modal
-        title="Approve in your wallet"
+        title={v.title}
         tone="wait"
-        action={secs >= 20 ? 'Wallet not answering? Reconnect' : undefined}
-        onAction={secs >= 20 ? p.reconnect : undefined}
-        secondary={p.cancel ? 'Cancel' : undefined}
-        onSecondary={p.cancel}
+        action={stuck ? 'Wallet not answering? Reconnect' : undefined}
+        onAction={stuck ? p.reconnect : undefined}
+        secondary={p.cancel && v.cancel ? 'Cancel' : undefined}
+        onSecondary={v.cancel ? p.cancel : undefined}
       >
-        Approve the payment in {name}. It&apos;s waiting for you.
-        <span className="mt-2 block text-sm text-[var(--tbx-mute)]" aria-live="polite">
-          still waiting… {secs}s
-        </span>
+        <span data-pay-step={v.step}>{v.body}</span>
+        {v.step !== 'paid' && (
+          <span className="mt-2 block text-sm text-[var(--tbx-mute)]" aria-live="polite">
+            {v.step === 'approve' ? 'still waiting…' : 'working…'} {secs}s
+          </span>
+        )}
+        {v.note && <span className="mt-2 block text-xs opacity-70">{v.note}</span>}
       </Modal>
     );
+  }
   return null;
 }

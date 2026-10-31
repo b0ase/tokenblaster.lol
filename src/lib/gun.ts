@@ -513,10 +513,23 @@ export class Gun {
    * saved and at the coins on chain. Never a balance comparison. Null when the chain could not be read (and nothing
    * local proves it): the caller must not send the payment again on a null.
    */
-  async findPayment(ref: string, txid?: string): Promise<boolean | null> {
+  async findPayment(ref: string, txid?: string, sats?: number): Promise<boolean | null> {
     this.refresh();
     const match = (tx: Transaction) => (txid && tx.id('hex') === txid) || hasPayRef(tx, ref);
     if (this.extra.some((c) => match(c.tx)) || (this.coin && match(this.coin.tx))) return true;
+    // Fast path (31 Oct 2026: this check took 9 s+ on LOCK & LOAD): the payment's gun output is exactly `sats`
+    // (wallet.ts fund), so read amounts only and fetch the hex of just those candidates, not of every dust coin.
+    if (sats && sats > 0) {
+      const amounts = await this.amountsOnChain('find payment').catch(() => null);
+      if (!amounts) return null;
+      const ids = [...new Set(amounts.filter((c) => c.sats === sats || c.txid === txid).map((c) => c.txid))];
+      try {
+        const txs = await Promise.all(ids.map(async (t) => Transaction.fromHex(await txHex(t))));
+        return txs.some(match);
+      } catch {
+        return null; // a candidate could not be read: unknown, never "not paid"
+      }
+    }
     const chain = await this.coinsOnChain().catch(() => null);
     if (!chain) return null;
     return chain.some((c) => match(c.tx));
