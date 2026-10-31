@@ -147,3 +147,10 @@ test('coins: wallet-wide journal + GorillaPool + WoC, any "spent" skips the coin
   assert.deepEqual(r.usable.map((c) => c.vout), [4, 5]);
   assert.deepEqual(r.skipped.map((s) => [s.coin.vout, s.by.join('+')]), [[0, 'journal'], [1, 'journal'], [2, 'gorillapool'], [3, 'woc']]);
 });
+
+test('flags rotate one per shot', async () => {
+  const { tagOf } = await import('./runner');
+  const b = { name: 'terrornode-bot01', tag: ['a', 'b', 'c'] };
+  assert.deepEqual([1, 2, 3, 4].map((n) => tagOf(b, n)), ['b', 'c', 'a', 'b']);
+  assert.equal(tagOf({ name: 'x' }, 5), 'x');
+});
