@@ -20,7 +20,7 @@
  *        --broadcasters bsv (default: Arcade only; 'bsv,arc' = bots round-robin over both) · --arc-url · --bsv-url · --sats-per-kb (default: live /policy)
  *        --max-errors 0.05 · --fan-width 20000 · --batch 1000 · --inflight 16 · --sample 0.01 · --out DIR
  *        --from-tx <prep txid> (coins straight from the prep tx's outputs) · --skip-woc (GorillaPool + journal only)
- *        --stagger 3 (s between bots' first fan-outs) · --fan-concurrency 2 (fan-out POSTs in flight, all bots)
+ *        --lead 300 (s of shots to keep on the way per bot) · --stagger 3 (s between bots' first fan-outs) · --fan-concurrency 2 (fan-out POSTs in flight, all bots)
  *        --fan-timeout 120 (s per fan-out POST) · --fan-tries 2
  *        --key-env TERRORNODE_STRESS_WIF · --keychain (read the key from the macOS Keychain into the env var, in-process)
  *
@@ -201,6 +201,8 @@ async function main() {
   const tStart = Date.now();
   const r = await runStress({
     bots: specs, sign, satsPerKb, rate, maxSats, maxErrorRatio: maxErr,
+    // --lead: start each bot's next fan-out this many seconds of shots ahead; Arcade can take ~4 min to report a fan-out SEEN
+    leadSecs: Number(arg('lead', '300')),
     fanWidth, fanConcurrency, staggerMs, fanTries: Number(arg('fan-tries', '2')), batch: Number(arg('batch', '1000')), maxInflight: Number(arg('inflight', '16')),
     statusSample: Number(arg('sample', '0.01')), pollMs: live ? 2000 : 200, fanSettleMs: live ? 900_000 : 5_000, forget: true,
     halted: () => halted, outDir, log: say,
