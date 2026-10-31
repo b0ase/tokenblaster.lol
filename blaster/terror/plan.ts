@@ -89,15 +89,15 @@ export function checkLive(o: { bots: number; shotsPerBot: number; feePerShot: nu
  * feed line. Bots take these in turn (bot01 → first). No investment wording.
  */
 export const FLAGS = [
-  '😈🎃 terrornode.com 🎃😈',
-  '👻🔥 PLAY tokenblaster.lol/arcade/terrornode 🔥👻',
-  '🦇🎵 bmusicx.com/listen/terrornode 🎵🦇',
-  '👹💬 bchatx.com/t/terrornode 💬👹',
-  '💀 $TERRORNODE · badvertisingx.com/campaign/terrornode 💀',
-  '🧟 FREE DR KWEG FROM THE EVIL EROBOTZ · terrornode.com 🧟',
-  '👺🕷️ PLAY tokenblaster.lol/arcade/terrornode 🕷️👺',
-  '👻🎃 Welcome to TERRORNODE · bmusicx.com/listen/terrornode 🎃👻',
-  '😈🤖 STORM nSLAVE CORPORATION · terrornode.com 🤖😈',
-  '🦇💀 $TERRORNODE · bchatx.com/t/terrornode 💀🦇',
+  '🎃👻💀😈🦇🕷️🧟👹 terrornode.com 👹🧟🕷️🦇😈💀👻🎃',
+  '😈👹👺💀☠️🔥🎃👻 PLAY tokenblaster.lol/arcade/terrornode 👹🧟🕷️🦇😈💀👻🎃',
+  '👻👻👻🎃🎃🎃💀💀 bmusicx.com/listen/terrornode 👹🧟🕷️🦇😈💀👻🎃',
+  '🦇🕷️🕸️🧛🧟🧙🎃👻 bchatx.com/t/terrornode 👹🧟🕷️🦇😈💀👻🎃',
+  '💀☠️⚰️🪦👻😱🎃🔥 $TERRORNODE · badvertisingx.com/campaign/terrornode 👹🧟🕷️🦇😈💀👻🎃',
+  '🎃👻💀😈🦇🕷️🧟👹 FREE DR KWEG FROM THE EVIL EROBOTZ · terrornode.com 👹🧟🕷️🦇😈💀👻🎃',
+  '😈👹👺💀☠️🔥🎃👻 PLAY TERRORNODE · tokenblaster.lol/arcade/terrornode 👹🧟🕷️🦇😈💀👻🎃',
+  '👻👻👻🎃🎃🎃💀💀 Welcome to TERRORNODE · bmusicx.com/listen/terrornode 👹🧟🕷️🦇😈💀👻🎃',
+  '🦇🕷️🕸️🧛🧟🧙🎃👻 STORM nSLAVE CORPORATION · terrornode.com 👹🧟🕷️🦇😈💀👻🎃',
+  '💀☠️⚰️🪦👻😱🎃🔥 $TERRORNODE · bchatx.com/t/terrornode 👹🧟🕷️🦇😈💀👻🎃',
 ]
 export const botFlag = (i: number, flags: string[] = FLAGS) => flags[(i - 1) % flags.length];

@@ -37,7 +37,7 @@ import { PrivateKey } from '@bsv/sdk';
 import { arcBroadcaster, bsvBroadcaster, ARC_URL, BSV_URL, type Broadcaster, type Opts, type TxStatus } from '../ramp/broadcaster';
 import { Ledger } from '../ramp/ledger';
 import { signer, txidHex } from '../ramp/tx';
-import { NO_RECEIPTS, allocate, botFlag, botName, checkLive, parseBots, project } from './plan';
+import { NO_RECEIPTS, FLAGS, allocate, botName, checkLive, parseBots, project } from './plan';
 import { runStress, type BotSpec } from './runner';
 import { gorillaSpends, journalSpent, usableCoins, wocSpends } from './coins';
 
@@ -176,11 +176,12 @@ async function main() {
     for (const c of mine) ledger.addMined(c.txid, c.vout, c.value);
     const bc = live ? real[i % real.length] : dryBroadcaster(name);
     const fanBc = live ? fanReal[i % fanReal.length] : bc;
-    const tag = flags ? botFlag(b) : name;
+    // every bot rotates through all flags, one per shot, each starting at a different one
+    const tag = flags ? FLAGS.map((_, k) => FLAGS[(b - 1 + k) % FLAGS.length]) : name;
     return { name, tag, ledger, bc, fanBc, shots, maxSats: botMaxSats };
   });
   const walletSats = specs.reduce((s, b) => s + b.ledger.available('mined').reduce((a, u) => a + u.value, 0), 0);
-  const feePerShotEst = Math.max(...specs.map((s) => sign.blastFee(9_999_999, s.tag ?? s.name, satsPerKb))) + 0.1;
+  const feePerShotEst = Math.max(...specs.flatMap((s) => [s.tag ?? s.name].flat().map((t) => sign.blastFee(9_999_999, t, satsPerKb)))) + 0.1;
   let maxSats = Number(arg('max-sats', '0'));
   if (live) {
     if (!(maxSats > 0)) throw new Error('--live needs --max-sats N (hard cap on fees, the owner-approved budget)');

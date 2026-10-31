@@ -17,7 +17,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pct = (a: number[], p: number) => (a.length ? a.slice().sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))] : 0);
 
 /** `fanBc`: the same endpoint with fan-out settings (long timeout, few tries: a fan-out is a ~0.5 MB body). Defaults to `bc`. */
-export type BotSpec = { name: string; /** OP_RETURN label (push 5); defaults to name. Journals stay keyed by name. */ tag?: string; ledger: Ledger; bc: Broadcaster; fanBc?: Broadcaster; shots: number; maxSats: number };
+/** The label for shot n: a list of flags rotates one per shot. */
+export const tagOf = (b: { name: string; tag?: string | string[] }, n: number) => (Array.isArray(b.tag) ? b.tag[n % b.tag.length] : b.tag ?? b.name);
+const tagsOf = (b: { name: string; tag?: string | string[] }) => (Array.isArray(b.tag) ? b.tag : [b.tag ?? b.name]);
+
+export type BotSpec = { name: string; /** OP_RETURN label (push 5); defaults to name. Journals stay keyed by name. */ tag?: string | string[]; ledger: Ledger; bc: Broadcaster; fanBc?: Broadcaster; shots: number; maxSats: number };
 
 export type BotState = BotSpec & {
   signed: number; accepted: number; rejected: number; retries: number; fees: number; fanouts: number; fanFees: number;
@@ -75,7 +79,7 @@ export async function runStress(o: RunOpts): Promise<{ totals: Totals; bots: Bot
   const pollMs = o.pollMs ?? 2000;
   const width = o.fanWidth ?? 20_000;
   const errs = new ErrorWindow(5000, o.maxErrorRatio ?? 0.05, 1000);
-  const laneFee = Math.max(...o.bots.map((b) => o.sign.blastFee(99_999_999, b.tag ?? b.name, o.satsPerKb)));
+  const laneFee = Math.max(...o.bots.flatMap((b) => tagsOf(b).map((t) => o.sign.blastFee(99_999_999, t, o.satsPerKb))));
   const laneValue = laneFee + 1;
   const fanFee = (lanes: number) => Math.ceil((o.sign.fanBytes(1, lanes + 2, 60) * o.satsPerKb) / 1000) + 1;
   const bots: BotState[] = o.bots.map((b) => ({ ...b, signed: 0, accepted: 0, rejected: 0, retries: 0, fees: 0, fanouts: 0, fanFees: 0, funded: 0, committed: 0, skip: new Set<string>(), pendingLanes: 0, pendingFans: 0, n: 0, retryQ: [] }));
@@ -112,7 +116,7 @@ export async function runStress(o: RunOpts): Promise<{ totals: Totals; bots: Bot
       if (byCap < 1) { if (b.maxSats - b.committed <= o.maxSats - committed) b.done ??= `spend cap ${b.maxSats} sats`; else stop ??= `max-sats ${o.maxSats} reached`; return false; }
       b.skip.add(op(coin.txid, coin.vout)); log(`${b.name}: coin ${coin.txid}:${coin.vout} (${coin.value} sats) too small for a lane`); return false;
     }
-    const t = o.sign.fanOut([coin as Coin], Array(lanes).fill(laneValue), b.tag ?? b.name, o.satsPerKb);
+    const t = o.sign.fanOut([coin as Coin], Array(lanes).fill(laneValue), tagOf(b, 0), o.satsPerKb);
     b.committed += t.fee + lanes * laneFee; committed += t.fee + lanes * laneFee;
     b.ledger.spend(t.txid, [op(coin.txid, coin.vout)], t.outputs); // inputs journalled before the bytes leave
     o.onSigned?.(b.name, 'fan', t);
@@ -239,10 +243,10 @@ export async function runStress(o: RunOpts): Promise<{ totals: Totals; bots: Bot
         const coins = b.ledger.available('seen', room, isLane);
         const items: TxItem[] = [];
         for (const c of coins) {
-          const fee = o.sign.blastFee(b.n + 1, b.tag ?? b.name, o.satsPerKb);
+          const fee = o.sign.blastFee(b.n + 1, tagOf(b, b.n + 1), o.satsPerKb);
           if (spent + fee > o.maxSats) { stop = `max-sats ${o.maxSats} reached`; break; }
           if (b.fees + fee > b.maxSats) { b.done ??= `spend cap ${b.maxSats} sats`; break; }
-          const t = o.sign.blast(c, ++b.n, b.tag ?? b.name, o.satsPerKb);
+          const t = o.sign.blast(c, ++b.n, tagOf(b, b.n), o.satsPerKb);
           b.ledger.spend(t.txid, [op(c.txid, c.vout)], t.outputs);
           o.onSigned?.(b.name, 'blast', t);
           spent += t.fee; b.fees += t.fee; b.signed++;
