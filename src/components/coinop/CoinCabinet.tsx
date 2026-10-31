@@ -7,6 +7,7 @@
  * loading-ammo progress, and the caller starts the game by itself once the rounds are ready.
  * Presentational only: CoinOpGate and the Shooting Gallery feed it.
  */
+import { playerWords } from '@/lib/midRunPay';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { holdPayDialog } from '@/lib/siteWallet';
 import { useSiteWallet } from '@/lib/useSiteWallet';
@@ -345,11 +346,14 @@ export function CabinetModals(p: {
   const name = p.walletName ?? 'your wallet';
   // When our error text is just the wallet's words, show our friendly line and put the wallet's words underneath.
   const rawOnly = Boolean(p.walletSaid && (p.error ?? '').includes(p.walletSaid));
-  const friendly = (fallback: string) => (rawOnly ? fallback : (p.error ?? fallback));
+  // Never a raw code for players (owner, 31 Oct: "bWalletX said: WALLET_HELD_DURING_PLAY"): plain words or nothing.
+  const errWords = playerWords(p.error);
+  const friendly = (fallback: string) => (rawOnly ? (playerWords(p.walletSaid) ?? fallback) : (errWords ?? fallback));
+  const saidWords = rawOnly ? null : playerWords(p.walletSaid);
   const said =
-    p.walletSaid ? (
+    saidWords ? (
       <span className="mt-2 block text-xs opacity-70" data-wallet-said>
-        {p.walletName ?? 'Your wallet'} said: {p.walletSaid}
+        {p.walletName ?? 'Your wallet'} said: {saidWords}
       </span>
     ) : null;
   if (p.modal === 'disconnected')

@@ -28,7 +28,8 @@ import { TxMeter } from '@/lib/txMeter';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
-import { holdWalletForPlay } from '@/lib/wallet';
+import { holdWalletForPlay, walletHeld } from '@/lib/wallet';
+import { midRunReload } from '@/lib/midRunPay';
 import { getSiteWallet } from '@/lib/siteWallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { LiveTxBadge } from './LiveTxBadge';
@@ -449,6 +450,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const modeRef = useRef<'off' | 'warm' | 'live'>('off');
   const [mode, setModeState] = useState<'off' | 'warm' | 'live'>('off');
   const pausedRef = useRef(false);
+  /** A mid-run RELOAD payment is open: the game is paused and has let go of the wallet (src/lib/midRunPay.ts). */
+  const [midPay, setMidPay] = useState(false);
+  const midPayRef = useRef(false);
   const [paused, setPaused] = useState(false);
   /** GO: real rounds are live (a short banner the moment the load finishes). */
   const [goAt, setGoAt] = useState(0);
@@ -462,9 +466,10 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     // Only while a round is actually on: back on the loadout / results the wallet is free again (a payment there must
     // reach it; owner, 25 Oct: "my wallet keeps saying no to lock and load").
     // FLATLINED too: CONTINUE pays through the wallet, so the round's hold must be off (the storm keeps its own hold).
-    holdWalletForPlay(mode !== 'off' && !loadout && !over && !flat);
+    // A mid-run RELOAD (src/lib/midRunPay.ts) lets go of it too: the payment must reach the wallet.
+    holdWalletForPlay(mode !== 'off' && !loadout && !over && !flat && !midPay);
     return () => holdWalletForPlay(false);
-  }, [mode, loadout, over, flat]);
+  }, [mode, loadout, over, flat, midPay]);
   // Nothing can hurt the player unless they are actually playing (owner, 24 Oct: FLATLINED while on the loadout).
   useEffect(() => {
     const e = engine.current;
@@ -1420,9 +1425,50 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   };
 
   /** QUICK RELOAD mid-run (QuickReload.tsx): the preset in ONE approval, the rounds add to the gun, the run carries on. */
+  const resumeRef = useRef(resumeAfterPay);
+  useEffect(() => {
+    resumeRef.current = resumeAfterPay;
+  });
+  // Owner, live 31 Oct 07:31: RELOAD mid-fight was refused with WALLET_HELD_DURING_PLAY while the monsters kept
+  // hitting. Now: pause at once, stop the sender, end the storm session and drop the play hold, THEN pay; paid →
+  // carry on with the new rounds; anything else → stay paused with plain words (RESUME reloads what is left).
   const quickReload = (usd: number) => {
     if (freePlay || usd <= 0) return void resumeAfterPay(1, false);
-    cab.payUsdThen(usd, () => void resumeAfterPay(usd, false));
+    if (midPayRef.current) return;
+    midPayRef.current = true;
+    setMidPay(true);
+    void midRunReload({
+      pause: () => {
+        pausedRef.current = true;
+        held.current = false;
+        if (engine.current) engine.current.paused = true;
+        document.exitPointerLock?.();
+        setPaused(true);
+        loadMark('reload: paused for the payment');
+      },
+      stopSender: () => {
+        stop.current = true;
+        sessionGen.current++;
+      },
+      releaseWallet: async () => {
+        holdWalletForPlay(false);
+        await Promise.race([b.endSession().catch(() => undefined), new Promise((r) => setTimeout(r, LOAD_STEP_MS))]);
+      },
+      walletHeld,
+      pay: () =>
+        new Promise<boolean>((ok) => {
+          if (!cab.payUsdThen(usd, () => ok(true))) ok(false);
+        }),
+      resume: async () => {
+        midPayRef.current = false;
+        setMidPay(false);
+        await resumeAfterPay(usd, false);
+      },
+      fail: (msg) => {
+        loadMark(`reload: ${msg}`);
+        setStall(msg);
+      },
+    });
   };
 
   // ON CHAIN feed: sample the latest accepted txid a few times a second (no polling per tx).
@@ -1484,6 +1530,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const togglePause = useCallback(() => {
     if (modeRef.current !== 'live' || loadout || demoFrozen) return;
     const next = !pausedRef.current;
+    if (!next && midPayRef.current) {
+      // RESUME after a RELOAD that did not pay: the session was ended for the payment, so load what is left (no wallet prompt).
+      midPayRef.current = false;
+      setMidPay(false);
+      void resumeRef.current(0, false);
+    }
     pausedRef.current = next;
     held.current = false;
     if (engine.current) engine.current.paused = next;
