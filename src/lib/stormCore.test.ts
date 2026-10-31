@@ -88,7 +88,7 @@ test('every storm round carries the player paymail in the OP_RETURN, within the 
   assert.equal(arc.txs.length, 120, 'every round of every lane is sent (the fee fits the budget)');
   for (const tx of arc.txs) {
     const p = pushesOf(tx);
-    assert.deepEqual(p.slice(0, 2), ['tokenblaster.lol', PAYMAIL]);
+    assert.deepEqual(p.slice(0, 2), ['tokenblaster.lol', 'sats'], 'push 2 is the ammo, never the paymail (31 Oct 2026)');
     assert.equal(p[3], 'gallery');
     assert.equal(p[4], PAYMAIL, 'the handle push is the paymail');
     const fee = (tx.inputs[0].sourceTransaction?.outputs[tx.inputs[0].sourceOutputIndex].satoshis ?? 0) - (tx.outputs[1].satoshis ?? 0);

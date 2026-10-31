@@ -5,23 +5,30 @@
  * GorillaPool's index can lag on mempool spends (it would hand back coins that are already spent).
  */
 import { NONE, txHexBulk, woc } from '@/lib/wocServer';
+import { allUnspent, spendableSats, type UtxoPage } from '@/lib/creditRead';
 
 export async function GET(req: Request) {
   const address = new URL(req.url).searchParams.get('address') ?? '';
   if (!/^1[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(address)) return Response.json({ error: 'bad address' }, { status: 400 });
   try {
-    type U = { tx_hash: string; tx_pos: number; value: number; isSpentInMempoolTx?: boolean };
-    const [c, u] = (await Promise.all([woc(`/address/${address}/confirmed/unspent`), woc(`/address/${address}/unconfirmed/unspent`)])).map((x) =>
-      x === NONE ? {} : x,
-    ) as { result?: U[] }[];
+    // Every page (src/lib/creditRead.ts): a storm leaves thousands of lane ends, and a big coin can sit on page 8.
+    const [c, u] = await Promise.all([
+      allUnspent(async (token) => {
+        const r = await woc(`/address/${address}/confirmed/unspent${token ? `?limit=1000&token=${encodeURIComponent(token)}` : ''}`);
+        return r === NONE ? null : (r as UtxoPage);
+      }, 40, 350),
+      woc(`/address/${address}/unconfirmed/unspent`).then((r) => (r === NONE ? [] : ((r as UtxoPage)?.result ?? []))),
+    ]);
+    const all = [...c.coins, ...u];
     // 1-sat outputs hold tokens: never treat them as sats. Largest first: a wide storm leaves thousands of tiny lane
     // ends at the gun (26 Oct 2026), and the 200 we hand back must be the ones worth spending.
-    const list = [...(c.result ?? []), ...(u.result ?? [])]
+    const list = all
       .filter((x) => !x.isSpentInMempoolTx && x.value > 1)
       .sort((a, b) => b.value - a.value)
       .slice(0, 200);
+    const total = { 'x-coins-total': String(spendableSats(all)), 'x-coins-complete': c.complete ? '1' : '0' };
     if (new URL(req.url).searchParams.get('amounts') === '1') {
-      return Response.json(list.map((x) => ({ txid: x.tx_hash, vout: x.tx_pos, sats: x.value })), { headers: { 'cache-control': 'no-store' } });
+      return Response.json(list.map((x) => ({ txid: x.tx_hash, vout: x.tx_pos, sats: x.value })), { headers: { 'cache-control': 'no-store', ...total } });
     }
     // The browser already holds these txs' bytes: skip them (owner log, 25 Oct: 104 coins took 56 s, one by one).
     const have = new Set((new URL(req.url).searchParams.get('have') ?? '').split(',').filter((t) => /^[0-9a-f]{64}$/.test(t)));

@@ -141,7 +141,6 @@ export function GunUnload({ b, disabled = false, className = '' }: { b: Blaster;
       </div>
     );
   const toks = b.gunTokens.filter((t) => t.amt > BigInt(0));
-  const empty = !toks.length && b.ammo <= 0;
   const busy = b.busy === 'unloading';
   const what = [
     ...toks.map((t) => {
@@ -153,12 +152,15 @@ export function GunUnload({ b, disabled = false, className = '' }: { b: Blaster;
   return (
     <div className={`flex flex-col gap-1 ${className}`} data-gun-unload>
       {!asking ? (
-        <button type="button" className="btn px-2 py-0.5 text-xs font-bold" disabled={disabled || busy || empty || !!b.busy} onClick={() => setAsking(true)}>
-          {busy ? 'UNLOADING…' : empty ? 'Gun is empty' : 'UNLOAD to my wallet'}
+        // Never hidden or disabled by a low / failed read (owner, 31 Oct 2026): the sweep reads the chain itself.
+        <button type="button" className="tbx-btn tbx-btn-red self-start text-base font-bold" disabled={disabled || busy || !!b.busy} onClick={() => setAsking(true)}>
+          {busy ? 'UNLOADING…' : 'UNLOAD to my wallet'}
         </button>
       ) : (
         <div className="flex flex-col gap-1 text-xs">
-          <span>Coming back to {b.wallet.name}: {what.join(' and ')}.</span>
+          <span>
+            Coming back to {b.wallet.name} ({b.wallet.address}): {what.length ? what.join(' and ') : 'everything at your gun address'}.
+          </span>
           <div className="flex gap-2">
             <button
               type="button"
@@ -190,7 +192,7 @@ export function GunUnload({ b, disabled = false, className = '' }: { b: Blaster;
 export function UnloadButton({ b, creditUsd, live = false, endRound, className = '' }: { b: Blaster; creditUsd: number; live?: boolean; endRound?: () => void; className?: string }) {
   const [asking, setAsking] = useState(false);
   const toks = b.gunTokens.filter((t) => t.amt > BigInt(0)).length;
-  if (!showUnload(creditUsd, toks) || b.gunLocked) return null;
+  if (!showUnload(creditUsd, toks, Boolean(b.gunAddress)) || b.gunLocked) return null;
   const busy = b.busy === 'unloading';
   const go = () => {
     setAsking(false);
@@ -208,7 +210,7 @@ export function UnloadButton({ b, creditUsd, live = false, endRound, className =
         <div className="flex flex-col items-center gap-1 text-xs" role="alertdialog" aria-label="Confirm unload">
           <span>
             {live ? 'This ends the round. ' : ''}
-            {b.wallet ? `Send ${fmtCredit(creditUsd)}${toks ? ' and your tokens' : ''} back to ${b.wallet.name}?` : 'Connect your wallet first, then UNLOAD sends it back.'}
+            {b.wallet ? `Send ${creditUsd > 0 ? fmtCredit(creditUsd) : 'everything in your gun'}${toks ? ' and your tokens' : ''} back to ${b.wallet.name} (${b.wallet.address})?` : 'Connect your wallet first, then UNLOAD sends it back.'}
           </span>
           <div className="flex gap-2">
             <button type="button" className="btn btn-on px-2 py-0.5 text-xs font-bold" onClick={go}>
