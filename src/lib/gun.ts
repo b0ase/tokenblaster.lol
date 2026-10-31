@@ -5,8 +5,9 @@
  * left back to the player. Same transaction shape as blaster/blast.ts.
  */
 import { spendableCoins } from './coinop/ammo';
-import { STREAM_STEP, fanoutPlan } from './gallery';
-import { runStorm, type StormBatch, type StormNet } from './stormRun';
+import { STREAM_STEP, fanoutPlan, lanesFor as plannedLanes } from './gallery';
+import { runStorm, type StormBase, type StormBatch, type StormLane, type StormNet } from './stormRun';
+import { streamLeaves, type LaneSpec } from './fanoutStream';
 import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, ammoPush, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
 import { hasPayRef } from './payRef';
 import { buildSweep } from './sweep';
@@ -31,6 +32,18 @@ export function stormBroadcaster(): BroadcasterKind {
 }
 /** How long LOCK & LOAD waits for the network to have the fan-out before the lanes go anyway (they wait per lane then). */
 const FANOUT_SEEN_MS = 60_000;
+/** Lane coins LOCK & LOAD has made ready (src/lib/fanoutStream.ts): batches before the storm starts, `push` after. */
+type Ammo = {
+  batches: { bases: StormBase[]; lanes: LaneSpec[] }[];
+  push: ((b: { bases: StormBase[]; lanes: LaneSpec[] }) => void) | null;
+  end: (() => void) | null;
+  ended: boolean;
+  cancelled: boolean;
+  done: Promise<void>;
+  maxN: number;
+  /** Fan-outs handed over and how many of their outputs are lanes (spent by the workers). */
+  used: { txid: string; n: number }[];
+};
 
 /** One [tb-load] line per POST that held orphans or failures, and a roll-up every 5 s (the orphan rate). */
 function batchLogger() {
@@ -601,7 +614,13 @@ export class Gun {
   /** End the running storm session (if any): stop its sender, wait for it to merge and save the change. */
   async endSession(timeoutMs = 20_000) {
     const s = this.session;
-    if (!s) return;
+    if (!s) {
+      // Loaded but never fired: still stop the background fan-out feed before anything else uses the coins.
+      const a = this.ready;
+      this.ready = null;
+      await this.stopFeed(a);
+      return;
+    }
     this.halt = true;
     loadMark('ending previous session');
     await Promise.race([s.catch(() => undefined), new Promise((r) => setTimeout(r, timeoutMs))]);
@@ -763,7 +782,14 @@ export class Gun {
   }
 
   /** Lane coins fanned out ahead of time by prepareStorm(), so the first trigger pull fires at once. */
-  private ready: { bases: Transaction[]; lanes: { base: number; vout: number; count: number }[] } | null = null;
+  private ready: Ammo | null = null;
+
+  /** Stop a background fan-out feed (a new LOCK & LOAD, an ended session) and wait for its last POST to settle. */
+  private async stopFeed(a: Ammo | null) {
+    if (!a) return;
+    a.cancelled = true;
+    await a.done.catch(() => undefined);
+  }
 
   /**
    * The gun's coin to fire from. The chain index can lag a freshly paid load by many seconds (a BRC-100
@@ -802,6 +828,7 @@ export class Gun {
    */
   async prepareStorm(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
     await this.endSession();
+    await this.stopFeed(this.ready);
     return this.exclusive(async () => {
       this.refresh();
       this.ready = null;
@@ -811,67 +838,86 @@ export class Gun {
       await this.startCoin((secs) => onStep(15, secs));
       if (!this.coin) throw new Error('EMPTY');
       onStep(30, 0);
-      const { lanes: lanesN, perLane, each, sizes, leaves, leafFee, need } = fanoutPlan(total, perBlast);
+      const plan = fanoutPlan(total, perBlast);
+      const { lanes: lanesN, perLane, each, sizes, leaves, leafFee, need } = plan;
       if (this.sats < need) throw new Error('SHORT');
       const root = new Transaction();
+      const lock = new P2PKH().lock(this.address);
       root.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-      if (leaves) sizes.forEach((k, i) => root.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: k * each + leafFee[i] }));
-      else for (let i = 0; i < lanesN; i++) root.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
-      root.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
+      if (leaves) sizes.forEach((k, i) => root.addOutput({ lockingScript: lock, satoshis: k * each + leafFee[i] }));
+      else for (let i = 0; i < lanesN; i++) root.addOutput({ lockingScript: lock, satoshis: each });
+      root.addOutput({ lockingScript: lock, change: true });
       await root.fee(new SatoshisPerKilobyte(FEE_RATE));
       await root.sign();
-      const leafTxs: Transaction[] = [];
-      for (let i = 0; i < leaves; i++) {
-        const leaf = new Transaction();
-        leaf.addInput({ sourceTransaction: root, sourceOutputIndex: i, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-        for (let j = 0; j < sizes[i]; j++) leaf.addOutput({ lockingScript: new P2PKH().lock(this.address), satoshis: each });
-        leaf.addOutput({ lockingScript: new P2PKH().lock(this.address), change: true });
-        await leaf.fee(new SatoshisPerKilobyte(FEE_RATE));
-        await leaf.sign();
-        leafTxs.push(leaf);
-        await new Promise((r) => setTimeout(r, 0)); // yield between leaves: a big load must not starve the page (music, UI)
-      }
-      loadMark(`fan-out built: ${lanesN} lanes x ${perLane} deep in ${1 + leaves} tx(s)`);
+      loadMark(`fan-out root built: ${lanesN} lanes x ${perLane} deep${leaves ? ` over ${leaves} leaves (streamed)` : ''}`);
       onStep(45, 0);
       // Level 1: the root, through the gun's usual send (retries, a parent the wallet is still propagating).
       await this.send(root);
-      const base = Transaction.fromHex(root.toHex());
-      this.coin = { tx: base, vout: root.outputs.length - 1 };
+      const rootTxid = root.id('hex');
+      this.coin = { tx: Transaction.fromHex(root.toHex()), vout: root.outputs.length - 1 };
       this.save();
       // Wait for the network (not just ARC) to have it: lanes (or leaves) spend it next.
       const bc = makeBroadcaster('arc', ARC_URL);
       const t0 = Date.now();
       const tick = setInterval(() => onStep(leaves ? 55 : 70, Math.round((Date.now() - t0) / 1000)), 1000);
+      const ammo: Ammo = { batches: [], push: null, end: null, ended: false, cancelled: false, done: Promise.resolve(), maxN: total + 1, used: [] };
+      const hand = (bases: StormBase[], lanes: LaneSpec[]) => {
+        const b = { bases, lanes };
+        for (const x of bases) ammo.used.push({ txid: x.txid, n: lanes.filter((l) => l.base === x.i).length });
+        if (ammo.push) ammo.push(b);
+        else ammo.batches.push(b);
+      };
+      const finish = () => {
+        ammo.ended = true;
+        ammo.end?.();
+      };
       try {
-        const rootSeen = await settleTxs(bc, [{ ef: Uint8Array.from(root.toEF()), txid: root.id('hex') }], { deadlineMs: FANOUT_SEEN_MS });
+        const rootSeen = await settleTxs(bc, [{ ef: Uint8Array.from(root.toEF()), txid: rootTxid }], { deadlineMs: FANOUT_SEEN_MS });
         loadMark(`fan-out root ${rootSeen.seen.size ? 'seen on network' : `NOT seen yet (${JSON.stringify(rootSeen.statuses)}): lanes will wait per lane`}`);
-        if (leaves) {
-          // Level 2: every leaf in one POST (siblings: none spends another), then wait for the network to have them.
+        if (!leaves) {
+          const lanes: LaneSpec[] = [];
+          for (let j = 0, left = total; j < sizes[0] && left > 0; j++, left -= perLane) lanes.push({ base: 0, vout: j, count: Math.min(perLane, left) });
+          hand([{ i: 0, txid: rootTxid, values: root.outputs.map((o) => o.satoshis ?? 0) }], lanes);
+          finish();
+        } else {
+          // Level 2, streamed: one leaf first (GO as soon as the network has it), the rest in the background.
           onStep(75, 0);
-          const lv = await settleTxs(
+          const st = streamLeaves({
+            root,
+            plan,
+            total,
+            key: this.key,
+            address: this.address,
             bc,
-            leafTxs.map((t) => ({ ef: Uint8Array.from(t.toEF()), txid: t.id('hex') })),
-            { deadlineMs: FANOUT_SEEN_MS },
+            seenMs: FANOUT_SEEN_MS,
+            cancelled: () => ammo.cancelled,
+            onSpent: (op) => this.spent.add(op),
+            onReady: hand,
+            log: loadMark,
+          });
+          ammo.done = st.done.then(
+            (r) => {
+              loadMark(`fan-out feed done: ${r.fed} lanes live${r.unseen.length ? `, ${r.unseen.length} leaves never seen (not used)` : ''}`);
+              finish();
+            },
+            (e) => {
+              loadMark(`fan-out feed stopped: ${e instanceof Error ? e.message : String(e)}`);
+              finish();
+            },
           );
-          if (lv.bad.length) throw new Error(`ARC refused ${lv.bad.length} fan-out tx(s): ${JSON.stringify(lv.statuses)}`);
-          for (const t of leafTxs) this.markSpent(t);
-          loadMark(`fan-out leaves: ${lv.seen.size}/${leaves} seen on network`);
+          const fed = await st.first;
+          if (!fed) {
+            ammo.cancelled = true;
+            await ammo.done;
+            throw new Error('ARC took none of the fan-out: try LOCK & LOAD again.');
+          }
+          loadMark(`GO: first ${fed} lanes live after ${Math.round((Date.now() - t0) / 1000)} s; the rest load while you fire`);
         }
       } finally {
         clearInterval(tick);
       }
-      const bases = leaves ? leafTxs.map((t) => Transaction.fromHex(t.toHex())) : [base];
-      const lanes: { base: number; vout: number; count: number }[] = [];
-      let left = total;
-      sizes.forEach((k, bi) => {
-        for (let j = 0; j < k && left > 0; j++) {
-          const c = Math.min(perLane, left);
-          lanes.push({ base: bi, vout: j, count: c });
-          left -= c;
-        }
-      });
       onStep(95, 0);
-      this.ready = { bases, lanes };
+      this.ready = ammo;
       loadMark('ready');
       onStep(100, 0);
     });
@@ -920,21 +966,30 @@ export class Gun {
       if (!r) throw new Error('The gun is not loaded.');
       this.ready = null;
       let n = 1;
-      const lanes = r.lanes.map((l) => {
-        const lane = { base: l.base, vout: l.vout, count: l.count, n };
-        n += l.count;
-        return lane;
-      });
-      const cores = Math.max(1, Math.min(lanes.length, (navigator.hardwareConcurrency || 4) - 1, 12));
+      const number = (ls: LaneSpec[]): StormLane[] =>
+        ls.map((l) => {
+          const lane = { base: l.base, vout: l.vout, count: l.count, n };
+          n += l.count;
+          return lane;
+        });
+      const cores = Math.max(1, Math.min(plannedLanes(total), (navigator.hardwareConcurrency || 4) - 1, 12));
       const via = stormBroadcaster();
       let failed: string | null = null;
-      loadMark(`storm: ${lanes.length} lanes, ${MAX_DEPTH} deep, via ${via}`);
+      loadMark(`storm: ${r.batches.reduce((k, b) => k + b.lanes.length, 0)} lanes live (more streaming in: ${!r.ended}), ${MAX_DEPTH} deep, via ${via}`);
       // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
       const { sent, lastWhy, net } = await runStorm({
         workerUrl: '/storm-worker.js',
-        baseHex: r.bases[0].toHex(),
-        moreHex: r.bases.slice(1).map((t) => t.toHex()),
-        lanes,
+        // Streamed: only { txid, values } per fan-out reaches the workers, lane batches as their leaf is SEEN.
+        feed: {
+          maxN: r.maxN,
+          subscribe: (push, end) => {
+            for (const b of r.batches.splice(0)) push({ bases: b.bases, lanes: number(b.lanes) });
+            r.push = (b) => push({ bases: b.bases, lanes: number(b.lanes) });
+            r.end = end;
+            if (r.ended) end();
+          },
+        },
+        lanes: [],
         wif: this.key.toWif(),
         token,
         step,
@@ -956,8 +1011,10 @@ export class Gun {
       if (!sent) failed = `${via} took no blasts: ${lastWhy ?? 'no reason given'}`;
       // Session end: merge the lane ends (and the fan-out change) back into one coin once the last blasts settle,
       // and save it. The fan-out's lanes are spent by the workers: never reuse them.
+      // Stop the background feed first: no leaf may be POSTed while the coin set is merged.
+      await this.stopFeed(r);
       await new Promise((ok) => setTimeout(ok, 6000));
-      if (sent) for (const l of lanes) this.spent.add(`${r.bases[l.base].id('hex')}_${l.vout}`);
+      if (sent) for (const u of r.used) for (let v = 0; v < u.n; v++) this.spent.add(`${u.txid}_${v}`);
       try {
         const coins = await this.candidates();
         if (coins.length > 1) await this.consolidate(coins);
