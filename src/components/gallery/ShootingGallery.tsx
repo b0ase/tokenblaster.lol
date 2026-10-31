@@ -69,7 +69,8 @@ import { useReceipts } from './useReceipts';
 import { fetchSplit, prefetchSplitCheck, reportSplit, splitAvailable } from '@/lib/launch/splitClient';
 import { SPLIT_LINE, splitOutputs } from '@/lib/launch/split';
 import { PER_SHOT_BURN, type AmmoCoin } from '@/lib/launch/ammoCoins';
-import { GunUnload, UnloadButton } from '../GunUnload';
+import { CreditNotices, GunUnload, UnloadButton } from '../GunUnload';
+import { safeCreditLine } from '@/lib/coinop/creditSafe';
 import { INFO_URL } from './AssaultInfo';
 import { AmmoColumn } from './AmmoColumn';
 import { OnChainPanel, type FeedRow } from './OnChainPanel';
@@ -1506,15 +1507,25 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       {engineStuck && !lost && (
         <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center gap-4 bg-[#03070c]/95 px-6 text-center text-[#e8f1f6]" role="alertdialog" data-engine-stuck>
           <p className="text-lg font-bold tracking-[0.08em]">TERRORNODE is taking too long to load.</p>
-          <p className="text-sm text-white/70">Your connection or device may be struggling. Nothing was charged.</p>
-          <button type="button" onClick={() => location.reload()} className="tbx-btn tbx-btn-red">
-            Reload
-          </button>
+          <p className="text-sm text-white/70">Your connection or device may be struggling.</p>
+          {/* Never "nothing was charged" over a paid load (owner, 31 Oct 2026): the credit is shown, with PLAY / UNLOAD. */}
+          {!freePlay && (
+            <p className="max-w-[420px] text-sm font-bold text-[var(--tbx-teal)]" data-credit-safe>
+              {safeCreditLine(cab.creditReady ? cab.creditUsd : null)}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button type="button" onClick={() => location.reload()} className="tbx-btn tbx-btn-red">
+              {!freePlay && cab.creditReady && cab.creditUsd > 0 ? 'Reload & PLAY' : 'Reload'}
+            </button>
+            {!freePlay && cab.creditReady && <UnloadButton b={b} creditUsd={cab.creditUsd} />}
+          </div>
+          {!freePlay && <CreditNotices b={b} />}
         </div>
       )}
       {lost && (
         <button type="button" onClick={() => location.reload()} className="fixed inset-0 z-[999] flex items-center justify-center bg-[#03070c] text-lg font-bold tracking-[0.08em] text-[#e8f1f6]" data-context-lost>
-          Tap to reload
+          Tap to reload{!freePlay && cab.creditReady && cab.creditUsd > 0 ? ` · ${safeCreditLine(cab.creditUsd)}` : ''}
         </button>
       )}
       <section className="game-stage panel relative overflow-hidden p-0" style={{ background: '#04080d' }}>
@@ -1987,7 +1998,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                 freePlay={freePlay}
                 walletName={cab.walletName}
                 onQuickLoad={dry || freePlay ? undefined : onQuickLoad}
-                unload={!dry && !freePlay && cab.creditReady ? <UnloadButton b={b} creditUsd={cab.creditUsd} /> : null}
+                unload={
+                  !dry && !freePlay ? (
+                    <>
+                      {cab.creditReady && <UnloadButton b={b} creditUsd={cab.creditUsd} />}
+                      <CreditNotices b={b} />
+                    </>
+                  ) : null
+                }
               />
               </>
             }

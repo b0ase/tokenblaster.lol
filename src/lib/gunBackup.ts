@@ -108,7 +108,7 @@ export type GunLike = {
   readonly locked: boolean;
   readonly fresh: boolean;
   readonly address: string;
-  balance(): Promise<number>;
+  balance(caller?: string, strict?: boolean): Promise<number>;
   tokensHeld(): Promise<unknown[]>;
   adoptKey(key: PrivateKey): boolean;
   exportWif(): string;
@@ -134,7 +134,12 @@ const markDeclined = (identityKey: string, address: string) => {
 };
 const refused = (e: unknown) => /cancel|denied|reject|declin|abort|not approved|user (?:said no|refused)/i.test(e instanceof Error ? e.message : String(e));
 
-export type RestoreResult = 'restored' | 'ok' | 'locked';
+/**
+ * 'missing' (31 Oct 2026): this browser's gun is fresh and the wallet HAS backups (each one is made after a paid
+ * LOCK & LOAD), but none could be restored here. The page says so ("Credit not found on this device") instead of
+ * staying silent.
+ */
+export type RestoreResult = 'restored' | 'ok' | 'locked' | 'missing';
 
 /**
  * ON CONNECT ONLY, and only when this browser has no readable gun (fresh, never backed up here, or locked): look for
@@ -144,7 +149,10 @@ export type RestoreResult = 'restored' | 'ok' | 'locked';
 export async function restoreGunIfNeeded(w: Pick<Wallet, 'client' | 'publicKey'>, g: GunLike, api: BackupApi = httpBackupApi): Promise<RestoreResult> {
   if (!g.locked && !(g.fresh && !isBackedUp(w.publicKey, g.address))) return 'ok';
   const list = await api.get(await signBackupRequest(w, 'get')).catch(() => null);
+  let found = false;
   for (const b of list ?? []) {
+    if (b.address === g.address) return 'ok'; // this gun is already the backed-up one
+    found = true;
     let key: PrivateKey;
     try {
       key = await openGunKey(w.client, b);
@@ -152,10 +160,15 @@ export async function restoreGunIfNeeded(w: Pick<Wallet, 'client' | 'publicKey'>
       continue; // another wallet's, corrupt, or the wrong address: never used
     }
     if (!g.locked) {
-      // A fresh gun gives way only if it truly holds nothing (chain included).
-      const bal = await g.balance().catch(() => -1);
+      // A fresh gun gives way only if it truly holds nothing (chain included). An unreadable chain is NOT "nothing"
+      // (31 Oct audit: balance() used to count a failed read as 0 sats, so a just-paid fresh gun could be replaced).
+      const bal = await g.balance('restore check', true).catch(() => -1);
       const toks = await g.tokensHeld().catch(() => null);
-      if (bal !== 0 || !toks || toks.length) break;
+      if (bal !== 0 || !toks || toks.length) {
+        // This gun is in use (or can't be checked): it stays. Only "nothing here and no backup restored" is 'missing'.
+        found = bal === -1 || !toks;
+        break;
+      }
     }
     if (g.adoptKey(key)) {
       markBackedUp(w.publicKey, g.address);
@@ -163,7 +176,7 @@ export async function restoreGunIfNeeded(w: Pick<Wallet, 'client' | 'publicKey'>
     }
     break;
   }
-  return g.locked ? 'locked' : 'ok';
+  return g.locked ? 'locked' : found ? 'missing' : 'ok';
 }
 
 export type BackupResult = 'backed-up' | 'ok' | 'declined' | 'locked';
@@ -250,7 +263,7 @@ export function scheduleGunBackup(
 }
 
 /** Old name (restore, then back up), kept for scripts and tests. The play flow never calls it. */
-export type SyncResult = 'restored' | 'backed-up' | 'ok' | 'locked';
+export type SyncResult = 'restored' | 'backed-up' | 'ok' | 'locked' | 'missing';
 export async function syncGunBackup(w: Pick<Wallet, 'client' | 'publicKey'>, g: GunLike, api: BackupApi = httpBackupApi): Promise<SyncResult> {
   const r = await restoreGunIfNeeded(w, g, api);
   if (r !== 'ok') return r;
