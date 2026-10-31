@@ -7,7 +7,11 @@
  * loading-ammo progress, and the caller starts the game by itself once the rounds are ready.
  * Presentational only: CoinOpGate and the Shooting Gallery feed it.
  */
-import { useRef, useState, type ReactNode } from 'react';
+import { playerWords } from '@/lib/midRunPay';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { holdPayDialog } from '@/lib/siteWallet';
+import { useSiteWallet } from '@/lib/useSiteWallet';
+import { payDialogView, payStep, type PayStep } from '@/lib/coinop/payFlow';
 import { playButton } from '@/lib/coinop/playButton';
 import { GET_NAME_URL } from '@/lib/walletBar';
 import { sfx, unlockAudio } from '@/lib/sfx';
@@ -111,7 +115,7 @@ export function CoinCabinet(p: {
     setTimeout(() => setDrops((d) => d.filter((x) => x.id !== id)), 600);
   };
   const [down, setDown] = useState(false);
-  const pb = p.onQuickLoad && !p.freePlay ? playButton(p.creditReady === false ? 0 : p.creditUsd, p.pendingUsd, p.priceUsd) : null;
+  const pb = p.onQuickLoad && !p.freePlay ? playButton(p.creditReady === false ? 0 : p.creditUsd, p.pendingUsd, p.priceUsd, p.buys?.(p.pendingUsd)) : null;
   const coinsRef = useRef<HTMLElement>(null);
   /** START is always clickable: say plainly what is missing (owner, 24 Oct 2026: no silent failures). */
   const press = () => {
@@ -218,11 +222,9 @@ export function CoinCabinet(p: {
           <p className="w-full text-xs text-[var(--tbx-mute)]">
             {p.bsvUsd ? `Live price: BSV $${p.bsvUsd.toFixed(2)}.` : 'Pricing…'} {p.priceNote}
           </p>
-          <p className="flex w-full items-start gap-2 rounded-lg border border-[var(--tbx-red)]/40 bg-[var(--tbx-red)]/10 px-3 py-2 text-xs font-semibold text-[var(--tbx-text)]" data-norefund>
-            <Icon name="shield" size={16} className="mt-px shrink-0 text-[var(--tbx-red)]" />
-            Unused credit stays in your gun for later. UNLOAD in the Your gun panel sends it back to your wallet once there is something in it. Playing multiplayer? Put in as much as you&apos;ll need.
+          <p className="w-full text-xs text-[var(--tbx-mute)]" data-norefund>
+            Unused credit stays in your gun. UNLOAD sends it back to your wallet. <span data-gun-key-note title={GUN_KEY_NOTE}>Your gun key lives in this browser.</span>
           </p>
-          <p className="w-full text-xs text-[var(--tbx-mute)]" data-gun-key-note>{GUN_KEY_NOTE}</p>
         </section>}
 
         {/* NAME (owner, 25 Oct): the wallet's paymail, shown read only. LOCK & LOAD connects the wallet. */}
@@ -298,7 +300,7 @@ export function CoinCabinet(p: {
             </button>
           )}
           <p className={`text-center text-sm ${miss ? 'font-semibold' : 'text-[var(--tbx-dim)]'}`} style={miss ? { color: '#ff7a70' } : undefined} data-start-reason>
-            {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss ? missText(miss) : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, then press the button. It connects your wallet.'}
+            {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss ? missText(miss) : p.pendingUsd > 0 ? `Your wallet asks for exactly ${fmtCredit(p.pendingUsd)}, once. Then the game starts.` : nameOk ? 'Ready.' : 'Put a coin in, then press the button. It connects your wallet.'}
           </p>
           {p.error && (
             <p className="text-center text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">
@@ -332,15 +334,26 @@ export function CabinetModals(p: {
   /** After "didn't respond": close; a late approval is still honoured. */
   giveUp?: () => void;
 }) {
-  const secs = useWaitSecs(p.approving ? p.approveSince : null);
+  // ONE payment surface (owner, 31 Oct 2026): this dialog follows the payment's TRUE step from the site store, and the
+  // site's bottom waiting card hides while it shows. "Approve" appears only once the wallet has been asked.
+  const site = useSiteWallet();
+  const [lastStep, setLastStep] = useState<PayStep | null>(null);
+  const step = p.approving ? payStep(site.waiting, lastStep) : null;
+  if (step !== lastStep) setLastStep(step); // React's "previous value" pattern: keeps "Paid" up until the game starts
+  useEffect(() => (p.approving ? holdPayDialog() : undefined), [p.approving]);
+  const stepSince = site.waiting?.kind === 'pay' ? site.waiting.since : p.approveSince;
+  const secs = useWaitSecs(p.approving ? stepSince : null);
   const name = p.walletName ?? 'your wallet';
   // When our error text is just the wallet's words, show our friendly line and put the wallet's words underneath.
   const rawOnly = Boolean(p.walletSaid && (p.error ?? '').includes(p.walletSaid));
-  const friendly = (fallback: string) => (rawOnly ? fallback : (p.error ?? fallback));
+  // Never a raw code for players (owner, 31 Oct: "bWalletX said: WALLET_HELD_DURING_PLAY"): plain words or nothing.
+  const errWords = playerWords(p.error);
+  const friendly = (fallback: string) => (rawOnly ? (playerWords(p.walletSaid) ?? fallback) : (errWords ?? fallback));
+  const saidWords = rawOnly ? null : playerWords(p.walletSaid);
   const said =
-    p.walletSaid ? (
+    saidWords ? (
       <span className="mt-2 block text-xs opacity-70" data-wallet-said>
-        {p.walletName ?? 'Your wallet'} said: {p.walletSaid}
+        {p.walletName ?? 'Your wallet'} said: {saidWords}
       </span>
     ) : null;
   if (p.modal === 'disconnected')
@@ -369,21 +382,27 @@ export function CabinetModals(p: {
         {said}
       </Modal>
     );
-  if (p.approving)
+  if (p.approving && step) {
+    const v = payDialogView(step, p.walletName);
+    const stuck = step === 'approve' && secs >= 20;
     return (
       <Modal
-        title="Approve in your wallet"
+        title={v.title}
         tone="wait"
-        action={secs >= 20 ? 'Wallet not answering? Reconnect' : undefined}
-        onAction={secs >= 20 ? p.reconnect : undefined}
-        secondary={p.cancel ? 'Cancel' : undefined}
-        onSecondary={p.cancel}
+        action={stuck ? 'Wallet not answering? Reconnect' : undefined}
+        onAction={stuck ? p.reconnect : undefined}
+        secondary={p.cancel && v.cancel ? 'Cancel' : undefined}
+        onSecondary={v.cancel ? p.cancel : undefined}
       >
-        Approve the payment in {name}. It&apos;s waiting for you.
-        <span className="mt-2 block text-sm text-[var(--tbx-mute)]" aria-live="polite">
-          still waiting… {secs}s
-        </span>
+        <span data-pay-step={v.step}>{v.body}</span>
+        {v.step !== 'paid' && (
+          <span className="mt-2 block text-sm text-[var(--tbx-mute)]" aria-live="polite">
+            {v.step === 'approve' ? 'still waiting…' : 'working…'} {secs}s
+          </span>
+        )}
+        {v.note && <span className="mt-2 block text-xs opacity-70">{v.note}</span>}
       </Modal>
     );
+  }
   return null;
 }

@@ -7,10 +7,10 @@
 import Link from 'next/link';
 import { Brand } from '@/components/Brand';
 import { useState, type ReactNode } from 'react';
-import { liveCeiling, liveRate, patternLabel, roundsForFullRate, txPattern, type TxPattern } from '@/lib/gallery';
+import { patternLabel, txPattern } from '@/lib/gallery';
 import type { RangeWeapon } from '@/lib/bsvgun/weapons';
 import { BloodTitle } from './BloodTitle';
-import { BRIEFING, CHARACTERS, SETTING, PRACTICE, TAGLINE, forPractice, stageBrief } from '@/lib/gallery/story';
+import { BRIEFING, CHARACTERS, SETTING, PRACTICE, forPractice, stageBrief } from '@/lib/gallery/story';
 import { Icon, useExisting } from '../coinop/ui';
 import { CharacterCard } from '../coinop/LoadingScreen';
 import { GunPreview } from './GunPreview';
@@ -21,7 +21,7 @@ import { NpgBackdrop } from '../terrornode/NpgBackdrop';
 import { OfficialNpg } from '../terrornode/OfficialNpg';
 import { SignedOutBwalletButton } from '@/components/walletbar/BwalletButton';
 
-export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, levels, practice = false, rounds = 0 }: { start?: ReactNode; player?: ReactNode; levels?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
+export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail, cabinet, player, levels, practice = false }: { start?: ReactNode; player?: ReactNode; levels?: ReactNode; practice?: boolean; rounds?: number; weapons: RangeWeapon[]; weaponId: string; setWeaponId: (id: string) => void; canUse: (w: RangeWeapon) => boolean; paymail: string | null; cabinet: ReactNode }) {
   const [who, setWho] = useState('kweg');
   const have = useExisting(CHARACTERS.map((c) => c.portrait ?? ''));
   const c = CHARACTERS.find((x) => x.id === who) ?? CHARACTERS[0];
@@ -45,48 +45,50 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
             <Link href="/arcade/terrornode/leaderboard" data-fs-skip className="tbx-btn !min-h-[36px] !px-3 !text-xs" data-info-link>
               <Icon name="trophy" size={14} /> Scores &amp; info
             </Link>
-            <p className="hidden max-w-[320px] text-right text-sm text-[var(--tbx-dim)] sm:block">{practice ? forPractice(TAGLINE) : TAGLINE}</p>
           </div>
         </header>
         {start}
         {levels}
 
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)] xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)_minmax(0,560px)] lg:items-start">
-          {/* MISSION BRIEFING */}
-          <section className="tbx-glass tbx-in-l flex min-w-0 flex-col gap-3 p-4 sm:p-5 lg:col-span-1" aria-label={BRIEFING.heading} data-briefing>
-            <div>
-              <p className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-red)' }}>
-                <Icon name="eye" size={14} /> {BRIEFING.heading}
-              </p>
-              <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.26em] text-[var(--tbx-mute)]">{BRIEFING.code}</p>
-            </div>
-            <p className="text-[15px] font-medium leading-snug text-white/92">{BRIEFING.objective}</p>
-            <div className="rounded-lg border border-[var(--tbx-line)] bg-black/25 p-3">
-              <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{w1.code}</p>
-              <p className="tbx-display mt-1 text-2xl"><Brand>{w1.title}</Brand></p>
-              <p className="mt-1.5 text-[13px] leading-snug text-[var(--tbx-dim)]"><Brand>{w1.brief}</Brand></p>
-            </div>
-            <ul className="flex flex-col gap-1.5 text-[13px] text-[var(--tbx-dim)]">
-              {BRIEFING.rules.map((r0) => {
-                const r = practice ? forPractice(r0) : r0;
-                return (
-                <li key={r} className="flex gap-2">
-                  <Icon name="chevron" size={13} className="mt-0.5 shrink-0 text-[var(--tbx-red)]" /> {r}
-                </li>
-                );
-              })}
-            </ul>
-            {/* Who is who */}
-            <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Characters">
-              {CHARACTERS.map((x) => (
-                <button key={x.id} type="button" role="tab" aria-selected={x.id === who} onClick={() => setWho(x.id)} className="rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] transition" style={{ borderColor: x.id === who ? x.colour : 'var(--tbx-line)', color: x.id === who ? x.colour : 'var(--tbx-dim)', background: x.id === who ? 'rgba(255,255,255,.06)' : 'transparent' }}>
-                  {x.name.replace(/^THE /, '')}
-                </button>
-              ))}
-            </div>
-            <div key={c.id} className="tbx-fade">
-              <CharacterCard c={c} portrait={!!c.portrait && have.has(c.portrait)} />
-            </div>
+          {/* HOW IT WORKS / STORY (owner, 31 Oct 2026: strip the text wall). Collapsed: one tap opens each. */}
+          <section className="flex min-w-0 flex-col gap-2 lg:col-span-1" aria-label="How it works and story" data-briefing>
+            <details className="tbx-glass group p-3 sm:p-4" data-how>
+              <summary className="tbx-eyebrow flex cursor-pointer list-none items-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
+                <Icon name="chevron" size={13} className="transition group-open:rotate-90" /> How it works
+              </summary>
+              <ul className="mt-3 flex flex-col gap-1.5 text-[13px] text-[var(--tbx-dim)]">
+                {BRIEFING.rules.map((r0) => {
+                  const r = practice ? forPractice(r0) : r0;
+                  return (
+                    <li key={r} className="flex gap-2">
+                      <Icon name="chevron" size={13} className="mt-0.5 shrink-0 text-[var(--tbx-red)]" /> {r}
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+            <details className="tbx-glass group p-3 sm:p-4" data-story-info>
+              <summary className="tbx-eyebrow flex cursor-pointer list-none items-center gap-2" style={{ color: 'var(--tbx-red)' }}>
+                <Icon name="chevron" size={13} className="transition group-open:rotate-90" /> Story
+              </summary>
+              <p className="mt-3 text-[14px] leading-snug text-white/90">{BRIEFING.objective}</p>
+              <div className="mt-3 rounded-lg border border-[var(--tbx-line)] bg-black/25 p-3">
+                <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{w1.code}</p>
+                <p className="tbx-display mt-1 text-xl"><Brand>{w1.title}</Brand></p>
+                <p className="mt-1.5 text-[13px] leading-snug text-[var(--tbx-dim)]"><Brand>{w1.brief}</Brand></p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Characters">
+                {CHARACTERS.map((x) => (
+                  <button key={x.id} type="button" role="tab" aria-selected={x.id === who} onClick={() => setWho(x.id)} className="rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] transition" style={{ borderColor: x.id === who ? x.colour : 'var(--tbx-line)', color: x.id === who ? x.colour : 'var(--tbx-dim)', background: x.id === who ? 'rgba(255,255,255,.06)' : 'transparent' }}>
+                    {x.name.replace(/^THE /, '')}
+                  </button>
+                ))}
+              </div>
+              <div key={c.id} className="tbx-fade mt-2">
+                <CharacterCard c={c} portrait={!!c.portrait && have.has(c.portrait)} />
+              </div>
+            </details>
           </section>
 
           {/* Weapons */}
@@ -109,16 +111,7 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
                     <span className="flex items-center gap-1.5 text-[11px] font-semibold" style={{ color: p.kind === 'stream' ? 'var(--tbx-teal)' : 'var(--tbx-amber)' }}>
                       <Icon name={p.kind === 'stream' ? 'bolt' : 'stack'} size={12} /> {practice ? (p.kind === 'stream' ? `DEMO · ${p.rate.toLocaleString()} rounds/s, simulated` : `DEMO · ${p.n} rounds per pull`) : patternLabel(p)}
                     </span>
-                    <span className="text-[10px] leading-snug text-[var(--tbx-dim)]" data-live-rate>{rateNote(p, rounds, practice)}</span>
-                    {(['rate', 'spread', 'power'] as const).map((key) => (
-                      <span key={key} className="flex items-center gap-2 text-[10px] text-[var(--tbx-dim)]">
-                        <span className="w-11 font-semibold uppercase tracking-wider">{key}</span>
-                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-                          <span className="block h-full origin-left rounded-full transition-transform duration-500" style={{ width: `${Math.round(w.bars[key] * 100)}%`, background: on ? 'linear-gradient(90deg,var(--tbx-red-deep),var(--tbx-red))' : 'linear-gradient(90deg,#2b7f8a,var(--tbx-teal))' }} />
-                        </span>
-                      </span>
-                    ))}
-                    {!ok && <span className="text-[10px] text-[var(--tbx-amber)]">Own the 1Sat Ordnance to fire it LIVE</span>}
+                    {!ok && <span className="text-[10px] text-[var(--tbx-amber)]">Needs the 1Sat Ordnance</span>}
                   </button>
                 );
               })}
@@ -143,13 +136,4 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
     </div>
     </>
   );
-}
-
-/** The honest tx/s line under each gun (src/lib/gallery.ts liveCeiling): free play never claims on chain. */
-function rateNote(p: TxPattern, rounds: number, practice: boolean) {
-  if (p.kind !== 'stream') return null;
-  if (practice) return 'Demo only: nothing is sent on chain.';
-  const full = roundsForFullRate(p.rate);
-  if (rounds > 0) return `LIVE with ${rounds.toLocaleString()} rounds loaded: up to ${liveRate(p, rounds).toLocaleString()} tx/s (sender ceiling ${liveCeiling(rounds).toLocaleString()}; network-limited).`;
-  return `LIVE: up to ${p.rate.toLocaleString()} tx/s once ${full.toLocaleString()}+ rounds are loaded (10,000 rounds: up to ${liveRate(p, 10_000).toLocaleString()} tx/s). Network-limited.`;
 }

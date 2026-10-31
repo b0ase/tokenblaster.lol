@@ -19,6 +19,12 @@ import { cancelWalletCalls, connect, onWalletHold, serialised, walletHeld, withT
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
 
+/**
+ * Where a LOCK & LOAD payment really is (owner, 31 Oct 2026: "approve in your wallet" showed while the game was still
+ * checking the last payment, and the wallet had been asked nothing). 'approve' is set ONLY once the request is sent.
+ */
+export type PayStep = 'check' | 'connect' | 'approve' | 'paid';
+
 export type SiteWalletState = {
   wallet: Wallet | null;
   /** False once the wallet stopped answering (checked right before a payment, never on a timer). */
@@ -28,12 +34,14 @@ export type SiteWalletState = {
   /** The chooser is open (with an optional note at the top). */
   chooser: { note: string | null } | null;
   /** We are waiting on the wallet (shown by <SiteWalletWaiting/> with Cancel / Try again). Never a silent wait. */
-  waiting: { text: string; since: number; kind: 'discover' | 'connect' | 'pay' } | null;
+  waiting: { text: string; since: number; kind: 'discover' | 'connect' | 'pay'; step?: PayStep } | null;
+  /** How many on-page payment dialogs (the cabinet's) are showing: while one is, the bottom 'pay' card stays hidden. */
+  payDialogs: number;
   /** Bumped by every Cancel: pages waiting on the wallet (the coin-op cabinet) reset their own "approve" state. */
   cancels: number;
 };
 
-const EMPTY: SiteWalletState = { wallet: null, live: true, busy: false, error: null, chooser: null, waiting: null, cancels: 0 };
+const EMPTY: SiteWalletState = { wallet: null, live: true, busy: false, error: null, chooser: null, waiting: null, cancels: 0, payDialogs: 0 };
 let state: SiteWalletState = EMPTY;
 const subs = new Set<() => void>();
 export const getSiteWallet = () => state;
@@ -115,6 +123,17 @@ const waitText = (entry: Pick<WalletEntry, 'kind' | 'name'>) =>
 
 /** Show that we are waiting on the wallet (payments use this too), or clear it. */
 export const setSiteWalletWaiting = (w: SiteWalletState['waiting']) => set({ waiting: w });
+
+/** An on-page payment dialog is showing (returns the release): the site's bottom 'pay' card hides meanwhile. */
+export function holdPayDialog(): () => void {
+  set({ payDialogs: state.payDialogs + 1 });
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    set({ payDialogs: Math.max(0, state.payDialogs - 1) });
+  };
+}
 
 /**
  * Connect the wallet the player picked (or the remembered one). Every page sees it at once.

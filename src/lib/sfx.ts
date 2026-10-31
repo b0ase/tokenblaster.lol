@@ -882,24 +882,56 @@ function advance(immediate = false, pick?: Song) {
 let watchdog: ReturnType<typeof setInterval> | null = null;
 let wdAt = -1;
 let wdStuck = 0;
+let ctxRan = false; // the context has run once (a gesture unlocked it), so resuming it later is allowed
+
+/** What the watchdog does this tick (pure, for src/lib/musicWatchdog.test.ts). */
+export type WatchState = {
+  wanted: boolean; // music on, not muted, a track wanted, tab visible
+  ctx: 'running' | 'suspended' | 'closed' | 'interrupted' | 'none';
+  ctxRan: boolean;
+  hasSrc: boolean;
+  paused: boolean;
+  ended: boolean;
+  t: number;
+  lastT: number;
+  stuck: number;
+};
+export function watchdogStep(s: WatchState): { act: 'none' | 'resume-ctx' | 'play' | 'advance'; stuck: number } {
+  if (!s.wanted) return { act: 'none', stuck: 0 };
+  // The browser suspended the context (a long main-thread stall, an interruption): every deck is silent until resumed.
+  if (s.ctx !== 'running') return { act: s.ctxRan && s.ctx !== 'closed' && s.ctx !== 'none' ? 'resume-ctx' : 'none', stuck: 0 };
+  if (!s.hasSrc) return { act: 'none', stuck: 0 };
+  if (s.ended) return { act: 'advance', stuck: 0 };
+  if (s.t === s.lastT) {
+    const stuck = s.stuck + 1;
+    if (stuck >= 3) return { act: 'advance', stuck: 0 };
+    return { act: s.paused ? 'play' : 'none', stuck };
+  }
+  return { act: s.paused ? 'play' : 'none', stuck: 0 };
+}
+
 function startWatchdog() {
   if (watchdog || typeof window === 'undefined') return;
   watchdog = setInterval(() => {
-    if (!streaming || fading || !decks.length || !shouldPlay()) {
-      wdStuck = 0;
-      return;
-    }
+    if (ctx?.state === 'running') ctxRan = true;
+    const wanted = streaming && !fading && decks.length > 0 && !prefs.muted && prefs.music > 0 && !!wantTrack && !document.hidden;
     const d = decks[cur];
-    if (!d.song || !d.el.getAttribute('src')) return; // a signed URL still on its way: advance() handles failures
-    if (d.el.ended) return void advance(true);
-    if (d.el.paused) void d.el.play().catch(() => {});
-    if (d.el.currentTime === wdAt) {
-      if (++wdStuck >= 3) {
-        wdStuck = 0;
-        advance(true);
-      }
-    } else wdStuck = 0;
-    wdAt = d.el.currentTime;
+    const r = watchdogStep({
+      wanted,
+      ctx: (ctx?.state as WatchState['ctx']) ?? 'none',
+      ctxRan,
+      hasSrc: !!d?.song && !!d.el.getAttribute('src'),
+      paused: !!d?.el.paused,
+      ended: !!d?.el.ended,
+      t: d?.el.currentTime ?? 0,
+      lastT: wdAt,
+      stuck: wdStuck,
+    });
+    wdStuck = r.stuck;
+    wdAt = d?.el.currentTime ?? -1;
+    if (r.act === 'resume-ctx') void ctx?.resume().catch(() => {});
+    else if (r.act === 'play') void d.el.play().catch(() => {});
+    else if (r.act === 'advance') advance(true);
   }, 1000);
 }
 

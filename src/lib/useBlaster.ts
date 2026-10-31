@@ -4,6 +4,7 @@
  * Wallet + gun state shared by the gun app and the arena: pick a wallet (chooser), load the gun
  * with one approval, fire real blasts, unload. One gun per browser (src/lib/gun.ts).
  */
+import { earlierPayCovers } from '@/lib/coinop/payFlow';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WalletEntry } from './discovery';
 import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSiteWalletAnswered, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive, setSiteWalletWaiting, walletErrorText } from './siteWallet';
@@ -259,24 +260,32 @@ export function useBlaster() {
       // balance first, and if that payment landed, use it instead of charging again (owner, 25 Oct 2026).
       // Retry after "bWalletX didn't respond" (#95 no-double-pay rules): use the late answer or the gun's chain
       // balance if the first request paid; re-send the same request only once it provably did not.
+      // A Cancel pressed during a check below ends this LOCK & LOAD: nothing is sent to the wallet after it.
+      const cancelsAtStart = getSiteWallet().cancels;
+      const cancelled = () => getSiteWallet().cancels !== cancelsAtStart;
       const lp = latePay.current;
       if (lp) {
         loadMark('retry');
-        setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
+        setSiteWalletWaiting({ text: 'Checking your last payment…', since: Date.now(), kind: 'pay', step: 'check' });
         const out = await retryDecision(lp.late, {
           // This payment's own id on chain, never a balance difference (26 Oct: a 3 s balance fallback read an old
           // coin as a new payment and said "paid" for a request the wallet had refused).
-          paidOnChain: () => g.findPayment(lp.ref),
+          paidOnChain: () => g.findPayment(lp.ref, undefined, lp.sats),
           cancelHung: () => cancelWalletCalls(wallet.client, 'WALLET_TIMEOUT'),
         });
         setSiteWalletWaiting(null);
-        if (out === 'paid') {
+        if (out === 'paid' && earlierPayCovers(lp.sats, sats)) {
           latePay.current = null;
           unknownPay.current = null;
           setAmmo(g.sats);
           void g.balance('after payment').then(setAmmo).catch(() => undefined);
           loadMark('retry: the first request paid, no new charge');
           return 'ok';
+        }
+        if (out === 'paid') {
+          // The earlier request paid a DIFFERENT amount: that is credit already in the gun. Ask for what was picked now.
+          loadMark(`retry: the earlier ${lp.sats} sats paid (credit in the gun); now asking for the ${sats} sats picked`);
+          void g.balance('after payment').then(setAmmo).catch(() => undefined);
         }
         if (out === 'unknown') {
           setError('Could not confirm whether your last payment went through, so nothing was sent again. Try again in a moment.');
@@ -288,26 +297,34 @@ export function useBlaster() {
       }
       const unk = unknownPay.current;
       if (unk) {
-        setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
-        const landed = await g.findPayment(unk.ref, unk.txid);
+        setSiteWalletWaiting({ text: 'Checking your last payment…', since: Date.now(), kind: 'pay', step: 'check' });
+        const landed = await g.findPayment(unk.ref, unk.txid, unk.sats);
         setSiteWalletWaiting(null);
         void g.balance('after payment').then(setAmmo).catch(() => undefined);
-        if (landed) {
+        if (landed && earlierPayCovers(unk.sats, sats)) {
           unknownPay.current = null;
           loadMark(`the earlier payment ${unk.ref} landed: using it, no new charge`);
           return 'ok';
         }
+        if (landed) loadMark(`the earlier payment ${unk.ref} (${unk.sats} sats) landed as credit; now asking for the ${sats} sats picked`);
         if (landed === null) {
           setError('Could not read the gun balance to check your last payment. Try again in a moment (no charge was made).');
           return 'refused';
         }
         unknownPay.current = null;
       }
-      if (!(await checkWallet())) return 'disconnected';
+      if (cancelled()) return 'refused';
+      setSiteWalletWaiting({ text: `Checking ${wallet.name} is connected…`, since: Date.now(), kind: 'pay', step: 'connect' });
+      if (!(await checkWallet())) {
+        setSiteWalletWaiting(null);
+        return 'disconnected';
+      }
+      if (cancelled()) return 'refused';
       setBusy('loading');
       // This payment's id, carried on chain: a retry looks for exactly this payment (src/lib/payRef.ts).
       const ref = newPayRef();
-      setSiteWalletWaiting({ text: `Waiting for ${wallet.name}… open it to approve the payment.`, since: Date.now(), kind: 'pay' });
+      // Only now is the wallet asked: the 'approve' step (and its "approve in bWalletX" words) starts here, never earlier.
+      setSiteWalletWaiting({ text: `Waiting for ${wallet.name}… open it to approve the payment.`, since: Date.now(), kind: 'pay', step: 'approve' });
       try {
         loadMark('approve start');
         // A real approval can take a while; a wallet that never answers at all counts as disconnected.
@@ -319,7 +336,8 @@ export function useBlaster() {
           // where a timeout or Cancel used to reset the cabinet and charge again (owner log, 25 Oct: paid twice).
           onAnswered: () => {
             markSiteWalletAnswered(wallet);
-            setSiteWalletWaiting(null);
+            // No Cancel from here on: the dialog says "Paid. Loading your gun…" until the game starts.
+            setSiteWalletWaiting({ text: 'Paid. Loading your gun…', since: Date.now(), kind: 'pay', step: 'paid' });
           },
           afterPaid: backupLater, // in the background: never chained to the pay
         });
@@ -387,25 +405,37 @@ export function useBlaster() {
 
   /** The LOCK & LOAD payment in flight: a second press (or a Reconnect) joins it, never opens a second sheet. */
   const paying = useRef<Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> | null>(null);
+  const payingSats = useRef(0);
   const load = useCallback(
     (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> => {
       if (paying.current) {
-        loadMark('pay: a payment is already in flight, joining it (no second wallet request)');
-        return paying.current;
+        // Only the SAME amount joins the open request (31 Oct 2026: a $1 press joined an open $0.10 one and was
+        // told "paid"). A different amount waits for the open one to finish: nothing new is asked meanwhile.
+        if (earlierPayCovers(payingSats.current, sats)) {
+          loadMark('pay: the same payment is already in flight, joining it (no second wallet request)');
+          return paying.current;
+        }
+        loadMark(`pay: a different payment (${payingSats.current} sats) is still open; ${sats} sats not asked`);
+        setError('Another payment is still open in your wallet. Approve or cancel it there, then press again.');
+        return Promise.resolve('refused');
       }
+      payingSats.current = sats;
       const p = loadOnce(sats, label).finally(() => {
         if (paying.current === p) paying.current = null;
       });
       paying.current = p;
       return p;
     },
-    [loadOnce],
+    [loadOnce, setError],
   );
 
   /** End the gun's running storm session (sender finished, locks released, change saved). */
   const endSession = useCallback(async () => {
     await gun.current?.endSession();
   }, []);
+
+  /** A streamed load still has rounds arriving in the background (src/lib/fanoutStream.ts). */
+  const moreRoundsLoading = useCallback(() => gun.current?.moreRoundsLoading ?? false, []);
 
   /** One real blast. Resolves to the txid; ammo updates as it goes. */
   const fire = useCallback(
@@ -770,5 +800,5 @@ export function useBlaster() {
     [],
   );
 
-  return { latePaid, warmWallet, gunLocked, gunMissing, creditUnknown, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid };
+  return { moreRoundsLoading, latePaid, warmWallet, gunLocked, gunMissing, creditUnknown, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid };
 }

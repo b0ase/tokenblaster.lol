@@ -62,6 +62,8 @@ export type StartMsg = {
   baseValues: number[];
   /** More fan-out txs (a big load splits in several, src/lib/gun.ts): a lane with `base: i` spends bases[i - 1]. */
   bases?: { txid: string; values: number[] }[];
+  /** Highest round number this session can carry (fixes the per-blast fee when lanes stream in later). */
+  maxN?: number;
   lanes: { vout: number; count: number; n: number; base?: number; tok?: { vout: number; amt: string } }[];
   /**
    * Coin ammo (25 Oct 2026): every shot burns `per` tokens of `id` to `toLockHex` (the burn address). Each lane then
@@ -99,7 +101,15 @@ export type Ctl = {
   postBackoffMs?: number;
   /** Gap between status asks for a held lane (default POLL_MS). Tests shrink it. */
   pollMs?: number;
+  /**
+   * Streamed ammo (31 Oct 2026): lanes added after start. `more()` drains what has arrived (each lane's `base` is a
+   * GLOBAL base index, defined by `bases` here or earlier); `open()` is true while more may still come, so the sender
+   * keeps running with no lanes left. Only lanes whose fan-out the network already has are ever added (src/lib/gun.ts).
+   */
+  more?: () => AddMsg[];
+  open?: () => boolean;
 };
+export type AddMsg = { bases?: { i: number; txid: string; values: number[] }[]; lanes: StartMsg['lanes'] };
 /**
  * One POST may take at most this long (26 Oct 2026: a stalled POST froze a storm at exactly 5,000 txs and held
  * the gun lock). On a timeout or network error the SAME bytes are re-POSTed (same txids, so it is idempotent) up to
@@ -247,7 +257,7 @@ export function makeBroadcaster(kind: BroadcasterKind | undefined, url: string |
 export async function settleTxs(
   bc: Broadcaster,
   txs: { ef: Uint8Array; txid: string }[],
-  o: { deadlineMs?: number; pollMs?: number } = {},
+  o: { deadlineMs?: number; pollMs?: number; stop?: () => boolean } = {},
 ): Promise<{ seen: Set<string>; statuses: Record<string, string>; bad: string[] }> {
   const end = Date.now() + (o.deadlineMs ?? 60_000);
   const seen = new Set<string>();
@@ -263,7 +273,7 @@ export async function settleTxs(
     if (r?.txStatus && BAD.test(`${r.txStatus} ${r.extraInfo ?? ''}`)) bad.push(t.txid);
     if (isSeen(r?.txStatus)) seen.add(t.txid);
   });
-  while (seen.size + bad.length < txs.length && Date.now() < end) {
+  while (seen.size + bad.length < txs.length && Date.now() < end && !o.stop?.()) {
     await new Promise((r) => setTimeout(r, o.pollMs ?? POLL_MS));
     await Promise.all(
       txs
@@ -338,10 +348,20 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
       waitFor: m.waitFor,
     }),
   );
-  const bases = [{ txid: m.baseTxid, values: m.baseValues }, ...(m.bases ?? [])].map((x) => ({ le: fromHex(x.txid).reverse(), values: x.values }));
+  // Indexed by base number; streamed bases arrive later (sparse until then).
+  const bases: ({ le: Uint8Array; values: number[] } | undefined)[] = [];
+  const addBase = (i: number, x: { txid: string; values: number[] }) => (bases[i] = { le: fromHex(x.txid).reverse(), values: x.values });
+  if (m.baseTxid) addBase(0, { txid: m.baseTxid, values: m.baseValues });
+  (m.bases ?? []).forEach((x, i) => addBase(i + 1, x));
   const depth = m.maxDepth && m.maxDepth > 0 ? m.maxDepth : Infinity;
-  const lanes: Lane[] = m.lanes.map((l, i) => {
-    const base = bases[l.base ?? 0] ?? bases[0];
+  let laneNo = 0;
+  const mkLane = (l: StartMsg['lanes'][number]): Lane | null => {
+    const base = bases[l.base ?? 0];
+    if (!base) {
+      ctl.emit({ type: 'why', text: `lane on unknown fan-out ${l.base ?? 0}: skipped` });
+      return null;
+    }
+    const i = laneNo++;
     return {
       txidLE: base.le,
       vout: l.vout,
@@ -355,10 +375,28 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
       due: 0,
       tok: m.burn && l.tok ? { txidLE: base.le, vout: l.tok.vout, amt: BigInt(l.tok.amt), lock: bsv21Lock(m.burn.id, BigInt(l.tok.amt), b.lock) } : undefined,
     };
-  });
+  };
+  let lanes: Lane[] = [];
+  for (const l of m.lanes) {
+    const x = mkLane(l);
+    if (x) lanes.push(x);
+  }
+  /** Take in streamed lanes; drop finished ones so a long session never holds every lane it ever had. */
+  const intake = () => {
+    const adds = ctl.more?.() ?? [];
+    if (!adds.length) return;
+    if (lanes.length > 4096) lanes = lanes.filter((l) => l.state !== 'done');
+    for (const a of adds) {
+      for (const x of a.bases ?? []) addBase(x.i, x);
+      for (const l of a.lanes) {
+        const y = mkLane(l);
+        if (y) lanes.push(y);
+      }
+    }
+  };
   const pushes = (n: number) => opReturn(tagPushes(token, n, m.game, m.extra));
   // One fee for every blast, worked out on the longest number this session can carry.
-  const fee = b.feeFor(pushes(Math.max(...lanes.map((l) => l.n + l.left))), FEE_RATE);
+  const fee = b.feeFor(pushes(Math.max(m.maxN ?? 0, 1, ...lanes.map((l) => l.n + l.left))), FEE_RATE);
   const halted = () => ctl.stopped() || ctl.paused();
 
   /** Sign the lane's next blast (from its tip, which the network already has) and move the tip onto it. */
@@ -498,6 +536,7 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
   };
   let polling = false;
   while (!ctl.stopped()) {
+    intake();
     if (!halted()) {
       while (inflight.size < MAX_INFLIGHT) {
         const batch = take();
@@ -510,7 +549,7 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
       polling = true;
       track(poll().finally(() => (polling = false)));
     }
-    if (!inflight.size && !lanes.some((l) => l.state === 'held' || (ctl.paused() && l.state !== 'done'))) break;
+    if (!inflight.size && !ctl.open?.() && !lanes.some((l) => l.state === 'held' || (ctl.paused() && l.state !== 'done'))) break;
     await Promise.race([...inflight, new Promise((r) => setTimeout(r, Math.min(pollMs, 50)))]);
     flushStats();
   }
