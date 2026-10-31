@@ -28,6 +28,8 @@ export function PlayerPanel(p: {
   checking?: boolean;
   walletName?: string | null;
   onRescan?: () => void;
+  /** What the last re-sync found ("Found $X.XX that was stuck…"). */
+  rescanNote?: string | null;
   gunAddress: string | null | undefined;
   packLeft: number;
   ordnance: { checking: boolean; checked: boolean; check: () => void; idle: boolean } | null;
@@ -82,6 +84,11 @@ export function PlayerPanel(p: {
           </>
         )}
       </p>
+      {p.rescanNote && (
+        <p className="mt-0.5 text-xs" style={{ color: 'var(--tbx-teal)' }} data-gun-resync-note>
+          {p.rescanNote}
+        </p>
+      )}
       <div className="mt-3 flex flex-col gap-1" data-gun-unload-primary>
         {p.unload}
         <span className="text-sm text-white/80">Sends it all back to {p.walletName || 'your wallet'}.</span>
