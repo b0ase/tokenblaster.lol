@@ -829,6 +829,7 @@ export class Gun {
         await leaf.fee(new SatoshisPerKilobyte(FEE_RATE));
         await leaf.sign();
         leafTxs.push(leaf);
+        await new Promise((r) => setTimeout(r, 0)); // yield between leaves: a big load must not starve the page (music, UI)
       }
       loadMark(`fan-out built: ${lanesN} lanes x ${perLane} deep in ${1 + leaves} tx(s)`);
       onStep(45, 0);

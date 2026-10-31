@@ -874,7 +874,37 @@ function advance(immediate = false, pick?: Song) {
   }
 }
 
+/**
+ * Music watchdog (31 Oct 2026: the album went silent mid-track during a big ammo load). Once a second: if the album
+ * should be playing but the active deck is paused, resume it; if its clock has not moved for 3 s (stalled fetch,
+ * expired signed URL, a starved 'timeupdate'/'ended'), move to the next track. Nothing changes while it plays.
+ */
+let watchdog: ReturnType<typeof setInterval> | null = null;
+let wdAt = -1;
+let wdStuck = 0;
+function startWatchdog() {
+  if (watchdog || typeof window === 'undefined') return;
+  watchdog = setInterval(() => {
+    if (!streaming || fading || !decks.length || !shouldPlay()) {
+      wdStuck = 0;
+      return;
+    }
+    const d = decks[cur];
+    if (!d.song || !d.el.getAttribute('src')) return; // a signed URL still on its way: advance() handles failures
+    if (d.el.ended) return void advance(true);
+    if (d.el.paused) void d.el.play().catch(() => {});
+    if (d.el.currentTime === wdAt) {
+      if (++wdStuck >= 3) {
+        wdStuck = 0;
+        advance(true);
+      }
+    } else wdStuck = 0;
+    wdAt = d.el.currentTime;
+  }, 1000);
+}
+
 function startStream() {
+  startWatchdog();
   if (!ctx || !wantTrack || fallback) return;
   makeDecks();
   if (stopTimer) clearTimeout(stopTimer);
