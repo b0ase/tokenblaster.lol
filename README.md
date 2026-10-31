@@ -10,6 +10,7 @@ competitions are meant to be joined from bWallet's chat rooms and Market.
   "landed" counts the ones seen back on the JungleBus feed. Unload returns leftover sats.
 - `/arena`: DOOM-style Three.js arena; every shot is a real blast, sent to ARC in batches (`docs/arena.md`)
 - `/launch`: BlastPad, launch BSV-21 memecoins on a bonding curve and trade them in one atomic tx each (`docs/launchpad.md`)
+- `/api/blasts/recent?limit=&game=&since=`: public read-only feed of recent blasts, newest first (CORS for bChatX; `db/028_blasts_recent.sql`)
 - `/api/leaderboard`: most-blasted tokens, from `worker/indexer.ts` (JungleBus → Postgres, `db/001_blasts.sql`)
 - `/api/chain`: chain tip from GorillaPool JungleBus
 - `blaster/blast.ts`: the command-line blaster (`pnpm blast`), dry run unless `--broadcast`
