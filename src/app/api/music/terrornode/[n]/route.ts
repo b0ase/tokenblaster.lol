@@ -1,7 +1,8 @@
 /**
- * Streams one WELCOME TO TERRORNODE track to the page's audio player, through this origin, from bMusicX's audio
- * (TB_ALBUM_AUDIO_BASE, default https://bmusicx.com/bmx/samples: what bmusicx.com/album/welcome-to-terrornode
- * plays today). Range requests pass through so the player can seek and buffer.
+ * Streams one WELCOME TO TERRORNODE track to the page's audio player, through this origin. With TB_ALBUM_SOURCE=blob
+ * it reads the FULL track from the private Vercel Blob store (server-side, BLOB_READ_WRITE_TOKEN); otherwise it falls
+ * back to bMusicX's public 45 s samples (TB_ALBUM_AUDIO_BASE). See src/lib/albumSource.ts. Range requests pass through
+ * so the player can seek and buffer.
  *
  * What this does against downloading (and what it does not; owner asked for the honest version, 31 Oct 2026):
  *  - the upstream file path never reaches the browser; URLs are signed and expire (src/lib/albumSign.ts);
@@ -15,10 +16,11 @@
  */
 import { ALBUM_TRACKS } from '@/lib/terrornodeAlbum';
 import { verifyAlbumSig } from '@/lib/albumSign';
+import { albumSource } from '@/lib/albumSource';
+import { get } from '@vercel/blob';
 
 export const dynamic = 'force-dynamic';
 
-const BASE = (process.env.TB_ALBUM_AUDIO_BASE || 'https://bmusicx.com/bmx/samples').replace(/\/$/, '');
 const deny = (why: string, status = 403) => new Response(why, { status, headers: { 'cache-control': 'no-store' } });
 
 export async function GET(req: Request, ctx: { params: Promise<{ n: string }> }) {
@@ -34,15 +36,24 @@ export async function GET(req: Request, ctx: { params: Promise<{ n: string }> })
   if (site !== 'same-origin' || (dest !== 'audio' && dest !== 'video' && dest !== 'empty')) return deny('Plays on tokenblaster.lol only.');
 
   const range = req.headers.get('range');
-  let up: Response;
+  const src = albumSource(track);
+  let up: { status: number; headers: Headers; body: ReadableStream<Uint8Array> | null };
   try {
-    up = await fetch(`${BASE}/${track.file}`, { headers: range ? { range } : {}, cache: 'no-store', signal: AbortSignal.timeout(15_000) });
+    if (src.kind === 'blob') {
+      // Private blob: the SDK authenticates with BLOB_READ_WRITE_TOKEN; the blob URL is never sent to the browser.
+      const r = await get(src.pathname, { access: 'private', headers: range ? { range } : undefined, abortSignal: AbortSignal.timeout(15_000) });
+      if (!r || r.statusCode === 304) return deny('Music service unavailable.', 502);
+      up = { status: range && r.headers.get('content-range') ? 206 : 200, headers: new Headers([...r.headers]), body: r.stream as ReadableStream<Uint8Array> };
+    } else {
+      const r = await fetch(src.url, { headers: range ? { range } : {}, cache: 'no-store', signal: AbortSignal.timeout(15_000) });
+      if (!r.ok && r.status !== 206) return deny('Music service unavailable.', 502);
+      up = { status: r.status, headers: r.headers, body: r.body };
+    }
   } catch {
     return deny('Music service unavailable.', 502);
   }
-  if (!up.ok && up.status !== 206) return deny('Music service unavailable.', 502);
   const h = new Headers({
-    'content-type': up.headers.get('content-type') ?? 'audio/mp4',
+    'content-type': up.headers.get('content-type') ?? (track.master.endsWith('.mp3') ? 'audio/mpeg' : 'audio/mp4'),
     'accept-ranges': 'bytes',
     'cache-control': 'private, no-store',
     'content-disposition': 'inline',
