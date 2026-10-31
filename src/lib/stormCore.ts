@@ -250,6 +250,36 @@ export function makeBroadcaster(kind: BroadcasterKind | undefined, url: string |
 }
 
 /**
+ * Two status sources for fan-out txs (31 Oct 2026). The owner's paid loads died because the GO gate trusted ARC's
+ * SEEN only: ARC 1.5.11 can sit at ANNOUNCED_TO_NETWORK, and on 29 Oct its SEEN lagged ~10 min. GorillaPool's advice
+ * is Arcade (Teranode-backed). This POSTs to BOTH and calls a tx seen when EITHER source says the network has it;
+ * a refusal counts only when no source has it. Same signed bytes to both, so no double spend is possible.
+ */
+export function dualBroadcaster(primary: Broadcaster, second: Broadcaster): Broadcaster {
+  const pick = (a: TxResult | null | undefined, b: TxResult | null | undefined): TxResult | null => {
+    if (isSeen(a?.txStatus)) return a!;
+    if (isSeen(b?.txStatus)) return b!;
+    const badA = !!a?.txStatus && BAD.test(`${a.txStatus} ${a.extraInfo ?? ''}`);
+    const badB = !!b?.txStatus && BAD.test(`${b.txStatus} ${b.extraInfo ?? ''}`);
+    if (a?.txStatus && !badA) return a;
+    if (b?.txStatus && !badB) return b;
+    return a ?? b ?? null;
+  };
+  return {
+    kind: primary.kind,
+    url: `${primary.url}+${second.url}`,
+    async post(efs, txids) {
+      const [a, b] = await Promise.all([primary.post(efs, txids).catch(() => [] as TxResult[]), second.post(efs, txids).catch(() => [] as TxResult[])]);
+      return txids.map((txid, i) => pick(a[i], b[i]) ?? { txid, txStatus: 'NO_ANSWER' });
+    },
+    async status(txid) {
+      const [a, b] = await Promise.all([primary.status(txid).catch(() => null), second.status(txid).catch(() => null)]);
+      return pick(a, b);
+    },
+  };
+}
+
+/**
  * Broadcast already-signed independent txs (a fan-out level) in one POST and wait until the network has every one
  * (or `deadlineMs` passes). src/lib/gun.ts runs this before any lane spends a fan-out output. Returns the seen txids
  * and the last status of each, and which ones the broadcaster refused.

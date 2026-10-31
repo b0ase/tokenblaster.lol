@@ -8,7 +8,7 @@ import { spendableCoins } from './coinop/ammo';
 import { STREAM_STEP, fanoutPlan, lanesFor as plannedLanes } from './gallery';
 import { runStorm, type StormBase, type StormBatch, type StormLane, type StormNet } from './stormRun';
 import { streamLeaves, type LaneSpec } from './fanoutStream';
-import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, ammoPush, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
+import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, ammoPush, dualBroadcaster, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
 import { hasPayRef } from './payRef';
 import { buildSweep } from './sweep';
 import { archiveKey, archivedKeys, keyPersisted } from './gunKeys';
@@ -32,6 +32,15 @@ export function stormBroadcaster(): BroadcasterKind {
 }
 /** How long LOCK & LOAD waits for the network to have the fan-out before the lanes go anyway (they wait per lane then). */
 const FANOUT_SEEN_MS = 60_000;
+/**
+ * Longest LOCK & LOAD waits for the FIRST live lanes before it gives up honestly (credit stays in the gun). Leaves
+ * that are slower than this keep loading in the background only once play has started.
+ */
+export const GO_MAX_MS = 4 * 60_000;
+/** Longest a new load waits for the previous load's background feed to stop (its outputs are already marked spent). */
+export const FEED_STOP_MS = 8_000;
+/** Fan-out status: Arcade and ARC together, seen when EITHER has it (stormCore.dualBroadcaster). */
+export const fanoutBroadcaster = () => dualBroadcaster(makeBroadcaster('arcade', ARCADE_DEFAULT), makeBroadcaster('arc', ARC_URL));
 /** Lane coins LOCK & LOAD has made ready (src/lib/fanoutStream.ts): batches before the storm starts, `push` after. */
 type Ammo = {
   batches: { bases: StormBase[]; lanes: LaneSpec[] }[];
@@ -808,7 +817,8 @@ export class Gun {
   private async stopFeed(a: Ammo | null) {
     if (!a) return;
     a.cancelled = true;
-    await a.done.catch(() => undefined);
+    // Bounded (31 Oct 2026): a feed stuck on a slow POST used to hold the next LOCK & LOAD past its stall limit.
+    await Promise.race([a.done.catch(() => undefined), new Promise((r) => setTimeout(r, FEED_STOP_MS))]);
   }
 
   /**
@@ -846,7 +856,25 @@ export class Gun {
    * go in ONE fan-out tx; more go in a root tx paying ceil(lanes / SPLIT_OUTPUTS) leaf fan-outs, broadcast level by
    * level (the root, then the leaves together once the network has the root), never a parent with its child.
    */
-  async prepareStorm(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
+  async prepareStorm(total: number, perBlast: number, step: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
+    // Heartbeat: the page judges a load by progress, so every phase reports once a second while it works (with how
+    // long it has waited), not only when it changes phase. Each phase below has its own bound.
+    let pct = 5;
+    let since = Date.now();
+    const onStep = (p: number, slow: number) => {
+      if (p !== pct) since = Date.now();
+      pct = p;
+      step(p, slow);
+    };
+    const beat = setInterval(() => step(pct, Math.round((Date.now() - since) / 1000)), 1000);
+    try {
+      await this.prepareStormNow(total, perBlast, onStep);
+    } finally {
+      clearInterval(beat);
+    }
+  }
+
+  private async prepareStormNow(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void): Promise<void> {
     await this.endSession();
     await this.stopFeed(this.ready);
     return this.exclusive(async () => {
@@ -877,9 +905,10 @@ export class Gun {
       this.coin = { tx: Transaction.fromHex(root.toHex()), vout: root.outputs.length - 1 };
       this.save();
       // Wait for the network (not just ARC) to have it: lanes (or leaves) spend it next.
-      const bc = makeBroadcaster('arc', ARC_URL);
+      // GO never depends on ARC's SEEN alone (31 Oct 2026): Arcade and ARC are both asked, either one seeing it counts.
+      const bc = fanoutBroadcaster();
       const t0 = Date.now();
-      const tick = setInterval(() => onStep(leaves ? 55 : 70, Math.round((Date.now() - t0) / 1000)), 1000);
+      onStep(leaves ? 55 : 70, 0);
       const ammo: Ammo = { batches: [], push: null, end: null, ended: false, cancelled: false, done: Promise.resolve(), maxN: total + 1, used: [] };
       const hand = (bases: StormBase[], lanes: LaneSpec[]) => {
         const b = { bases, lanes };
@@ -892,7 +921,9 @@ export class Gun {
         ammo.end?.();
       };
       try {
-        const rootSeen = await settleTxs(bc, [{ ef: Uint8Array.from(root.toEF()), txid: rootTxid }], { deadlineMs: FANOUT_SEEN_MS });
+        const rootSeen = await settleTxs(bc, [{ ef: Uint8Array.from(root.toEF()), txid: rootTxid }], { deadlineMs: leaves ? GO_MAX_MS / 2 : FANOUT_SEEN_MS });
+        // A leaf POSTed with an unseen parent is orphaned and never recovers (GorillaPool, 26 Oct 2026): stop honestly.
+        if (leaves && !rootSeen.seen.size) throw new Error('NETSLOW');
         loadMark(`fan-out root ${rootSeen.seen.size ? 'seen on network' : `NOT seen yet (${JSON.stringify(rootSeen.statuses)}): lanes will wait per lane`}`);
         if (!leaves) {
           const lanes: LaneSpec[] = [];
@@ -912,6 +943,11 @@ export class Gun {
             seenMs: FANOUT_SEEN_MS,
             cancelled: () => ammo.cancelled,
             onSpent: (op) => this.spent.add(op),
+            onUnspent: (op) => {
+              // no source ever had that leaf: its root output is still the gun's credit
+              this.spent.delete(op);
+              this.save();
+            },
             onReady: hand,
             log: loadMark,
           });
@@ -925,16 +961,17 @@ export class Gun {
               finish();
             },
           );
-          const fed = await st.first;
+          // Bounded and honest: the first live lanes within GO_MAX_MS, else stop (credit stays in the gun).
+          const fed = await Promise.race([st.first, new Promise<number>((r) => setTimeout(() => r(0), GO_MAX_MS))]);
           if (!fed) {
             ammo.cancelled = true;
-            await ammo.done;
-            throw new Error('ARC took none of the fan-out: try LOCK & LOAD again.');
+            await Promise.race([ammo.done, new Promise((r) => setTimeout(r, FEED_STOP_MS))]);
+            throw new Error('NETSLOW');
           }
           loadMark(`GO: first ${fed} lanes live after ${Math.round((Date.now() - t0) / 1000)} s; the rest load while you fire`);
         }
       } finally {
-        clearInterval(tick);
+        // nothing to clear: the heartbeat lives in prepareStorm()
       }
       onStep(95, 0);
       this.ready = ammo;

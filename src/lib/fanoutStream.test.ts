@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { P2PKH, PrivateKey, SatoshisPerKilobyte, Transaction } from '@bsv/sdk';
 import { fanoutPlan, SPLIT_OUTPUTS } from './gallery';
 import { buildLeaf, leafLanes, streamLeaves, type LaneSpec } from './fanoutStream';
-import { runLanes, type AddMsg, type Broadcaster, type Out, type TxResult } from './stormCore';
+import { dualBroadcaster, runLanes, type AddMsg, type Broadcaster, type Out, type TxResult } from './stormCore';
 import { watchdogStep, type WatchState } from './sfx';
 
 const key = PrivateKey.fromRandom(); // throwaway: never funded
@@ -184,4 +184,108 @@ test('music watchdog: resumes a suspended context, replays a paused deck, skips 
   }
   assert.deepEqual(acts, ['none', 'none', 'advance'], 'clock frozen 3 s: next track');
   assert.equal(watchdogStep({ ...base, wanted: false, paused: true }).act, 'none');
+});
+
+/**
+ * SLOW network (31 Oct 2026 incident): ARC stuck at ANNOUNCED_TO_NETWORK forever, Arcade SEEN only after 5-10
+ * "minutes". Time is scaled (MIN ms = one minute) so the suite stays fast; the ratios match the live failure, which
+ * the old mock (SEEN after 1.2 s from one source) could never show.
+ */
+const MIN = 12;
+function slowArc(known: (txid: string) => boolean = () => true) {
+  const posts: string[] = [];
+  const bc: Broadcaster = {
+    kind: 'arc',
+    url: 'arc-mock',
+    async post(_efs, txids) {
+      posts.push(...txids);
+      await new Promise((r) => setTimeout(r, 2));
+      return txids.map((txid): TxResult => (known(txid) ? { txid, txStatus: 'ANNOUNCED_TO_NETWORK' } : { txid, txStatus: 'REJECTED', extraInfo: 'missing inputs' }));
+    },
+    async status(txid) {
+      return known(txid) ? { txid, txStatus: 'ANNOUNCED_TO_NETWORK' } : null;
+    },
+  };
+  return { bc, posts };
+}
+/** Arcade-ish: SEEN `delay(txid)` ms after its first POST; `null` = never heard of it (404). */
+function slowArcade(delay: (txid: string) => number | null) {
+  const at = new Map<string, number>();
+  const posts: string[] = [];
+  const st = (txid: string): TxResult | null => {
+    const d = delay(txid);
+    if (d === null || !at.has(txid)) return null;
+    return { txid, txStatus: Date.now() - at.get(txid)! >= d ? 'SEEN_ON_NETWORK' : 'RECEIVED' };
+  };
+  const bc: Broadcaster = {
+    kind: 'arcade',
+    url: 'arcade-mock',
+    async post(_efs, txids) {
+      for (const t of txids) {
+        posts.push(t);
+        if (delay(t) !== null && !at.has(t)) at.set(t, Date.now());
+      }
+      await new Promise((r) => setTimeout(r, 2));
+      return txids.map((txid) => st(txid) ?? { txid, txStatus: 'REJECTED', extraInfo: 'not accepted' });
+    },
+    async status(txid) {
+      return st(txid);
+    },
+  };
+  return { bc, posts };
+}
+
+test('SLOW: ARC stuck at ANNOUNCED, Arcade SEEN after 8 min: GO comes from the second source, no lane before it is seen', async () => {
+  const total = 20_000; // 4 leaves
+  const { plan, root } = await rootFor(total, 120);
+  const arc = slowArc();
+  const arcade = slowArcade(() => 8 * MIN);
+  const bc = dualBroadcaster(arcade.bc, arc.bc);
+  const got: LaneSpec[] = [];
+  const t0 = Date.now();
+  let readyAt = 0;
+  const st = streamLeaves({
+    root, plan, total, key, address, bc, seenMs: 10 * MIN, pollMs: 1, cancelled: () => false, onSpent: () => undefined,
+    onReady: (_, l) => {
+      readyAt ||= Date.now();
+      got.push(...l);
+    },
+  });
+  const first = await st.first;
+  assert.ok(first > 0, 'GO although ARC never said SEEN');
+  assert.ok(readyAt - t0 >= 8 * MIN - 2, 'no lane handed over before the leaf was seen');
+  const r = await st.done;
+  assert.equal(r.unseen.length, 0);
+  assert.equal(got.reduce((n, l) => n + l.count, 0), total);
+  assert.ok(arc.posts.length >= plan.leaves && arcade.posts.length >= plan.leaves, 'every leaf went to BOTH');
+});
+
+test('SLOW: the old single-source gate (ARC only, stuck at ANNOUNCED) never goes live: the class of bug the sim missed', async () => {
+  const total = 10_000;
+  const { plan, root } = await rootFor(total, 120);
+  const st = streamLeaves({ root, plan, total, key, address, bc: slowArc().bc, seenMs: 5 * MIN, pollMs: 1, cancelled: () => false, onSpent: () => undefined, onReady: () => undefined });
+  assert.equal(await st.first, 0);
+  assert.equal((await st.done).unseen.length, plan.leaves);
+});
+
+for (const arcHolds of [true, false])
+test(`SLOW: a stalled first leaf does not block play: GO on the live lanes, the leaf is re-POSTed${arcHolds ? ', kept spent while ARC still holds it' : ', credit again when no source has it'}`, async () => {
+  const total = 20_000; // 4 leaves
+  const { plan, root } = await rootFor(total, 120);
+  const dead = (await buildLeaf(root, plan, key, address, 0)).txid; // deterministic signing: same txid when streamed
+  const arc = slowArc((t) => arcHolds || t !== dead);
+  const arcade = slowArcade((t) => (t === dead ? null : 6 * MIN));
+  const unspent: string[] = [];
+  const got: LaneSpec[] = [];
+  const st = streamLeaves({
+    root, plan, total, key, address, bc: dualBroadcaster(arcade.bc, arc.bc), seenMs: 8 * MIN, pollMs: 1, cancelled: () => false,
+    onSpent: () => undefined, onUnspent: (op) => unspent.push(op), onReady: (_, l) => got.push(...l),
+  });
+  assert.ok((await st.first) > 0, 'GO from the later leaves');
+  const r = await st.done;
+  assert.deepEqual(r.unseen, [0]);
+  assert.ok(!got.some((l) => l.base === 0), 'no lane spends the unseen leaf');
+  assert.ok(arc.posts.filter((t) => t === dead).length >= 2, 'the stalled leaf was POSTed again');
+  // ARC holding it (ANNOUNCED) may still propagate it, so its input must stay spent; nobody holding it = credit.
+  assert.deepEqual(unspent, arcHolds ? [] : [`${root.id('hex')}_0`]);
 });

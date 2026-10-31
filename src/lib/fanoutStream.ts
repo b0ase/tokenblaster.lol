@@ -16,6 +16,9 @@
  */
 import { P2PKH, SatoshisPerKilobyte, Transaction, type PrivateKey } from '@bsv/sdk';
 import { FEE_RATE, isSeen, settleTxs, type Broadcaster } from './stormCore';
+
+/** A status that means no source holds the leaf (so its root output is unspent on the network). */
+const BAD_STATUS = /REJECT|DOUBLE|INVALID|ERROR|NOT.?FOUND|NO_ANSWER/i;
 import type { FanoutPlan } from './gallery';
 import type { StormBase, StormLane } from './stormRun';
 
@@ -38,6 +41,11 @@ export type StreamOpts = {
   cancelled: () => boolean;
   /** A root output is about to be spent by a leaf POST. */
   onSpent: (outpoint: string) => void;
+  /**
+   * A leaf no source ever saw, even after a re-POST: its root output was never spent on the network, so it is the
+   * gun's credit again (31 Oct 2026: 35 such outputs, $0.94, were stranded as "spent" and the retry loaded 8,574).
+   */
+  onUnspent?: (outpoint: string) => void;
   /** Lanes whose leaf the network has (base = leaf index). */
   onReady: (bases: StormBase[], lanes: LaneSpec[]) => void;
   log?: (s: string) => void;
@@ -82,7 +90,9 @@ export function streamLeaves(o: StreamOpts): { first: Promise<number>; done: Pro
   let fed = 0;
   let firstDone: (v: number) => void = () => undefined;
   const first = new Promise<number>((r) => (firstDone = r));
-  const late: { i: number; txid: string; values: number[] }[] = [];
+  // Unseen leaves keep their bytes (only these, so memory stays bounded) for one re-POST at the end.
+  const late: { i: number; txid: string; ef: Uint8Array | null; values: number[] }[] = [];
+  let firstSettled = false;
 
   const feed = (ls: { i: number; txid: string; values: number[] }[]) => {
     if (!ls.length) return;
@@ -92,13 +102,17 @@ export function streamLeaves(o: StreamOpts): { first: Promise<number>; done: Pro
       ls.map((l) => ({ i: l.i, txid: l.txid, values: l.values })),
       lanes,
     );
+    // GO as soon as ANY leaf is live (not only the first group): a stalled first leaf no longer blocks play.
+    if (fed > 0 && !firstSettled) {
+      firstSettled = true;
+      firstDone(fed);
+    }
   };
 
   const done = (async () => {
     const flying = new Set<Promise<void>>();
     let next = 0;
     let g = 0;
-    let firstSettled = false;
     try {
       while (next < n && !o.cancelled()) {
         const want = sizes[Math.min(g, sizes.length - 1)];
@@ -117,15 +131,11 @@ export function streamLeaves(o: StreamOpts): { first: Promise<number>; done: Pro
             group.map((l) => ({ ef: l.ef!, txid: l.txid })),
             { deadlineMs: o.seenMs, pollMs: o.pollMs, stop: o.cancelled },
           );
-          for (const l of group) l.ef = null; // the POST is done: release the bytes
           if (r.bad.length) o.log?.(`fan-out leaves refused: ${r.bad.length} ${JSON.stringify(r.bad.map((t) => r.statuses[t]))}`);
           feed(group.filter((l) => r.seen.has(l.txid)));
-          late.push(...group.filter((l) => !r.seen.has(l.txid) && !r.bad.includes(l.txid)));
+          late.push(...group.filter((l) => !r.seen.has(l.txid)));
+          for (const l of group) if (r.seen.has(l.txid)) l.ef = null; // seen: release the bytes
           o.log?.(`fan-out group ${g}: ${r.seen.size}/${group.length} leaves seen, ${fed} lanes live`);
-          if (isFirst) {
-            firstSettled = true;
-            firstDone(fed);
-          }
         })();
         const q: Promise<void> = p.finally(() => flying.delete(q));
         flying.add(q);
@@ -134,20 +144,28 @@ export function streamLeaves(o: StreamOpts): { first: Promise<number>; done: Pro
         while (flying.size >= parallel) await Promise.race(flying);
       }
       await Promise.all(flying);
-      // Leaves not SEEN within their group's deadline: ask once more, feed the ones the network has now.
+      // Leaves not seen within their group's deadline (or refused): POST them again (both sources), then wait once
+      // more and feed the ones the network has now. The game keeps firing on the live lanes meanwhile.
       if (late.length && !o.cancelled()) {
         const again = late.splice(0);
-        const seen = new Set<string>();
-        const end = Date.now() + o.seenMs;
-        while (seen.size < again.length && Date.now() < end && !o.cancelled()) {
-          await new Promise((r) => setTimeout(r, o.pollMs ?? 1000));
-          for (const l of again.filter((x) => !seen.has(x.txid))) {
-            const s = await o.bc.status(l.txid);
-            if (isSeen(s?.txStatus)) seen.add(l.txid);
-          }
+        const r = await settleTxs(
+          o.bc,
+          again.filter((l) => l.ef).map((l) => ({ ef: l.ef!, txid: l.txid })),
+          { deadlineMs: o.seenMs, pollMs: o.pollMs, stop: o.cancelled },
+        ).catch(() => ({ seen: new Set<string>(), statuses: {}, bad: [] as string[] }));
+        for (const l of again) l.ef = null;
+        feed(again.filter((l) => r.seen.has(l.txid)));
+        const lost = again.filter((l) => !r.seen.has(l.txid));
+        late.push(...lost);
+        // One last look (a source may answer late), then give never-seen root outputs back as credit.
+        for (const l of lost) {
+          if (o.cancelled()) break;
+          const s = await o.bc.status(l.txid).catch(() => null);
+          if (isSeen(s?.txStatus)) {
+            feed([l]);
+            late.splice(late.indexOf(l), 1);
+          } else if (!s?.txStatus || BAD_STATUS.test(`${s.txStatus} ${s.extraInfo ?? ''}`)) o.onUnspent?.(`${o.root.id('hex')}_${l.i}`);
         }
-        feed(again.filter((l) => seen.has(l.txid)));
-        late.push(...again.filter((l) => !seen.has(l.txid)));
       }
     } finally {
       if (!firstSettled) firstDone(fed);

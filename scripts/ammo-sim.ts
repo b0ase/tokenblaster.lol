@@ -3,11 +3,13 @@
  * `pnpm tsx --expose-gc scripts/ammo-sim.ts [rounds] [old|new]`: time to GO, longest main-thread block, heap peak.
  * old = every leaf built, ONE POST, all SEEN, then each storm worker parses every leaf (as before 31 Oct 2026).
  * new = src/lib/fanoutStream.ts (GO after the first leaf, the rest streamed in the background).
+ * `... new slow [ms]`: the 31 Oct network: ARC stuck at ANNOUNCED_TO_NETWORK, Arcade SEEN `ms` after a POST
+ * (default 360000 = 6 min), through the same dual status the gun uses. The old 1.2 s mock could never fail.
  */
 import { P2PKH, PrivateKey, SatoshisPerKilobyte, Transaction } from '@bsv/sdk';
 import { fanoutPlan } from '../src/lib/gallery';
 import { streamLeaves } from '../src/lib/fanoutStream';
-import { settleTxs, type Broadcaster } from '../src/lib/stormCore';
+import { dualBroadcaster, settleTxs, type Broadcaster } from '../src/lib/stormCore';
 
 const rounds = Number(process.argv[2] ?? 357_154);
 const mode = process.argv[3] ?? 'new';
@@ -16,7 +18,7 @@ const address = key.toAddress();
 const plan = fanoutPlan(rounds, 120);
 
 // ARC-ish: ~1.2 s to SEEN (X-WaitFor) plus upload time for the body at ~2 MB/s (a phone uplink is slower).
-const bc: Broadcaster = {
+const fast: Broadcaster = {
   kind: 'arc',
   url: 'mock',
   async post(efs, txids) {
@@ -29,6 +31,32 @@ const bc: Broadcaster = {
     return { txid, txStatus: 'SEEN_ON_NETWORK' };
   },
 };
+
+const slowMs = Number(process.argv[5] ?? 360_000);
+const postedAt = new Map<string, number>();
+const arcStuck: Broadcaster = {
+  kind: 'arc',
+  url: 'mock-arc',
+  async post(_efs, txids) {
+    return txids.map((txid) => ({ txid, txStatus: 'ANNOUNCED_TO_NETWORK' }));
+  },
+  async status(txid) {
+    return { txid, txStatus: 'ANNOUNCED_TO_NETWORK' };
+  },
+};
+const arcadeSlow: Broadcaster = {
+  kind: 'arcade',
+  url: 'mock-arcade',
+  async post(_efs, txids) {
+    for (const t of txids) if (!postedAt.has(t)) postedAt.set(t, Date.now());
+    return txids.map((txid) => ({ txid, txStatus: 'RECEIVED' }));
+  },
+  async status(txid) {
+    const t = postedAt.get(txid);
+    return t === undefined ? null : { txid, txStatus: Date.now() - t >= slowMs ? 'SEEN_ON_NETWORK' : 'RECEIVED' };
+  },
+};
+const bc: Broadcaster = process.argv[4] === 'slow' ? dualBroadcaster(arcadeSlow, arcStuck) : fast;
 
 let heapPeak = 0;
 let maxBlock = 0;
@@ -79,7 +107,7 @@ async function main() {
     console.log(`old: one worker parsed ${parsed.length} leaves; heap now ${(process.memoryUsage().heapUsed / 1e6).toFixed(0)} MB`);
   } else {
     let lanes = 0;
-    const st = streamLeaves({ root, plan, total: rounds, key, address, bc, seenMs: 60_000, cancelled: () => false, onSpent: () => undefined, onReady: (_, l) => (lanes += l.length) });
+    const st = streamLeaves({ root, plan, total: rounds, key, address, bc, seenMs: Math.max(60_000, slowMs + 60_000), pollMs: 1000, cancelled: () => false, onSpent: () => undefined, onReady: (_, l) => (lanes += l.length) });
     await st.first;
     go = performance.now() - t0;
     await st.done;
