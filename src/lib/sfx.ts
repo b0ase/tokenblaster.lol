@@ -14,6 +14,7 @@
  * - Music is ducked under big sounds (explosions, game over).
  */
 import { useEffect } from 'react';
+import { ALBUM, ALBUM_TRACKS } from './terrornodeAlbum';
 
 export type SfxName =
   | 'shot' | 'laser' | 'coin' | 'token' | 'jump' | 'spring' | 'stomp' | 'explosion' | 'rekt' | 'hit'
@@ -285,7 +286,21 @@ export function duck(amount = 0.35, secs = 0.6) {
 }
 
 /** Play a one-shot effect. `vol` scales it (0..1+). No-op before the first gesture or when muted. */
+/**
+ * Gameplay sounds (guns, minigun, hits, explosions) only while a round is actually in play. Owner, 31 Oct 2026: a load
+ * that hung kept the minigun loop firing in the loading screen. A game turns this off outside play; UI sounds
+ * (click, coin, start, level...) are never gated. On by default so other games are unaffected.
+ */
+let gameplayOn = true;
+const GAMEPLAY = new Set<SfxName>(['shot', 'laser', 'shotgun', 'beam', 'plasma', 'rocket', 'grenade', 'explosion', 'hit', 'hurt', 'rekt']);
+export function setGameplaySfx(on: boolean) {
+  gameplayOn = on;
+  if (!on) killMinigun();
+}
+export const gameplaySfxOn = () => gameplayOn;
+
 export function sfx(name: SfxName, vol = 1) {
+  if (!gameplayOn && GAMEPLAY.has(name)) return;
   if (!ctx || ctx.state !== 'running' || prefs.muted) return;
   const now = ctx.currentTime;
   const last = lastAt[name] ?? -1;
@@ -439,6 +454,7 @@ let mg: { spin: OscillatorNode; spinG: GainNode; rat: AudioBufferSourceNode; rat
 export function minigun(on: boolean) {
   const c = ctx;
   if (!c) return;
+  if (on && !gameplayOn) return;
   if (!mg && on) {
     const spin = c.createOscillator();
     spin.type = 'sawtooth';
@@ -621,7 +637,7 @@ function stopSeq() {
 }
 
 // ── Streaming soundtrack ──
-export type Song = { src: string; title: string; site: string };
+export type Song = { src: string; title: string; site: string; album?: number };
 const S = (dir: string, file: string, title: string, site: string): Song => ({ src: `/music/${dir}/${file}.m4a`, title, site });
 const SPY = [
   S('doubleo', 'hidden-blade', 'Echoes of the Hidden Blade', 'VexVoid.com'),
@@ -656,21 +672,15 @@ const CITY = [
 /** bRacer: the fastest tracks on the site (180-196 BPM). */
 const BRACER = [ARCADE[2], ARCADE[3], PUNK[2], PUNK[3], CITY[1], CITY[0], ARCADE[1]];
 /**
- * WELCOME TO TERRORNODE (owner, 28 Oct 2026: hard only, never gentle or 8-bit; a theme always opens the game, then
- * 5-6 tracks shuffled). Owned NPG-X tracks only. TERROR[0] is the theme: Chrome Fist (Industrial Punk), the closest
- * owned track to industrial, standing in until a real TERRORNODE theme exists. The game skips to the next song on
- * every new attempt and stage. Never Harajuku Chainsaw (owner, 28 Oct 2026).
+ * WELCOME TO TERRORNODE: the album itself (src/lib/terrornodeAlbum.ts), owner 31 Oct 2026. It starts at track 1 and plays
+ * in order, the whole album and round again; games never skip it. Audio comes through short-lived signed same-origin
+ * URLs (/api/music/terrornode), resolved when a track is due (albumSrc below).
  */
-const TERROR = [
-  PUNK[1],
-  PUNK[0],
-  PUNK[3],
-  CITY[2],
-  S('terror', 'molotov-kiss', 'Molotov Kiss', 'NPG-X.com'),
-  S('terror', 'shinobi-girls', 'Shinobi Girls', 'NPG-X.com'),
-];
+const TERROR: Song[] = ALBUM_TRACKS.map((t) => ({ src: `album:${t.n}`, title: t.title, site: `${ALBUM.artist} · ${ALBUM.site}`, album: t.n }));
 /** Playlists whose first song is a theme: it always opens the game, the rest shuffle after it. */
-const THEMED = new Set<Track>(['terror']);
+const THEMED = new Set<Track>([]);
+/** Albums: played in order from track 1, wrapping to track 1; never shuffled. */
+const IN_ORDER = new Set<Track>(['terror']);
 /** Playlists that never fall back to the procedural chiptune loop (silence instead). */
 const NO_CHIPTUNE = new Set<Track>(['terror']);
 export const PLAYLISTS: Record<Track, Song[]> = {
@@ -682,7 +692,7 @@ export const PLAYLISTS: Record<Track, Song[]> = {
 /** Stations a player can switch to, whatever game they are in. */
 export const STATIONS: { id: Track; name: string }[] = [
   { id: 'doubleo', name: 'Spy · VexVoid' },
-  { id: 'terror', name: 'Hard rock · NPG-X' },
+  { id: 'terror', name: 'Welcome to TERRORNODE · NPGX' },
   { id: 'arena', name: 'Punk · NPG-X' },
   { id: 'hopper', name: 'Arcade' },
   { id: 'kweg', name: 'Quirky' },
@@ -693,6 +703,27 @@ let station: Track | null = null; // player's pick; null = the game's own soundt
 const playlist = () => PLAYLISTS[station ?? wantTrack ?? 'arena'];
 export const getStation = () => station ?? wantTrack;
 export const getPlaylist = () => (wantTrack ? playlist() : []);
+
+// ── Album URLs: signed, short-lived, same-origin (src/app/api/music/terrornode) ──
+let albumUrls: { exp: number; urls: Record<number, string> } | null = null;
+let albumReq: Promise<void> | null = null;
+async function loadAlbumUrls() {
+  const r = await fetch('/api/music/terrornode', { cache: 'no-store' });
+  if (!r.ok) throw new Error(`album ${r.status}`);
+  const j = (await r.json()) as { exp: number; tracks: { n: number; url: string }[] };
+  albumUrls = { exp: j.exp * 1000, urls: Object.fromEntries(j.tracks.map((t) => [t.n, t.url])) };
+}
+/** The playable URL for a song: album tracks get a fresh signed URL (refetched a minute before it expires). */
+async function songSrc(song: Song): Promise<string> {
+  if (!song.album) return song.src;
+  if (!albumUrls || albumUrls.exp - Date.now() < 60_000) {
+    albumReq ??= loadAlbumUrls().finally(() => (albumReq = null));
+    await albumReq;
+  }
+  const u = albumUrls?.urls[song.album];
+  if (!u) throw new Error('no album url');
+  return u;
+}
 
 const XFADE = 1.5;
 type Deck = { el: HTMLAudioElement; g: GainNode; song: Song | null };
@@ -723,6 +754,8 @@ function shuffle(list: Song[], avoidFirst?: Song | null): Song[] {
   if (avoidFirst && a.length > 1 && a[0] === avoidFirst) [a[0], a[1]] = [a[1], a[0]];
   return a;
 }
+
+const inOrder = () => !!(station ?? wantTrack) && IN_ORDER.has((station ?? wantTrack) as Track);
 
 function makeDecks() {
   if (decks.length || !ctx) return;
@@ -778,14 +811,18 @@ function advance(immediate = false, pick?: Song) {
   if (!ctx || !wantTrack) return;
   const list = playlist();
   if (pick) {
-    queue = [pick, ...shuffle(list.filter((x) => x !== pick))];
+    // an album carries on in order from the picked track
+    queue = inOrder() ? list.slice(list.indexOf(pick)).concat(list.slice(0, Math.max(0, list.indexOf(pick)))) : [pick, ...shuffle(list.filter((x) => x !== pick))];
     qi = -1;
   }
   qi++;
   if (qi >= queue.length) {
-    // A themed playlist plays its theme once per session of the game; after that the rest reshuffle.
-    const pool = !station && wantTrack && THEMED.has(wantTrack) && list.length > 1 ? list.slice(1) : list;
-    queue = shuffle(pool, queue[queue.length - 1]);
+    if (inOrder()) queue = list.slice(); // an album: round again from track 1
+    else {
+      // A themed playlist plays its theme once per session of the game; after that the rest reshuffle.
+      const pool = !station && wantTrack && THEMED.has(wantTrack) && list.length > 1 ? list.slice(1) : list;
+      queue = shuffle(pool, queue[queue.length - 1]);
+    }
     qi = 0;
   }
   const song = queue[qi];
@@ -796,8 +833,25 @@ function advance(immediate = false, pick?: Song) {
   const fade = immediate ? 0.05 : XFADE;
   fading = true;
   nd.song = song;
-  nd.el.src = song.src;
-  nd.el.currentTime = 0;
+  if (song.album) {
+    nd.el.removeAttribute('src');
+    void songSrc(song)
+      .then((u) => {
+        if (nd.song !== song || !streaming) return;
+        nd.el.src = u;
+        if (shouldPlay()) void nd.el.play().catch(() => {});
+      })
+      .catch(() => {
+        // the URL service is down: count it as a failed track and move on (or go quiet)
+        if (nd.song !== song || !streaming) return;
+        fails++;
+        if (fails >= queue.length) stopStream();
+        else setTimeout(() => decks[cur] === nd && nd.song === song && advance(true), 2000);
+      });
+  } else {
+    nd.el.src = song.src;
+    nd.el.currentTime = 0;
+  }
   nd.g.gain.cancelScheduledValues(t);
   nd.g.gain.setValueAtTime(0.0001, t);
   nd.g.gain.linearRampToValueAtTime(1, t + fade);
@@ -809,10 +863,11 @@ function advance(immediate = false, pick?: Song) {
     fading = false;
   }, fade * 1000 + 100);
   setNow(song);
+  if (song.album) return; // plays once its signed URL is in (above); no preloader: one track in flight at a time
   if (shouldPlay() || (ctx.state !== 'running' && !prefs.muted && prefs.music > 0)) void nd.el.play().catch(() => {});
   // Warm the cache for the song after this one.
   const nxt = queue[qi + 1] ?? null;
-  if (nxt) {
+  if (nxt && !nxt.album) {
     preloader ??= new Audio();
     preloader.preload = 'auto';
     preloader.src = nxt.src;
@@ -828,7 +883,7 @@ function startStream() {
   fails = 0;
   const list = playlist();
   const themed = !station && wantTrack && THEMED.has(wantTrack);
-  queue = themed ? [list[0], ...shuffle(list.slice(1))] : shuffle(list);
+  queue = inOrder() ? list.slice() : themed ? [list[0], ...shuffle(list.slice(1))] : shuffle(list);
   qi = -1;
   advance();
 }
@@ -904,13 +959,40 @@ export function playMusic(track: Track | null) {
 }
 export const getWantTrack = () => wantTrack;
 
-/** Mount in a game component: installs the audio system, plays its soundtrack while mounted. */
-export function useGameAudio(track: Track) {
+/**
+ * Mount in a game component: installs the audio system, plays its soundtrack while mounted. Ref-counted per track, so a
+ * page-level holder (e.g. <TerrornodeMusic/>) keeps one soundtrack running while the game under it remounts: the song
+ * on air never restarts or switches when the game reloads, a demo starts, or a match ends.
+ */
+const holders = new Map<Track, number>();
+export function useGameAudio(track: Track, opts: { autoplay?: boolean } = {}) {
+  const autoplay = !!opts.autoplay;
   useEffect(() => {
+    holders.set(track, (holders.get(track) ?? 0) + 1);
     playMusic(track);
+    if (autoplay) tryAutoplay();
     return () => {
-      if (wantTrack === track) playMusic(null);
+      const n = (holders.get(track) ?? 1) - 1;
+      if (n > 0) holders.set(track, n);
+      else {
+        holders.delete(track);
+        if (wantTrack === track) playMusic(null);
+      }
       killMinigun();
     };
-  }, [track]);
+  }, [track, autoplay]);
+}
+
+/**
+ * Start the music on page load where the browser allows it. Browsers only let audio start without a gesture on sites
+ * the player already plays on (Chrome's media engagement, Safari's per-site setting); otherwise the context stays
+ * suspended and the first tap / key (installAudio's listeners) starts track 1 from the top. Nothing plays silently
+ * in the meantime: album decks only play while the context is running.
+ */
+export function tryAutoplay() {
+  installAudio();
+  const c = ensureCtx();
+  if (!c) return;
+  if (wantTrack && !streaming && !fallback) startStream();
+  if (c.state !== 'running') void c.resume().catch(() => {});
 }

@@ -25,7 +25,7 @@ export type LoadState =
   | { kind: 'paid' }
   | { kind: 'loading'; pct: number; slowSecs: number }
   | { kind: 'ready' }
-  | { kind: 'failed'; text: string };
+  | { kind: 'failed'; text: string; /** a timed-out load: offer RETRY */ retry?: boolean };
 
 export type LoadShot = { src: string; beat: string; focus?: string; pos?: string; caption?: string };
 export type LoadBeat = { id: string; title: string; line: string; focus?: string };

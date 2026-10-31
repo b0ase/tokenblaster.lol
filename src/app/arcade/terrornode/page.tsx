@@ -2,6 +2,7 @@ import { GameShell } from '@/components/GameShell';
 import { GALLERY_PAID } from '@/lib/devFlags';
 import { ModeSwitch } from '@/components/terrornode/ModeSwitch';
 import { GalleryDemo } from '@/components/gallery/GalleryDemo';
+import { TerrornodeMusic } from '@/components/terrornode/TerrornodeMusic';
 import { TERRORNODE_CARD, shareImages } from '@/lib/og';
 
 const description =
@@ -27,6 +28,7 @@ export default function GalleryPage() {
       liveTicker="TERRORNODE"
       tabs={<ModeSwitch active="solo" />}
     >
+      <TerrornodeMusic />
       <GalleryDemo paid={PAID} />
     </GameShell>
   );

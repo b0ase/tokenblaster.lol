@@ -32,7 +32,7 @@ import { getSiteWallet } from '@/lib/siteWallet';
 import { usePlayerName } from '@/components/coinop/usePlayerName';
 import { LiveTxBadge } from './LiveTxBadge';
 import { cachedProof } from '@/lib/xproof';
-import { minigun, sfx, skipTrack, unlockAudio } from '@/lib/sfx';
+import { minigun, setGameplaySfx, sfx, unlockAudio } from '@/lib/sfx';
 import { useOrdnance } from '@/lib/useOrdnance';
 import { useNpgCards } from '@/lib/useNpgCards';
 import { GIRLS, girlImg, loadPick, modsFor, normalizePick, savePick, statsFor, type Pick } from '@/lib/npgLoadout';
@@ -111,6 +111,12 @@ const PREFS = 'tb:gallery-prefs';
 /** Trigger held this long with rounds queued and none sent: the gun shows JAMMED (ms). */
 /** Out of rounds and nobody has overrun you yet: the run ends after this long anyway (ms). */
 const OUT_OF_ROUNDS_MS = 30000;
+/** A load step (payments check, closing a session, reading the gun) that takes longer than this has failed. */
+const LOAD_STEP_MS = 25_000;
+/** The ammo load reports progress as it goes; this long with no progress = stuck. */
+const LOAD_STALL_MS = 45_000;
+/** The game engine (city, models) must be ready within this, or the page offers a reload. */
+const ENGINE_LOAD_MS = 90_000;
 const JAM_MS = 6000;
 const TUNING_FLOW = TUNING.stageFlow;
 const BEFORE_EVENT = Date.parse('2026-10-24T00:00:00Z'); // first render, before the clock is read
@@ -203,6 +209,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   const dmgFx = useRef<DamageFxHandle>(null);
   const [progress, setProgress] = useState(0);
   const [ready, setReady] = useState(false);
+  const [engineStuck, setEngineStuck] = useState(false);
   const [now, setNow] = useState(0);
   const canvas = useRef<HTMLCanvasElement>(null);
   const reticle = useRef<HTMLDivElement>(null);
@@ -323,11 +330,19 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     eng.mods = girlModsRef.current;
     if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = eng; // dev only: screenshot scripts poke the combat
     let alive = true;
-    void eng.init((p) => alive && setProgress(p)).then(() => {
-      if (!alive) return;
-      setReady(true);
-      engineReady.set(true);
-    });
+    let isReady = false;
+    // The city never finishing (a model fetch that hangs, a lost context) must not leave the page loading forever.
+    const stuck = setTimeout(() => alive && !isReady && setEngineStuck(true), ENGINE_LOAD_MS);
+    void eng
+      .init((p) => alive && setProgress(p))
+      .then(() => {
+        isReady = true;
+        if (!alive) return;
+        setEngineStuck(false);
+        setReady(true);
+        engineReady.set(true);
+      })
+      .catch(() => alive && setEngineStuck(true));
     let raf = 0;
     const tick = () => {
       const r = reticle.current;
@@ -340,6 +355,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     raf = requestAnimationFrame(tick);
     return () => {
       alive = false;
+      clearTimeout(stuck);
       engineReady.set(false);
       cancelAnimationFrame(raf);
       eng.dispose();
@@ -821,6 +837,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     },
     [],
   );
+  // Gameplay sounds only while a round is in play (owner, 31 Oct 2026): never in the loadout, the ammo load / warm-up,
+  // pause, FLATLINED or results. A load that hangs used to leave the minigun loop firing over the loading screen.
+  const inPlaySound = mode === 'live' && !loadout && !over && !paused && !flat;
+  useEffect(() => {
+    setGameplaySfx(inPlaySound);
+  }, [inPlaySound]);
+  useEffect(() => () => setGameplaySfx(true), []);
 
 
   /** Report this session's accepted shots (LIVE, named, real chain only); verified on chain by the last txid. */
@@ -871,7 +894,6 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     stageEvent.current = (e) => {
       if (e.kind === 'enter') {
         hudWave.current = e.stage;
-        skipTrack(); // a new stage, a new song
         // into Act 2 from the core: Dr Wong is cut loose, then the act card (story.ts ACTS)
         if (e.stage === 4) {
           pushBanner({ kind: 'freed' });
@@ -1020,18 +1042,40 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       loadingNow.current = false;
     }
   };
+  /** Last load: a timed-out load offers RETRY with the same `continued`. */
+  const lastLoad = useRef<{ continued: boolean }>({ continued: false });
   const lockAndLoadOnce = async (continued = false) => {
+    lastLoad.current = { continued };
+    // LOADING NEVER HANGS (owner, 31 Oct 2026: a load sat forever with the gun sound looping). Each wait has a limit;
+    // the ammo load is judged on progress (no step for LOAD_STALL_MS = stuck), not on total time.
+    let poke = () => undefined as void;
+    const limit = <T,>(p: Promise<T>, ms: number, what: string, progress = false): Promise<T> =>
+      new Promise<T>((res, rej) => {
+        let t = setTimeout(() => rej(new Error(`TIMEOUT:${what}`)), ms);
+        if (progress)
+          poke = () => {
+            clearTimeout(t);
+            t = setTimeout(() => rej(new Error(`TIMEOUT:${what}`)), ms);
+          };
+        p.then(res, rej).finally(() => {
+          clearTimeout(t);
+          poke = () => undefined;
+        });
+      });
+    const step = (pct: number, slowSecs: number) => {
+      poke();
+      setLoad({ kind: 'loading', pct, slowSecs });
+    };
     setLoadStart(performance.now());
     setLoadingRounds(0);
     setErr(null);
     if (!continued) {
       rc.resetSession();
-      // a fresh attempt: back to the street, the doors open, a new song
+      // a fresh attempt: back to the street, the doors open (the album plays on: owner, 31 Oct 2026)
       engine.current?.startRun();
       setKwegLost(false);
       rescuedRef.current = false;
       setRescued(false);
-      skipTrack();
     }
     unlockAudio();
     const stream = pattern.kind === 'stream';
@@ -1061,12 +1105,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       // TERRORNODE revenue goes 50/50 to NPG Ltd and bCorp (src/lib/launch/split.ts). If their destinations can't be
       // resolved and pinned right now, no paid session starts (free practice still works); nothing goes anywhere else.
       // (usually answered already: the check is prefetched when the loadout opens, splitClient.ts)
-      if (!(await splitAvailable())) throw new Error('PAYUNAVAIL');
+      if (!(await limit(splitAvailable(), LOAD_STEP_MS, 'payments check'))) throw new Error('PAYUNAVAIL');
       // End the previous session first: stop its sender, release the gun's lock, save its change.
       stop.current = true;
       sessionGen.current++;
       sessionAlive.current = false;
-      await b.endSession();
+      await limit(b.endSession(), LOAD_STEP_MS, 'closing the last session');
       if (ammoCoin) {
         // Swap on load: ONE approval buys the coin into the gun with the gunpowder (src/lib/launch/swapLoad.ts).
         if (!coinQ.quote) throw new Error(`No live $${ammoCoin.sym} quote yet. Try again in a moment.`);
@@ -1086,7 +1130,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         // Option A: plain sats storm rounds tagged with the coin's id; the tokens are burned in bulk at session end.
         liveCoinRef.current = ammoCoin;
         setLoadingRounds(want);
-        await b.prepareStorm(want, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
+        await limit(b.prepareStorm(want, perShot, step), LOAD_STALL_MS, 'loading rounds', true);
         goLive(want, continued);
         sessionRef.current(want);
         return;
@@ -1098,10 +1142,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       // answered with a txid sits at the gun's address but not in the gun's own coin (owner, 25 Oct 2026).
       // gather() already read the chain and built the one coin: its sats ARE the balance (no second chain read).
       const t0 = performance.now();
-      const avail = await b.gatherGun().catch(async (e) => {
-        loadMark(`gather: ${e instanceof Error ? e.message : e}`);
-        return b.refreshGun('lock & load');
-      });
+      const avail = await limit(
+        b.gatherGun().catch(async (e) => {
+          loadMark(`gather: ${e instanceof Error ? e.message : e}`);
+          return b.refreshGun('lock & load');
+        }),
+        LOAD_STEP_MS * 2,
+        'reading your gun',
+      );
       loadMark(`gather: ${Math.round(performance.now() - t0)} ms`);
       loadMark(`lock & load: gun has ${avail} sats`);
       const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
@@ -1122,19 +1170,26 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
       if (rc.live) while (shots > 0 && shots * perShot + rc.rangeCost(shots) + overheadSats(shots) > avail - feeSats) shots--;
       if (shots <= 0) throw new Error('SHORT');
       setLoadingRounds(shots);
-      if (stream) await b.prepareStorm(shots, perShot, (pct, slowSecs) => setLoad({ kind: 'loading', pct, slowSecs }));
+      if (stream) await limit(b.prepareStorm(shots, perShot, step), LOAD_STALL_MS, 'loading rounds', true);
       loadMark(`loaded: ${shots} rounds`);
       goLive(shots, continued);
       if (stream) sessionRef.current(shots);
     } catch (e) {
       const m = e instanceof Error ? e.message : '';
       loadMark(`load failed: ${m || 'unknown'}`);
-      const have = await b.refreshGun('after load').catch(() => 0);
+      // the abandoned wait may still be running: stop its sender so a retry starts clean
+      const timedOut = m.startsWith('TIMEOUT:');
+      if (timedOut) {
+        stop.current = true;
+        sessionGen.current++;
+        sessionAlive.current = false;
+      }
+      const have = await limit(b.refreshGun('after load'), LOAD_STEP_MS, 'refresh').catch(() => 0);
       setMode('off');
       boughtRef.current = firedRef.current;
       setBought(firedRef.current);
       setLoadout(true);
-      setLoad({ kind: 'failed', text: m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
+      setLoad({ kind: 'failed', retry: timedOut, text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       setLocking(false);
       setCoinStatus(null);
@@ -1448,6 +1503,15 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     <div className={`game-root flex flex-col gap-3 ${drFontClass} ${tbxFontClass}`}>
       <GameAudio track="terror" />
       <RotatePrompt />
+      {engineStuck && !lost && (
+        <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center gap-4 bg-[#03070c]/95 px-6 text-center text-[#e8f1f6]" role="alertdialog" data-engine-stuck>
+          <p className="text-lg font-bold tracking-[0.08em]">TERRORNODE is taking too long to load.</p>
+          <p className="text-sm text-white/70">Your connection or device may be struggling. Nothing was charged.</p>
+          <button type="button" onClick={() => location.reload()} className="tbx-btn tbx-btn-red">
+            Reload
+          </button>
+        </div>
+      )}
       {lost && (
         <button type="button" onClick={() => location.reload()} className="fixed inset-0 z-[999] flex items-center justify-center bg-[#03070c] text-lg font-bold tracking-[0.08em] text-[#e8f1f6]" data-context-lost>
           Tap to reload
@@ -1616,7 +1680,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
           </div>
         )}
         {load?.kind === 'failed' && (
-          <Modal title="Loading stopped" tone="bad" action="Back to lock & load" onAction={() => setLoad(null)}>
+          <Modal
+            title={load.retry ? 'Loading timed out' : 'Loading stopped'}
+            tone="bad"
+            action={load.retry ? 'Retry' : 'Back to lock & load'}
+            onAction={() => (setLoad(null), load.retry && void lockRef.current(lastLoad.current.continued))}
+            secondary={load.retry ? 'Back to lock & load' : undefined}
+            onSecondary={load.retry ? () => setLoad(null) : undefined}
+          >
             {load.text}
           </Modal>
         )}
@@ -1691,7 +1762,6 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
             onNext={(nx) => {
               setLevelClear(null);
               pickLevel(nx);
-              skipTrack();
             }}
             onLevels={() => (setLevelClear(null), setLoadout(true))}
           />
