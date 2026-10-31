@@ -16,7 +16,8 @@ import { ErrorWindow, lanesFor } from './plan';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const pct = (a: number[], p: number) => (a.length ? a.slice().sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor(a.length * p))] : 0);
 
-export type BotSpec = { name: string; ledger: Ledger; bc: Broadcaster; shots: number; maxSats: number };
+/** `fanBc`: the same endpoint with fan-out settings (long timeout, few tries: a fan-out is a ~0.5 MB body). Defaults to `bc`. */
+export type BotSpec = { name: string; ledger: Ledger; bc: Broadcaster; fanBc?: Broadcaster; shots: number; maxSats: number };
 
 export type BotState = BotSpec & {
   signed: number; accepted: number; rejected: number; retries: number; fees: number; fanouts: number; fanFees: number;
@@ -47,6 +48,14 @@ export type RunOpts = {
   fanSettleMs?: number;
   maxErrorRatio?: number;
   maxOrphanRatio?: number;
+  /** At most this many fan-out POSTs in flight across all bots (31 Oct: 20 × 0.5 MB at once to Arcade all timed out). */
+  fanConcurrency?: number;
+  /** Bot k (0-based) makes its first fan-out k × staggerMs after the start. */
+  staggerMs?: number;
+  /** Submit attempts per fan-out (each re-sends the same bytes). */
+  fanTries?: number;
+  /** A fan-out POST with no answer may still have landed (31 Oct: 12 of 20 did): poll its status this long before giving up. */
+  fanNoAnswerPollMs?: number;
   /** Don't keep per-tx records after a blast is settled (multi-million runs). */
   forget?: boolean;
   /** Keep every signed tx's bytes (dry-run measurement only; off for real runs). */
@@ -82,6 +91,12 @@ export async function runStress(o: RunOpts): Promise<{ totals: Totals; bots: Bot
   if (o.outDir) mkdirSync(o.outDir, { recursive: true });
 
   const isLane = (u: { value: number }) => u.value === laneValue;
+  const fanMax = Math.max(1, o.fanConcurrency ?? 2);
+  let fanSlots = 0;
+  const fanWait: (() => void)[] = [];
+  const fanAcquire = async () => { while (fanSlots >= fanMax) await new Promise<void>((r) => fanWait.push(r)); fanSlots++; };
+  const fanRelease = () => { fanSlots--; fanWait.shift()?.(); };
+  const startAt = new Map(bots.map((b, k) => [b, k * (o.staggerMs ?? 0)]));
 
   function newFanOut(b: BotState): boolean {
     const want = b.shots - b.funded;
@@ -106,21 +121,30 @@ export async function runStress(o: RunOpts): Promise<{ totals: Totals; bots: Bot
     if (o.outDir) appendFileSync(join(o.outDir, 'fanouts.txt'), `${b.name} ${t.txid}\n`);
     void (async () => {
       let r: SubmitResult | undefined;
-      for (let i = 0; i < 5 && !o.halted(); i++) {
-        r = (await b.bc.submit([{ txid: t.txid, bytes: t.ef }]))[0];
-        if (r.outcome !== 'retry') break;
-        await sleep(1000); // same bytes again
-      }
-      const end = Date.now() + (o.fanSettleMs ?? 900_000);
+      const fbc = b.fanBc ?? b.bc;
+      await fanAcquire();
+      try {
+        for (let i = 0; i < (o.fanTries ?? 2) && !o.halted(); i++) {
+          r = (await fbc.submit([{ txid: t.txid, bytes: t.ef }]))[0];
+          if (r.outcome !== 'retry') break;
+          await sleep(1000); // same bytes again
+        }
+      } finally { fanRelease(); }
       const finish = (why?: string) => { b.pendingLanes -= lanes; b.pendingFans--; if (why) log(`${b.name} fan-out ${t.txid}: ${why}`); };
-      if (!r || r.outcome !== 'accepted') { fanBad.add(t.txid); b.ledger.reject(t.txid); b.funded -= lanes; errs.push(0, 1); return finish(`${r?.outcome ?? 'no answer'} ${r?.reason ?? ''}`); }
+      const dead = (why: string) => { fanBad.add(t.txid); b.ledger.reject(t.txid); b.funded -= lanes; return finish(why); };
+      if (r?.outcome === 'rejected') { errs.push(0, 1); return dead(`rejected ${r.reason ?? ''}`); }
+      // accepted → wait for SEEN. No answer → it may still have landed: ask for its status for a while.
+      const noAnswer = !r || r.outcome !== 'accepted';
+      if (noAnswer) log(`${b.name} fan-out ${t.txid}: no answer to the POST; checking whether it landed anyway`);
+      const end = Date.now() + (noAnswer ? (o.fanNoAnswerPollMs ?? 120_000) : (o.fanSettleMs ?? 900_000));
       while (!o.halted() && Date.now() < end) {
         const s = await b.bc.status(t.txid);
         const c = classify(s);
-        if (c === 'seen' || c === 'mined') { b.ledger.settle(t.txid, c); return finish(); }
-        if (c === 'rejected' || c === 'orphan-dead') { fanBad.add(t.txid); b.ledger.reject(t.txid); b.funded -= lanes; return finish(`${s?.txStatus} ${s?.extraInfo ?? ''}`); }
+        if (c === 'seen' || c === 'mined') { b.ledger.settle(t.txid, c); return finish(noAnswer ? `landed after all (${s?.txStatus})` : undefined); }
+        if (c === 'rejected' || c === 'orphan-dead') { if (noAnswer) errs.push(0, 1); return dead(`${s?.txStatus} ${s?.extraInfo ?? ''}`); }
         await sleep(Math.min(1000, pollMs));
       }
+      if (noAnswer && !o.halted()) { errs.push(0, 1); return dead('no answer and not found: input stays journalled as spent (check it on chain)'); }
       finish(o.halted() ? 'halted before SEEN' : 'not SEEN in time: its lanes stay unused');
     })();
     return true;
@@ -195,7 +219,9 @@ export async function runStress(o: RunOpts): Promise<{ totals: Totals; bots: Bot
     if (!active.length && inflight === 0) break;
     // fan-outs ahead: keep leadSecs of lanes on the way per bot
     const perBotRate = o.rate ? o.rate / Math.max(1, active.length) : 5000;
+    const now = Date.now() - t0;
     for (const b of active) {
+      if (now < (startAt.get(b) ?? 0)) continue; // --stagger
       const ready = b.ledger.count('seen', isLane);
       if (ready + b.pendingLanes < perBotRate * (o.leadSecs ?? 10) && b.pendingFans < 3) newFanOut(b);
     }
