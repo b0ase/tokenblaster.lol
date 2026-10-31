@@ -33,6 +33,7 @@
     "@bwalletx/connect": "0.5.4",
     "@noble/curves": "1.9.7",
     "@noble/hashes": "1.8.0",
+    "@vercel/blob": "^2.8.2",
     "centrifuge": "^5.7.4",
     "lightweight-charts": "^5.2.1",
     "livekit-client": "^2.23.0",

@@ -7,7 +7,13 @@
  * bMusicX's audio root. The browser never sees that path: it gets short-lived signed URLs from /api/music/terrornode
  * and the audio is streamed through /api/music/terrornode/[n] (src/app/api/music/terrornode).
  */
-export type AlbumTrack = { n: number; title: string; seconds: number; file: string };
+/**
+ * `file`: bMusicX's public 45 s sample (fallback source). `master`: the full track, a pathname in the PRIVATE Vercel
+ * Blob store `tokenblaster-album-private` (under terrornode-album/), uploaded from bMusicX's own full-length audio
+ * (the files its samples were cut from). Masters are never committed here and have no public URL; the stream route
+ * reads them server-side with BLOB_READ_WRITE_TOKEN when TB_ALBUM_SOURCE=blob.
+ */
+export type AlbumTrack = { n: number; title: string; seconds: number; file: string; master: string };
 
 export const ALBUM = {
   slug: 'welcome-to-terrornode',
@@ -18,18 +24,18 @@ export const ALBUM = {
 } as const;
 
 export const ALBUM_TRACKS: AlbumTrack[] = [
-  { n: 1, title: 'Welcome to Terrornode', seconds: 164, file: 'terrornode/welcome-to-terrornode-sample.m4a' },
-  { n: 2, title: 'March of the Erobotz', seconds: 108, file: 'terrornode/march-of-the-erobotz-sample.m4a' },
-  { n: 3, title: 'I Am TERRORNODE', seconds: 138, file: 'terrornode/i-am-terrornode-sample.m4a' },
-  { n: 4, title: 'KAIJU-01', seconds: 193, file: 'terrornode/kaiju-01-sample.m4a' },
-  { n: 5, title: 'Tokyo Gutter Queen', seconds: 192, file: 'tokyo-gutter-punk/01-sample.m4a' },
-  { n: 6, title: 'Shibuya Mosh Pit', seconds: 135, file: 'tokyo-gutter-punk/03-sample.m4a' },
-  { n: 7, title: 'Akihabara Fury', seconds: 144, file: 'neon-blood-riot/08-sample.m4a' },
-  { n: 8, title: 'Shinobi Girls', seconds: 200, file: 'neon-blood-riot/07-sample.m4a' },
-  { n: 9, title: '赤い雨 (Red Rain Signal)', seconds: 198, file: 'terrornode/shibuya-breaker-sample.m4a' },
-  { n: 10, title: 'Underground Empress', seconds: 165, file: 'tokyo-gutter-punk/09-sample.m4a' },
-  { n: 11, title: 'Molotov Kiss', seconds: 110, file: 'neon-blood-riot/06-sample.m4a' },
-  { n: 12, title: 'Electric Geisha (電気芸者)', seconds: 244, file: 'terrornode/electric-geisha-sample.m4a' },
+  { n: 1, title: 'Welcome to Terrornode', seconds: 164, file: 'terrornode/welcome-to-terrornode-sample.m4a', master: 'terrornode/welcome-to-terrornode.m4a' },
+  { n: 2, title: 'March of the Erobotz', seconds: 108, file: 'terrornode/march-of-the-erobotz-sample.m4a', master: 'terrornode/march-of-the-erobotz.m4a' },
+  { n: 3, title: 'I Am TERRORNODE', seconds: 138, file: 'terrornode/i-am-terrornode-sample.m4a', master: 'terrornode/i-am-terrornode.m4a' },
+  { n: 4, title: 'KAIJU-01', seconds: 193, file: 'terrornode/kaiju-01-sample.m4a', master: 'terrornode/kaiju-01.m4a' },
+  { n: 5, title: 'Tokyo Gutter Queen', seconds: 192, file: 'tokyo-gutter-punk/01-sample.m4a', master: 'tokyo-gutter-punk/01.mp3' },
+  { n: 6, title: 'Shibuya Mosh Pit', seconds: 135, file: 'tokyo-gutter-punk/03-sample.m4a', master: 'tokyo-gutter-punk/03.mp3' },
+  { n: 7, title: 'Akihabara Fury', seconds: 144, file: 'neon-blood-riot/08-sample.m4a', master: 'neon-blood-riot/08.mp3' },
+  { n: 8, title: 'Shinobi Girls', seconds: 200, file: 'neon-blood-riot/07-sample.m4a', master: 'neon-blood-riot/07.mp3' },
+  { n: 9, title: '赤い雨 (Red Rain Signal)', seconds: 198, file: 'terrornode/shibuya-breaker-sample.m4a', master: 'terrornode/shibuya-breaker.m4a' },
+  { n: 10, title: 'Underground Empress', seconds: 165, file: 'tokyo-gutter-punk/09-sample.m4a', master: 'tokyo-gutter-punk/09.mp3' },
+  { n: 11, title: 'Molotov Kiss', seconds: 110, file: 'neon-blood-riot/06-sample.m4a', master: 'neon-blood-riot/06.mp3' },
+  { n: 12, title: 'Electric Geisha (電気芸者)', seconds: 244, file: 'terrornode/electric-geisha-sample.m4a', master: 'terrornode/electric-geisha.m4a' },
 ];
 
 /** Same-origin stream path for track n (the signed query string is added by the playlist API). */
