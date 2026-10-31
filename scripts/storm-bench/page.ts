@@ -26,7 +26,7 @@ async function main() {
     wif: cfg.wif,
     token: 'sats',
     step: cfg.step,
-    game: 'gallery',
+    game: 'terrornode',
     arcs: cfg.arcs,
     cores,
     stop: () => performance.now() - t0 > cfg.secs * 1000,

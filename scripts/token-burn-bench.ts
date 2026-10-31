@@ -41,7 +41,7 @@ async function work(j: Job) {
       baseValues,
       lanes: j.mine.map((i) => ({ vout: j.lanes + i, count: j.perLane, n: i * j.perLane + 1, tok: { vout: i, amt: String(j.perLane) } })),
       step: 100,
-      game: 'gallery',
+      game: 'terrornode',
       extra: ['b0asex@bwalletx.com'],
       arcs: ['http://mock-arc.invalid'],
       burn: { id: ID, per: '1', toLockHex: new P2PKH().lock(BURN_ADDRESS).toHex() },
