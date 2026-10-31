@@ -109,6 +109,18 @@ export class Ledger {
     }
   }
 
+  /**
+   * Drop the in-memory records of a settled leaf tx (a blast whose outputs are never built on) to keep a
+   * multi-million-tx run's memory flat. Its inputs stay in `spent` (and the journal), so nothing is ever re-spent.
+   */
+  forget(txid: string) {
+    const t = this.txs.get(txid);
+    if (!t) return;
+    for (const k of t.outputs) { if (!this.spent.has(k)) { this.utxos.delete(k); this.free.seen.delete(k); this.free.mined.delete(k); } }
+    for (const k of t.inputs) this.utxos.delete(k);
+    this.txs.delete(txid);
+  }
+
   /** The broadcaster refused this tx for good (400 / REJECTED / DOUBLE_SPEND). Its outputs and descendants die. */
   reject(txid: string) {
     const t = this.txs.get(txid);
