@@ -5,6 +5,10 @@
  * block height and time and replays anything missed while the worker was down.
  *
  *   JUNGLEBUS_BLASTS_SUBSCRIPTION_ID=… DATABASE_URL=postgres://… START_BLOCK=969470 node indexer.mjs
+ *
+ * Backfill mode (BACKFILL=1): a second, one-off process that replays only the blocks in tokenblaster_state
+ * backfill_from … backfill_to (a gap left when the live indexer was skipped ahead), no mempool, saving its
+ * progress in backfill_from, and exits when done. Run it beside the live indexer: they share no state keys.
  */
 import { Centrifuge } from 'centrifuge';
 import WebSocket from 'ws';
@@ -72,8 +76,17 @@ async function record(d: { id?: string; transaction?: string; block_height?: num
   queue.push([d.id, f.token, mined && d.block_height ? d.block_height : null, mined && d.block_time ? new Date(d.block_time * 1000) : null, f.game ?? null]);
 }
 
+const BACKFILL = process.env.BACKFILL === '1';
+
 async function main() {
-  const from = Number((await state('last_block')) ?? process.env.START_BLOCK ?? 0) + 1;
+  const to = BACKFILL ? Number(await state('backfill_to')) : Infinity;
+  const from = BACKFILL
+    ? Number(await state('backfill_from'))
+    : Number((await state('last_block')) ?? process.env.START_BLOCK ?? 0) + 1;
+  if (BACKFILL && !(from > 0 && to >= from)) {
+    log(`backfill: nothing to do (backfill_from ${from}, backfill_to ${to})`);
+    process.exit(0);
+  }
   let token = '';
   const centrifuge = new Centrifuge('wss://junglebus.gorillapool.io/connection/websocket', {
     websocket: WebSocket,
@@ -100,16 +113,25 @@ async function main() {
     s.on('error', (e) => log('subscription error', channel, e.error?.message ?? e));
     s.subscribe();
   };
-  listen(`query:${SUB}:mempool`, (d) => record(d, false));
-  listen(`query:${SUB}:${from}`, (d) => record(d, true));
+  if (!BACKFILL) listen(`query:${SUB}:mempool`, (d) => record(d, false));
+  listen(`query:${SUB}:${from}`, async (d) => {
+    if (Number(d.block_height) > to) return; // backfill: past the gap
+    await record(d, true);
+  });
   listen(`query:${SUB}:control`, async (d) => {
     // 200 = block done: everything up to it is recorded.
     if (Number(d.statusCode) === 200 && d.block) {
       while (queue.length || flushing) await new Promise((r) => setTimeout(r, 100));
-      await setState('last_block', String(d.block));
+      if (!BACKFILL) return void (await setState('last_block', String(d.block)));
+      const b = Number(d.block);
+      await setState('backfill_from', String(b + 1));
+      if (b >= to) {
+        log(`backfill: done through block ${to}`);
+        process.exit(0);
+      }
     }
   });
-  log(`following blasts from block ${from}`);
+  log(BACKFILL ? `backfill: blocks ${from} to ${to}` : `following blasts from block ${from}`);
   centrifuge.connect();
 }
 
