@@ -9,6 +9,7 @@ import { STREAM_STEP, fanoutPlan } from './gallery';
 import { runStorm, type StormBatch, type StormNet } from './stormRun';
 import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
 import { hasPayRef } from './payRef';
+import { archiveKey, archivedKeys, keyPersisted } from './gunKeys';
 import { ARC, P2PKH, PrivateKey, SatoshisPerKilobyte, Script, Transaction, Utils } from '@bsv/sdk';
 
 const ARC_URL = 'https://arc.gorillapool.io';
@@ -364,6 +365,18 @@ export class Gun {
     }
     this.loadSets(key ? s : null);
     this.save();
+    // Every key is listed BEFORE it can be paid, so nothing that later replaces the gun can orphan its coins.
+    if (win && !this.lockedGun) archiveKey(this.key);
+  }
+
+  /**
+   * The key a reload would get back is THIS key (storage works and holds it). False in a private window or with
+   * storage blocked: paying into it then would lose the coins on a reload, so the load refuses to pay.
+   */
+  get persisted(): boolean {
+    if (this.lockedGun) return false;
+    const wif = this.key.toWif();
+    return keyPersisted(wif) && archivedKeys().some((k) => k.wif === wif);
   }
 
   /** The stored gun could not be read: restore it from the wallet backup (nothing else runs). */
@@ -388,6 +401,9 @@ export class Gun {
   adoptKey(key: PrivateKey): boolean {
     if (!this.lockedGun && !(this.freshGun && this.emptyLocally())) return false;
     if (this.lockedGun) keepRaw();
+    // Both keys stay listed: the one given up (it may have been paid after all) and the restored one.
+    archiveKey(this.key);
+    archiveKey(key);
     this.key = key;
     this.coin = this.tok = this.owed = null;
     this.extra = [];
@@ -510,10 +526,14 @@ export class Gun {
    * first read on page load is quick even for a gun holding hundreds of dust coins (29 Oct audit: 14 s). The hex
    * is fetched only when a spend needs it (gather, consolidate, unload).
    */
-  async balance(caller = 'unknown'): Promise<number> {
+  async balance(caller = 'unknown', strict = false): Promise<number> {
     this.refresh();
     const tag = (l: { tx: Transaction; vout: number }[]) => l.map((c) => ({ txid: c.tx.id('hex'), vout: c.vout, sats: c.tx.outputs[c.vout]?.satoshis ?? 0 }));
-    const chain = await this.amountsOnChain(caller).catch(() => [] as { txid: string; vout: number; sats: number }[]);
+    // `strict`: an unreadable chain throws instead of counting as "no coins" (31 Oct: a $0.00 that wasn't).
+    const chain = await this.amountsOnChain(caller).catch((e) => {
+      if (strict) throw e;
+      return [] as { txid: string; vout: number; sats: number }[];
+    });
     return spendableCoins([tag(this.extra), tag(this.coin ? [this.coin] : []), chain], this.spent).reduce((n, c) => n + c.sats, 0);
   }
 

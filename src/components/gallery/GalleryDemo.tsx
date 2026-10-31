@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { DemoButton, DemoOverlay } from '@/components/coinop/DemoOverlay';
 import { ShootingGallery } from './ShootingGallery';
+import { CreditSafeBoundary } from '@/components/coinop/CreditSafeFallback';
 
 export function GalleryDemo({ paid }: { paid: boolean }) {
   const [demo, setDemo] = useState(0);
@@ -20,7 +21,10 @@ export function GalleryDemo({ paid }: { paid: boolean }) {
     );
   return (
     <div className="relative">
-      <ShootingGallery />
+      {/* A crash after a paid load shows the credit with PLAY / UNLOAD, never a dead screen (31 Oct 2026). */}
+      <CreditSafeBoundary>
+        <ShootingGallery />
+      </CreditSafeBoundary>
       <div className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center">
         <span className="pointer-events-auto rounded-full bg-black/70">
           <DemoButton onDemo={() => setDemo((n) => n + 1)} />

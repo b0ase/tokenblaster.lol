@@ -5,7 +5,7 @@
  *
  * Now the restore (and the backup after it) only runs for a player's press on a button that needs the wallet:
  * LOCK & LOAD, UNLOAD or Connect. A mount or a silent resume is a no-op here: no wallet call, no waiting card.
- * A restore that fails stays invisible apart from the debug log line.
+ * A restore that fails or finds nothing is SHOWN (31 Oct 2026): "Credit not found on this device" + recovery steps.
  */
 import type { GunLike, RestoreResult } from './gunBackup';
 import type { Wallet } from './wallet';

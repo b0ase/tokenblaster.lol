@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { GUN_KEY_NOTE } from '@/lib/tokenLoad';
 import { fmtCredit } from '@/lib/coinop/credit';
 import { showUnload, unloadLabel } from '@/lib/coinop/playButton';
+import { CREDIT_UNKNOWN_LINE, RECOVERY_URL, missingCreditLine } from '@/lib/coinop/creditSafe';
 import type { useBlaster } from '@/lib/useBlaster';
 
 type Blaster = ReturnType<typeof useBlaster>;
@@ -80,6 +81,34 @@ export function GunKeyBackup({ b }: { b: Blaster }) {
           Hide
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Credit that can't be seen is said out loud (owner, 31 Oct 2026): a chain read that failed ("unknown", not $0.00) and
+ * a restore that found the wallet's earlier credit but couldn't bring it here, with the recovery steps.
+ */
+export function CreditNotices({ b }: { b: Blaster }) {
+  if (!b.creditUnknown && !b.gunMissing) return null;
+  return (
+    <div className="flex flex-col gap-1 text-xs" data-credit-notice>
+      {b.creditUnknown && (
+        <span className="text-[var(--tbx-amber)]" data-credit-unknown>
+          {CREDIT_UNKNOWN_LINE}{' '}
+          <button type="button" className="underline underline-offset-2" onClick={() => void b.refreshGun('credit retry pressed')}>
+            Check now
+          </button>
+        </span>
+      )}
+      {b.gunMissing && (
+        <span data-credit-missing>
+          <span className="font-bold">{missingCreditLine(b.gunMissing)}</span>{' '}
+          <a href={RECOVERY_URL} className="underline underline-offset-2">
+            Recovery steps
+          </a>
+        </span>
+      )}
     </div>
   );
 }

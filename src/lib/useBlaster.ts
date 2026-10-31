@@ -50,6 +50,8 @@ export function useBlaster() {
   const [ammoRead, setAmmo] = useState<number | null>(null);
   const ammo = ammoRead ?? 0;
   const ammoKnown = ammoRead !== null;
+  /** The last chain read of the CREDIT failed: the counter is not a real $0.00. Retried a few times on its own. */
+  const [creditUnknown, setCreditUnknown] = useState(false);
   const [token, setToken] = useState<Token | null>(null);
   const [tokens, setTokens] = useState<Token[]>([]);
   const [ownBusy, setBusy] = useState<null | 'connecting' | 'loading' | 'loading-tokens' | 'unloading'>(null);
@@ -99,9 +101,11 @@ export function useBlaster() {
    * when it has one). It runs ONLY after the player presses a button that needs the wallet (LOCK & LOAD, UNLOAD,
    * Connect), never on page load or a silent resume (owner, 25 Oct, after #95: nothing may ask the wallet on load;
    * src/lib/gunRestoreGate.ts). The BACKUP runs after a paid LOCK & LOAD, in the background, never awaited.
-   * A failed restore is invisible (debug log only).
+   * A failed restore is shown (31 Oct 2026): "Credit not found on this device", with recovery steps.
    */
   const gate = useRef(restoreGate());
+  /** The restore found the wallet's earlier gun(s) but none came back here ('missing'), or could not check ('unchecked'). */
+  const [gunMissing, setGunMissing] = useState<null | 'missing' | 'unchecked'>(null);
   const syncBackup = useCallback(async (w: Wallet | null = wallet ?? getSiteWallet().wallet): Promise<string> => {
     const g = gun.current;
     if (!w || !g || walletHeld()) return 'skip';
@@ -112,7 +116,13 @@ export function useBlaster() {
       }
       setGunLocked(g.locked);
       if (r === 'locked') setError(`${GUN_LOCKED}. This browser has a gun record it can't read, and no backup in this wallet matched. It has been kept, not replaced.`);
-      if (r === 'error') loadMark('gun restore skipped');
+      // A failed restore is shown, never silent (owner, 31 Oct 2026): "Credit not found on this device".
+      if (r === 'missing') setGunMissing('missing');
+      if (r === 'error') {
+        loadMark('gun restore failed');
+        setGunMissing('unchecked');
+      }
+      if (r === 'restored' || r === 'ok') setGunMissing(null);
       return r;
     });
   }, [wallet, setError]);
@@ -238,6 +248,11 @@ export function useBlaster() {
       // Never pay into a gun we can't read back. No wallet call here: LOCK & LOAD is ONE request, the payment (#45).
       if (g.locked) {
         setError(GUN_LOCKED);
+        return 'failed';
+      }
+      // Never pay into a key a reload could lose (31 Oct 2026): storage blocked / private window = no payment.
+      if (!g.persisted) {
+        setError("This browser can't save your game key (private window or site storage blocked), so nothing was paid: a reload would lose the credit. Use a normal window, or play inside bWalletX.");
         return 'failed';
       }
       // An earlier payment's outcome is unknown (timed out / cancelled while its sheet was open): read the gun's own
@@ -612,10 +627,26 @@ export function useBlaster() {
     const g = gun.current;
     if (!g) return 0;
     setGunTokens(await g.tokensHeld().catch(() => []));
-    const sats = await g.balance(caller).catch(() => g.sats);
+    // Strict: a chain read that failed is "unknown", never $0.00 (31 Oct: a reload after a paid load showed no credit).
+    const sats = await g.balance(caller, true).catch(() => null);
+    setCreditUnknown(sats === null);
+    if (sats === null) {
+      // What this browser itself knows the gun holds (the wallet's saved payment response). Unknown stays "$-.--".
+      if (g.sats > 0) setAmmo(g.sats);
+      return g.sats;
+    }
     setAmmo(sats);
     return sats;
   }, []);
+  const creditTries = useRef(0);
+  useEffect(() => {
+    if (!creditUnknown || creditTries.current >= 4) return;
+    const t = setTimeout(() => {
+      creditTries.current += 1;
+      void refreshGun('credit retry');
+    }, 3000 * 2 ** creditTries.current);
+    return () => clearTimeout(t);
+  }, [creditUnknown, refreshGun]);
   // Read once on load; after that only after a pay, load, send or unload (29 Oct audit: a 15 s timer re-read the
   // chain all the time while idle).
   useEffect(() => {
@@ -739,5 +770,5 @@ export function useBlaster() {
     [],
   );
 
-  return { latePaid, warmWallet, gunLocked, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid };
+  return { latePaid, warmWallet, gunLocked, gunMissing, creditUnknown, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid };
 }
