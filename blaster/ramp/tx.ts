@@ -26,8 +26,10 @@ const EF_MARKER = Uint8Array.of(0, 0, 0, 0, 0, 0xef);
 export type Coin = { txid: string; vout: number; value: number };
 export type Built = { txid: string; ef: Uint8Array; raw: Uint8Array; outputs: number[]; fee: number };
 
-/** The ramp's OP_RETURN tag: bsv.lol counts "tokenblaster.lol" txs as TokenBlaster. */
-export const rampTag = (n: number, run: string) => opReturn([TAG, 'TERRORNODE', String(n), run]);
+/** The game every stress/ramp tx is filed under: the same 4th push as a live TERRORNODE round (src/lib/gallery.ts). */
+export const GAME = 'terrornode';
+/** The site's layout "tokenblaster.lol" <ammo> <n> <game>, then the bot or run name: bsv.lol tags each game by its 4th push. */
+export const rampTag = (n: number, run: string) => opReturn([TAG, 'sats', String(n), GAME, run]);
 
 export function signer(priv: Uint8Array) {
   const b = makeBlaster(priv);
@@ -52,7 +54,7 @@ export function signer(priv: Uint8Array) {
    * outputs 1..n are `values`, the last is change (omitted if < 1 sat).
    */
   function fanOut(inputs: Coin[], values: number[], run: string, satsPerKb: number): Built {
-    const tag = opReturn([TAG, 'TERRORNODE', 'fan', run]);
+    const tag = opReturn([TAG, 'sats', 'fan', GAME, run]);
     const total = inputs.reduce((s, c) => s + c.value, 0);
     const want = values.reduce((s, v) => s + v, 0);
     let fee = Math.ceil((fanBytes(inputs.length, values.length + 1, tag.length) * satsPerKb) / 1000) + 1;

@@ -160,3 +160,21 @@ pnpm ramp --live --max-sats 105000000                # ARC → 10 min → BSV Br
 
 The key is read only from the env var named by `--key-env` (default `TERRORNODE_STRESS_WIF`). It is never
 printed or written to disk.
+
+## TERRORNODE stress test (1 Nov 2026): `pnpm terror`
+
+`blaster/terror/` runs N bots × M shots from the stress wallet. It reuses the ramp's broadcasters, ledger and signer.
+
+- **Bots are labels**: `terrornode-bot01` … `terrornode-bot20` go in every tx's OP_RETURN. Bot shots never touch
+  the receipts API, so bots earn no $TERRORNODE. Coin i belongs to bot (i mod `--total-bots`), so separate
+  processes or machines can run separate `--bots` ranges from one wallet.
+- **Wide, ≤2 deep**: each mined coin is fanned out once (depth 1), and each lane gets one blast (depth 2). Bots are
+  spread round-robin over the broadcasters (`--broadcasters bsv,arc`).
+- **Caps**: `--bot-max-sats` (default 0.3 BSV) is checked on what each fan-out commits. `--max-sats` is a global cap
+  and is required with `--live`. Auto-stop: more than 5 % broadcast errors over the last 5,000 results, or more than
+  5 % orphans among sampled txs. Kill switch: `touch ~/.tokenblaster/STOP` or Ctrl-C.
+- **Dry run** is the default. It signs, sends nothing and never writes the live journal. `--address A` signs A's
+  real coin set with a throwaway key. `--fake` uses fake coins. `--keychain` loads the real key into the process
+  env.
+- **Prep**: the funding must be many mined coins. `pnpm terror prep` (dry) / `prep --live --max-sats N` splits the
+  funding into `--coins 1000`. Wait one block after a prep before running.
