@@ -50,9 +50,9 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
         {start}
         {levels}
 
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)] xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)_minmax(0,560px)] lg:items-start">
-          {/* HOW IT WORKS / STORY (owner, 31 Oct 2026: strip the text wall). Collapsed: one tap opens each. */}
-          <section className="flex min-w-0 flex-col gap-2 lg:col-span-1" aria-label="How it works and story" data-briefing>
+        {/* HOW IT WORKS / STORY (owner, 31 Oct 2026: strip the text wall). Collapsed: one tap opens each. A full-width
+            row above the columns (owner, 31 Oct 2026), side by side from sm up. */}
+        <section className="grid min-w-0 grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4" aria-label="How it works and story" data-briefing>
             <details className="tbx-glass group p-3 sm:p-4" data-how>
               <summary className="tbx-eyebrow flex cursor-pointer list-none items-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
                 <Icon name="chevron" size={13} className="transition group-open:rotate-90" /> How it works
@@ -89,10 +89,12 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
                 <CharacterCard c={c} portrait={!!c.portrait && have.has(c.portrait)} />
               </div>
             </details>
-          </section>
+        </section>
 
+        {/* Columns (owner, 31 Oct 2026): [guns | coin-op cabinet | Your gun]. Phones: cabinet, Your gun, then guns. */}
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)_minmax(0,380px)] lg:items-start">
           {/* Weapons */}
-          <section className="flex min-w-0 flex-col gap-2" aria-label="Weapons">
+          <section className="order-3 flex min-w-0 flex-col gap-2 lg:col-span-2 xl:order-1 xl:col-span-1" aria-label="Weapons">
             <p className="tbx-eyebrow flex items-center gap-2"><Icon name="crosshair" size={14} /> Choose your gun</p>
             <div className="tbx-snap tbx-scroll -mx-3 flex gap-2.5 overflow-x-auto px-3 pb-2 sm:mx-0 sm:px-0 xl:grid xl:grid-cols-1 xl:overflow-visible">
               {weapons.map((w, k) => {
@@ -130,7 +132,9 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
           </section>
 
           {/* Cabinet */}
-          <div className="tbx-in-r flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 xl:col-start-3 xl:row-span-1">{cabinet}{player}</div>
+          <div className="tbx-in-r order-1 flex min-w-0 flex-col gap-4 xl:order-2">{cabinet}</div>
+          {/* Your gun: its own column beside the cabinet */}
+          {player && <div className="tbx-in-r order-2 flex min-w-0 flex-col gap-4 xl:order-3">{player}</div>}
         </div>
       </div>
     </div>

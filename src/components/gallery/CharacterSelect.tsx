@@ -78,12 +78,13 @@ export function CharacterSelect({
     );
   }
   return (
-    <section className="tbx-glass relative isolate overflow-hidden rounded-xl p-2 sm:p-3" data-character-select>
-      {/* Banner: the TERRORNODE key art, darkened so the title and portraits stay readable. */}
+    <section className="relative isolate overflow-hidden rounded-xl border border-white/10 p-2 sm:p-3" data-character-select>
+      {/* Banner: ONE continuous TERRORNODE key art behind the whole panel (no per-portrait boxes cutting it up), with a
+          gentle gradient: clear in the middle, darker at the top (title) and the bottom (names). */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center"
-        style={{ backgroundImage: 'linear-gradient(180deg,rgba(4,9,14,.72),rgba(4,9,14,.86)), url(/arcade/gallery.jpg)' }}
+        style={{ backgroundImage: 'linear-gradient(180deg,rgba(4,9,14,.55) 0%,rgba(4,9,14,.12) 30%,rgba(4,9,14,.18) 70%,rgba(4,9,14,.7) 100%), url(/arcade/gallery.jpg)' }}
         data-character-banner
       />
       <div className="flex items-center justify-between gap-2">
@@ -94,8 +95,8 @@ export function CharacterSelect({
           </button>
         )}
       </div>
-      <div className="mt-2 flex flex-col gap-2 lg:flex-row lg:gap-3">
-        <div ref={row} className="relative flex w-full gap-1 lg:w-auto lg:shrink-0" role="radiogroup" aria-label="Girl">
+      <div className="mt-2">
+        <div ref={row} className="relative mx-auto flex w-max max-w-full gap-2 overflow-x-auto p-1 [scrollbar-width:none] lg:gap-4" role="radiogroup" aria-label="Girl">
           {DEFAULT_ROSTER.map((g) => (
             <button
               key={g.id}
@@ -104,19 +105,19 @@ export function CharacterSelect({
               aria-label={g.name}
               aria-checked={g.id === girl.id}
               onClick={() => setPick(normalizePick({ girl: g.id, right: g.right, left: g.left }, owned.elements))}
-              className={`relative h-[124px] min-w-0 flex-1 overflow-hidden rounded border sm:h-[168px] lg:h-[184px] [@media(max-height:500px)]:h-[108px] lg:w-[96px] lg:flex-none xl:w-[108px] ${g.id === girl.id ? 'border-[var(--tbx-red)] bg-[var(--tbx-red)]/20' : `border-white/15 bg-black/40 ${ready3d ? '' : 'opacity-75'}`}`}
+              className={`relative h-[210px] w-[118px] shrink-0 rounded-lg transition sm:h-[260px] sm:w-[128px] lg:h-[300px] lg:w-[160px] [@media(max-height:500px)]:h-[150px] [@media(max-height:500px)]:w-[86px] ${g.id === girl.id ? 'bg-[radial-gradient(ellipse_at_50%_70%,rgba(255,59,59,.35),transparent_70%)] ring-2 ring-[var(--tbx-red)] shadow-[0_0_24px_rgba(255,59,59,.55)]' : `hover:ring-1 hover:ring-white/40 ${ready3d ? '' : 'opacity-90'}`}`}
               data-npg-girl={g.id}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={girlImg(g.id)} alt="" loading="lazy" className={`absolute inset-0 h-full w-full object-contain object-top transition-opacity ${ready3d ? 'opacity-0' : ''}`} />
+              <img src={girlImg(g.id)} alt="" loading="lazy" className={`absolute inset-0 h-full w-full object-contain object-bottom pb-4 drop-shadow-[0_6px_10px_rgba(0,0,0,.7)] transition-opacity ${ready3d ? 'opacity-0' : ''}`} />
             </button>
           ))}
           {three && <Girls3D container={row} ids={ids} selected={girl.id} onReady={setReady3d} />}
           {/* names sit ABOVE the shared 3D canvas (z-[4]), in their own layer, so no model or stacking context clips them */}
-          <div aria-hidden className="pointer-events-none absolute inset-0 z-[4] flex gap-1">
+          <div aria-hidden className="pointer-events-none absolute inset-y-1 left-1 z-[4] flex gap-2 lg:gap-4">
             {DEFAULT_ROSTER.map((g) => (
-              <span key={g.id} className="relative h-full min-w-0 flex-1 lg:w-[96px] lg:flex-none xl:w-[108px]">
-                <span className="absolute inset-x-0 bottom-px whitespace-nowrap rounded-b bg-black/80 text-center text-[8px] font-bold leading-[12px] tracking-normal text-white sm:text-[9px]" data-npg-name={g.id}>
+              <span key={g.id} className="relative h-full w-[118px] shrink-0 sm:w-[128px] lg:w-[160px] [@media(max-height:500px)]:w-[86px]">
+                <span className={`absolute inset-x-0 bottom-1 whitespace-nowrap text-center text-[11px] font-bold leading-[14px] tracking-[0.18em] [text-shadow:0_1px_4px_#000,0_0_8px_#000] sm:text-xs ${g.id === girl.id ? 'text-[var(--tbx-amber)]' : 'text-white'}`} data-npg-name={g.id}>
                   {g.name.toUpperCase()}
                   {owned.girls.has(g.id) ? ' ✓' : ''}
                 </span>
