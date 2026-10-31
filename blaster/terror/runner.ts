@@ -171,6 +171,8 @@ export async function runStress(o: RunOpts): Promise<{ totals: Totals; bots: Bot
         } else if (r.outcome === 'rejected') { bad++; b.rejected++; b.ledger.reject(r.txid); }
         else { bad++; b.retries++; const it = byId.get(r.txid); if (it && fresh) b.retryQ.push(it); }
       }
+      // POSTs cut short by the kill switch aren't broadcast errors: don't count them or let them name the stop
+      if (o.halted()) return;
       errs.push(ok, bad);
       stop ??= errs.check();
     }).catch((e) => { log(`${b.name} submit: ${e instanceof Error ? e.message : String(e)}`); if (fresh) b.retryQ.push(...items); })
