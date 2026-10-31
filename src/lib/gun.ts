@@ -51,6 +51,8 @@ function batchLogger() {
     loadMark(`batches: ${sum.posts} POSTs, ${sum.txs} txs, orphans ${sum.orphans} (${((100 * sum.orphans) / Math.max(1, sum.txs)).toFixed(1)} %), avg ${Math.round(sum.ms / Math.max(1, sum.posts))} ms ${JSON.stringify(sum.statuses)}`);
   };
 }
+/** Coins under this are left out of the gun's spend read when bigger ones exist (stormed guns hold thousands of lane ends). */
+const READ_MIN_SATS = 100;
 const GP_RAW = 'https://ordinals.gorillapool.io/api/tx';
 
 /**
@@ -1424,7 +1426,7 @@ export class Gun {
     const have = [...HEX_MEM.keys()].slice(-100).join(',');
     for (let i = 0; i < 2; i++) {
       const t0 = Date.now();
-      const r = await fetch(`/api/coins?address=${this.address}${have ? `&have=${have}` : ''}`, { cache: 'no-store', signal: AbortSignal.timeout(20_000) }).catch(() => null);
+      const r = await fetch(`/api/coins?address=${this.address}&min=${READ_MIN_SATS}${have ? `&have=${have}` : ''}`, { cache: 'no-store', signal: AbortSignal.timeout(40_000) }).catch(() => null); // a stormed gun is ~17 WOC pages (~15 s): 20 s timed out and retried
       if (r?.ok && r.headers.get('x-coins-upstream') !== 'failed') {
         const list = (await r.json()) as { txid: string; vout: number; hex?: string }[];
         const cache = new Map<string, Transaction>();
