@@ -259,14 +259,17 @@ export function useBlaster() {
       // balance first, and if that payment landed, use it instead of charging again (owner, 25 Oct 2026).
       // Retry after "bWalletX didn't respond" (#95 no-double-pay rules): use the late answer or the gun's chain
       // balance if the first request paid; re-send the same request only once it provably did not.
+      // A Cancel pressed during a check below ends this LOCK & LOAD: nothing is sent to the wallet after it.
+      const cancelsAtStart = getSiteWallet().cancels;
+      const cancelled = () => getSiteWallet().cancels !== cancelsAtStart;
       const lp = latePay.current;
       if (lp) {
         loadMark('retry');
-        setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
+        setSiteWalletWaiting({ text: 'Checking your last payment…', since: Date.now(), kind: 'pay', step: 'check' });
         const out = await retryDecision(lp.late, {
           // This payment's own id on chain, never a balance difference (26 Oct: a 3 s balance fallback read an old
           // coin as a new payment and said "paid" for a request the wallet had refused).
-          paidOnChain: () => g.findPayment(lp.ref),
+          paidOnChain: () => g.findPayment(lp.ref, undefined, lp.sats),
           cancelHung: () => cancelWalletCalls(wallet.client, 'WALLET_TIMEOUT'),
         });
         setSiteWalletWaiting(null);
@@ -288,8 +291,8 @@ export function useBlaster() {
       }
       const unk = unknownPay.current;
       if (unk) {
-        setSiteWalletWaiting({ text: 'Checking whether your last payment reached the gun…', since: Date.now(), kind: 'pay' });
-        const landed = await g.findPayment(unk.ref, unk.txid);
+        setSiteWalletWaiting({ text: 'Checking your last payment…', since: Date.now(), kind: 'pay', step: 'check' });
+        const landed = await g.findPayment(unk.ref, unk.txid, unk.sats);
         setSiteWalletWaiting(null);
         void g.balance('after payment').then(setAmmo).catch(() => undefined);
         if (landed) {
@@ -303,11 +306,18 @@ export function useBlaster() {
         }
         unknownPay.current = null;
       }
-      if (!(await checkWallet())) return 'disconnected';
+      if (cancelled()) return 'refused';
+      setSiteWalletWaiting({ text: `Checking ${wallet.name} is connected…`, since: Date.now(), kind: 'pay', step: 'connect' });
+      if (!(await checkWallet())) {
+        setSiteWalletWaiting(null);
+        return 'disconnected';
+      }
+      if (cancelled()) return 'refused';
       setBusy('loading');
       // This payment's id, carried on chain: a retry looks for exactly this payment (src/lib/payRef.ts).
       const ref = newPayRef();
-      setSiteWalletWaiting({ text: `Waiting for ${wallet.name}… open it to approve the payment.`, since: Date.now(), kind: 'pay' });
+      // Only now is the wallet asked: the 'approve' step (and its "approve in bWalletX" words) starts here, never earlier.
+      setSiteWalletWaiting({ text: `Waiting for ${wallet.name}… open it to approve the payment.`, since: Date.now(), kind: 'pay', step: 'approve' });
       try {
         loadMark('approve start');
         // A real approval can take a while; a wallet that never answers at all counts as disconnected.
@@ -319,7 +329,8 @@ export function useBlaster() {
           // where a timeout or Cancel used to reset the cabinet and charge again (owner log, 25 Oct: paid twice).
           onAnswered: () => {
             markSiteWalletAnswered(wallet);
-            setSiteWalletWaiting(null);
+            // No Cancel from here on: the dialog says "Paid. Loading your gun…" until the game starts.
+            setSiteWalletWaiting({ text: 'Paid. Loading your gun…', since: Date.now(), kind: 'pay', step: 'paid' });
           },
           afterPaid: backupLater, // in the background: never chained to the pay
         });
