@@ -48,48 +48,6 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
           </div>
         </header>
         {start}
-        {levels}
-
-        {/* HOW IT WORKS / STORY (owner, 31 Oct 2026: strip the text wall). Collapsed: one tap opens each. A full-width
-            row above the columns (owner, 31 Oct 2026), side by side from sm up. */}
-        <section className="grid min-w-0 grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4" aria-label="How it works and story" data-briefing>
-            <details className="tbx-glass group p-3 sm:p-4" data-how>
-              <summary className="tbx-eyebrow flex cursor-pointer list-none items-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
-                <Icon name="chevron" size={13} className="transition group-open:rotate-90" /> How it works
-              </summary>
-              <ul className="mt-3 flex flex-col gap-1.5 text-[13px] text-[var(--tbx-dim)]">
-                {BRIEFING.rules.map((r0) => {
-                  const r = practice ? forPractice(r0) : r0;
-                  return (
-                    <li key={r} className="flex gap-2">
-                      <Icon name="chevron" size={13} className="mt-0.5 shrink-0 text-[var(--tbx-red)]" /> {r}
-                    </li>
-                  );
-                })}
-              </ul>
-            </details>
-            <details className="tbx-glass group p-3 sm:p-4" data-story-info>
-              <summary className="tbx-eyebrow flex cursor-pointer list-none items-center gap-2" style={{ color: 'var(--tbx-red)' }}>
-                <Icon name="chevron" size={13} className="transition group-open:rotate-90" /> Story
-              </summary>
-              <p className="mt-3 text-[14px] leading-snug text-white/90">{BRIEFING.objective}</p>
-              <div className="mt-3 rounded-lg border border-[var(--tbx-line)] bg-black/25 p-3">
-                <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{w1.code}</p>
-                <p className="tbx-display mt-1 text-xl"><Brand>{w1.title}</Brand></p>
-                <p className="mt-1.5 text-[13px] leading-snug text-[var(--tbx-dim)]"><Brand>{w1.brief}</Brand></p>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Characters">
-                {CHARACTERS.map((x) => (
-                  <button key={x.id} type="button" role="tab" aria-selected={x.id === who} onClick={() => setWho(x.id)} className="rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] transition" style={{ borderColor: x.id === who ? x.colour : 'var(--tbx-line)', color: x.id === who ? x.colour : 'var(--tbx-dim)', background: x.id === who ? 'rgba(255,255,255,.06)' : 'transparent' }}>
-                    {x.name.replace(/^THE /, '')}
-                  </button>
-                ))}
-              </div>
-              <div key={c.id} className="tbx-fade mt-2">
-                <CharacterCard c={c} portrait={!!c.portrait && have.has(c.portrait)} />
-              </div>
-            </details>
-        </section>
 
         {/* Columns (owner, 31 Oct 2026): [guns | coin-op cabinet | Your gun]. Phones: cabinet, Your gun, then guns. */}
         <div className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,380px)] xl:grid-cols-[minmax(0,300px)_minmax(0,1fr)_minmax(0,380px)] lg:items-start">
@@ -136,6 +94,50 @@ export function Loadout({ start, weapons, weaponId, setWeaponId, canUse, paymail
           {/* Your gun: its own column beside the cabinet */}
           {player && <div className="tbx-in-r order-2 flex min-w-0 flex-col gap-4 xl:order-3">{player}</div>}
         </div>
+
+        {/* Below the cabinet (owner, 31 Oct 2026: LOCK & LOAD near the top, not at the bottom) */}
+        {levels}
+
+        {/* HOW IT WORKS / STORY (owner, 31 Oct 2026: strip the text wall). Collapsed: one tap opens each. A full-width
+            row above the columns (owner, 31 Oct 2026), side by side from sm up. */}
+        <section className="grid min-w-0 grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:gap-4" aria-label="How it works and story" data-briefing>
+            <details className="tbx-glass group p-3 sm:p-4" data-how>
+              <summary className="tbx-eyebrow flex cursor-pointer list-none items-center gap-2" style={{ color: 'var(--tbx-teal)' }}>
+                <Icon name="chevron" size={13} className="transition group-open:rotate-90" /> How it works
+              </summary>
+              <ul className="mt-3 flex flex-col gap-1.5 text-[13px] text-[var(--tbx-dim)]">
+                {BRIEFING.rules.map((r0) => {
+                  const r = practice ? forPractice(r0) : r0;
+                  return (
+                    <li key={r} className="flex gap-2">
+                      <Icon name="chevron" size={13} className="mt-0.5 shrink-0 text-[var(--tbx-red)]" /> {r}
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
+            <details className="tbx-glass group p-3 sm:p-4" data-story-info>
+              <summary className="tbx-eyebrow flex cursor-pointer list-none items-center gap-2" style={{ color: 'var(--tbx-red)' }}>
+                <Icon name="chevron" size={13} className="transition group-open:rotate-90" /> Story
+              </summary>
+              <p className="mt-3 text-[14px] leading-snug text-white/90">{BRIEFING.objective}</p>
+              <div className="mt-3 rounded-lg border border-[var(--tbx-line)] bg-black/25 p-3">
+                <p className="tbx-eyebrow" style={{ color: 'var(--tbx-teal)' }}>{w1.code}</p>
+                <p className="tbx-display mt-1 text-xl"><Brand>{w1.title}</Brand></p>
+                <p className="mt-1.5 text-[13px] leading-snug text-[var(--tbx-dim)]"><Brand>{w1.brief}</Brand></p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Characters">
+                {CHARACTERS.map((x) => (
+                  <button key={x.id} type="button" role="tab" aria-selected={x.id === who} onClick={() => setWho(x.id)} className="rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] transition" style={{ borderColor: x.id === who ? x.colour : 'var(--tbx-line)', color: x.id === who ? x.colour : 'var(--tbx-dim)', background: x.id === who ? 'rgba(255,255,255,.06)' : 'transparent' }}>
+                    {x.name.replace(/^THE /, '')}
+                  </button>
+                ))}
+              </div>
+              <div key={c.id} className="tbx-fade mt-2">
+                <CharacterCard c={c} portrait={!!c.portrait && have.has(c.portrait)} />
+              </div>
+            </details>
+        </section>
       </div>
     </div>
     </>
