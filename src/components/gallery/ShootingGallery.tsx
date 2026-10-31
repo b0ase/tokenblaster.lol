@@ -121,6 +121,12 @@ const OUT_OF_ROUNDS_MS = 30000;
 const LOAD_STEP_MS = 25_000;
 /** The ammo load reports progress as it goes; this long with no progress = stuck. */
 const LOAD_STALL_MS = 45_000;
+/**
+ * Hard cap on one ammo load (31 Oct 2026). prepareStorm now beats every second while it works, so the stall limit
+ * only catches a wedged page; this cap is the honest upper bound: the network gets GO_MAX_MS to show the first
+ * lanes, plus time for the chain read, the previous session and the root.
+ */
+const LOAD_MAX_MS = 7 * 60_000;
 /** The game engine (city, models) must be ready within this, or the page offers a reload. */
 const ENGINE_LOAD_MS = 90_000;
 const JAM_MS = 6000;
@@ -1121,6 +1127,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     const limit = <T,>(p: Promise<T>, ms: number, what: string, progress = false): Promise<T> =>
       new Promise<T>((res, rej) => {
         let t = setTimeout(() => rej(new Error(`TIMEOUT:${what}`)), ms);
+        const cap = progress ? setTimeout(() => rej(new Error(`TIMEOUT:${what}`)), LOAD_MAX_MS) : undefined;
+        p.finally(() => clearTimeout(cap)).catch(() => undefined);
         if (progress)
           poke = () => {
             clearTimeout(t);
@@ -1263,7 +1271,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       boughtRef.current = firedRef.current;
       setBought(firedRef.current);
       setLoadout(true);
-      setLoad({ kind: 'failed', retry: timedOut, text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
+      setLoad({ kind: 'failed', retry: timedOut || m === 'NETSLOW', text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : m === 'NETSLOW' ? 'The network has not confirmed your rounds yet. Your credit is safe in your gun. Try again in a minute.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       setLocking(false);
       setCoinStatus(null);
