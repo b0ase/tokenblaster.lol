@@ -19,7 +19,13 @@ export async function GET(request: Request) {
       cache: 'no-store',
     });
     if (!r.ok) throw new Error(String(r.status));
-    const games = ((await r.json()) as { game: string; blasts: number }[]).map((g) => ({ game: g.game, blasts: Number(g.blasts) }));
+    // TERRORNODE rounds fired before 25 Oct 2026 carry 'gallery' on chain: count them under 'terrornode'.
+    const byGame = new Map<string, number>();
+    for (const g of (await r.json()) as { game: string; blasts: number }[]) {
+      const game = g.game === 'gallery' ? 'terrornode' : g.game;
+      byGame.set(game, (byGame.get(game) ?? 0) + Number(g.blasts));
+    }
+    const games = [...byGame].map(([game, blasts]) => ({ game, blasts }));
     return Response.json({ period, games }, { headers: { 'cache-control': 'public, s-maxage=30' } });
   } catch {
     return Response.json({ period, error: 'Game stats unavailable' }, { status: 502 });

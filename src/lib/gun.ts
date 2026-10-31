@@ -172,7 +172,7 @@ export async function buildTokenBurns(
  * burns exactly `n × per` tokens to the burn address and keeps the rest in the gun. At most 2 token outputs.
  *   in  [token coins…, fee coin]   out [burn → eater, rest → gun?, OP_RETURN TAG id burn <n> <game>, change]
  */
-export async function buildBulkBurn(key: PrivateKey, id: string, coins: TokCoin[], fee: { tx: Transaction; vout: number }, amt: bigint, n: number, game = 'gallery') {
+export async function buildBulkBurn(key: PrivateKey, id: string, coins: TokCoin[], fee: { tx: Transaction; vout: number }, amt: bigint, n: number, game = 'terrornode') {
   const me = key.toAddress();
   const have = coins.reduce((x, c) => x + c.amt, BigInt(0));
   if (amt <= BigInt(0) || have < amt) throw new Error(`Only ${have} tokens to burn ${amt}.`);
