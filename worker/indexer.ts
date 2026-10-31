@@ -26,20 +26,50 @@ async function state(key: string): Promise<string | null> {
 const setState = (key: string, value: string) =>
   db.query('insert into tokenblaster_state (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value', [key, value]);
 
+type Row = [txid: string, token: string, height: number | null, time: Date | null, game: string | null];
+let queue: Row[] = [];
+let flushing = false;
+
+/**
+ * Rows are written in batches (one multi-row insert per flush): one insert per tx managed ~100/s, far below a
+ * stress run's ~1,000 tx/s, and the indexer fell hours behind (31 Oct 2026). Later duplicates of a txid in a batch
+ * are merged first, since one insert can't touch the same row twice.
+ */
+async function flush() {
+  if (flushing || !queue.length) return;
+  flushing = true;
+  const batch = queue.splice(0, 5000);
+  const byId = new Map<string, Row>();
+  for (const r of batch) {
+    const p = byId.get(r[0]);
+    byId.set(r[0], p ? [r[0], r[1], r[2] ?? p[2], r[3] ?? p[3], r[4] ?? p[4]] : r);
+  }
+  const rows = [...byId.values()];
+  try {
+    await db.query(
+      `insert into tokenblaster_blasts (txid, token, block_height, block_time, game)
+       select * from unnest($1::text[], $2::text[], $3::int[], $4::timestamptz[], $5::text[])
+       on conflict (txid) do update set block_height = coalesce(excluded.block_height, tokenblaster_blasts.block_height),
+                                        block_time = coalesce(excluded.block_time, tokenblaster_blasts.block_time),
+                                        game = coalesce(excluded.game, tokenblaster_blasts.game)`,
+      [rows.map((r) => r[0]), rows.map((r) => r[1]), rows.map((r) => r[2]), rows.map((r) => r[3]), rows.map((r) => r[4])],
+    );
+    const mined = rows.filter((r) => r[2] !== null);
+    log(`recorded ${rows.length} (${mined.length} mined${mined.length ? ` up to ${Math.max(...mined.map((r) => r[2]!))}` : ''}) · queue ${queue.length}`);
+  } catch (e) {
+    queue.unshift(...batch); // keep them; retried on the next flush
+    log('db error', e instanceof Error ? e.message : e);
+  } finally {
+    flushing = false;
+  }
+}
+setInterval(() => void flush(), 250);
+
 async function record(d: { id?: string; transaction?: string; block_height?: number; block_time?: number }, mined: boolean) {
   if (!d.id || !d.transaction) return;
   const f = classify(d.id, Buffer.from(d.transaction, 'base64').toString('hex'), mined);
   if (f?.kind !== 'blast' || !f.token) return;
-  const height = mined && d.block_height ? d.block_height : null;
-  const time = mined && d.block_time ? new Date(d.block_time * 1000) : null;
-  await db.query(
-    `insert into tokenblaster_blasts (txid, token, block_height, block_time, game) values ($1, $2, $3, $4, $5)
-     on conflict (txid) do update set block_height = coalesce(excluded.block_height, tokenblaster_blasts.block_height),
-                                      block_time = coalesce(excluded.block_time, tokenblaster_blasts.block_time),
-                                      game = coalesce(excluded.game, tokenblaster_blasts.game)`,
-    [d.id, f.token, height, time, f.game ?? null],
-  );
-  log(mined ? `mined ${height}` : 'mempool', d.id, f.token.slice(0, 12));
+  queue.push([d.id, f.token, mined && d.block_height ? d.block_height : null, mined && d.block_time ? new Date(d.block_time * 1000) : null, f.game ?? null]);
 }
 
 async function main() {
@@ -74,7 +104,10 @@ async function main() {
   listen(`query:${SUB}:${from}`, (d) => record(d, true));
   listen(`query:${SUB}:control`, async (d) => {
     // 200 = block done: everything up to it is recorded.
-    if (Number(d.statusCode) === 200 && d.block) await setState('last_block', String(d.block));
+    if (Number(d.statusCode) === 200 && d.block) {
+      while (queue.length || flushing) await new Promise((r) => setTimeout(r, 100));
+      await setState('last_block', String(d.block));
+    }
   });
   log(`following blasts from block ${from}`);
   centrifuge.connect();
