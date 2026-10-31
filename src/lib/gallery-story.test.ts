@@ -78,7 +78,7 @@ test('story: WELCOME TO TERRORNODE, Neo-Tokyo 2048, Kweg S Wong, the Ninja Punk 
   assert.match(a, /KWEG S WONG/i);
   assert.match(a, /NINJA PUNK GIRLS/i);
   assert.match(a, /TERRORNODE/);
-  assert.match(a, /STORM THE NODE/);
+  assert.match(a, /STORM nSLAVE CORPORATION/);
   assert.match(a, /nSLAVE/, 'owner, 27 Oct: the corporation is nSLAVE, its centre is TERRORNODE');
   assert.match(NSLAVE_SLOGANS.map((x) => x.en).join(' '), /nSLAVE/);
   assert.equal(CTA, 'STORM THE NODE');
@@ -138,8 +138,8 @@ test('live copy keeps its claims (the swap only applies in the demo)', () => {
   assert.match(forPractice(BANNERS.loaded.bottom), /DEMO ROUNDS/);
 });
 
-test('story: two acts, STORM THE NODE then ESCAPE FROM TERRORNODE; enemies are Erobotz in all text', () => {
-  assert.deepEqual(ACTS.map((a) => a.title), ['STORM THE NODE', 'ESCAPE FROM TERRORNODE']);
+test('story: two acts, STORM nSLAVE CORPORATION then ESCAPE FROM TERRORNODE; enemies are Erobotz in all text', () => {
+  assert.deepEqual(ACTS.map((a) => a.title), ['STORM nSLAVE CORPORATION', 'ESCAPE FROM TERRORNODE']);
   assert.deepEqual([1, 2, 3, 4].map((n) => actOf(n).n), [1, 1, 1, 2]);
   assert.match(FREED.top, /KWEG/);
   assert.doesNotMatch(all(), /Erobots|EROBOTS|\bErobot\b|\bEROBOT\b/);

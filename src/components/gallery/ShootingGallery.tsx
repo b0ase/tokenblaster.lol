@@ -107,7 +107,7 @@ import { leftoverNote, planLoad, roundsFrom, safeNote } from '@/lib/coinop/ammo'
 import { useCabinet } from '../coinop/useCabinet';
 import { QuickReload } from './QuickReload';
 import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
-import { fireAllowance, fmtClock, pacedRate, secsLeft, shouldAutoLoad, spinUp, trulyEmpty } from '@/lib/firePace';
+import { fmtClock, triggerTick, pacedRate, secsLeft, shouldAutoLoad, spinUp, trulyEmpty } from '@/lib/firePace';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
 import { OfficialNpg } from '../terrornode/OfficialNpg';
@@ -567,12 +567,16 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       s.target = pattern.kind === 'stream' ? paced * spin : 0;
       let n = simTick(s, (t - last) / 1000);
       last = t;
+      let blanks = 0;
       if (m === 'live') {
-        const room = simulatedRef.current ? left : fireAllowance({ left, fired: firedRef.current, sent: sentRef.current, rate: paced });
-        n = Math.max(0, Math.min(n, room));
+        // The gun always visibly shoots (src/lib/firePace.ts triggerTick); only the paid share is queued to send.
+        const k = triggerTick({ n, left, fired: firedRef.current, sent: sentRef.current, rate: paced, practice: simulatedRef.current });
+        n = k.paid;
+        blanks = k.shown - k.paid;
         firedRef.current += n;
       }
       if (n) engine.current?.accept(n);
+      if (blanks) engine.current?.blank(blanks);
       if (m === 'live') setFired((f) => (f === firedRef.current ? f : firedRef.current));
       // LIVE (paid): the HUD shows what ARC accepted per second, never the trigger's rate (src/lib/txMeter.ts).
       // Practice / free play: the gun's simulated stream rate, labelled rounds/s (owner: show the full volume).

@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 export const STORY_CARDS: readonly { top: string; line: string; tone: 'red' | 'teal' }[] = [
   { top: 'YOU ARE THE GUNNER', line: 'Neo-Tokyo, 2048. The Ninja Punk Girls need someone who keeps the trigger down.', tone: 'teal' },
   { top: 'FREE DR KWEG FROM THE EVIL EROBOTZ', line: 'They chained him to the core of the nSLAVE tower.', tone: 'red' },
-  { top: 'STORM THE NODE', line: 'Up the street, through the labs, to TERRORNODE. Never stop walking.', tone: 'red' },
+  { top: 'STORM nSLAVE CORPORATION', line: 'Up the street, through the labs, to TERRORNODE. Never stop walking.', tone: 'red' },
   { top: 'THE LIQUID UNIT', line: 'Seven metres of living silver. Fire pushes it back. Stop and it walks through you.', tone: 'teal' },
   { top: 'EVERY BULLET IS A REAL BSV TRANSACTION', line: 'Signed by your gun, on chain, with your name on it.', tone: 'red' },
 ];

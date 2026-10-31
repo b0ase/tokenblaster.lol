@@ -38,6 +38,21 @@ export function fireAllowance(p: { left: number; fired: number; sent: number; ra
   return Math.max(0, Math.min(p.left, ahead));
 }
 
+/**
+ * One trigger tick (owner, 31 Oct 2026: "now DOESN'T FIRE BULLETS"). The gun ALWAYS shoots what the trigger
+ * pulls: `shown` rounds are drawn (tracers, muzzle, sound) every tick the trigger is held and the pack is not dry.
+ * Only `paid` of them join the send queue (and do damage); the rest are blanks while the network catches up.
+ * Before this, the visual fire was the paid count, so a slow broadcaster (Arcade SEEN late, ARC stuck) clamped it
+ * to 0 after ~2 s and the gun flashed with no bullets.
+ */
+export function triggerTick(p: { n: number; left: number; fired: number; sent: number; rate: number; practice?: boolean }): { shown: number; paid: number } {
+  const n = Math.max(0, Math.floor(p.n));
+  if (n <= 0 || p.left <= 0) return { shown: 0, paid: 0 };
+  const shown = Math.min(n, p.left);
+  const paid = p.practice ? shown : Math.min(shown, fireAllowance(p));
+  return { shown, paid };
+}
+
 /** Seconds of holding the trigger left at `rate` (null when not firing). */
 export const secsLeft = (left: number, rate: number) => (rate > 0 && left > 0 ? Math.ceil(left / rate) : left > 0 ? null : 0);
 
