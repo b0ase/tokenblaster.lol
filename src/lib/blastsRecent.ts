@@ -2,7 +2,7 @@
 
 export const DEFAULT_LIMIT = 50;
 export const MAX_LIMIT = 200;
-export const ALLOWED_ORIGINS = new Set(['https://www.bchatx.com', 'https://bchatx.com', 'https://www.tokenblaster.lol']);
+export const ALLOWED_ORIGINS = new Set(['https://www.bchatx.com', 'https://bchatx.com', 'https://www.tokenblaster.lol', 'https://badvertisingx.com', 'https://www.badvertisingx.com']);
 
 export type RecentQuery = { limit: number; game: string | null; since: string | null; before: string | null };
 export type BlastRow = { txid: string; token: string; n: number | null; game: string | null; seen_at: string; block_height: number | null };

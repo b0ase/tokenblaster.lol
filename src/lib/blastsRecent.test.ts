@@ -35,8 +35,8 @@ test('legacy gallery maps to terrornode both ways', () => {
   assert.deepEqual(it, { txid: 'ab', game: 'terrornode', ammo: 'sats', n: 3, player: null, seenAt: '2026-10-31T12:00:00.123Z', blockHeight: null });
 });
 
-test('CORS only for bChatX and tokenblaster origins', () => {
-  for (const o of ['https://www.bchatx.com', 'https://bchatx.com', 'https://www.tokenblaster.lol'])
+test('CORS only for bChatX, tokenblaster and bAdvertisingX origins', () => {
+  for (const o of ['https://www.bchatx.com', 'https://bchatx.com', 'https://www.tokenblaster.lol', 'https://badvertisingx.com', 'https://www.badvertisingx.com'])
     assert.equal(corsHeaders(o)['Access-Control-Allow-Origin'], o);
   assert.equal(corsHeaders('https://evil.example')['Access-Control-Allow-Origin'], undefined);
   assert.equal(corsHeaders(null)['Access-Control-Allow-Origin'], undefined);
