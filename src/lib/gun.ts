@@ -28,7 +28,9 @@ export function stormBroadcaster(): BroadcasterKind {
   } catch {
     /* storage blocked: the build setting stands */
   }
-  return v === 'arcade' ? 'arcade' : 'arc';
+  // Arcade (BSV Broadcaster) by default: GorillaPool's supported broadcaster, 100% accepted at 1,000 tx/s in the 29 Oct ramp.
+  // ARC 1.5.11 stalls at ANNOUNCED_TO_NETWORK; it stays available via NEXT_PUBLIC_TB_BROADCASTER=arc or tb.broadcaster=arc.
+  return v === 'arc' ? 'arc' : 'arcade';
 }
 /** How long LOCK & LOAD waits for the network to have the fan-out before the lanes go anyway (they wait per lane then). */
 const FANOUT_SEEN_MS = 60_000;

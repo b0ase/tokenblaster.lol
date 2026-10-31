@@ -798,6 +798,18 @@ export class GalleryEngine {
     this.muzzleFx(w, Math.max(1, w.pellets));
   }
 
+  /** Rounds the trigger fired that are still waiting for the network: tracers only, no damage (src/lib/firePace.ts triggerTick). */
+  blank(n: number) {
+    const w = this.weapon;
+    if (!w || n <= 0 || !this.city) return;
+    const org = this.tA;
+    const dir = this.tB;
+    this.aimRay(org, dir);
+    const mz = this.muzzleWorld(this.tD).clone();
+    const end = org.clone().addScaledVector(dir, 60);
+    for (let i = 0, k = Math.min(n, w.auto ? 3 : 9); i < k; i++) this.fx.tracer(mz, end, w.bolt, w.ammo === 'laser' ? 0.09 : w.ammo === 'pellet' ? 0.035 : 0.05, w.ammo === 'laser' ? 0.15 : 0.08);
+  }
+
   // ── Transactions land ──
   /** `n` newly accepted transactions: each one is a round of the held weapon's damage at the crosshair. */
   accept(n: number) {

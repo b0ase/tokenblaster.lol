@@ -56,3 +56,24 @@ test('seconds left', () => {
   assert.equal(secsLeft(1900, 190), 10);
   assert.equal(secsLeft(0, 190), 0);
 });
+
+test('regression 31 Oct: after GO the held trigger shoots every tick for 2 s even if the network never reports', async () => {
+  const { triggerTick, maxAhead } = await import('./firePace');
+  const rate = 190; // $0.10 load
+  let fired = 0;
+  const sent = 0; // ARC stuck ANNOUNCED, Arcade not answered yet: nothing counted
+  let shownTicks = 0;
+  for (let t = 1; t <= 40; t++) {
+    const n = Math.ceil((rate * 50) / 1000); // one 50 ms tick at full spin
+    const k = triggerTick({ n, left: 17_000 - fired, fired, sent, rate });
+    fired += k.paid;
+    if (k.shown > 0) shownTicks++;
+    assert.ok(k.paid <= k.shown);
+  }
+  assert.equal(shownTicks, 40, 'the gun visibly fires on every tick for 2 s');
+  assert.ok(fired <= maxAhead(rate), 'paid rounds still never run more than ~2 s ahead of the network');
+  // Arcade reports late: the paid queue resumes at once.
+  assert.ok(triggerTick({ n: 10, left: 17_000 - fired, fired, sent: fired, rate }).paid === 10);
+  // a dry pack shows nothing
+  assert.deepEqual(triggerTick({ n: 10, left: 0, fired, sent, rate }), { shown: 0, paid: 0 });
+});

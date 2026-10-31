@@ -73,7 +73,7 @@ export function BannerStage({ item, practice = false }: { item: (BannerKind & { 
     );
   }
   if (item.kind === 'act') {
-    // ACT 1 STORM THE NODE / ACT 2 ESCAPE FROM TERRORNODE: the title card between the acts
+    // ACT 1 STORM nSLAVE CORPORATION / ACT 2 ESCAPE FROM TERRORNODE: the title card between the acts
     const a = ACTS[item.n - 1];
     return (
       <div key={item.id} className={base} role="status" style={dur} data-act={item.n}>

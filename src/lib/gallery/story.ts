@@ -65,7 +65,7 @@ export type Act = { n: 1 | 2; code: string; title: string; line: string; stages:
  * and the helipad, through angrier Erobotz and the Liquid Unit.
  */
 export const ACTS: readonly Act[] = [
-  { n: 1, code: 'ACT 1', title: 'STORM THE NODE', line: 'Fight your way in to the centre of nSLAVE.', stages: [1, 2, 3] },
+  { n: 1, code: 'ACT 1', title: 'STORM nSLAVE CORPORATION', line: 'Fight your way in to the centre of nSLAVE.', stages: [1, 2, 3] },
   { n: 2, code: 'ACT 2', title: 'ESCAPE FROM TERRORNODE', line: 'He keeps running the wrong way. Protect him.', stages: [4] },
 ];
 /** The act a stage (1 to 4) belongs to. */
@@ -267,7 +267,7 @@ export const LOADING_SHOTS: LoadingShot[] = [
 
 export type StageBrief = { n: number; code: string; place: string; title: string; brief: string; intel: string; goal: string; kweg: string };
 const STAGES: Omit<StageBrief, 'kweg'>[] = [
-  { n: 1, code: 'STAGE 1 · STREET', place: 'THE STREET', title: 'STORM THE NODE', brief: 'The Erobotz and worse hold the street outside the nSLAVE tower. You walk on toward the lobby doors whatever happens. Keep the trigger down and sweep the gun across whatever comes at you.', intel: 'You never stop walking. A knockdown shields you and you fire on.', goal: 'Walk the street, hold the trigger' },
+  { n: 1, code: 'STAGE 1 · STREET', place: 'THE STREET', title: 'STORM nSLAVE CORPORATION', brief: 'The Erobotz and worse hold the street outside the nSLAVE tower. You walk on toward the lobby doors whatever happens. Keep the trigger down and sweep the gun across whatever comes at you.', intel: 'You never stop walking. A knockdown shields you and you fire on.', goal: 'Walk the street, hold the trigger' },
   { n: 2, code: 'STAGE 2 · HQ FLOORS', place: 'HQ FLOORS', title: 'THE LABS', brief: 'Through the lobby and down the corridor: glass labs, server racks, and something behind every desk. The corridor opens straight onto the server core. Smash what you like on the way.', intel: 'Rushers close in fast. Shoot their bolts out of the air.', goal: 'Walk the corridor, hold the trigger' },
   { n: 3, code: 'STAGE 3 · SERVER CORE', place: 'SERVER CORE', title: 'THE CENTRE', brief: 'The centre of nSLAVE: a shaft of glowing racks around TERRORNODE, the core that runs the Erobotz, with Dr Wong chained to it. Pour fire on the core as you pass. The girls cut him loose on the far side.', intel: 'Sustained fire on the core blows it for points. It re-arms.', goal: 'Walk round the core, hold the trigger' },
   { n: 4, code: 'STAGE 4 · ROOFTOP', place: 'THE ROOFTOP', title: 'THE LIQUID UNIT', brief: 'ACT 2. Dr Wong runs up out of the shaft with the girls to the roof and the helipad, the only way out. The Erobotz are angrier, and the Liquid Unit walks in between you and the chopper. Fire pushes it back. He keeps running the wrong way: stay close, or CALL KWEG (tap him, C or E). If he dies, the mission is lost.', intel: 'Heavy hitter. It staggers under sustained fire. Do not stop.', goal: 'Keep Dr Kweg alive, melt the Liquid Unit' },
@@ -295,7 +295,7 @@ export const BRIEFING = {
   heading: 'MISSION BRIEFING',
   code: 'WELCOME TO TERRORNODE · NEO-TOKYO 2048 · TEAM NPG vs TEAM EROBOTZ',
   from: 'The Ninja Punk Girls',
-  objective: 'Act 1, STORM THE NODE: the street, the HQ floors and the core, where Dr Kweg is freed. Act 2, ESCAPE FROM TERRORNODE: get him to the roof, past the Liquid Unit. He keeps running the wrong way: protect him. You have 100 health: stay alive.',
+  objective: 'Act 1, STORM nSLAVE CORPORATION: the street, the HQ floors and the core, where Dr Kweg is freed. Act 2, ESCAPE FROM TERRORNODE: get him to the roof, past the Liquid Unit. He keeps running the wrong way: protect him. You have 100 health: stay alive.',
   rules: [
     'Hold the trigger to fire. In paid play every round is real; in the demo they are simulated and nothing is sent.',
     'Clear the Erobotz to move up a stage. In the server core, sustained fire on the core jams the whole tower.',
