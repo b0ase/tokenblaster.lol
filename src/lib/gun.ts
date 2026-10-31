@@ -345,6 +345,8 @@ export function loadMark(stage: string) {
 export class Gun {
   private key: PrivateKey;
   private coin: { tx: Transaction; vout: number } | null = null;
+  /** The coin the wallet just paid in (load()), used as-is by the next LOCK & LOAD: no chain read, no merge. */
+  private justPaid: { tx: Transaction; vout: number } | null = null;
   private tok: TokCoin | null = null; // the token UTXO the gun is firing from
   private spentTok = new Set<string>(); // token outpoints we have spent (the indexer may lag)
   private arc = new ARC(ARC_URL);
@@ -658,6 +660,7 @@ export class Gun {
     const fresh = { tx: Transaction.fromHex(funding.toHex()), vout };
     if (!this.extra.some((e) => e.tx.id('hex') === fresh.tx.id('hex') && e.vout === vout)) this.extra.push(fresh);
     if (!this.coin || this.sats < 1) this.coin = fresh;
+    this.justPaid = fresh;
     this.save();
     loadMark(`paid coin saved (${fresh.tx.outputs[vout].satoshis ?? 0} sats)`);
   }
@@ -899,6 +902,18 @@ export class Gun {
    * ARC accepts a chain that spends an accepted, unconfirmed parent. Merges several coins into one.
    */
   private async startCoin(onWait: (secs: number) => void) {
+    // Fresh payment (owner log, 31 Oct 2026: 44 s merging the paid coin with two coins WhatsOnChain wrongly listed
+    // as unspent, which ARC then refused as a double spend): fire from the coin just paid, alone. Nothing to read,
+    // nothing to merge; any other coins stay at the address for UNLOAD / the next gather / the re-sync.
+    const paid = this.justPaid;
+    this.justPaid = null;
+    if (paid && !this.spent.has(`${paid.tx.id('hex')}_${paid.vout}`) && (paid.tx.outputs[paid.vout].satoshis ?? 0) >= 1000) {
+      this.coin = paid;
+      this.extra = [];
+      this.save();
+      loadMark(`using the coin just paid (${paid.tx.outputs[paid.vout].satoshis ?? 0} sats): no chain read, no merge`);
+      return;
+    }
     // Start from the real coin set: the wallet's payment output(s), our own change and the chain's unspent
     // outputs, consolidated into one. Coins our transactions already spent are never used (owner, 24 Oct 2026).
     const t0 = Date.now();

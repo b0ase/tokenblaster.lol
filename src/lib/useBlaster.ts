@@ -520,26 +520,25 @@ export function useBlaster() {
     const g = gun.current;
     if (!g) throw new Error('No gun.');
     try {
-      await resyncGun('before lock & load', 8000);
+      // No re-sync here (owner log, 31 Oct 2026: it added seconds to every LOCK & LOAD); page load and UNLOAD run it.
       await g.prepareStorm(total, perBlast, onStep);
     } finally {
       // Never block the start on a chain read (owner log, 25 Oct: stuck at 100% for 68 s on this balance).
       setAmmo(g.sats);
       void g.balance('after prepare').then(setAmmo).catch(() => undefined);
     }
-  }, [resyncGun]);
+  }, []);
 
   /** Turn whatever credit is at the gun's address into its one firing coin (no wallet call). Returns the sats. */
   const gatherGun = useCallback(async () => {
     const g = gun.current;
     if (!g) throw new Error('No gun.');
     try {
-      await resyncGun('before gather');
       return await g.gather();
     } finally {
       setAmmo(g.sats);
     }
-  }, [resyncGun]);
+  }, []);
 
   /** Many real blasts in one ARC request (the arena's hold-to-fire). */
   const fireBatch = useCallback(
