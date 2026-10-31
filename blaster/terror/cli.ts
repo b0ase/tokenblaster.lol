@@ -8,7 +8,7 @@
  *   pnpm terror --live --bots 20 --shots 850000 --rate 1000 --max-sats 520000000 --keychain    full run (owner's go only)
  *
  * Bots are labels on the one funding wallet: terrornode-bot01 … terrornode-botNN, written into every tx's OP_RETURN
- * ("tokenblaster.lol" "TERRORNODE" <n> "terrornode-botNN"). Bot shots never touch the receipts API: bots earn NO
+ * ("tokenblaster.lol" "sats" <n> "terrornode" "terrornode-botNN"). Bot shots never touch the receipts API: bots earn NO
  * $TERRORNODE. Each bot owns a disjoint slice of the funding coins (coin i → bot i mod --total-bots), so several
  * machines/processes can run different --bots ranges (e.g. "1-10" and "11-20") from the same wallet safely.
  *
