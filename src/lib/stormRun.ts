@@ -4,10 +4,23 @@
  * src/workers/storm.ts), forward stop / pause, and add up what ARC accepted.
  */
 export type StormLane = { vout: number; count: number; n: number; base?: number; tok?: { vout: number; amt: string } };
+/** A fan-out the network has, as the workers need it (no tx to parse): its base number, txid and output values. */
+export type StormBase = { i: number; txid: string; values: number[] };
+/**
+ * Streamed ammo (31 Oct 2026): lanes arrive while the storm runs. `subscribe` hands over every batch so far and every
+ * later one (`push`), then `end()` once no more will come. A batch's lanes only spend fan-outs the network already has.
+ */
+export type StormFeed = {
+  subscribe: (push: (b: { bases: StormBase[]; lanes: StormLane[] }) => void, end: () => void) => void;
+  /** Highest round number of the session (the workers size the per-blast fee on it). */
+  maxN: number;
+};
 export type StormRunOpts = {
   workerUrl: string;
-  /** The split tx (hex) whose outputs are the lane coins. */
-  baseHex: string;
+  /** The split tx (hex) whose outputs are the lane coins (unused with `feed`). */
+  baseHex?: string;
+  /** Streamed lanes instead of `baseHex` / `moreHex` / `lanes` (src/lib/gun.ts prepareStorm). */
+  feed?: StormFeed;
   /** More fan-out txs (hex): a lane with `base: i` (i >= 1) spends moreHex[i - 1] (src/lib/stormCore.ts StartMsg.bases). */
   moreHex?: string[];
   lanes: StormLane[];
@@ -46,16 +59,42 @@ export type WorkerStats = { signed: number; posted: number; accepted: number; si
 export const STOP_KILL_MS = 40_000;
 
 export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy?: string; stats: WorkerStats; net: StormNet }> {
-  const cores = Math.max(1, Math.min(o.lanes.length, o.cores));
+  const cores = Math.max(1, o.feed ? o.cores : Math.min(o.lanes.length, o.cores));
+  const workers: Worker[] = [];
+  let ended = false;
+  let rr = 0;
+  const pushTo = (b: { bases: StormBase[]; lanes: StormLane[] }) => {
+    // Round-robin each lane over the workers; a worker gets only the fan-outs its lanes spend.
+    const per: StormLane[][] = workers.map(() => []);
+    for (const l of b.lanes) per[rr++ % workers.length].push(l);
+    per.forEach((lanes, w) => {
+      if (!lanes.length) return;
+      const need = new Set(lanes.map((l) => l.base ?? 0));
+      workers[w].postMessage({ type: 'add', bases: b.bases.filter((x) => need.has(x.i)), lanes });
+    });
+  };
   let sent = 0;
   const net: StormNet = { seen: 0, orphans: 0, statuses: {} };
   let lastWhy: string | undefined;
   const stats: WorkerStats = { signed: 0, posted: 0, accepted: 0, signMs: 0, postMs: 0, posts: 0, orphans: 0 };
   await Promise.all(
     Array.from({ length: cores }, (_, w) => {
-      const mine = o.lanes.filter((_, i) => i % cores === w);
+      const mine = o.feed ? [] : o.lanes.filter((_, i) => i % cores === w);
       return new Promise<void>((done) => {
         const wk = new Worker(o.workerUrl, { type: 'module' });
+        workers.push(wk);
+        if (o.feed && workers.length === cores) {
+          // Every worker exists: hand over what is ready now, then each batch as the network takes its fan-out.
+          queueMicrotask(() =>
+            o.feed!.subscribe(
+              (b) => !ended && pushTo(b),
+              () => {
+                ended = true;
+                for (const x of workers) x.postMessage({ type: 'end' });
+              },
+            ),
+          );
+        }
         let wasPaused: boolean | null = null;
         let kill: ReturnType<typeof setTimeout> | undefined;
         const poll = setInterval(() => {
@@ -112,6 +151,8 @@ export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy
           paused: o.paused(),
           hex: o.baseHex,
           more: o.moreHex,
+          streamed: Boolean(o.feed),
+          maxN: o.feed?.maxN,
           lanes: mine,
         });
       });
