@@ -39,7 +39,7 @@ import { useNpgCards } from '@/lib/useNpgCards';
 import { GIRLS, girlImg, loadPick, modsFor, normalizePick, savePick, statsFor, type Pick } from '@/lib/npgLoadout';
 import { CharacterSelect } from './CharacterSelect';
 import { STOCK_IDS, buildWeapons, type RangeWeapon } from '@/lib/bsvgun/weapons';
-import { GalleryEngine, type Hooks, type Quality, type StageEvent, type Stats } from '@/lib/galleryGame/engine';
+import type { GalleryEngine, Hooks, Quality, StageEvent, Stats } from '@/lib/galleryGame/engine';
 import {
   DEFAULT_AMMO,
   ammoFromPaymail,
@@ -335,24 +335,29 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     const phone = /iPhone|iPad|Android/i.test(navigator.userAgent) || (navigator.hardwareConcurrency ?? 8) <= 4;
     const lite = isMobileLite();
     const quality: Quality = new URLSearchParams(location.search).get('q') === 'low' || phone || lite ? 'low' : 'high';
-    const eng = new GalleryEngine(cv, hooks, { quality, weapons, bossBase: 20_000, lite });
-    eng.stickEl = stickRef.current;
-    eng.knobEl = knobRef.current;
-    engine.current = eng;
-    eng.mods = girlModsRef.current;
-    if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = eng; // dev only: screenshot scripts poke the combat
     let alive = true;
+    let eng: GalleryEngine | null = null;
+    // Perf (31 Oct 2026): the engine (and its three.js code) is its own chunk, fetched here instead of with the
+    // page, so the cabinet paints and hydrates first on slow phones.
     let isReady = false;
-    // The city never finishing (a model fetch that hangs, a lost context) must not leave the page loading forever.
     const stuck = setTimeout(() => alive && !isReady && setEngineStuck(true), ENGINE_LOAD_MS);
-    void eng
-      .init((p) => alive && setProgress(p))
-      .then(() => {
-        isReady = true;
+    void import('@/lib/galleryGame/engine')
+      .then(({ GalleryEngine: Engine }) => {
         if (!alive) return;
-        setEngineStuck(false);
-        setReady(true);
-        engineReady.set(true);
+        const e = new Engine(cv, hooks, { quality, weapons, bossBase: 20_000, lite });
+        eng = e;
+        e.stickEl = stickRef.current;
+        e.knobEl = knobRef.current;
+        engine.current = e;
+        e.mods = girlModsRef.current;
+        if (new URLSearchParams(location.search).get('dryrun') === '1') (window as unknown as { __gallery?: GalleryEngine }).__gallery = e; // dev only: screenshot scripts poke the combat
+        return e.init((p) => alive && setProgress(p)).then(() => {
+          isReady = true;
+          if (!alive) return;
+          setEngineStuck(false);
+          setReady(true);
+          engineReady.set(true);
+        });
       })
       .catch(() => alive && setEngineStuck(true));
     let raf = 0;
@@ -370,7 +375,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       clearTimeout(stuck);
       engineReady.set(false);
       cancelAnimationFrame(raf);
-      eng.dispose();
+      eng?.dispose();
       engine.current = null;
     };
   }, [weapons]);

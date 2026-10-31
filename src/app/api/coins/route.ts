@@ -7,25 +7,51 @@
 import { NONE, txHexBulk, woc } from '@/lib/wocServer';
 import { allUnspent, spendableSats, type UtxoPage } from '@/lib/creditRead';
 
+// Perf (31 Oct 2026): a stormed gun holds ~16,000 dust outputs, so the confirmed read is ~17 WOC pages 350 ms
+// apart (~10 s). Identical reads share one in-flight request, and the amounts-only CREDIT read reuses a confirmed
+// read up to CREDIT_TTL_MS old on this instance. Spends (no `amounts`) only share a read still in flight, so they
+// never build on a stale list; the unconfirmed list (and its mempool spends) is always read fresh.
+const CREDIT_TTL_MS = 20_000;
+type Confirmed = Awaited<ReturnType<typeof allUnspent>>;
+const confirmedReads = new Map<string, { at: number; done: boolean; p: Promise<Confirmed> }>();
+function readConfirmed(address: string, maxAgeMs: number): Promise<Confirmed> {
+  const hit = confirmedReads.get(address);
+  if (hit && (!hit.done || Date.now() - hit.at < maxAgeMs)) return hit.p;
+  const entry = { at: Date.now(), done: false, p: null as unknown as Promise<Confirmed> };
+  entry.p = allUnspent(async (token) => {
+    const r = await woc(`/address/${address}/confirmed/unspent${token ? `?limit=1000&token=${encodeURIComponent(token)}` : ''}`);
+    return r === NONE ? null : (r as UtxoPage);
+  }, 40, 350).then(
+    (v) => ((entry.done = true), (entry.at = Date.now()), v),
+    (e) => {
+      confirmedReads.delete(address);
+      throw e;
+    },
+  );
+  confirmedReads.set(address, entry);
+  if (confirmedReads.size > 500) confirmedReads.delete(confirmedReads.keys().next().value as string);
+  return entry.p;
+}
+
 export async function GET(req: Request) {
   const address = new URL(req.url).searchParams.get('address') ?? '';
   if (!/^1[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(address)) return Response.json({ error: 'bad address' }, { status: 400 });
   try {
     // Every page (src/lib/creditRead.ts): a storm leaves thousands of lane ends, and a big coin can sit on page 8.
     const [c, u] = await Promise.all([
-      allUnspent(async (token) => {
-        const r = await woc(`/address/${address}/confirmed/unspent${token ? `?limit=1000&token=${encodeURIComponent(token)}` : ''}`);
-        return r === NONE ? null : (r as UtxoPage);
-      }, 40, 350),
+      readConfirmed(address, new URL(req.url).searchParams.get('amounts') === '1' ? CREDIT_TTL_MS : 0),
       woc(`/address/${address}/unconfirmed/unspent`).then((r) => (r === NONE ? [] : ((r as UtxoPage)?.result ?? []))),
     ]);
     const all = [...c.coins, ...u];
     // 1-sat outputs hold tokens: never treat them as sats. Largest first: a wide storm leaves thousands of tiny lane
     // ends at the gun (26 Oct 2026), and the 200 we hand back must be the ones worth spending.
-    const list = all
-      .filter((x) => !x.isSpentInMempoolTx && x.value > 1)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 200);
+    const sorted = all.filter((x) => !x.isSpentInMempoolTx && x.value > 1).sort((a, b) => b.value - a.value);
+    // `&min=N` (the gun's LOCK & LOAD read, 31 Oct 2026): leave out lane ends under N sats when bigger coins exist.
+    // A stormed gun holds ~16,000 35-sat ends; merging 200 of them meant 200 parent txs to fetch and a load that
+    // timed out. The dust stays at the address (UNLOAD's sweep reads without `min`, so it still gets everything).
+    const min = Math.max(0, Number(new URL(req.url).searchParams.get('min')) || 0);
+    const big = min ? sorted.filter((x) => x.value >= min) : sorted;
+    const list = (big.length ? big : sorted).slice(0, 200);
     const total = { 'x-coins-total': String(spendableSats(all)), 'x-coins-complete': c.complete ? '1' : '0' };
     if (new URL(req.url).searchParams.get('amounts') === '1') {
       return Response.json(list.map((x) => ({ txid: x.tx_hash, vout: x.tx_pos, sats: x.value })), { headers: { 'cache-control': 'no-store', ...total } });
