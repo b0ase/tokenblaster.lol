@@ -103,15 +103,6 @@ export function DemoOverlay({
   );
 }
 
-/** The cabinet's secondary button: start a demo run. */
-export function DemoButton({ onDemo }: { onDemo: () => void }) {
-  return (
-    <button type="button" data-demo-start className="btn mx-auto px-3 py-1 text-xs font-bold tracking-wider" onClick={onDemo}>
-      Try a {DEMO_SECONDS} s demo
-    </button>
-  );
-}
-
 /** After "Play for real": bring the cabinet's LOCK &amp; LOAD / START button into view and focus it. Pays nothing. */
 export function focusCabinetStart() {
   let tries = 0;

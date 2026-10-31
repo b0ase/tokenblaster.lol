@@ -42,7 +42,7 @@ export function GalleryCard() {
             <OfficialNpg size="sm" />
             <p className="hp-gal-title"><BloodTitle /></p>
             <p className="max-w-xl text-[clamp(14px,1.5vw,17px)] leading-relaxed text-[var(--tbx-dim)]">
-              Neo-Tokyo, 2048. The Ninja Punk Girls storm the node to free Dr Kweg Wong from his own Erobotz. Join them, drop a coin in and hold the trigger: in paid play every round is a real transaction.
+              Neo-Tokyo, 2048. The Ninja Punk Girls storm the node to free Dr Kweg Wong from the evil Erobotz. Join them, drop a coin in and hold the trigger: in paid play every round is a real transaction.
             </p>
             <Link href="/arcade/terrornode" role="button" data-insert-b className="tbx-btn tbx-btn-red pointer-events-auto relative z-10 mt-1 self-start !px-7 !text-[15px]" aria-label="Insert $b: play Welcome to TERRORNODE">
               INSERT <span className="normal-case">$b</span> &raquo;
