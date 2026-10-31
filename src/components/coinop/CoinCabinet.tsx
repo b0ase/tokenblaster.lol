@@ -111,7 +111,7 @@ export function CoinCabinet(p: {
     setTimeout(() => setDrops((d) => d.filter((x) => x.id !== id)), 600);
   };
   const [down, setDown] = useState(false);
-  const pb = p.onQuickLoad && !p.freePlay ? playButton(p.creditReady === false ? 0 : p.creditUsd, p.pendingUsd, p.priceUsd) : null;
+  const pb = p.onQuickLoad && !p.freePlay ? playButton(p.creditReady === false ? 0 : p.creditUsd, p.pendingUsd, p.priceUsd, p.buys?.(p.pendingUsd)) : null;
   const coinsRef = useRef<HTMLElement>(null);
   /** START is always clickable: say plainly what is missing (owner, 24 Oct 2026: no silent failures). */
   const press = () => {
@@ -218,11 +218,9 @@ export function CoinCabinet(p: {
           <p className="w-full text-xs text-[var(--tbx-mute)]">
             {p.bsvUsd ? `Live price: BSV $${p.bsvUsd.toFixed(2)}.` : 'Pricing…'} {p.priceNote}
           </p>
-          <p className="flex w-full items-start gap-2 rounded-lg border border-[var(--tbx-red)]/40 bg-[var(--tbx-red)]/10 px-3 py-2 text-xs font-semibold text-[var(--tbx-text)]" data-norefund>
-            <Icon name="shield" size={16} className="mt-px shrink-0 text-[var(--tbx-red)]" />
-            Unused credit stays in your gun for later. UNLOAD in the Your gun panel sends it back to your wallet once there is something in it. Playing multiplayer? Put in as much as you&apos;ll need.
+          <p className="w-full text-xs text-[var(--tbx-mute)]" data-norefund>
+            Unused credit stays in your gun. UNLOAD sends it back to your wallet. <span data-gun-key-note title={GUN_KEY_NOTE}>Your gun key lives in this browser.</span>
           </p>
-          <p className="w-full text-xs text-[var(--tbx-mute)]" data-gun-key-note>{GUN_KEY_NOTE}</p>
         </section>}
 
         {/* NAME (owner, 25 Oct): the wallet's paymail, shown read only. LOCK & LOAD connects the wallet. */}
@@ -298,7 +296,7 @@ export function CoinCabinet(p: {
             </button>
           )}
           <p className={`text-center text-sm ${miss ? 'font-semibold' : 'text-[var(--tbx-dim)]'}`} style={miss ? { color: '#ff7a70' } : undefined} data-start-reason>
-            {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss ? missText(miss) : p.pendingUsd > 0 ? 'One wallet approval for the whole total, then the game starts by itself.' : nameOk ? 'Ready.' : 'Put a coin in, then press the button. It connects your wallet.'}
+            {p.freePlay ? 'Press the button to start. Nothing is paid.' : miss ? missText(miss) : p.pendingUsd > 0 ? `Your wallet asks for exactly ${fmtCredit(p.pendingUsd)}, once. Then the game starts.` : nameOk ? 'Ready.' : 'Put a coin in, then press the button. It connects your wallet.'}
           </p>
           {p.error && (
             <p className="text-center text-sm font-semibold" style={{ color: '#ff7a70' }} role="alert">

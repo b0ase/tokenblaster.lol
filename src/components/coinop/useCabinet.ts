@@ -62,6 +62,28 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
   /** CREDIT is the gun's on-chain balance: known only once both the balance and the BSV price have loaded. */
   const creditReady = Boolean(opts.dry) || (b.ammoKnown && bsvUsd != null);
 
+  /**
+   * PAID, LOADING (owner, 31 Oct 2026: paid $2, CREDIT read $0.00 for 29 s while the rounds loaded). The moment the
+   * wallet accepts a payment, CREDIT shows what is now in the gun (what was there + what was paid), labelled
+   * "loading into rounds…", until the game says the rounds are loaded (or a minute passes and the chain read wins).
+   * The chain balance still wins whenever it is higher.
+   */
+  /** The dollars the open wallet request asked for (a late approval shows this much). */
+  const askedRef = useRef(0);
+  const [paidShown, setPaidShown] = useState<{ usd: number; at: number } | null>(null);
+  const creditRef = useRef(creditUsd);
+  useEffect(() => {
+    creditRef.current = creditUsd;
+  }, [creditUsd]);
+  const notePaid = useCallback((usd: number) => setPaidShown({ usd: addCoin(creditRef.current, usd), at: Date.now() }), []);
+  const loadedIntoRounds = useCallback(() => setPaidShown(null), []);
+  useEffect(() => {
+    if (!paidShown) return;
+    const t = setTimeout(() => setPaidShown(null), 60_000);
+    return () => clearTimeout(t);
+  }, [paidShown]);
+  const creditShown = paidShown ? Math.max(creditUsd, paidShown.usd) : creditUsd;
+
   const onCoin = useCallback((c: number) => setPending((t) => Math.min(MAX_PAY_USD, addCoin(t, c))), []);
   const onClear = useCallback(() => setPending(0), []);
   // Wake the wallet before LOCK & LOAD is pressed (cabinet open, every coin in): the press then opens the wallet
@@ -118,9 +140,11 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     setStageText(`Approve this once in ${b.wallet.name}: ${fmtCredit(pending)} loads your gun. It is the only wallet approval: nothing asks again while you play.`);
     const cancelsBefore = cancelsRef.current;
     const go = after.current; // a successful payment always starts the game, whatever was cancelled meanwhile
+    askedRef.current = pending;
     const res = await b.load(sats, payLabel(label, pending));
     setApproveSince(null);
     if (res === 'ok') {
+      notePaid(pending);
       // Paid: clear the slot at once so no later press, Cancel or Reconnect can bill the same coins again.
       setPending(0);
       setModal(null);
@@ -149,7 +173,7 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     setStage('ready');
     setStageText(null);
     setLanded((n) => n + 1);
-  }, [pending, bsvUsd, b, label, opts.dry]);
+  }, [pending, bsvUsd, b, label, opts.dry, notePaid]);
 
   const payThen = useCallback(
     (then: () => void) => {
@@ -235,7 +259,9 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     lateSeen.current = b.latePaid;
     const go = lateGo.current;
     lateGo.current = null;
+    const paidUsd = askedRef.current;
     void Promise.resolve().then(() => {
+      if (paidUsd > 0) notePaid(paidUsd);
       setPending(0);
       setModal((m) => (m === 'timeout' ? null : m));
       setStage('ready');
@@ -243,7 +269,7 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
       if (go) after.current = go;
       setLanded((n) => n + 1);
     });
-  }, [b.latePaid]);
+  }, [b.latePaid, notePaid]);
 
   /** The modal's Reconnect: give up on the open request, ask the wallet afresh, then pay what is pending. */
   const reconnect = useCallback(() => {
@@ -282,5 +308,5 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     if (b.error) void Promise.resolve().then(() => setErr(plainError(b.error)));
   }, [b.error]);
 
-  return { modal, setModal, reconnect, cancel, retry, giveUp, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, payUsdThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit, walletSaid: b.walletSaid };
+  return { modal, setModal, reconnect, cancel, retry, giveUp, approveSince, walletName: b.wallet?.name ?? null, walletLive: Boolean(b.wallet) && b.walletLive, bsvUsd, pending, onCoin, onClear, payThen, payUsdThen, stage, stageText, err, setErr, creditUsd, creditReady, setDryCredit, walletSaid: b.walletSaid, creditShown, creditLoading: paidShown != null, loadedIntoRounds };
 }

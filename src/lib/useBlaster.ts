@@ -4,6 +4,7 @@
  * Wallet + gun state shared by the gun app and the arena: pick a wallet (chooser), load the gun
  * with one approval, fire real blasts, unload. One gun per browser (src/lib/gun.ts).
  */
+import { earlierPayCovers } from '@/lib/coinop/payFlow';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WalletEntry } from './discovery';
 import { cancelSiteWalletWait, closeChooser, connectEntry, getSiteWallet, markSiteWalletAnswered, openChooser, openSiteWallet, setSiteWalletError, setSiteWalletLive, setSiteWalletWaiting, walletErrorText } from './siteWallet';
@@ -270,13 +271,18 @@ export function useBlaster() {
           cancelHung: () => cancelWalletCalls(wallet.client, 'WALLET_TIMEOUT'),
         });
         setSiteWalletWaiting(null);
-        if (out === 'paid') {
+        if (out === 'paid' && earlierPayCovers(lp.sats, sats)) {
           latePay.current = null;
           unknownPay.current = null;
           setAmmo(g.sats);
           void g.balance('after payment').then(setAmmo).catch(() => undefined);
           loadMark('retry: the first request paid, no new charge');
           return 'ok';
+        }
+        if (out === 'paid') {
+          // The earlier request paid a DIFFERENT amount: that is credit already in the gun. Ask for what was picked now.
+          loadMark(`retry: the earlier ${lp.sats} sats paid (credit in the gun); now asking for the ${sats} sats picked`);
+          void g.balance('after payment').then(setAmmo).catch(() => undefined);
         }
         if (out === 'unknown') {
           setError('Could not confirm whether your last payment went through, so nothing was sent again. Try again in a moment.');
@@ -292,11 +298,12 @@ export function useBlaster() {
         const landed = await g.findPayment(unk.ref, unk.txid);
         setSiteWalletWaiting(null);
         void g.balance('after payment').then(setAmmo).catch(() => undefined);
-        if (landed) {
+        if (landed && earlierPayCovers(unk.sats, sats)) {
           unknownPay.current = null;
           loadMark(`the earlier payment ${unk.ref} landed: using it, no new charge`);
           return 'ok';
         }
+        if (landed) loadMark(`the earlier payment ${unk.ref} (${unk.sats} sats) landed as credit; now asking for the ${sats} sats picked`);
         if (landed === null) {
           setError('Could not read the gun balance to check your last payment. Try again in a moment (no charge was made).');
           return 'refused';
@@ -387,19 +394,28 @@ export function useBlaster() {
 
   /** The LOCK & LOAD payment in flight: a second press (or a Reconnect) joins it, never opens a second sheet. */
   const paying = useRef<Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> | null>(null);
+  const payingSats = useRef(0);
   const load = useCallback(
     (sats: number, label: string): Promise<'ok' | 'disconnected' | 'timeout' | 'refused' | 'failed'> => {
       if (paying.current) {
-        loadMark('pay: a payment is already in flight, joining it (no second wallet request)');
-        return paying.current;
+        // Only the SAME amount joins the open request (31 Oct 2026: a $1 press joined an open $0.10 one and was
+        // told "paid"). A different amount waits for the open one to finish: nothing new is asked meanwhile.
+        if (earlierPayCovers(payingSats.current, sats)) {
+          loadMark('pay: the same payment is already in flight, joining it (no second wallet request)');
+          return paying.current;
+        }
+        loadMark(`pay: a different payment (${payingSats.current} sats) is still open; ${sats} sats not asked`);
+        setError('Another payment is still open in your wallet. Approve or cancel it there, then press again.');
+        return Promise.resolve('refused');
       }
+      payingSats.current = sats;
       const p = loadOnce(sats, label).finally(() => {
         if (paying.current === p) paying.current = null;
       });
       paying.current = p;
       return p;
     },
-    [loadOnce],
+    [loadOnce, setError],
   );
 
   /** End the gun's running storm session (sender finished, locks released, change saved). */

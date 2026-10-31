@@ -25,6 +25,10 @@ export function Hud(p: {
   weaponName: string;
   ammo: string;
   creditUsd: number;
+  /** "loading into rounds…" right after a payment, while the rounds load (the paid credit is shown, never $0.00). */
+  creditNote?: string | null;
+  /** Time left holding the trigger at the paced rate, e.g. "1:24". */
+  timeLeft?: string | null;
   tps: number;
   spent: string;
   stats: Stats | null;
@@ -121,6 +125,12 @@ export function Hud(p: {
           <span style={{ ...TAB, minWidth: '10ch' }}>{p.live ? pad(`$${p.live.usd.toFixed(6)}`, 10) : p.freePlay ? 'DEMO' : fmtCredit(p.creditUsd)}</span>
         </p>
         {p.live?.practice && <p data-hud-sub className="text-[9px] tracking-[0.18em] text-[var(--tbx-dim)]">DEMO · NOTHING ON CHAIN</p>}
+        {p.creditNote && <p className="animate-pulse text-[10px] font-bold tracking-[0.14em] text-[var(--tbx-teal)]" data-credit-loading>{p.creditNote}</p>}
+        {p.timeLeft && (
+          <p className="mt-0.5 text-[11px] font-bold tracking-[0.14em] text-[var(--tbx-teal)]" data-time-left>
+            {p.packLeft.toLocaleString('en-US')} rounds · {p.timeLeft} left
+          </p>
+        )}
         <dl data-hud-sub className="mt-1.5 grid grid-cols-[1fr_auto] gap-x-3 text-[11px] leading-tight">
           <dt className="text-[var(--tbx-dim)]">{p.dry ? 'demo rounds/s' : 'tx/s accepted'}</dt>
           <dd className="m-0"><Ticker value={p.tps} ease={0.3} format={fixedInt(6)} style={{ ...TAB, color: 'var(--tbx-teal)' }} /></dd>
