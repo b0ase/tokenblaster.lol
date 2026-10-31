@@ -1,59 +1,104 @@
 'use client';
 /**
- * Demo (taste) mode, owner 28 Oct 2026: no free practice. Anyone can start a game, but a big flashing
- * "INSERT $b TO PLAY" banner sweeps across the stage the whole time. For DEMO_SECONDS the game takes input
- * (an unpaid run: nothing is charged, no score is posted). Then the demo ends: the game freezes (page
- * requestAnimationFrame loops stop) and the banner covers the stage, swallowing all input. One tap on the banner
- * goes to the cabinet (the existing credit / pay flow).
+ * Demo (taste) mode, friendly version (owner, 31 Oct 2026: the old flashing INSERT $b banner that froze the
+ * whole page was "pretty rude"). Logic: src/lib/coinop/demo.ts.
  *
- * Photosensitivity: the flash is one cycle per 1.2 s (well under 3 flashes a second, WCAG 2.3.1) and only an
- * opacity dip, not a full on/off. prefers-reduced-motion: no flash and no sweep, a steady banner (ui.css).
+ *  - While the demo runs: only a small corner chip, "DEMO · 14s". It takes no clicks and covers no play.
+ *    The clock waits until the run actually starts (`started`), so menus and intros do not eat it.
+ *  - At 0: `onOver` lets the caller pause or stop ITS game through the game's own path, then a calm panel sits
+ *    over the game stage only: Play for real / Try the demo again / Close (Escape = Close).
+ *  - Never patches window.requestAnimationFrame and never blocks input outside the stage: the page, menu, nav
+ *    and links keep working. A demo run pays nothing and posts no score (InsertCoin, HighScores).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
+import { DEMO_SECONDS, demoChipText, demoInit, demoReduce } from '@/lib/coinop/demo';
 import './ui.css';
 
-export const DEMO_SECONDS = 20;
+export { DEMO_SECONDS };
 
-export function DemoOverlay({ onInsert, seconds = DEMO_SECONDS }: { onInsert: () => void; seconds?: number }) {
-  const [left, setLeft] = useState(seconds);
-  const ended = left <= 0;
+export function DemoOverlay({
+  started,
+  onOver,
+  onPlayForReal,
+  onAgain,
+  onClose,
+  seconds = DEMO_SECONDS,
+}: {
+  /** True once the player's run has begun: the countdown starts then. */
+  started: boolean;
+  /** The demo just ended: pause / stop the game (its own path). */
+  onOver: () => void;
+  /** Opens the cabinet (LOCK & LOAD). Moves no money by itself. */
+  onPlayForReal: () => void;
+  onAgain: () => void;
+  /** Back to the attract / start screen. */
+  onClose: () => void;
+  seconds?: number;
+}) {
+  const [s, dispatch] = useReducer(demoReduce, seconds, demoInit);
+  const over = s.phase === 'over';
 
   useEffect(() => {
-    if (ended) return;
-    const t = setTimeout(() => setLeft((s) => s - 1), 1000);
+    if (started) dispatch('play');
+  }, [started]);
+
+  useEffect(() => {
+    if (s.phase !== 'running') return;
+    const t = setTimeout(() => dispatch('tick'), 1000);
     return () => clearTimeout(t);
-  }, [left, ended]);
+  }, [s.phase, s.left]);
 
-  // Demo over: freeze the game (its rAF loop) and swallow every key and pointer event outside the banner.
+  const overRef = useRef(onOver);
+  const closeRef = useRef(onClose);
   useEffect(() => {
-    if (!ended) return;
-    const raf = window.requestAnimationFrame;
-    window.requestAnimationFrame = () => 0;
-    const block = (e: Event) => {
-      const t = e.target as Element | null;
-      if (t?.closest?.('[data-demo-banner]')) return;
-      if (e instanceof KeyboardEvent && (e.key === 'Tab' || e.key === 'Enter' || e.key === ' ') && document.activeElement?.closest('[data-demo-banner]')) return;
-      e.stopImmediatePropagation();
+    overRef.current = onOver;
+    closeRef.current = onClose;
+  });
+  const playRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!over) return;
+    overRef.current();
+    playRef.current?.focus({ preventScroll: true });
+  }, [over]);
+
+  // Escape = Close, only while the end panel is up. A normal listener: nothing else on the page is blocked.
+  useEffect(() => {
+    if (!over) return;
+    const kd = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
       e.preventDefault();
+      closeRef.current();
     };
-    const kinds = ['keydown', 'keyup', 'pointerdown', 'pointerup', 'pointermove', 'mousedown', 'mouseup', 'click', 'touchstart', 'touchmove', 'wheel', 'gamepadconnected'];
-    kinds.forEach((k) => window.addEventListener(k, block, { capture: true, passive: false }));
-    document.querySelector<HTMLButtonElement>('[data-demo-banner]')?.focus();
-    return () => {
-      window.requestAnimationFrame = raf;
-      kinds.forEach((k) => window.removeEventListener(k, block, { capture: true }));
-    };
-  }, [ended]);
+    window.addEventListener('keydown', kd);
+    return () => window.removeEventListener('keydown', kd);
+  }, [over]);
+
+  if (!over)
+    return (
+      <div className="tbx-demo-chip" data-demo-chip data-demo-overlay="live" aria-hidden>
+        {demoChipText(s)}
+      </div>
+    );
 
   return (
-    <div className={`tbx-demo ${ended ? 'tbx-demo-ended' : ''}`} data-demo-overlay={ended ? 'ended' : 'live'}>
-      <button type="button" data-demo-banner className="tbx-demo-banner" onClick={onInsert} aria-label="Insert $b to play: open the cabinet to add credit">
-        <span className="tbx-demo-sweep" aria-hidden />
-        <span className="tbx-demo-text">
-          INSERT <span className="normal-case">$b</span> TO PLAY
-        </span>
-        <span className="tbx-demo-sub">{ended ? 'Demo over. Tap to insert $b.' : `Demo · no score · ${left}s left · tap to insert $b`}</span>
-      </button>
+    <div className="tbx-demo-end" data-demo-overlay="ended">
+      <div className="tbx-demo-panel" role="dialog" aria-modal="false" aria-labelledby="tbx-demo-title" data-demo-panel>
+        <h2 id="tbx-demo-title" className="tbx-demo-title">
+          Demo over. Liked it?
+        </h2>
+        <p className="tbx-demo-note">Load credit at the cabinet to play for real and get on the scoreboard.</p>
+        <div className="tbx-demo-actions">
+          <button ref={playRef} type="button" className="tbx-demo-btn tbx-demo-primary" onClick={onPlayForReal} data-demo-play>
+            Play for real
+          </button>
+          <button type="button" className="tbx-demo-btn" onClick={onAgain} data-demo-again>
+            Try the demo again
+          </button>
+          <button type="button" className="tbx-demo-btn tbx-demo-quiet" onClick={onClose} data-demo-close>
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -62,7 +107,20 @@ export function DemoOverlay({ onInsert, seconds = DEMO_SECONDS }: { onInsert: ()
 export function DemoButton({ onDemo }: { onDemo: () => void }) {
   return (
     <button type="button" data-demo-start className="btn mx-auto px-3 py-1 text-xs font-bold tracking-wider" onClick={onDemo}>
-      Try a {DEMO_SECONDS}s demo (no score)
+      Try a {DEMO_SECONDS} s demo
     </button>
   );
+}
+
+/** After "Play for real": bring the cabinet's LOCK &amp; LOAD / START button into view and focus it. Pays nothing. */
+export function focusCabinetStart() {
+  let tries = 0;
+  const go = () => {
+    const el = document.querySelector<HTMLElement>('[data-fs-start]');
+    if (el) {
+      el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      el.focus({ preventScroll: true });
+    } else if (++tries < 20) setTimeout(go, 100);
+  };
+  setTimeout(go, 0);
 }

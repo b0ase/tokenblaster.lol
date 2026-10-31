@@ -15,6 +15,7 @@ import { useCallback, useState, useSyncExternalStore } from 'react';
 import { COIN_PENCE, LIVES_PER_CREDIT, isCancel } from '@/lib/coinop';
 import { fmtCredit, playPriceUsd } from '@/lib/coinop/credit';
 import { coinStore } from './coinop/store';
+import { demoMayPay, playDecision } from '@/lib/coinop/demo';
 
 /** `pence` is kept for callers; the price is the game's dollar price (src/lib/coinop/credit.ts). */
 export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE) {
@@ -29,7 +30,7 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
   /** Pay one play from the loaded credit (no wallet prompt: the credit is already in the player's gun). */
   const insert = useCallback(async (): Promise<boolean> => {
     const pay = coinStore.payer();
-    if (!pay || paying || coinStore.demo()) return false;
+    if (!pay || paying || !demoMayPay(coinStore.demo())) return false;
     setPaying(true);
     setMsg(null);
     try {
@@ -47,9 +48,10 @@ export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE)
 
   const playPaid = useCallback(
     (start: (paid: boolean) => void) => {
-      // Demo (taste) mode: an unpaid run under the INSERT $b banner. Nothing is charged, nothing is scored.
-      if (coinStore.demo()) return start(false);
-      if (coinStore.prepaidCount() > 0) return start(true);
+      // Demo (taste) mode: an unpaid run (DemoOverlay). Nothing is charged, nothing is scored. Its 20 s start now.
+      const how = playDecision({ demo: coinStore.demo(), prepaid: coinStore.prepaidCount() });
+      if (how === 'demo') return (coinStore.markDemoPlay(), start(false));
+      if (how === 'prepaid') return start(true);
       void insert().then((ok) => ok && start(true));
     },
     [insert],
