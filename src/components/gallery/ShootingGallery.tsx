@@ -1,4 +1,5 @@
 'use client';
+import { DEMO_SECONDS } from '@/lib/coinop/demo';
 import { AI_TEAMMATES } from '@/lib/aiTeammates';
 import { engineReady } from '@/lib/galleryGame/engineReady';
 
@@ -24,7 +25,7 @@ import { engineReady } from '@/lib/galleryGame/engineReady';
  * `?autofire=1` (with ?dryrun=1) holds the trigger on the boss, for screenshots.
  */
 import { TxMeter } from '@/lib/txMeter';
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { getBarWallet, subBarWallet } from '@/lib/walletBar';
 import { useBlaster } from '@/lib/useBlaster';
 import { holdWalletForPlay } from '@/lib/wallet';
@@ -142,7 +143,15 @@ const COIN_AMMO_UI = false;
 
 const noSub = () => () => undefined;
 
-export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?: boolean } = {}) {
+/**
+ * `demo` (GalleryDemo, owner 31 Oct 2026): `onLive` fires once the run is actually live (the demo clock starts
+ * then); `frozen` pauses the engine through its own PAUSE path when the demo ends, without the PAUSED dialog.
+ */
+export type GalleryDemoHooks = { onLive?: () => void; frozen?: boolean };
+
+/** `startExtra`: shown in the start card's button column (GalleryDemo's "Try a 20s demo"). */
+
+export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExtra }: { freePlay?: boolean; demo?: GalleryDemoHooks; startExtra?: ReactNode } = {}) {
   // GUEST / DEMO (owner, 26 Oct: "zero out of ten for onboarding"): PLAY FREE runs the same free-play path as
   // NEXT_PUBLIC_GALLERY_PAID=0: simulated rounds, no wallet, nothing paid or broadcast. A wallet is only asked for
   // when the player picks PAID ROUNDS (LOCK & LOAD).
@@ -1422,8 +1431,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
 
   // PAUSE (owner, 25 Oct 2026): P or Esc, or the on-screen button. Freezes the world and the round sender: nothing
   // is fired or broadcast while paused. RESUME carries on with the same loaded rounds, no new payment.
+  const demoFrozen = Boolean(demo?.frozen);
   const togglePause = useCallback(() => {
-    if (modeRef.current !== 'live' || loadout) return;
+    if (modeRef.current !== 'live' || loadout || demoFrozen) return;
     const next = !pausedRef.current;
     pausedRef.current = next;
     held.current = false;
@@ -1431,7 +1441,22 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
     if (next) document.exitPointerLock?.();
     setPaused(next);
     loadMark(next ? 'paused' : 'resumed');
-  }, [loadout]);
+  }, [loadout, demoFrozen]);
+  // Demo over: the engine's own pause (world + round sender frozen). Unfreezing is a fresh mount (GalleryDemo).
+  useEffect(() => {
+    if (!demoFrozen) return;
+    pausedRef.current = true;
+    held.current = false;
+    if (engine.current) engine.current.paused = true;
+    document.exitPointerLock?.();
+    void Promise.resolve().then(() => setPaused(true));
+    loadMark('demo: paused');
+  }, [demoFrozen]);
+  // Demo: tell GalleryDemo the run is live so its 20 s start now, not at the button press.
+  const demoLive = demo?.onLive;
+  useEffect(() => {
+    if (mode === 'live' && !loadout) demoLive?.();
+  }, [mode, loadout, demoLive]);
   useEffect(() => {
     const kd = (e: KeyboardEvent) => {
       if (e.repeat || (e.code !== 'KeyP' && e.code !== 'Escape')) return;
@@ -1445,11 +1470,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
   }, [togglePause]);
   // Leaving live play (LOADOUT, round over) always unpauses.
   useEffect(() => {
-    if (mode === 'live' && !loadout) return;
+    if ((mode === 'live' && !loadout) || demoFrozen) return;
     pausedRef.current = false;
     if (engine.current) engine.current.paused = false;
     void Promise.resolve().then(() => setPaused(false));
-  }, [mode, loadout]);
+  }, [mode, loadout, demoFrozen]);
 
   // No key scrolls the page while you play (owner, 25 Oct): swallow the scroll keys unless you are typing.
   useEffect(() => {
@@ -1879,7 +1904,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
         )}
 
         {/* PAUSED: the world and the round sender are frozen; nothing is fired or broadcast */}
-        {paused && mode === 'live' && !loadout && !over && (
+        {paused && !demoFrozen && mode === 'live' && !loadout && !over && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60" role="dialog" aria-label="Paused" data-paused>
             <div className="tbx-glass flex w-[min(92%,360px)] flex-col gap-3 rounded-lg p-5 text-center text-white">
               <p className="text-lg font-bold tracking-[0.3em]">PAUSED</p>
@@ -1933,12 +1958,13 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                   {/* Owner 27 Oct: no free-practice button on the site; paid play (LOCK & LOAD) only. */}
                   {freePlayProp && (
                   <div>
-                    <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">FREE PRACTICE · NO WALLET · NOTHING ON CHAIN</p>
-                    <p className="mt-1 max-w-[440px] text-sm text-white/85" data-start-copy>Practice rounds are simulated: nothing is paid, signed or broadcast.</p>
+                    <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">{demo ? `${DEMO_SECONDS}S DEMO · NO SCORE · NOTHING ON CHAIN` : 'FREE PRACTICE · NO WALLET · NOTHING ON CHAIN'}</p>
+                    <p className="mt-1 max-w-[440px] text-sm text-white/85" data-start-copy>{demo ? 'Demo rounds are simulated: nothing is paid, signed or broadcast. The clock starts when you do.' : 'Practice rounds are simulated: nothing is paid, signed or broadcast.'}</p>
                   </div>
                   )}
                   <div className="flex flex-col gap-2 sm:items-end">
-                    {playInBwallet && !playHere ? (
+                    {/* A demo plays here: it never needs the wallet (phones were sent to bWallet instead). */}
+                    {playInBwallet && !playHere && !demo ? (
                       <>
                         <PlayInBwalletButton />
                         <button type="button" onClick={() => setPlayHere(true)} className="text-xs font-bold tracking-[0.18em] text-white/70 underline underline-offset-4" data-play-here>
@@ -1947,7 +1973,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                       </>
                     ) : freePlayProp && (
                       <button type="button" onClick={startFree} className="lock-load min-h-[72px] w-full rounded-lg bg-[var(--tbx-red)] px-6 py-2 text-2xl sm:px-10 sm:text-3xl font-black tracking-[0.14em] text-white sm:w-auto" data-play-free>
-                        ▶ {CTA} <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">FREE PRACTICE · NO WALLET</span>
+                        ▶ {CTA} <span className="block text-[11px] font-bold tracking-[0.3em] text-white/85">{demo ? 'DEMO · NO WALLET' : 'FREE PRACTICE · NO WALLET'}</span>
                       </button>
                     )}
                     {/* Framed (bChatX floating player): the bWalletX extension only injects into the top page, so paid rounds
@@ -1963,6 +1989,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false }: { freePlay?:
                       </button>
                     )}
                     {!guest && !freePlayProp && <p className="text-[11px] tracking-[0.14em] text-white/60">PAID ROUNDS: LOCK &amp; LOAD BELOW</p>}
+                    {startExtra}
                   </div>
                 </div>
               </section>

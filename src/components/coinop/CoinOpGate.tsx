@@ -5,9 +5,10 @@
  * START pays this game's play price (src/lib/coinop/credit.ts PLAY_PRICE_USD) from the gun to the HOUSE in one
  * transaction tagged "tokenblaster.lol" … "coinop" <game> <name>, records it as one prepaid play and opens the
  * game. The game's own PLAY button uses that play; PLAY AGAIN pays another from the same credit (store.payer).
- * "Try a demo" opens the game unpaid under the INSERT $b banner instead (DemoOverlay; no free practice).
+ * "Try a demo" opens the game unpaid for 20 s instead (DemoOverlay: a quiet chip, then a calm end panel). When the
+ * demo ends the game is unmounted (its own teardown stops its loops) and the panel sits on the stage only.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useBlaster } from '@/lib/useBlaster';
 import { CAPTURE_BUILD } from '@/lib/devFlags';
 import { loadMark } from '@/lib/gun';
@@ -16,7 +17,7 @@ import { HOUSE } from '@/lib/usePaidPlay';
 import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } from '@/lib/coinop/credit';
 import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { CoinCabinet } from './CoinCabinet';
-import { DemoOverlay } from './DemoOverlay';
+import { DemoOverlay, focusCabinetStart } from './DemoOverlay';
 import { tbxFontClass } from './fonts';
 import { coinStore } from './store';
 import { useCabinet } from './useCabinet';
@@ -36,16 +37,27 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
   const { name, hasPaymail } = usePlayerName();
   useEffect(() => coinStore.setName(name), [name]);
   const [open, setOpen] = useState(false);
-  /** Demo (taste) mode, owner 28 Oct 2026: the game opens unpaid under the INSERT $b banner (DemoOverlay). */
+  /** Demo (taste) mode, owner 28 Oct 2026, made friendly 31 Oct (DemoOverlay). */
   const [demo, setDemo] = useState(false);
   const [demoRun, setDemoRun] = useState(0);
+  /** The demo ended: the game is unmounted (stopped by its own teardown) and the end panel shows. */
+  const [demoOver, setDemoOver] = useState(false);
+  /** A tap / key on the game stage itself also starts the clock (games that start without a PLAY button). */
+  const [demoTouched, setDemoTouched] = useState(false);
+  const demoPlays = useSyncExternalStore(coinStore.subscribe, coinStore.demoPlays, () => 0);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [stageH, setStageH] = useState<number | null>(null);
   useEffect(() => {
     coinStore.setDemo(demo);
     return () => coinStore.setDemo(false);
   }, [demo]);
   const startDemo = () => {
     loadMark('demo: started');
+    coinStore.resetDemoPlays(); // a fresh demo: the clock waits for its PLAY again
     setDemoRun((n) => n + 1);
+    setDemoOver(false);
+    setDemoTouched(false);
+    setStageH(null);
     setDemo(true);
     setOpen(true);
   };
@@ -58,11 +70,25 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
       setOpen(true);
     });
   }, []);
-  // The banner's one tap: back to this cabinet, the existing credit / pay flow (the demo game unmounts).
-  const insertFromDemo = () => {
-    loadMark('demo: INSERT $b tapped');
+  const endDemo = () => {
+    loadMark('demo: over');
+    setStageH(stageRef.current?.offsetHeight ?? null);
+    setDemoOver(true);
+  };
+  // Close / Play for real: back to this cabinet (the attract screen and the existing credit / pay flow).
+  const leaveDemo = (forReal: boolean) => {
+    loadMark(forReal ? 'demo: play for real' : 'demo: closed');
     setDemo(false);
+    setDemoOver(false);
     setOpen(false);
+    if (forReal) focusCabinetStart();
+  };
+  // The stage itself (not its buttons or menus) was tapped or a key pressed in it: the run is under way.
+  const touchStage = (e: { target: EventTarget | null }) => {
+    if (demoTouched) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest('button, a, input, select, textarea, label, [role="button"]')) return;
+    setDemoTouched(true);
   };
   const [starting, setStarting] = useState(false);
   const n = useRef(0);
@@ -125,9 +151,23 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
   return (
     <>
       {open && demo ? (
-        <div key={demoRun} className="relative" data-demo-run>
-          {children}
-          <DemoOverlay onInsert={insertFromDemo} />
+        <div
+          key={demoRun}
+          ref={stageRef}
+          className="relative"
+          style={demoOver && stageH ? { minHeight: stageH } : undefined}
+          data-demo-run
+          onPointerDownCapture={touchStage}
+          onKeyDownCapture={touchStage}
+        >
+          {!demoOver && children}
+          <DemoOverlay
+            started={demoPlays > 0 || demoTouched}
+            onOver={endDemo}
+            onPlayForReal={() => leaveDemo(true)}
+            onAgain={startDemo}
+            onClose={() => leaveDemo(false)}
+          />
         </div>
       ) : open ? (
         children

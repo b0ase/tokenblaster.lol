@@ -6,14 +6,16 @@
  *  - `payer`: pays one more play from the loaded credit (PLAY AGAIN), registered by the gate. One gun per page.
  *  - `name`: the player NAME typed at the cabinet.
  *  - `demo`: the taste mode (src/components/coinop/DemoOverlay.tsx): the game's PLAY starts an unpaid, unscored run.
+ *    `demoPlays` counts those PLAY presses so the demo clock starts when the run does, not at the cabinet.
  */
 type Payer = () => Promise<string>;
 let prepaid: string[] = [];
 let payer: Payer | null = null;
 let name = '';
 let creditUsd = 0;
-/** Demo (taste) mode, owner 28 Oct 2026: the game runs unpaid with the INSERT $b banner over it; no scores. */
+/** Demo (taste) mode, owner 28 Oct 2026 (made friendly 31 Oct): the game runs unpaid for 20 s; no scores. */
 let demo = false;
+let demoPlays = 0;
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 
@@ -48,6 +50,18 @@ export const coinStore = {
   setDemo(v: boolean) {
     if (v === demo) return;
     demo = v;
+    demoPlays = 0;
+    emit();
+  },
+  demoPlays: () => demoPlays,
+  resetDemoPlays() {
+    if (!demoPlays) return;
+    demoPlays = 0;
+    emit();
+  },
+  markDemoPlay() {
+    if (!demo) return;
+    demoPlays++;
     emit();
   },
   credit: () => creditUsd,
