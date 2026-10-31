@@ -40,6 +40,7 @@ const CSS = `
 .tn-drip::after{content:'';position:absolute;left:50%;bottom:-.06em;width:170%;aspect-ratio:1/1.25;transform:translateX(-50%);border-radius:50% 50% 50% 50%/40% 40% 60% 60%;background:radial-gradient(circle at 35% 35%,#ff5a66 0 12%,#c4001b 40%,#6e000e 100%)}
 .tn-splat{position:absolute;z-index:0;left:calc(var(--l)*1%);top:calc(var(--t)*1%);width:calc(var(--s)*1em);aspect-ratio:1;border-radius:46% 54% 60% 40%/52% 44% 56% 48%;background:radial-gradient(circle at 40% 40%,#e0001f,#6e000e);box-shadow:.06em .02em 0 -.015em #b30018,-.05em .05em 0 -.025em #b30018,.02em -.06em 0 -.03em #c4001b}
 @keyframes tn-drip{0%{transform:scaleY(.6);opacity:1}70%{transform:scaleY(1);opacity:1}100%{transform:scaleY(1.06);opacity:.85}}
+.tn-blood-big .tn-blood-pre{font-size:.5em}
 @media (prefers-reduced-motion:reduce){.tn-drip{animation:none}}
 `;
 

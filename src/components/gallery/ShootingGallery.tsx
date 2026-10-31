@@ -152,7 +152,7 @@ const noSub = () => () => undefined;
  */
 export type GalleryDemoHooks = { onLive?: () => void; frozen?: boolean };
 
-/** `startExtra`: shown in the start card's button column (GalleryDemo's "Try a 20s demo"). */
+/** `startExtra`: shown in the start card's button column (nothing uses it since the demo button went, 31 Oct 2026). */
 
 export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExtra }: { freePlay?: boolean; demo?: GalleryDemoHooks; startExtra?: ReactNode } = {}) {
   // GUEST / DEMO (owner, 26 Oct: "zero out of ten for onboarding"): PLAY FREE runs the same free-play path as

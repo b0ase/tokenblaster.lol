@@ -1,10 +1,14 @@
 'use client';
 
-/** "Choose your girl": NPG girl + a weapon per hand, six stats → game modifiers (src/lib/npgLoadout.ts). One compact card. */
+/**
+ * "Choose your girl": pick an NPG girl. One compact banner card over the TERRORNODE key art. Weapon pickers and stat
+ * lines are not shown (owner, 31 Oct 2026; they return with a weapons system); the pick's modifiers still apply in
+ * the engine via src/lib/npgLoadout.ts.
+ */
 import { useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import dynamic from 'next/dynamic';
 import { isMobileLite } from '@/lib/mobileLite';
-import { DEFAULT_ROSTER, STATS, STAT_ABBR, allowedWeapons, girlImg, modsFor, normalizePick, statsFor, weaponById, weaponImg, type Mods, type Pick } from '@/lib/npgLoadout';
+import { DEFAULT_ROSTER, girlImg, normalizePick, type Pick } from '@/lib/npgLoadout';
 import type { NpgOwned } from '@/lib/npgLoadout';
 
 // Live 3D girls in the full card (not the phone strip, not the mobile-lite tier): three.js loads only when used.
@@ -12,16 +16,6 @@ import { engineReady } from '@/lib/galleryGame/engineReady';
 const Girls3D = dynamic(() => import('./Girls3D').then((m) => m.Girls3D), { ssr: false });
 const noSub = () => () => {};
 const want3d = () => !isMobileLite() && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-const MOD_OF: Record<(typeof STATS)[number], { key: keyof Mods; label: string; invert?: boolean }> = {
-  strength: { key: 'damage', label: 'dmg' },
-  speed: { key: 'speed', label: 'move' },
-  skill: { key: 'spread', label: 'aim', invert: true },
-  stamina: { key: 'hp', label: 'hp' },
-  stealth: { key: 'incoming', label: 'evade', invert: true },
-  style: { key: 'score', label: 'score' },
-};
-const signed = (n: number) => `${n >= 0 ? '+' : ''}${Math.round(n * 100)}%`;
 
 export function CharacterSelect({
   pick,
@@ -37,8 +31,6 @@ export function CharacterSelect({
   cards: { checking: boolean; checked: boolean; check: () => void; error: string | null } | null;
 }) {
   const girl = DEFAULT_ROSTER.find((g) => g.id === pick.girl) ?? DEFAULT_ROSTER[0];
-  const stats = useMemo(() => statsFor(pick), [pick]);
-  const mods = modsFor(stats);
   const [sheet, setSheet] = useState(false);
   const row = useRef<HTMLDivElement>(null);
   const [ready3d, setReady3d] = useState(false);
@@ -46,34 +38,9 @@ export function CharacterSelect({
   const can3d = useSyncExternalStore(noSub, want3d, () => false);
   const playable = useSyncExternalStore(engineReady.subscribe, engineReady.get, () => false);
   const three = !compact && can3d && playable; // after the game is ready (engineReady.ts): 2D art until then
-  const hand = (h: 'right' | 'left') => {
-    const list = allowedWeapons(girl, h, owned.elements);
-    const cur = weaponById(pick[h]);
-    return (
-      <label className="flex min-w-0 items-center gap-1.5 text-[10px] tracking-[0.14em] text-white/60">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {cur && <img src={weaponImg(cur.id)} alt="" loading="lazy" className="h-7 w-7 shrink-0 object-contain" />}
-        <span className="shrink-0">{h === 'right' ? 'R' : 'L'}</span>
-        <select
-          value={pick[h] ?? ''}
-          onChange={(e) => setPick(normalizePick({ ...pick, [h]: e.target.value }, owned.elements))}
-          className="min-w-0 flex-1 rounded border border-white/15 bg-black/60 px-1 py-1 text-[11px] text-white"
-          data-npg-weapon={h}
-        >
-          {list.map((w) => (
-            <option key={w.id} value={w.id}>
-              {w.name}
-              {w.owner === girl.name ? ' ★' : ''}
-              {owned.elements.has(w.id) ? ' (owned)' : ''} · {w.rarity}
-            </option>
-          ))}
-        </select>
-      </label>
-    );
-  };
   if (compact) {
-    // Phone on its side, before START: a thin strip of portraits so START stays on the first screen; weapons and
-    // stats open in a sheet.
+    // Phone on its side, before START: a thin strip of portraits so START stays on the first screen; the full
+    // chooser (girls only) opens in a sheet.
     return (
       <div className="flex items-center gap-1.5" data-character-strip>
         <div className="flex gap-1" role="radiogroup" aria-label="Choose your girl">
@@ -95,7 +62,7 @@ export function CharacterSelect({
         </div>
         <button type="button" onClick={() => setSheet(true)} className="rounded bg-black/70 px-2 py-1 text-left text-[9px] font-bold leading-tight tracking-[0.14em] text-white" data-npg-sheet-open>
           <span className="block text-[var(--tbx-amber)]">{girl.name.toUpperCase()}</span>
-          <span className="text-white/70">WEAPONS &amp; STATS ▸</span>
+          <span className="text-white/70">CHOOSE ▸</span>
         </button>
         {sheet && (
           <div className="fixed inset-0 z-[960] flex items-center justify-center bg-black/75 p-3" onClick={() => setSheet(false)} data-npg-sheet>
@@ -111,7 +78,14 @@ export function CharacterSelect({
     );
   }
   return (
-    <section className="tbx-glass rounded-xl p-2 sm:p-3" data-character-select>
+    <section className="tbx-glass relative isolate overflow-hidden rounded-xl p-2 sm:p-3" data-character-select>
+      {/* Banner: the TERRORNODE key art, darkened so the title and portraits stay readable. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-cover bg-center"
+        style={{ backgroundImage: 'linear-gradient(180deg,rgba(4,9,14,.72),rgba(4,9,14,.86)), url(/arcade/gallery.jpg)' }}
+        data-character-banner
+      />
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-bold tracking-[0.24em] text-[var(--tbx-amber)]">CHOOSE YOUR GIRL</p>
         {cards && (
@@ -148,24 +122,6 @@ export function CharacterSelect({
                 </span>
               </span>
             ))}
-          </div>
-        </div>
-        <div className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-1.5 lg:flex lg:w-[250px] lg:flex-none lg:flex-col">
-          {hand('right')}
-          {hand('left')}
-          <div className="col-span-2 grid max-w-[640px] grid-cols-3 lg:grid-cols-2 gap-x-3 gap-y-0.5 text-[9px] tracking-[0.08em]" data-npg-stats>
-            {STATS.map((s) => {
-              const m = MOD_OF[s];
-              const d = (mods[m.key] - 1) * (m.invert ? -1 : 1);
-              return (
-                <span key={s} className="flex gap-1.5 whitespace-nowrap text-white/70" title={`${s} → ${m.label}`}>
-                  <b className="text-white">{STAT_ABBR[s]} {stats[s]}</b>
-                  <span className={d > 0.001 ? 'text-[var(--tbx-teal)]' : d < -0.001 ? 'text-[#ff9a92]' : ''}>
-                    {m.label} {signed(m.invert ? -(mods[m.key] - 1) : mods[m.key] - 1)}
-                  </span>
-                </span>
-              );
-            })}
           </div>
         </div>
       </div>

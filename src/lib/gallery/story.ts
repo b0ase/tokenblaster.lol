@@ -34,7 +34,7 @@ export const CREDIT = 'A Ninja Punk Girls game';
 
 /** One paragraph. What the player is doing and why. */
 export const PREMISE =
-  'Neo-Tokyo, 2048. DR KWEG S WONG is brilliant, devastatingly so, and everyone loves him. He invented the EROBOTZ for the nSLAVE corporation. Then his inventions went crazy. The Erobotz seized nSLAVE and hold him hostage at its centre, TERRORNODE. The NINJA PUNK GIRLS blast in to free him, and you have joined them with a rotary gun and a pocket of coins. Act 1: storm the node. Act 2: get him out. He keeps running the wrong way. Protect him. Every round you fire goes on the record and jams the Erobotz’ control of the network. Stop firing, and you are dead.';
+  'Neo-Tokyo, 2048. DR KWEG S WONG is brilliant, devastatingly so, and everyone loves him. The evil EROBOTZ have seized the nSLAVE corporation and hold him hostage at its centre, TERRORNODE. The NINJA PUNK GIRLS blast in to free him, and you have joined them with a rotary gun and a pocket of coins. Act 1: storm the node. Act 2: get him out. He keeps running the wrong way. Protect him. Every round you fire goes on the record and jams the Erobotz’ control of the network. Stop firing, and you are dead.';
 
 /** Short lines for banners, shares and the lobby. */
 export const TAGLINES = [
@@ -84,7 +84,7 @@ export const KWEG = {
   fullName: 'Professor Doctor Sir Kweg S Wong esq.',
   role: 'Hostage',
   look: 'Round spectacles, a striped engineer’s cap, a red bow tie and a knitted vest under a lab coat. A tablet in one hand, a magnifying glass in the other. Currently chained to the core.',
-  bio: 'Held hostage at the centre of TERRORNODE by his own inventions. Get him out.',
+  bio: 'Held hostage at the centre of TERRORNODE by the evil Erobotz. Get him out.',
   threat: 'On your side. Held at the core in Act 1, running out with the girls in Act 2 (the wrong way, mostly: protect him). He talks to you over the radio: dry pleas, review comments and the occasional correction.',
   /** Spoken on the loading screen and the briefing. */
   intro: 'This is Dr Wong. I am being held hostage by the Erobotz, whom I invented, in a building I established in 2009. I did not authorise this.',
@@ -126,7 +126,7 @@ export const LORE: LoreBeat[] = [
   { id: 'fall', title: 'THE FALL', line: 'There was the accident, and the hacking, and the incident with the cow, and the trial, and all that. Nobody has explained any of it. Ugly situation. He remains brilliant.', focus: 'kweg' },
   { id: 'terrornode', title: 'nSLAVE', line: 'The nSLAVE corporation runs the city on the SOUL CHAIN. At its centre is TERRORNODE, the black glass core of its tower, and that is where he is being held.', focus: 'kweg' },
   { id: 'patent', title: 'THE PATENT', line: NSLAVE_SLOGANS[0].en + ' It is stored on SOUL CHAIN™ (chain of tools). ' + NSLAVE_SLOGANS[1].en, focus: 'kweg' },
-  { id: 'control', title: 'OUT OF CONTROL', line: 'His inventions went crazy. The Erobotz seized nSLAVE floor by floor, chained their inventor to the core, and a silver giant of liquid metal, his own creation, guards the roof.', focus: 'liquid' },
+  { id: 'control', title: 'OUT OF CONTROL', line: 'The evil Erobotz seized nSLAVE floor by floor, chained Dr Kweg to the core, and a silver giant of liquid metal, his own creation, guards the roof.', focus: 'liquid' },
   { id: 'army', title: 'THE EROBOTZ', line: 'Rotor bots in the air, frog bots in the gutters, graf bots on the glass, stripey bots in the doorways and techs in the server rooms. Every one of them rushes you, and every one is evil.', focus: 'frog' },
   { id: 'girls', title: 'THE NINJA PUNK GIRLS', line: 'They blast into the centre of nSLAVE to free him, then get him out while he runs the wrong way. Neon hair, sharp blades and no patience. They need a gunner who keeps the trigger down.', focus: 'npg' },
   { id: 'liquid', title: 'THE LIQUID UNIT', line: 'It was meant to clean up after disasters. Something in it went mad. Seven metres of living silver with one red eye, and it is not Kweg, whatever the Erobotz say.', focus: 'liquid' },

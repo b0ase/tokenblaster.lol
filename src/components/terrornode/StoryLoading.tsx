@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 
 export const STORY_CARDS: readonly { top: string; line: string; tone: 'red' | 'teal' }[] = [
   { top: 'YOU ARE THE GUNNER', line: 'Neo-Tokyo, 2048. The Ninja Punk Girls need someone who keeps the trigger down.', tone: 'teal' },
-  { top: 'DR KWEG IS HELD HOSTAGE', line: 'His own Erobotz chained him to the core of the nSLAVE tower.', tone: 'red' },
+  { top: 'FREE DR KWEG FROM THE EVIL EROBOTZ', line: 'They chained him to the core of the nSLAVE tower.', tone: 'red' },
   { top: 'STORM THE NODE', line: 'Up the street, through the labs, to TERRORNODE. Never stop walking.', tone: 'red' },
   { top: 'THE LIQUID UNIT', line: 'Seven metres of living silver. Fire pushes it back. Stop and it walks through you.', tone: 'teal' },
   { top: 'EVERY BULLET IS A REAL BSV TRANSACTION', line: 'Signed by your gun, on chain, with your name on it.', tone: 'red' },
@@ -47,12 +47,13 @@ export function StoryLoading({ pct, line, coarse = false, practice = false }: { 
           </p>
         </div>
       )}
-      <div className="absolute inset-x-0 bottom-[12%] mx-auto w-[min(92%,640px)]">
-        <div className="tbx-bar !h-2">
+      <div className="absolute inset-x-0 bottom-[10%] mx-auto w-[min(92%,960px)]">
+        <div className="tbx-bar !h-5 sm:!h-6">
           <i style={{ transform: `scaleX(${pct / 100})`, transition: 'transform 0.25s linear' }} />
         </div>
-        <p className="tbx-num mt-2 text-xs font-semibold tracking-[0.12em] text-white/75" data-load-line>
-          {pct}% · {line}
+        <p className="tbx-num mt-3 flex items-baseline justify-between gap-4 font-semibold text-white/85" data-load-line>
+          <span className="text-[clamp(13px,1.6vw,18px)] tracking-[0.12em]">{line}</span>
+          <span className="tbx-display text-[clamp(24px,4vw,44px)] leading-none text-[var(--tbx-teal)]">{pct}%</span>
         </p>
       </div>
     </div>

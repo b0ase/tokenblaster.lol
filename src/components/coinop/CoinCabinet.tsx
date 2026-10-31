@@ -21,7 +21,6 @@ import { loadMark } from '@/lib/gun';
 import { GUN_KEY_NOTE } from '@/lib/tokenLoad';
 import type { CabModal } from './useCabinet';
 import { COINS_USD, MIN_CREDIT_USD, addCoin, fmtCredit, hasCredit } from '@/lib/coinop/credit';
-import { DemoButton } from './DemoOverlay';
 
 export type LoadStage = null | 'approve' | 'loading' | 'ready';
 
@@ -68,8 +67,6 @@ export function CoinCabinet(p: {
   startLabel?: string;
   /** START: pays the pending total (one approval) and then starts by itself. */
   onStart: () => void;
-  /** Demo (taste) mode: open the game unpaid under the INSERT $b banner (DemoOverlay). */
-  onDemo?: () => void;
   starting?: boolean;
   blocked?: boolean;
   error?: string | null;
@@ -287,7 +284,6 @@ export function CoinCabinet(p: {
               {!busy && (pb ? pb.sub && <span className="tbx-go-sub">{pb.sub}</span> : paySub && <span className="tbx-go-sub">{paySub}</span>)}
             </button>
           </div>
-          {p.onDemo && !p.freePlay && !busy && <DemoButton onDemo={p.onDemo} />}
           {pb?.kind === 'play' && !busy && (
             <button
               type="button"

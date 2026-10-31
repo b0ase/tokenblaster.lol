@@ -5,7 +5,7 @@
  * START pays this game's play price (src/lib/coinop/credit.ts PLAY_PRICE_USD) from the gun to the HOUSE in one
  * transaction tagged "tokenblaster.lol" … "coinop" <game> <name>, records it as one prepaid play and opens the
  * game. The game's own PLAY button uses that play; PLAY AGAIN pays another from the same credit (store.payer).
- * "Try a demo" opens the game unpaid for 20 s instead (DemoOverlay: a quiet chip, then a calm end panel). When the
+ * No demo button (owner, 31 Oct 2026). A ?demo=1 link opens the game unpaid for 20 s instead (DemoOverlay: a quiet chip, then a calm end panel). When the
  * demo ends the game is unmounted (its own teardown stops its loops) and the panel sits on the stage only.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
@@ -195,7 +195,6 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
               unit="plays"
               starting={starting}
               error={cab.err}
-              onDemo={startDemo}
             />
           </div>
         </div>
