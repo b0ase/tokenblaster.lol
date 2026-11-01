@@ -9,6 +9,8 @@ import { SETTLE_FEE, shotsForSats, type ReceiptCurve } from '@/lib/coinop/shots'
 import { fetchSplit } from '@/lib/launch/splitClient';
 import { splitOutputs } from '@/lib/launch/split';
 import { PENDING_SETTLE_KEY, withGunBusyRetry, type PendingSettle } from '@/lib/settleRetry';
+import type { WalletInterface } from '@bsv/sdk';
+import { PENDING_RECEIVE_KEY, internalizeReceipt, type PendingReceive } from '@/lib/launch/receiveKey';
 
 export type ReceiptQuote = { live: boolean; issued: number; nextPriceSats: number | null; graduateAt?: number; graduated?: boolean; soldOut?: boolean; split?: string; gasAddress: string | null; gasSats: number };
 
@@ -44,17 +46,46 @@ function writeJson(k: string, v: unknown) {
 }
 
 /** Ask the server to send the receipts a settlement tx paid for. True once sent; false while it is still working. */
-async function deliver(txid: string): Promise<{ ok: true; count?: number } | { ok: false; retry: boolean; why: string }> {
+async function deliver(txid: string): Promise<{ ok: true; count?: number; transfer?: string } | { ok: false; retry: boolean; why: string }> {
   const r = await fetch('/api/terrornode/receipts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ txid }) }).catch(() => null);
-  const j = (await r?.json().catch(() => null)) as { ok?: boolean; count?: number; error?: string } | null;
-  if (r?.ok && j?.ok) return { ok: true, count: j.count };
+  const j = (await r?.json().catch(() => null)) as { ok?: boolean; count?: number; transfer?: string; error?: string } | null;
+  if (r?.ok && j?.ok) return { ok: true, count: j.count, transfer: j.transfer };
   const retry = !r || [202, 404, 409, 429, 500, 502, 503].includes(r.status);
   return { ok: false, retry, why: j?.error ?? (r ? `Receipts refused (${r.status}).` : 'Could not reach TokenBlaster.') };
+}
+
+/**
+ * Hand every mined receipt transfer to the wallet (src/lib/launch/receiveKey.ts). Unmined or refused ones stay in
+ * this browser for the next try. Returns how many $TERRORNODE went in this time.
+ */
+export async function receivePending(client: WalletInterface): Promise<number> {
+  const list = readJson<PendingReceive[]>(PENDING_RECEIVE_KEY) ?? [];
+  if (!list.length) return 0;
+  const left: PendingReceive[] = [];
+  let got = 0;
+  for (const p of list) {
+    try {
+      const r = await fetch(`/api/terrornode/receipts/beef?txid=${p.transfer}`, { cache: 'no-store' });
+      const j = (await r.json().catch(() => null)) as { beef?: string; outputIndex?: number } | null;
+      if (r.status !== 200 || !j?.beef) { left.push(p); continue; }
+      await internalizeReceipt(client, { beef: j.beef, outputIndex: j.outputIndex ?? 0, keyID: p.keyID, count: p.count });
+      got += p.count;
+    } catch (e) {
+      console.warn('[tb-receipts] wallet did not take the transfer yet', p.transfer, e);
+      // Kept for a day of retries; the tokens are on chain at the receive key either way.
+      if (Date.now() - p.at < 86_400_000) left.push(p);
+    }
+  }
+  writeJson(PENDING_RECEIVE_KEY, left.length ? left : null);
+  return got;
 }
 
 type SettleArgs = {
   pay: (plan: (coinSats: number) => { asm: string; outs: { address: string; sats: number }[] } | null) => Promise<string | null>;
   recipient: string | null;
+  /** The wallet's receive keyID for `recipient` (bWalletX "Site tokens"); with `wallet`, the transfer is handed to it. */
+  keyID?: string;
+  wallet?: WalletInterface;
   session: string;
   handle: string;
   shownAs: string;
@@ -164,7 +195,7 @@ export function useReceipts(on: boolean, pay?: SettleArgs['pay']) {
         let count = 0;
         let total = 0;
         // Kept until paid: a settlement that can not run now (gun busy past every retry, page closed) runs next load.
-        writeJson(PENDING_SETTLE_KEY, { recipient, session: a.session, handle: a.handle, shownAs: a.shownAs, at: Date.now() } satisfies PendingSettle);
+        writeJson(PENDING_SETTLE_KEY, { recipient, keyID: a.keyID, session: a.session, handle: a.handle, shownAs: a.shownAs, at: Date.now() } satisfies PendingSettle);
         // The gun may be busy with the next LOCK & LOAD (owner log, 31 Oct 2026): wait for it, never fail on it.
         const txid = await withGunBusyRetry(() => a.pay((coinSats) => {
           count = affordableReceipts(fresh.issued + 1, owedNow, coinSats - RECEIPT_GAS - SETTLE_FEE);
@@ -185,7 +216,11 @@ export function useReceipts(on: boolean, pay?: SettleArgs['pay']) {
           const r = await deliver(txid);
           if (r.ok) {
             writeJson(PAID_KEY, null);
-            setNote(`${(r.count ?? count).toLocaleString('en-US')} $TERRORNODE sent to ${a.shownAs}`);
+            if (a.keyID && r.transfer) {
+              const list = readJson<PendingReceive[]>(PENDING_RECEIVE_KEY) ?? [];
+              writeJson(PENDING_RECEIVE_KEY, [...list.filter((x) => x.transfer !== r.transfer), { transfer: r.transfer, keyID: a.keyID, count: r.count ?? count, at: Date.now() }]);
+            }
+            setNote(`${(r.count ?? count).toLocaleString('en-US')} $TERRORNODE sent to ${a.shownAs}. They show in your wallet once the next block is mined (about 10 min).`);
             setQ(await quote());
             return;
           }
@@ -217,7 +252,7 @@ export function useReceipts(on: boolean, pay?: SettleArgs['pay']) {
     const payer = payRef.current;
     const t = setTimeout(() => {
       retried.current = true;
-      void settle({ pay: payer, recipient: p.recipient, session: p.session, handle: p.handle, shownAs: p.shownAs });
+      void settle({ pay: payer, recipient: p.recipient, keyID: p.keyID, session: p.session, handle: p.handle, shownAs: p.shownAs });
     }, 3000);
     return () => clearTimeout(t);
   }, [live, owedN, settle]);
