@@ -3,6 +3,7 @@
  * Copy: never invest / returns / moon / earn / profit / "price will" / x10. Price only where real.
  */
 import { AMMO_COINS } from './ammoCoins';
+import { TERRORNODE_ID } from './receipts';
 import { OUR_TOKENS } from '../ourTokens';
 
 /** Shown on every token page. */
@@ -15,6 +16,9 @@ export const issuerLine = (issuer: string) => `Made by ${issuer}, not by bCorp.`
 const OURS = new Set<string>([...AMMO_COINS.map((c) => c.tokenId), ...OUR_TOKENS.map((t) => t.id)].filter(Boolean));
 /** Our BlastPad launch wallet (owner confirmed 28 Oct 2026): every coin it launched is ours (BSVGUN, FROGGER, DOUBLEO, ARENA…). */
 export const OUR_LAUNCH_WALLETS = new Set<string>(['17B7drUMTBEELCKX89676iV5CegcZuz2m1']);
+/** Who made one of our coins, for the hero chip. TERRORNODE is an official NPG game (owner, 1 Nov 2026). */
+const MAKERS: Record<string, string> = { [TERRORNODE_ID]: 'NPG' };
+export const makerOf = (tokenId: string) => MAKERS[tokenId] ?? 'bCorp';
 export const isOurToken = (tokenId: string, creator?: string) => OURS.has(tokenId) || (!!creator && OUR_LAUNCH_WALLETS.has(creator));
 
 /** The coin's token-gated room on bChatX. */
