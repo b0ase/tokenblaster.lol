@@ -68,7 +68,8 @@ import { tbxFontClass } from '../coinop/fonts';
 import { Icon, Modal } from '../coinop/ui';
 import { PlayerPanel } from './PlayerPanel';
 import { AmmoCoinPick, useAmmoCoinQuote } from './AmmoCoinPick';
-import { useReceipts } from './useReceipts';
+import { receivePending, useReceipts } from './useReceipts';
+import { receiveKey } from '@/lib/launch/receiveKey';
 import { fetchSplit, prefetchSplitCheck, reportSplit, splitAvailable } from '@/lib/launch/splitClient';
 import { SPLIT_LINE, splitOutputs } from '@/lib/launch/split';
 import { PER_SHOT_BURN, type AmmoCoin } from '@/lib/launch/ammoCoins';
@@ -271,10 +272,25 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   // $TERRORNODE receipts (owner, 25 Oct): every LIVE bullet also buys 1 receipt at the curve price (src/lib/launch/receipts.ts).
   const rc = useReceipts(!freePlay && !dry, b.payReceipts);
   // The receipts go to the connected wallet. No wallet attached right now: they stay owed (and say so), never dropped.
+  // Paid to the wallet's own receive key for $TERRORNODE, not the identity-key address (which bWalletX never shows):
+  // src/lib/launch/receiveKey.ts. No receive key (wallet refused / older wallet): they stay owed, never sent blind.
   const settleReceipts = () => {
     const w = b.wallet ?? getSiteWallet().wallet;
-    void rc.settle({ pay: b.payReceipts, recipient: w?.address ?? null, session: sid, handle: handle ?? "", shownAs: barWallet?.paymail ?? w?.address ?? "your wallet" });
+    const shownAs = barWallet?.paymail ?? w?.address ?? "your wallet";
+    void (async () => {
+      const k = w ? await receiveKey(w.client).catch((e) => (console.warn('[tb-receipts] no receive key', e), null)) : null;
+      void rc.settle({ pay: b.payReceipts, recipient: k?.address ?? null, keyID: k?.keyID, wallet: w?.client, session: sid, handle: handle ?? "", shownAs });
+    })();
   };
+  // Mined receipt transfers go into the wallet's token list (retried each minute while the game is open).
+  const receiveWallet = (b.wallet ?? getSiteWallet().wallet)?.client;
+  useEffect(() => {
+    if (!receiveWallet) return;
+    const run = () => void receivePending(receiveWallet).catch(() => 0);
+    run();
+    const t = setInterval(run, 60_000);
+    return () => clearInterval(t);
+  }, [receiveWallet]);
   // Swap on load (owner, 25 Oct 2026): an ammo coin bought on BlastPad at LOCK & LOAD (one approval), burned per shot.
   const [ammoCoin, setAmmoCoin] = useState<AmmoCoin | null>(null);
   const [liveCoin, setLiveCoin] = useState<AmmoCoin | null>(null);

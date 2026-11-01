@@ -26,5 +26,5 @@ export async function withGunBusyRetry<T>(fn: () => Promise<T>, o: { delays?: nu
 }
 
 /** A settlement that could not run yet: kept in this browser and tried again on the next page load. */
-export type PendingSettle = { recipient: string; session: string; handle: string; shownAs: string; at: number };
+export type PendingSettle = { recipient: string; keyID?: string; session: string; handle: string; shownAs: string; at: number };
 export const PENDING_SETTLE_KEY = 'tokenblaster.receipts.pending';
