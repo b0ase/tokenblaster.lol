@@ -10,6 +10,7 @@ import { Centrifuge } from 'centrifuge';
 import WebSocket from 'ws';
 import pg from 'pg';
 import { classify } from '../src/lib/feed';
+import { isRealBlast } from '../src/lib/leaderboard';
 
 const HOST = 'https://junglebus.gorillapool.io';
 const SUB = process.env.JUNGLEBUS_BLASTS_SUBSCRIPTION_ID;
@@ -68,7 +69,7 @@ setInterval(() => void flush(), 250);
 async function record(d: { id?: string; transaction?: string; block_height?: number; block_time?: number }, mined: boolean) {
   if (!d.id || !d.transaction) return;
   const f = classify(d.id, Buffer.from(d.transaction, 'base64').toString('hex'), mined);
-  if (f?.kind !== 'blast' || !f.token) return;
+  if (f?.kind !== 'blast' || !f.token || !isRealBlast(f.token, f.game)) return;
   queue.push([d.id, f.token, mined && d.block_height ? d.block_height : null, mined && d.block_time ? new Date(d.block_time * 1000) : null, f.game ?? null]);
 }
 
