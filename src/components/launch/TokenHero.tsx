@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { BWALLETX_WEB, RISK_LINE, chatRoomUrl, issuerLine, type Banner, type BannerTitle } from '@/lib/launch/tokenPage';
+import { BWALLETX_WEB, RISK_LINE, chatRoomUrl, issuerLine, makerOf, type Banner, type BannerTitle } from '@/lib/launch/tokenPage';
 import { ago, imageOf, short } from './data';
 
 const WOC = 'https://whatsonchain.com';
@@ -102,7 +102,7 @@ export function Hero({
               {grad ? <span className="tb-chip">Graduated #{c.grad_rank}</span> : trading ? <span className="tb-chip tb-chip-live">● Live on the curve</span> : <span className="tb-chip">Not trading yet</span>}
               {king && <span className="tb-chip tb-chip-hot">King of the hill</span>}
               <span className="tb-chip">BSV-21</span>
-              {ours && <span className="tb-chip">by bCorp</span>}
+              {ours && <span className="tb-chip">by {makerOf(c.token_id)}</span>}
             </div>
             <h1 className="tb-hero-title">{c.name}</h1>
             {c.description && <p className="tb-hero-desc">{c.description}</p>}
