@@ -1,4 +1,4 @@
-import { isPeriod } from '@/lib/leaderboard';
+import { isPeriod, isRealBlast } from '@/lib/leaderboard';
 
 /** GET /api/games?period=24h|7d|30d|all → { period, games: [{ game, blasts }] }: blasts per arcade game. */
 const HOURS = { '24h': 24, '7d': 168, '30d': 720, all: null } as const;
@@ -22,6 +22,7 @@ export async function GET(request: Request) {
     // TERRORNODE rounds fired before 25 Oct 2026 carry 'gallery' on chain: count them under 'terrornode'.
     const byGame = new Map<string, number>();
     for (const g of (await r.json()) as { game: string; blasts: number }[]) {
+      if (!isRealBlast('', g.game)) continue;
       const game = g.game === 'gallery' ? 'terrornode' : g.game;
       byGame.set(game, (byGame.get(game) ?? 0) + Number(g.blasts));
     }

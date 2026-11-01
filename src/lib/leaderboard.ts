@@ -14,6 +14,14 @@ export const PERIODS: { id: Period; label: string }[] = [
 
 export type TokenScore = { tokenId: string; ticker: string; icon: string | null; blasts: number };
 
+/**
+ * Not blasts: LOCK & LOAD payment ids ("pay:<id>") and score/receipt lines whose third push is a number
+ * ("terrornode" "<n>" "155090") share the tokenblaster.lol tag, so they reached the table. Kept off the board.
+ */
+export const isRealBlast = (token: string, game?: string | null) => !token.startsWith('pay:') && !(game && /^\d+$/.test(game));
+/** Plain sats (TERRORNODE fires BSV, not a token) are shown as BSV. */
+const SATS = { ticker: 'BSV', icon: null };
+
 export const isPeriod = (v: string | null): v is Period => PERIODS.some((p) => p.id === v);
 
 const HOURS: Record<Period, number | null> = { '24h': 24, '7d': 24 * 7, '30d': 24 * 30, all: null };
@@ -21,6 +29,7 @@ const HOURS: Record<Period, number | null> = { '24h': 24, '7d': 24 * 7, '30d': 2
 /** Token names and icons change never; keep them for the life of the server instance. */
 const meta = new Map<string, { ticker: string; icon: string | null }>();
 async function tokenMeta(id: string) {
+  if (id === 'sats') return SATS;
   if (!meta.has(id)) {
     try {
       const t = await tokenById(id);
@@ -41,10 +50,10 @@ export async function topTokens(period: Period): Promise<TokenScore[]> {
   const r = await fetch(`${url}/rest/v1/rpc/tokenblaster_top`, {
     method: 'POST',
     headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ since, max_rows: 25 }),
+    body: JSON.stringify({ since, max_rows: 100 }),
     cache: 'no-store',
   });
   if (!r.ok) throw new Error(`Leaderboard query failed: ${r.status}`);
-  const rows = (await r.json()) as { token: string; blasts: number }[];
+  const rows = ((await r.json()) as { token: string; blasts: number }[]).filter((row) => isRealBlast(row.token)).slice(0, 25);
   return Promise.all(rows.map(async (row) => ({ tokenId: row.token, blasts: Number(row.blasts), ...(await tokenMeta(row.token)) })));
 }
