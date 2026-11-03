@@ -109,7 +109,7 @@ import { useCabinet } from '../coinop/useCabinet';
 import { QuickReload } from './QuickReload';
 import { GALLERY_GAME, MIN_REPORT_SECS } from '@/lib/gallery';
 import { freshReportState, reportAnswered, reportWait } from '@/lib/scoreThrottle';
-import { fmtClock, triggerTick, pacedRate, secsLeft, shouldAutoLoad, spinUp, trulyEmpty } from '@/lib/firePace';
+import { fmtClock, triggerTick, pacedRate, queueSlack, secsLeft, shouldAutoLoad, spinUp, trulyEmpty } from '@/lib/firePace';
 import { cleanName, fmtCredit, satsToUsd, usdToSats } from '@/lib/coinop/credit';
 import { satsWord, shotsForSats, shotsForUsd } from '@/lib/coinop/shots';
 import { OfficialNpg } from '../terrornode/OfficialNpg';
@@ -129,6 +129,8 @@ const LOAD_STALL_MS = 45_000;
  * lanes, plus time for the chain read, the previous session and the root.
  */
 const LOAD_MAX_MS = 7 * 60_000;
+/** Instant play: a background load that fails on the network (NETSLOW / timeout) is tried this many times in all. */
+const INSTANT_TRIES = 2;
 /** The game engine (city, models) must be ready within this, or the page offers a reload. */
 const ENGINE_LOAD_MS = 90_000;
 const JAM_MS = 6000;
@@ -520,6 +522,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
         paused: pausedRef.current,
         fired: firedRef.current,
         sent: sentRef.current,
+        settling: modeRef.current === 'off' || overRef.current || flatRef.current,
       }),
     [],
   );
@@ -561,6 +564,14 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
 
   const loadedRef = useRef(0);
   const paceRef = useRef(0);
+  /**
+   * INSTANT PLAY (owner, 3 Nov 2026: "it takes ages to load and then loading times out ... let them play instantly"):
+   * true while the round is live but the gun's lanes are still loading in the background. Every round fired meanwhile
+   * is queued (and does damage); the sender starts on them as soon as the lanes are live. `slackRef` is that backlog
+   * (src/lib/firePace.ts queueSlack).
+   */
+  const instantRef = useRef(false);
+  const slackRef = useRef(0);
   const simulatedRef = useRef(simulated);
   useEffect(() => {
     loadedRef.current = loadedRounds;
@@ -587,10 +598,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       let blanks = 0;
       if (m === 'live') {
         // The gun always visibly shoots (src/lib/firePace.ts triggerTick); only the paid share is queued to send.
-        const k = triggerTick({ n, left, fired: firedRef.current, sent: sentRef.current, rate: paced, practice: simulatedRef.current });
+        const loading = instantRef.current;
+        const k = triggerTick({ n, left, fired: firedRef.current, sent: sentRef.current + slackRef.current, rate: paced, practice: simulatedRef.current, loading });
         n = k.paid;
         blanks = k.shown - k.paid;
         firedRef.current += n;
+        slackRef.current = queueSlack({ loading, slack: slackRef.current, fired: firedRef.current, sent: sentRef.current });
       }
       if (n) engine.current?.accept(n);
       if (blanks) engine.current?.blank(blanks);
@@ -825,7 +838,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     let retried = false;
     const t0 = performance.now();
     const i = setInterval(() => {
-      if (pausedRef.current) return;
+      // instant play: nothing can be sent until the background load has the lanes live (it resets lastSent then)
+      if (pausedRef.current || instantRef.current) return;
       const q = firedRef.current - sentRef.current;
       const since = performance.now() - Math.max(lastSent.current, t0);
       let msg: string | null = null;
@@ -857,11 +871,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     const i = setInterval(() => {
       const t = performance.now();
       const q = firedRef.current - sentRef.current;
-      const behind = q > 0 && (q > 1500 || t - lastSent.current > 3000);
+      const behind = !instantRef.current && q > 0 && (q > 1500 || t - lastSent.current > 3000);
       setQueueNote((v) => (v === behind ? v : behind));
       // the jam watch: trigger held JAM_MS, rounds queued, nothing sent in that whole window
       const since = Math.max(heldSince.current, lastSent.current, liveSince.current);
-      const jam = held.current && heldSince.current > 0 && q > 0 && t - since > JAM_MS;
+      const jam = !instantRef.current && held.current && heldSince.current > 0 && q > 0 && t - since > JAM_MS;
       setJammed((v) => (v === jam ? v : jam));
       if (jam && senderDead.current && !reloading.current) {
         // the sender gave up: try one quiet reload by itself before asking
@@ -885,7 +899,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const moreRoundsLoading = b.moreRoundsLoading;
   useEffect(() => {
     if (mode !== 'live') return;
-    const t = setInterval(() => setMoreLoading(moreRoundsLoading()), 500);
+    const t = setInterval(() => setMoreLoading(moreRoundsLoading() || instantRef.current), 500);
     return () => clearInterval(t);
   }, [mode, moreRoundsLoading]);
   useEffect(() => {
@@ -1085,6 +1099,11 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   useEffect(() => {
     finishRef.current = finish;
   });
+  // SETTLE LATER (owner, 3 Nov 2026): the results keep counting while the rounds already fired settle on chain.
+  useEffect(() => {
+    if (!over || over.simulated || run.sent <= over.sent) return;
+    void Promise.resolve().then(() => setOver((o) => o && { ...o, sent: run.sent, last: run.last ?? o.last, spent: fmtUsd(usdOf(run.sent * perShot, bsvUsd)) }));
+  }, [over, run.sent, run.last, perShot, bsvUsd]);
   // Receipts still owed with no storm running (a session replaced before its end ran, an earlier page load, a wallet
   // attached only now): settle them once play is off. The storm's own end settles the normal case.
   const settleRef = useRef(settleReceipts);
@@ -1161,6 +1180,9 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     // LOADING NEVER HANGS (owner, 31 Oct 2026: a load sat forever with the gun sound looping). Each wait has a limit;
     // the ammo load is judged on progress (no step for LOAD_STALL_MS = stuck), not on total time.
     let poke = () => undefined as void;
+    /** INSTANT PLAY: this load went live at once and is finishing in the background (see instantRef). */
+    let instant = false;
+    let instantBase = 0;
     const limit = <T,>(p: Promise<T>, ms: number, what: string, progress = false): Promise<T> =>
       new Promise<T>((res, rej) => {
         let t = setTimeout(() => rej(new Error(`TIMEOUT:${what}`)), ms);
@@ -1178,7 +1200,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       });
     const step = (pct: number, slowSecs: number) => {
       poke();
-      setLoad({ kind: 'loading', pct, slowSecs });
+      if (!instant) setLoad({ kind: 'loading', pct, slowSecs }); // instant play: no loading screen, the HUD says "loading more rounds…"
     };
     setLoadStart(performance.now());
     setLoadingRounds(0);
@@ -1223,6 +1245,38 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       return;
     }
     setLocking(true);
+    // INSTANT PLAY (owner, 3 Nov 2026): the street goes live NOW with the rounds the credit buys (the same count the
+    // cabinet showed), and the slow part (payments check, the gun read, the fan-out the network has to see) runs
+    // behind the game. Every round fired meanwhile is real: it waits in the queue and goes out as soon as the lanes
+    // are live, so the transactions show up and settle a little later. Coin ammo and bursts keep the old load.
+    const estSats = b.ammo > 0 ? b.ammo : (usdToSats(cab.creditUsd, bsvUsd) ?? 0);
+    const estShots = stream && !ammoCoin && estSats > 0 ? (rc.curve ? shotsForSats(estSats, perShotAll, rc.curve) : roundsFrom(estSats, perShotAll, overheadSats)) : 0;
+    if (estShots > 0) {
+      instant = true;
+      instantRef.current = true;
+      slackRef.current = 0;
+      instantBase = firedRef.current;
+      setLoadingRounds(estShots);
+      loadMark(`instant play: live with ~${estShots} rounds, the gun loads in the background`);
+      goLive(estShots, continued);
+    }
+    /** The background load is done: the real round count replaces the estimate, and the watches count from now. */
+    const instantDone = (shots: number) => {
+      instantRef.current = false;
+      lastSent.current = performance.now();
+      const cap = instantBase + shots;
+      if (modeRef.current === 'live') {
+        setLoadedRounds(shots);
+        loadedRef.current = shots;
+        boughtRef.current = cap;
+        setBought(cap);
+      }
+      if (firedRef.current > cap) {
+        // the estimate was a little high: rounds past what the gun really holds were never paid for, nothing sends them
+        firedRef.current = cap;
+        setFired(cap);
+      }
+    };
     try {
       // TERRORNODE revenue goes 50/50 to NPG Ltd and bCorp (src/lib/launch/split.ts). If their destinations can't be
       // resolved and pinned right now, no paid session starts (free practice still works); nothing goes anywhere else.
@@ -1289,9 +1343,24 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       if (rc.live) while (shots > 0 && shots * perShot + rc.rangeCost(shots) + overheadSats(shots) > avail - feeSats) shots--;
       if (shots <= 0) throw new Error('SHORT');
       setLoadingRounds(shots);
-      if (stream) await limit(b.prepareStorm(shots, perShot, step), LOAD_STALL_MS, 'loading rounds', true);
+      for (let attempt = 1; stream; attempt++) {
+        try {
+          await limit(b.prepareStorm(shots, perShot, step), LOAD_STALL_MS, 'loading rounds', true);
+          break;
+        } catch (e) {
+          // Instant play: the player is already in the fight, so a slow network gets one more go (after a fresh read
+          // of the gun, like RETRY; the fee is never charged twice) before the load gives up.
+          const m = e instanceof Error ? e.message : '';
+          if (!instant || attempt >= INSTANT_TRIES || !(m === 'NETSLOW' || m.startsWith('TIMEOUT:'))) throw e;
+          loadMark(`instant play: load attempt ${attempt} failed (${m}), trying again while you play`);
+          const have = await limit(b.gatherGun().catch(() => b.refreshGun('instant retry')), LOAD_STEP_MS * 2, 'reading your gun');
+          shots = Math.min(shots, Math.max(0, Math.floor((have - overheadSats(shots) - rc.rangeCost(shots)) / perShot)));
+          if (shots <= 0) throw new Error('SHORT');
+        }
+      }
       loadMark(`loaded: ${shots} rounds`);
-      goLive(shots, continued);
+      if (instant) instantDone(shots);
+      else goLive(shots, continued);
       if (stream) sessionRef.current(shots);
     } catch (e) {
       const m = e instanceof Error ? e.message : '';
@@ -1303,6 +1372,12 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
         sessionGen.current++;
         sessionAlive.current = false;
       }
+      if (instant) {
+        // instant play: the rounds fired while it loaded can't go out now; their sats stay in the gun as credit
+        instantRef.current = false;
+        firedRef.current = dropBacklog({ fired: firedRef.current, sent: sentRef.current }).fired;
+        setFired(firedRef.current);
+      }
       const have = await limit(b.refreshGun('after load'), LOAD_STEP_MS, 'refresh').catch(() => 0);
       setMode('off');
       boughtRef.current = firedRef.current;
@@ -1310,6 +1385,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       setLoadout(true);
       setLoad({ kind: 'failed', retry: timedOut || m === 'NETSLOW', text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : m === 'NETSLOW' ? 'The network has not confirmed your rounds yet. Your credit is safe in your gun. Try again in a minute.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
+      instantRef.current = false;
       setLocking(false);
       setCoinStatus(null);
       // Never leave the page in warm-up after a load that did not go live: that keeps the wallet held ("A round is

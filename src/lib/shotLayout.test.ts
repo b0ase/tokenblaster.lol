@@ -68,6 +68,14 @@ test('fire gate: paid rounds only while a round is visibly live and fired', () =
   assert.deepEqual(dropBacklog({ fired: 10, sent: 4 }), { fired: 4, dropped: 6 });
 });
 
+test('fire gate: rounds already fired settle after the round ends, never during a load or PAUSE', () => {
+  for (const ended of [{ mode: 'off' as const }, { over: true, mode: 'off' as const }, { flat: true }, { loadout: true, mode: 'off' as const }])
+    assert.ok(mayBroadcast({ ...live, ...ended, settling: true }), JSON.stringify(ended));
+  assert.ok(!mayBroadcast({ ...live, mode: 'warm', settling: true }), 'never behind the loading screen');
+  assert.ok(!mayBroadcast({ ...live, mode: 'off', paused: true, settling: true }));
+  assert.ok(!mayBroadcast({ ...live, mode: 'off', fired: 4, settling: true }), 'all settled: nothing more');
+});
+
 test('TERRORNODE wires every paid sender through the gate', () => {
   const src = readFileSync(new URL('../components/gallery/ShootingGallery.tsx', import.meta.url), 'utf8');
   assert.ok(!/const ammo = paymail/.test(src), 'push 2 never takes the paymail');

@@ -77,3 +77,30 @@ test('regression 31 Oct: after GO the held trigger shoots every tick for 2 s eve
   // a dry pack shows nothing
   assert.deepEqual(triggerTick({ n: 10, left: 0, fired, sent, rate }), { shown: 0, paid: 0 });
 });
+
+test('instant play: while the lanes load every pulled round is paid (queued, does damage), never a blank', async () => {
+  const { triggerTick } = await import('./firePace');
+  const rate = 190;
+  let fired = 0;
+  for (let t = 0; t < 600; t++) fired += triggerTick({ n: 10, left: 17_000 - fired, fired, sent: 0, rate, loading: true }).paid;
+  assert.equal(fired, 6000, 'a minute of fire with nothing sent is all queued');
+  assert.deepEqual(triggerTick({ n: 10, left: 0, fired, sent: 0, rate, loading: true }), { shown: 0, paid: 0 });
+});
+
+test('instant play: the loading backlog becomes slack, so fire stays paid after GO while the network catches up', async () => {
+  const { triggerTick, queueSlack, maxAhead } = await import('./firePace');
+  const rate = 190;
+  // the lanes went live with 6,000 rounds queued
+  let slack = queueSlack({ loading: true, slack: 0, fired: 6000, sent: 0 });
+  assert.equal(slack, 6000);
+  // nothing sent yet: the trigger may still run ~2 s ahead of the backlog, not shoot blanks
+  assert.equal(triggerTick({ n: 10, left: 11_000, fired: 6000, sent: 0 + slack, rate }).paid, 10);
+  assert.equal(triggerTick({ n: 10, left: 11_000, fired: 6000 + maxAhead(rate), sent: 0 + slack, rate }).paid, 0);
+  // the network takes 4,000: slack shrinks with the queue and never grows back
+  slack = queueSlack({ loading: false, slack, fired: 6100, sent: 4000 });
+  assert.equal(slack, 2100);
+  slack = queueSlack({ loading: false, slack, fired: 9000, sent: 4000 });
+  assert.equal(slack, 2100, 'new fire after GO does not add slack');
+  slack = queueSlack({ loading: false, slack, fired: 9000, sent: 9000 });
+  assert.equal(slack, 0, 'caught up: back to the plain ~2 s rule');
+});
