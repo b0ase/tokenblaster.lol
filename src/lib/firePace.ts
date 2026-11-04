@@ -45,12 +45,25 @@ export function fireAllowance(p: { left: number; fired: number; sent: number; ra
  * Before this, the visual fire was the paid count, so a slow broadcaster (Arcade SEEN late, ARC stuck) clamped it
  * to 0 after ~2 s and the gun flashed with no bullets.
  */
-export function triggerTick(p: { n: number; left: number; fired: number; sent: number; rate: number; practice?: boolean }): { shown: number; paid: number } {
+export function triggerTick(p: { n: number; left: number; fired: number; sent: number; rate: number; practice?: boolean; loading?: boolean }): { shown: number; paid: number } {
   const n = Math.max(0, Math.floor(p.n));
   if (n <= 0 || p.left <= 0) return { shown: 0, paid: 0 };
   const shown = Math.min(n, p.left);
-  const paid = p.practice ? shown : Math.min(shown, fireAllowance(p));
+  const paid = p.practice || p.loading ? shown : Math.min(shown, fireAllowance(p));
   return { shown, paid };
+}
+
+/**
+ * INSTANT PLAY (owner, 3 Nov 2026: "let users play instantly ... load the shots in the background ... the transactions
+ * can show up and settle later"). While the gun's lanes load in the background (`loading`), every round the trigger
+ * fires joins the send queue and does damage, so the queue grows past AHEAD_SECS. `slack` is that backlog: once the
+ * sender is live it only ever shrinks (as the network catches up), so the trigger keeps paid fire instead of shooting
+ * blanks until the backlog is gone, and the ~2 s rule applies again on top of whatever is still queued.
+ * The trigger tick passes `sent + slack` as `sent`.
+ */
+export function queueSlack(p: { loading: boolean; slack: number; fired: number; sent: number }): number {
+  const q = Math.max(0, p.fired - p.sent);
+  return p.loading ? q : Math.min(Math.max(0, p.slack), q);
 }
 
 /** Seconds of holding the trigger left at `rate` (null when not firing). */

@@ -17,10 +17,17 @@ export type FireState = {
   /** Rounds the trigger has fired this round, and rounds already sent. */
   fired: number;
   sent: number;
+  /**
+   * SETTLE LATER (owner, 3 Nov 2026: "the transactions can show up and settle later"): the round is no longer running
+   * (results, FLATLINED, mode off) but rounds the player already fired are still queued. They keep going out until
+   * they are all sent; a new load drops them first (dropBacklog), so nothing is ever sent behind a loading screen.
+   */
+  settling?: boolean;
 };
 
 /** True only when real rounds may go out right now. */
 export function mayBroadcast(s: FireState): boolean {
+  if (s.settling && s.mode !== 'warm' && !s.paused && s.fired > s.sent) return true;
   return s.mode === 'live' && !s.loadout && !s.over && !s.flat && !s.paused && s.fired > s.sent;
 }
 
