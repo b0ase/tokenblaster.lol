@@ -16,6 +16,7 @@ import { startPlay } from '@/lib/coinop/startPlay';
 import { HOUSE } from '@/lib/usePaidPlay';
 import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } from '@/lib/coinop/credit';
 import { SiteWalletChooser } from '@/components/SiteWalletChooser';
+import { AttractBackdrop, AttractTitle } from './Attract';
 import { CoinCabinet } from './CoinCabinet';
 import { DemoOverlay, focusCabinetStart } from './DemoOverlay';
 import { tbxFontClass } from './fonts';
@@ -173,8 +174,14 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
         children
       ) : (
         <div className={`${tbxFontClass} coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_50%_-10%,#12303a,#071018_55%,#04070b)] px-4 py-4 sm:items-center`}>
+          <AttractBackdrop game={game} />
           <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--tbx-red)] to-transparent" />
-          <div className="tbx-screen w-full max-w-[720px] pt-2">
+          {/* Wide screens: the title sits left of the cabinet so START stays above the fold; narrow ones stack. */}
+          <div className="relative flex w-full max-w-[1240px] flex-col items-center lg:flex-row lg:items-center lg:justify-center lg:gap-12">
+          <div className="w-full max-w-[720px] lg:max-w-[440px] lg:flex-1">
+            <AttractTitle game={game} title={title} />
+          </div>
+          <div className="tbx-screen relative w-full max-w-[720px] pt-2 lg:max-w-[640px] lg:flex-1">
             <CoinCabinet
               title={title}
               creditUsd={cab.creditUsd}
@@ -196,6 +203,7 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
               starting={starting}
               error={cab.err}
             />
+          </div>
           </div>
         </div>
       )}

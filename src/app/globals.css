@@ -2104,3 +2104,10 @@ html[data-npg-backdrop] [data-loadout] {
     transition: none;
   }
 }
+
+/* Coin-op attract screen (src/components/coinop/Attract.tsx): a slow push on the card where there is no loop. */
+@keyframes attract-push {
+  from { transform: scale(1.02); }
+  to { transform: scale(1.12) translateY(-1%); }
+}
+.attract-push { animation: attract-push 18s ease-in-out infinite alternate; }
