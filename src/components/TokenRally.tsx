@@ -8,6 +8,7 @@
  * transaction, queued and sent in the background through the same gun paths Chain Frogger uses (src/lib/rally/spend.ts).
  * The first tx of a live race is its proof on the score board.
  */
+import { FREE_PLAY } from '@/lib/coinop/free';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { GameAudio } from './SoundToggle';
 import { useCoinOp } from './InsertCoin';
@@ -912,7 +913,7 @@ export function TokenRally() {
               <div className="flex flex-wrap items-center gap-2">
                 {!mpOn && (
                   <button data-coinop-play onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
-                    {liveMode ? '▶ START LIVE RACE' : `▶ START STAGE · $${co.priceUsd.toFixed(2)}`}
+                    {liveMode ? '▶ START LIVE RACE' : FREE_PLAY ? '▶ START STAGE · FREE' : `▶ START STAGE · $${co.priceUsd.toFixed(2)}`}
                   </button>
                 )}
                 {liveMode && !canGoLive && <span className="text-[11px] text-hot">{b.wallet ? `Load at least ${MIN_START_ACTIONS} burns of fuel first.` : 'Connect a wallet and load fuel.'}</span>}

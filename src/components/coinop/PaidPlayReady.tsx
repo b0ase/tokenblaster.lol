@@ -12,6 +12,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { coinStore } from './store';
+import { FREE_PLAY } from '@/lib/coinop/free';
 
 const findPlay = () =>
   [...document.querySelectorAll<HTMLButtonElement>('[data-coinop-play]')].find((el) => !el.disabled && el.getClientRects().length > 0) ?? null;
@@ -20,7 +21,7 @@ export function PaidPlayReady() {
   const prepaidCount = useSyncExternalStore(coinStore.subscribe, coinStore.prepaidCount, () => 0);
   const demo = useSyncExternalStore(coinStore.subscribe, coinStore.demo, () => false);
   const demoPlays = useSyncExternalStore(coinStore.subscribe, coinStore.demoPlays, () => 0);
-  // A ?demo=1 taste waits on the same button until its first run.
+  // A ?demo=1 taste (and free play) waits on the same button until its first run.
   const prepaid = prepaidCount > 0 || (demo && demoPlays === 0);
   const [target, setTarget] = useState<HTMLButtonElement | null>(null);
   const [inView, setInView] = useState(true);
@@ -51,7 +52,7 @@ export function PaidPlayReady() {
         }}
         className="pointer-events-auto animate-pulse border-2 border-white bg-[#e8261d] px-10 py-4 text-xl font-black tracking-widest text-white shadow-[0_0_40px_rgba(232,38,29,0.7)] sm:text-3xl"
       >
-        {prepaidCount > 0 ? '▶ PLAY · YOUR PLAY IS PAID' : '▶ PLAY · DEMO'}
+        {prepaidCount > 0 ? '▶ PLAY · YOUR PLAY IS PAID' : FREE_PLAY ? '▶ PLAY · FREE' : '▶ PLAY · DEMO'}
       </button>
     </div>
   );

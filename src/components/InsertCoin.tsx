@@ -16,6 +16,7 @@ import { COIN_PENCE, LIVES_PER_CREDIT, isCancel } from '@/lib/coinop';
 import { fmtCredit, playPriceUsd } from '@/lib/coinop/credit';
 import { coinStore } from './coinop/store';
 import { demoMayPay, playDecision } from '@/lib/coinop/demo';
+import { FREE_PLAY } from '@/lib/coinop/free';
 
 /** `pence` is kept for callers; the price is the game's dollar price (src/lib/coinop/credit.ts). */
 export function useCoinOp(game: string, tag: string, pence: number = COIN_PENCE) {
@@ -86,7 +87,7 @@ export type CoinOp = ReturnType<typeof useCoinOp>;
 export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }: { co: CoinOp; perCredit?: string; start?: (paid: boolean) => void; playLabel?: string; onPress?: () => void }) {
   const short = !co.demo && co.credits === 0 && co.creditUsd + 1e-9 < co.priceUsd;
   const label = co.demo && start
-    ? `▶ ${playLabel} · DEMO`
+    ? `▶ ${playLabel} · ${FREE_PLAY ? 'FREE' : 'DEMO'}`
     : !co.enabled
     ? 'INSERT $b AT THE CABINET'
     : co.paying
@@ -110,7 +111,7 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }
       >
         {label.includes('INSERT $b') ? <>{label.split('INSERT $b')[0]}INSERT <span className="normal-case">$b</span>{label.split('INSERT $b')[1]}</> : label}
       </button>
-      {co.demo ? <p className="text-[10px] text-dim">Demo: a short taste, no score. Tap the INSERT $b banner to play properly.</p> : <p className="text-[10px] text-dim">
+      {co.demo ? <p className="text-[10px] text-dim">{FREE_PLAY ? 'Free to play while we set up payments. Scores come back with paid play.' : 'Demo: a short taste, no score. Tap the INSERT $b banner to play properly.'}</p> : <p className="text-[10px] text-dim">
         {perCredit ?? `1 play = 1 game, ${LIVES_PER_CREDIT} lives.`} {fmtCredit(co.priceUsd)} a play from your credit ({fmtCredit(co.creditUsd)} left), paid to the house on chain. No payouts.
       </p>}
       {short && co.credits === 0 && <p className="text-xs text-accent">Out of credit. Reload the page to get back to the cabinet and insert coin.</p>}

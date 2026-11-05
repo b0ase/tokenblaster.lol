@@ -1,5 +1,6 @@
 'use client';
 
+import { FREE_PLAY } from '@/lib/coinop/free';
 import { CheckOrdnance } from '@/components/CheckOrdnance';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
@@ -2136,7 +2137,7 @@ export function Arena() {
             </div>
             {isReady && !loadError && (
               <button data-coinop-play onClick={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))} className="btn btn-on px-6 py-3 text-lg font-bold">
-                ▶ PLAY · CREDIT GAME
+                {FREE_PLAY ? '▶ PLAY · FREE' : '▶ PLAY · CREDIT GAME'}
               </button>
             )}
             {loadError ? (

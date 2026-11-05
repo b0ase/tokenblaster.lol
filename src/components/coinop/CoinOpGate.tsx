@@ -19,6 +19,7 @@ import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { AttractBackdrop, AttractTitle } from './Attract';
 import { CoinCabinet } from './CoinCabinet';
 import { PaidPlayReady } from './PaidPlayReady';
+import { FREE_PLAY } from '@/lib/coinop/free';
 import { DemoOverlay, focusCabinetStart } from './DemoOverlay';
 import { tbxFontClass } from './fonts';
 import { coinStore } from './store';
@@ -29,7 +30,41 @@ import { usePlayerName } from './usePlayerName';
 
 export function CoinOpGate(props: { game: string; title: string; children: ReactNode }) {
   if (CAPTURE_BUILD) return <>{props.children}</>;
+  if (FREE_PLAY) return <FreeGate {...props} />;
   return <CoinOpGateInner {...props} />;
+}
+
+/** Free play (src/lib/coinop/free.ts): the attract screen with one PLAY FREE button, then the game, unpaid. */
+function FreeGate({ game, title, children }: { game: string; title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  // The demo flag is what makes every game's PLAY start an unpaid, unscored run (useCoinOp → playDecision).
+  useEffect(() => {
+    coinStore.setDemo(true);
+    return () => coinStore.setDemo(false);
+  }, []);
+  if (open)
+    return (
+      <>
+        {children}
+        <PaidPlayReady />
+        <SiteWalletChooser />
+      </>
+    );
+  return (
+    <>
+      <div className={`${tbxFontClass} coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_50%_-10%,#12303a,#071018_55%,#04070b)] px-4 py-6 sm:items-center`}>
+        <AttractBackdrop game={game} />
+        <div className="relative flex w-full max-w-[720px] flex-col items-center text-center">
+          <AttractTitle game={game} title={title} />
+          <button type="button" data-fs-skip onClick={() => setOpen(true)} className="tbx-go mt-4 w-full max-w-[520px]">
+            PLAY FREE ▶
+          </button>
+          <p className="mt-3 text-sm text-white/75 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Free to play while we set up payments. Nothing is charged.</p>
+        </div>
+      </div>
+      <SiteWalletChooser />
+    </>
+  );
 }
 
 function CoinOpGateInner({ game, title, children }: { game: string; title: string; children: ReactNode }) {

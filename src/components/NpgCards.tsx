@@ -8,6 +8,7 @@
  * LIVE blasting (optional, paid matches vs the AI only): every card played is one tiny real transaction
  * from loaded ammo (src/lib/useActionPay.ts).
  */
+import { FREE_PLAY } from '@/lib/coinop/free';
 import dynamic from 'next/dynamic';
 import { useCallback, useMemo, useState } from 'react';
 import { sfx, type SfxName } from '@/lib/sfx';
@@ -171,7 +172,7 @@ function CoinSlot({ co, credit, setCredit, msg }: { co: CoinOp; credit: boolean;
           <span className="btn btn-on px-3 py-1 font-bold">✓ PAID MATCH · 1 CREDIT READY</span>
         ) : (
           // Pays (one approval) and sets the next match as paid; then pick VS AI to start.
-          <InsertCoin co={co} perCredit={PER_CREDIT} start={(paid) => setCredit(paid)} playLabel="PAID MATCH" />
+          <InsertCoin co={co} perCredit={PER_CREDIT} start={(paid) => setCredit(paid)} playLabel={FREE_PLAY ? 'MATCH' : 'PAID MATCH'} />
         )}
         <button onClick={() => setCredit(false)} aria-pressed={!credit} className={`btn px-3 py-1 ${!credit ? 'btn-on' : ''}`}>
           ▶ PRACTICE

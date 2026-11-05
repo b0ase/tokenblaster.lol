@@ -6,6 +6,7 @@
  * PRACTICE is free play, nothing on chain. LIVE: every bullet is one whole token in a real
  * transaction (tagged doubleo/<level>/shot), queued and sent in batches like the Arena.
  */
+import { FREE_PLAY } from '@/lib/coinop/free';
 import { CheckOrdnance } from '@/components/CheckOrdnance';
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -3242,7 +3243,7 @@ export function DoubleO() {
                     </button>
                   )}
                   <button data-coinop-play onClick={() => startMode(level, false)} disabled={!ready} className={armed ? 'btn px-4 py-2 font-bold' : 'btn-fire'}>
-                    ▶ PLAY · CREDIT GAME
+                    {FREE_PLAY ? '▶ PLAY · FREE' : '▶ PLAY · CREDIT GAME'}
                   </button>
                   <span className="text-xs text-dim">mission: {L.name}</span>
                 </div>
