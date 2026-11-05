@@ -3241,7 +3241,7 @@ export function DoubleO() {
                       ▶ PLAY LIVE · ${sym}
                     </button>
                   )}
-                  <button onClick={() => startMode(level, false)} disabled={!ready} className={armed ? 'btn px-4 py-2 font-bold' : 'btn-fire'}>
+                  <button data-coinop-play onClick={() => startMode(level, false)} disabled={!ready} className={armed ? 'btn px-4 py-2 font-bold' : 'btn-fire'}>
                     ▶ PLAY · CREDIT GAME
                   </button>
                   <span className="text-xs text-dim">mission: {L.name}</span>

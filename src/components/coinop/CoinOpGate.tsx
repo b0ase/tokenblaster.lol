@@ -18,6 +18,7 @@ import { cleanName, fmtCredit, hasCredit, playPriceUsd, playPushes, usdToSats } 
 import { SiteWalletChooser } from '@/components/SiteWalletChooser';
 import { AttractBackdrop, AttractTitle } from './Attract';
 import { CoinCabinet } from './CoinCabinet';
+import { PaidPlayReady } from './PaidPlayReady';
 import { DemoOverlay, focusCabinetStart } from './DemoOverlay';
 import { tbxFontClass } from './fonts';
 import { coinStore } from './store';
@@ -162,6 +163,7 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
           onKeyDownCapture={touchStage}
         >
           {!demoOver && children}
+          {!demoOver && <PaidPlayReady />}
           <DemoOverlay
             started={demoPlays > 0 || demoTouched}
             onOver={endDemo}
@@ -171,7 +173,10 @@ function CoinOpGateInner({ game, title, children }: { game: string; title: strin
           />
         </div>
       ) : open ? (
-        children
+        <>
+          {children}
+          <PaidPlayReady />
+        </>
       ) : (
         <div className={`${tbxFontClass} coinop-gate relative flex min-h-full w-full items-start justify-center overflow-y-auto bg-[radial-gradient(ellipse_at_50%_-10%,#12303a,#071018_55%,#04070b)] px-4 py-4 sm:items-center`}>
           <AttractBackdrop game={game} />

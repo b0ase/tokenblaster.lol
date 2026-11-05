@@ -582,7 +582,7 @@ export function BSVGunRange({ b, mode, blast }: { b: Blaster; mode: 'range' | 'b
 
           <div className="flex flex-col gap-2 p-3 sm:p-4">
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={start} disabled={!liveReady || !unlocked.has(weaponId)} className="px-7 py-2.5 text-2xl font-black italic tracking-widest disabled:opacity-40" style={{ fontFamily: DR.font.display, background: DR.colour.signal, color: DR.colour.paper, border: `2px solid ${DR.colour.paper}`, boxShadow: '0 0 24px rgba(232,38,29,.55)' }}>
+              <button data-coinop-play onClick={start} disabled={!liveReady || !unlocked.has(weaponId)} className="px-7 py-2.5 text-2xl font-black italic tracking-widest disabled:opacity-40" style={{ fontFamily: DR.font.display, background: DR.colour.signal, color: DR.colour.paper, border: `2px solid ${DR.colour.paper}`, boxShadow: '0 0 24px rgba(232,38,29,.55)' }}>
                 START ▶
               </button>
               {liveBar}

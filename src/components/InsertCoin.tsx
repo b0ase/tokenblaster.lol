@@ -99,6 +99,7 @@ export function InsertCoin({ co, perCredit, start, playLabel = 'PLAY', onPress }
   return (
     <div className="flex flex-col items-center gap-1" onKeyDown={(e) => e.stopPropagation()}>
       <button
+        data-coinop-play
         onClick={() => {
           onPress?.();
           if (start) co.playPaid(start);

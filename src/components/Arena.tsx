@@ -2135,7 +2135,7 @@ export function Arena() {
               <span>auto-picked for your device · G in game</span>
             </div>
             {isReady && !loadError && (
-              <button onClick={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))} className="btn btn-on px-6 py-3 text-lg font-bold">
+              <button data-coinop-play onClick={() => window.dispatchEvent(new CustomEvent('arena:enter', { detail: { practice: true } }))} className="btn btn-on px-6 py-3 text-lg font-bold">
                 ▶ PLAY · CREDIT GAME
               </button>
             )}

@@ -911,7 +911,7 @@ export function TokenRally() {
               {liveMode && fuelPanel}
               <div className="flex flex-wrap items-center gap-2">
                 {!mpOn && (
-                  <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
+                  <button data-coinop-play onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
                     {liveMode ? '▶ START LIVE RACE' : `▶ START STAGE · $${co.priceUsd.toFixed(2)}`}
                   </button>
                 )}
@@ -1039,7 +1039,7 @@ export function TokenRally() {
               </div>
               <div className="flex flex-wrap justify-center gap-2">
                 {!mpOn && (
-                  <button onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
+                  <button data-coinop-play onClick={() => start()} disabled={liveMode && !canGoLive} className="btn-fire px-6 py-2 text-lg disabled:opacity-40">
                     {liveMode ? '▶ RACE AGAIN · LIVE' : `▶ RACE AGAIN · $${co.priceUsd.toFixed(2)}`}
                   </button>
                 )}
