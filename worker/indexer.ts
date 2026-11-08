@@ -28,7 +28,7 @@ const setState = (key: string, value: string) =>
   db.query('insert into tokenblaster_state (key, value) values ($1, $2) on conflict (key) do update set value = excluded.value', [key, value]);
 
 type Row = [txid: string, token: string, height: number | null, time: Date | null, game: string | null];
-let queue: Row[] = [];
+const queue: Row[] = [];
 let flushing = false;
 
 /**
