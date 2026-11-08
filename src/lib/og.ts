@@ -62,3 +62,8 @@ export const COIN_POP_CARD = card('coin-pop-neon-v2.jpg', 'COIN POP poster: a ti
 export const TOKEN_POTIONS_CARD = card('token-potions-neon-v2.jpg', 'TOKEN POTIONS poster: a tilted match-3 board of flame, drop and swirl potions on a purple backdrop. Chain combos against the 60-second clock.');
 export const NPG_ARENA_CARD = card('npg-arena-neon-v2.jpg', 'NINJA PUNK ARENA poster: two chibi Ninja Punk Girls clash in a neon rooftop dojo. Twelve fighters, best of three.');
 export const ORDNANCE_STORE_CARD = card('ordnance-store-neon-v2.jpg', '1SAT ORDNANCE STORE poster: a fan of gun cards (rocket launcher, minigun, Genesis Blaster). 22 guns as real 1Sat ordinals, inscribed straight to your wallet.');
+
+export const STRESSTEST_CARD = card(
+  'stresstest-v1.jpg',
+  'TokenBlaster.lol stress test report, 31 Oct 2026: 9,183,007 transactions in one day, 20 TERRORNODE bots, 0 rejected, 0 orphaned. A framed chart of transactions a second through the day, peaking at 2,604 tx/s, with the TERRORNODE skull emblem. Read the report.',
+);
