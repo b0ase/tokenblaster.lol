@@ -8,15 +8,16 @@ import '@/components/coinop/ui.css';
 import './stresstest.css';
 import { BLOCKS, BOT_WALLET, FANOUT_LIST, FLAGS, RUNS, SHOTS, SWEEP, TOTALS, USD_PER_BSV, addrUrl, blockUrl, txUrl } from '@/lib/stresstest/data';
 import { SERIES } from '@/lib/stresstest/series';
-import { TERRORNODE_CARD, shareImages } from '@/lib/og';
+import { STRESSTEST_CARD, shareImages } from '@/lib/og';
+import { StressMusic } from './StressMusic';
 
 const description =
   '9,183,007 BSV transactions in one day: 20 TERRORNODE bots, 0 rejected, 0 orphaned. The full report on our 31 Oct 2026 BSV stress test, with every figure linked to the chain.';
 export const metadata = {
   title: 'Stress test report · 31 Oct 2026 · TERRORNODE',
   description,
-  openGraph: { title: 'TERRORNODE stress test: 9,183,007 transactions', description, url: '/stresstest', images: shareImages(TERRORNODE_CARD).openGraph },
-  twitter: { card: 'summary_large_image', title: 'TERRORNODE stress test: 9,183,007 transactions', description, images: shareImages(TERRORNODE_CARD).twitter },
+  openGraph: { title: 'TERRORNODE stress test: 9,183,007 transactions', description, url: '/stresstest', images: shareImages(STRESSTEST_CARD).openGraph },
+  twitter: { card: 'summary_large_image', title: 'TERRORNODE stress test: 9,183,007 transactions', description, images: shareImages(STRESSTEST_CARD).twitter },
 };
 
 const n = (x: number) => x.toLocaleString('en-GB');
@@ -93,6 +94,7 @@ export default function StressTestPage() {
 
   return (
     <main className={`${tbxFontClass} tn`}>
+      <StressMusic />
       {/* ---------------- HERO ---------------- */}
       <section className="tn-hero">
         <div className="tn-hero-art" aria-hidden />

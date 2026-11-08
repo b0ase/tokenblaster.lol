@@ -5,8 +5,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { initPreview, nextTrack, playNow, setPreviewEnabled, setSuppressed, setVolume, togglePause, usePreview } from '@/lib/preview';
 
 const LS_OPEN = 'tb-player-collapsed';
-/** Routes that run their own game audio / canvas: the player steps aside there. */
-const isGameRoute = (p: string | null) => !!p && (/^\/arena(\/|$)/.test(p) || /^\/arcade\/[^/]+/.test(p));
+/** Routes that run their own game audio / canvas: the player steps aside there. /stresstest plays the TERRORNODE album. */
+const isGameRoute = (p: string | null) => !!p && (/^\/arena(\/|$)/.test(p) || /^\/arcade\/[^/]+/.test(p) || /^\/stresstest(\/|$)/.test(p));
 
 const collapseSubs = new Set<() => void>();
 const readCollapsed = () => {
