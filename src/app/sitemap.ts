@@ -5,7 +5,7 @@ const GAMES = ['2048', 'bracer', 'bsvgun', 'bubbo-bubbo', 'city', 'doubleosatosh
 const PAGES = [
   '/', '/arcade', '/arena', '/blast', '/leaderboard', '/multiplayer', '/tokens', '/updates', '/1satordnance',
   '/launch', '/launch/how', '/launch/new', '/launch/leaders', '/launch/rewards',
-  '/arcade/terrornode/leaderboard', '/arcade/terrornode/team', '/arcade/terrornode/watch', '/llms.txt',
+  '/arcade/terrornode/leaderboard', '/arcade/terrornode/team', '/arcade/terrornode/watch', '/stresstest', '/llms.txt',
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
