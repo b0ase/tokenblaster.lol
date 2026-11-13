@@ -1,5 +1,5 @@
 /**
- * TokenBlaster Shooting Gallery: pricing, packs, tag and prize config. Pure (no browser, no server),
+ * TokenBlaster Shooting Gallery: pricing, packs, tag and event config. Pure (no browser, no server),
  * so the page, the API and the tests all read the same numbers.
  *
  * Every shot is one real BSV transaction: 1 input, OP_FALSE OP_RETURN
@@ -104,21 +104,13 @@ export const HANDLE_BUDGET = 40;
 /** The pushes after <chain:n>: the game, then the handle when there is one. */
 export const galleryPushes = (handle: string | null) => [GALLERY_GAME, ...(handle ? [handle] : [])];
 
-/** The event + the prize. Placeholder rules: the owner approves the final text. No payout is automated. */
-export const PRIZE = {
-  amount: '1 BSV',
-  title: '1 BSV to the top blaster',
+/** The 31 Oct stress-test event window, for the event board. (The 1 BSV prize banner was taken down: owner, 13 Nov 2026.) */
+export const EVENT = {
   start: '2026-10-31T00:00:00Z',
   end: '2026-11-01T00:00:00Z',
-  rules: [
-    'RULES PLACEHOLDER: final rules to be approved by the owner before the event.',
-    'Ranked by accepted Shooting Gallery transactions carrying your handle, between the start and end time (UTC).',
-    'Every counted shot must be verifiable on chain by its tokenblaster.lol "gallery" tag.',
-    'The prize is paid by hand after the event; nothing is paid automatically.',
-  ],
 } as const;
 
-export const inEvent = (now = Date.now()) => now >= Date.parse(PRIZE.start) && now < Date.parse(PRIZE.end);
+export const inEvent = (now = Date.now()) => now >= Date.parse(EVENT.start) && now < Date.parse(EVENT.end);
 
 /**
  * How a weapon spends transactions. `stream`: hold the trigger and the chain streams (the storm), `rate` rounds

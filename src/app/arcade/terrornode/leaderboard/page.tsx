@@ -3,7 +3,7 @@ import { GALLERY_PAID } from '@/lib/devFlags';
 
 export const metadata = {
   title: 'Top blasters · Welcome to TERRORNODE',
-  description: 'The 31 Oct BSV stress test board, the prize and rules, and where to watch the rounds land.',
+  description: 'The 31 Oct BSV stress test board and where to watch the rounds land.',
 };
 
 // Paid play always in production; NEXT_PUBLIC_GALLERY_PAID=0 is dev-only (src/lib/devFlags.ts).

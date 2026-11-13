@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { BloodTitle } from '@/components/gallery/BloodTitle';
 import { LOADING_SHOTS } from '@/lib/gallery/story';
 import { tbxFontClass } from '../coinop/fonts';
-import { PrizeBanner } from '../gallery/PrizeBanner';
 import { OfficialNpg } from '../terrornode/OfficialNpg';
 
 /** Filmstrip frames: three of the cinematic loader stills, captioned from the story data. */
@@ -11,7 +10,7 @@ const FRAMES = ['/gallery/loading/street-left.webp', '/gallery/loading/tower.web
   .map((src) => LOADING_SHOTS.find((s) => s.src === src))
   .filter((s): s is NonNullable<typeof s> => Boolean(s));
 
-/** The home page's Shooting Gallery feature: key art, HUD corners, a filmstrip of the story stills, the prize strip under it. */
+/** The home page's Shooting Gallery feature: key art, HUD corners, a filmstrip of the story stills. */
 export function GalleryCard() {
   return (
     <section aria-label="Welcome to TERRORNODE" className={`${tbxFontClass} dr-band flex flex-col gap-3`} data-reveal>
@@ -50,7 +49,6 @@ export function GalleryCard() {
           </div>
         </div>
       </div>
-      <PrizeBanner cta />
     </section>
   );
 }

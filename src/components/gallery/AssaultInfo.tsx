@@ -1,16 +1,15 @@
 'use client';
 /**
- * /arcade/terrornode/leaderboard (owner, 25 Oct 2026): everything that used to sit below the game. The prize and
- * rules, the Top blasters board, Watch on bsv.lol and the info text. The game page is the game only.
+ * /arcade/terrornode/leaderboard (owner, 25 Oct 2026): everything that used to sit below the game. The Top blasters
+ * board, Watch on bsv.lol and the info text. The game page is the game only.
  */
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PRIZE, inEvent, type BoardRow } from '@/lib/gallery';
+import { EVENT, inEvent, type BoardRow } from '@/lib/gallery';
 import { buildWeapons } from '@/lib/bsvgun/weapons';
 import { useMyHandle } from '../PlayerBadge';
 import { Icon } from '../coinop/ui';
 import { tbxFontClass } from '../coinop/fonts';
-import { PrizeBanner } from './PrizeBanner';
 import { CREDIT } from '@/lib/gallery/story';
 
 export const INFO_URL = '/arcade/terrornode/leaderboard';
@@ -42,8 +41,6 @@ export function AssaultInfo({ paid }: { paid: boolean }) {
         </Link>
       </div>
 
-      {paid && <PrizeBanner />}
-
       <section id="gallery-board" className="tbx-glass p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <span className="tbx-eyebrow flex items-center gap-2" style={{ color: 'var(--tbx-text)' }}><Icon name="trophy" size={14} className="text-[var(--tbx-amber)]" /> Top blasters</span>
@@ -58,7 +55,7 @@ export function AssaultInfo({ paid }: { paid: boolean }) {
         <GalleryBoard rows={rows} me={me} names={names} />
         <p className="mt-3 text-xs text-[var(--tbx-mute)]">
           Accepted LIVE shots carrying your handle, checked on chain by the tokenblaster.lol &quot;gallery&quot; tag.{' '}
-          {clock && inEvent(clock) ? 'The event is on now.' : `Event: ${new Date(PRIZE.start).toUTCString().slice(0, 16)} (UTC).`}
+          {clock && inEvent(clock) ? 'The event is on now.' : `Event: ${new Date(EVENT.start).toUTCString().slice(0, 16)} (UTC).`}
           {!paid && ' Demo rounds are not scored.'}
         </p>
       </section>
