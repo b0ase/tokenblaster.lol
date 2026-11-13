@@ -181,7 +181,7 @@ function world() {
     mergeBeef: (b) => b,
     newLease: () => Math.random().toString(36),
   };
-  return { d, chain, pool, rows, broadcasts, notified, issued: () => issued };
+  return { d, chain, pool, rows, broadcasts, notified, spent, issued: () => issued };
 }
 
 test('flow: verifies payment on chain, reserves the range, ONE transfer to the recipient', async () => {
@@ -265,6 +265,19 @@ test('flow: a transfer that went out but was not booked is booked on retry, not 
   assert.ok(again.ok, JSON.stringify(again));
   assert.equal(w.broadcasts.length, 1);
   assert.equal(w.rows.get(st.id('hex'))!.status, 'sent');
+});
+
+test('flow: a pool coin already spent elsewhere (stale ledger) stops the transfer; nothing is built or marked sending', async () => {
+  const w = world();
+  const st = await settlementTx(3, Number(rangeSats(1, 3, PENNY)));
+  w.chain.set(st.id('hex'), st);
+  w.spent.set(w.pool.token_utxo!, 'e'.repeat(64)); // spent on chain by a transfer the ledger never booked
+  const r = await settleReceipts(st.id('hex'), POOL, w.d);
+  assert.equal(r.ok, false);
+  assert.match(r.ok ? '' : r.why, /out of date/);
+  assert.equal(w.broadcasts.length, 0);
+  assert.equal(w.rows.get(st.id('hex'))!.status, 'reserved');
+  assert.equal(w.pool.lease, null); // the lease is released for the operator's fix
 });
 
 test('a settlement only takes what one coin can afford; the rest is carried forward', async () => {
