@@ -9,6 +9,7 @@
  *   3. lease the pool, build ONE transfer (pool tokens + the settlement's gas output → recipient, rest → pool),
  *      record its txid, broadcast, book the pool's new coin
  * A row already 'sent' returns at once; a row 'sending' whose transfer reached the chain is booked, not resent.
+ * A pool coin that is already spent by anything else stops the transfer before it is built or marked 'sending'.
  */
 import { P2PKH, SatoshisPerKilobyte, Script, Transaction, type PrivateKey } from '@bsv/sdk';
 import { RECEIPT_GAS, RECEIPT_TOP_SATS, TERRORNODE_ID, readSettlement } from './receipts';
@@ -108,6 +109,10 @@ export async function settleReceipts(txid: string, gasAddress: string, d: Deps):
         return done(row, by);
       }
     }
+    // ⚠ STALE POOL (13 Nov 2026): on 1 Nov the ledger's pool coin was put back to one already spent on chain, and
+    // every later transfer was built on it, refused, and left its receipt at 'sending'. Never build on a spent coin.
+    const spender = await d.spentBy(pool.token_utxo);
+    if (spender) throw new Error(`The pool ledger is out of date: its token coin ${pool.token_utxo} was already spent by ${spender}. Nothing was sent.`);
     const count = BigInt(row.count);
     const have = BigInt(pool.token_amt);
     if (have < count) throw new Error('The pool is out of TERRORNODE.');
