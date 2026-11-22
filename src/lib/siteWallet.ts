@@ -329,11 +329,25 @@ onWalletHold((held) => {
 
 /**
  * Back from bWallet after Allow (v2 return, #bwx=ok&rid=…): finish that pairing, then connect as a fresh phone.
- * `ret` is this very page, so iOS often brings the player back to the SAME tab with only the hash changed: no reload,
- * so this also runs on `hashchange` (owner, iPhone, 27 Oct 2026: approved in bWallet, the site still said "Connect
- * wallet" because the return hash was never read).
+ * bWalletX 5.2.61+ returns to the site's ROOT (the page started on is in the pending entry); when the player started on
+ * the root, iOS often brings them back to the SAME tab with only the hash changed: no reload, so this also runs on
+ * `hashchange` (owner, iPhone, 27 Oct 2026: approved in bWallet, the site still said "Connect wallet" because the
+ * return hash was never read). This must read the hash before @bwalletx/connect loads: connect 0.9.0 strips any
+ * `#bwx=ok` fragment at module load, so BwalletButton imports it only after resumeSiteWallet() has run.
  */
 let returning = false;
+
+/** The page to go back to after a return, or null when it is this page already or not a page on this origin. */
+export function returnPage(page: string, here: { origin: string; pathname: string } = location): string | null {
+  try {
+    const u = new URL(page);
+    if (u.origin !== here.origin || u.pathname === here.pathname) return null;
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
 function finishReturnedPairing(): boolean {
   if (!parseReturnHash(location.hash)) return false;
   if (returning) return true;
@@ -351,12 +365,26 @@ function finishReturnedPairing(): boolean {
   void resumeReturnedPairing()
     .then((p) => {
       discoveryDone();
-      if (p) return connectEntry({ id: 'phone', name: `${p.phone} on your phone`, icon: null, kind: 'phone', wallet: p.wallet, fresh: true });
+      if (!p) return;
+      return connectEntry({ id: 'phone', name: `${p.phone} on your phone`, icon: null, kind: 'phone', wallet: p.wallet, fresh: true }).then((w) => {
+        // bWalletX 5.2.61+ returns to the site's root, not the page the player started on: go back there. The phone
+        // pairing is kept in this tab (sessionStorage) and resumes quietly after the load.
+        const back = w ? returnPage(p.page) : null;
+        if (back) location.replace(back);
+      });
     })
     .catch(() => discoveryDone())
     .finally(() => (returning = false));
   return true;
 }
+
+let markReturnRead!: () => void;
+const returnRead = new Promise<void>((r) => (markReturnRead = r));
+/**
+ * Resolves once resumeSiteWallet() has read (and cleared) any `#bwx=ok` return and is listening for the next one.
+ * Load @bwalletx/connect only after it: connect 0.9.0 strips that fragment at module load and on every hashchange.
+ */
+export const returnFragmentRead = () => returnRead;
 
 /** Quietly reconnect the remembered wallet once per page load (no chooser popping up uninvited). */
 let resumed = false;
@@ -364,7 +392,9 @@ export function resumeSiteWallet() {
   if (resumed || typeof window === 'undefined') return;
   resumed = true;
   window.addEventListener?.('hashchange', () => void finishReturnedPairing());
-  if (finishReturnedPairing()) return;
+  const back = finishReturnedPairing();
+  markReturnRead();
+  if (back) return;
   const id = rememberedWallet();
   if (!id || state.wallet) return;
   void discoverWallets()

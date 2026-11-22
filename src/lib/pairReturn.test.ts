@@ -17,6 +17,7 @@ import {
 import { signPairRequestV2 } from './pair/origin-proof';
 import { PENDING_PREFIX, PENDING_TTL_MS, parseReturnHash, savePending, takePending } from './pair/returnStore';
 import { resumeReturnedPairing, returnFields } from './pair/site';
+import { returnPage } from './siteWallet';
 
 // ---- mocks: relay sockets and localStorage ----
 class MockSocket {
@@ -108,9 +109,9 @@ test('b from the UA', () => {
   assert.equal(browserHint('curl/8'), 'other');
 });
 
-test('returnFields: this page without its hash; none for http/dev', () => {
-  const f = returnFields(`${O}/arcade?x=1#top`, O, 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Safari/604.1');
-  assert.equal(f.ret, `${O}/arcade?x=1`);
+test('returnFields: this page, origin + path only (no query, no hash); none for http/dev', () => {
+  const f = returnFields(`${O}/arcade?code=secret#top`, O, 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Safari/604.1');
+  assert.equal(f.ret, `${O}/arcade`);
   assert.match(f.rid!, /^[A-Za-z0-9_-]{22}$/);
   assert.equal(f.b, 'safari');
   assert.deepEqual(returnFields('http://localhost:3000/', 'http://localhost:3000', ''), {});
@@ -206,6 +207,16 @@ test('resume via #bwx=ok&rid: rejoins the saved channel, finishes the connect, c
   const r = await done;
   assert.ok(r);
   assert.equal(r!.phone, 'bWallet');
+  assert.equal(r!.page, `${O}/x`); // the page the pairing started on, to go back to from the root
+});
+
+test('returnPage: back to the starting page from the root; never another origin or the same page', () => {
+  const root = { origin: O, pathname: '/' };
+  assert.equal(returnPage(`${O}/arcade/terrornode`, root), `${O}/arcade/terrornode`);
+  assert.equal(returnPage(`${O}/`, root), null);
+  assert.equal(returnPage('https://evil.test/arcade', root), null);
+  assert.equal(returnPage('not a url', root), null);
+  assert.equal(returnPage(`${O}/arcade?x=1#y`, root), `${O}/arcade`);
 });
 
 test('resume: unknown or expired rid does nothing (but the hash is still cleaned)', async () => {
