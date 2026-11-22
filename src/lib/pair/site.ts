@@ -370,9 +370,20 @@ export function rememberPairing() {
   if (pendingNow) savePending({ ...pendingNow, at: Date.now() });
 }
 
-/** v2 link fields for this page: `ret` (this page without its hash, when the wallet would accept it), `rid`, `b`. */
+/**
+ * v2 link fields for this page: `ret` (this page's origin + path, when the wallet would accept it), `rid`, `b`.
+ * Never the query or fragment (bWalletX review 22 Nov 2026: OAuth codes and the like never go into a pairing link).
+ * bWalletX 5.2.61+ sends the player back to the ROOT of this origin whatever `ret` says; the page itself is kept in the
+ * pending entry and the returning tab goes back to it (siteWallet.finishReturnedPairing).
+ */
 export function returnFields(href: string, o: string, ua: string, isBrave = false) {
-  const ret = withoutHash(href);
+  let ret = '';
+  try {
+    const u = new URL(href);
+    ret = `${u.origin}${u.pathname}`;
+  } catch {
+    return {};
+  }
   if (!isValidReturnUrl(ret, o)) return {};
   return { ret, rid: newRequestId(), b: browserHint(ua, isBrave) };
 }
@@ -400,9 +411,11 @@ export function startPairing(onState: (s: PairState) => void): () => void {
     const v2 = returnFields(location.href ?? '', o, typeof navigator === 'undefined' ? '' : navigator.userAgent ?? '', isBraveBrowser());
     const { s, s2 } = await fetchPairProofs({ c, k, o, e, ...v2 });
     if (stopped) return;
-    // ret/rid/b only travel with their proof: without s2 the wallet would not return anyway.
-    const link = pairUrl({ v: PAIR_VERSION, r: RELAY, c, k, o, e, s, ...(s2 && v2.ret ? { ...v2, s2 } : {}) });
-    pendingNow = s2 && v2.ret && v2.rid ? { c, r: RELAY, s: S.toHex(), e, rid: v2.rid, ret: v2.ret, at: Date.now() } : null;
+    // ret/rid/b travel whether or not the proof came back: bWalletX 5.2.61+ ignores the origin proofs (s, s2) and
+    // returns to this origin's root whenever the link asks (ret on this exact origin + a one-time rid). Older wallets
+    // still check s2 and simply don't return without it.
+    const link = pairUrl({ v: PAIR_VERSION, r: RELAY, c, k, o, e, s, ...(v2.ret ? { ...v2, ...(s2 && { s2 }) } : {}) });
+    pendingNow = v2.ret && v2.rid ? { c, r: RELAY, s: S.toHex(), e, rid: v2.rid, ret: v2.ret, at: Date.now() } : null;
     const qr = await QRCode.toDataURL(link, { margin: 4, width: 600, errorCorrectionLevel: 'L' });
     if (stopped) return;
     const session = pairSession(S, c, RELAY, (st) => {
@@ -465,12 +478,13 @@ export function startPairing(onState: (s: PairState) => void): () => void {
 /**
  * bWallet sent the player back to `<ret>#bwx=ok&rid=<rid>`: if that rid is one we saved (in the last 10 minutes),
  * rejoin its relay channel and finish the connect there. The hash is cleaned out of the URL either way.
- * Resolves with the phone wallet when the phone's "ready" arrives, or null (unknown rid, expired, cancelled).
+ * Resolves with the phone wallet and the page the pairing started on (`page`, origin + path) when the phone's "ready"
+ * arrives, or null (unknown rid, expired, cancelled).
  */
 export function resumeReturnedPairing(
   loc: { hash: string; href: string } = location,
   replace: (url: string) => void = (u) => history.replaceState(history.state, '', u),
-): Promise<{ wallet: WalletInterface; phone: string } | null> {
+): Promise<{ wallet: WalletInterface; phone: string; page: string } | null> {
   const rid = parseReturnHash(loc.hash);
   if (!rid) return Promise.resolve(null);
   try {
@@ -482,14 +496,14 @@ export function resumeReturnedPairing(
   if (!p) return Promise.resolve(null);
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (v: { wallet: WalletInterface; phone: string } | null) => {
+    const finish = (v: { wallet: WalletInterface; phone: string; page: string } | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(giveUp);
       resolve(v);
     };
     const session = pairSession(PrivateKey.fromHex(p.s), p.c, p.r, (st) => {
-      if (st.k === 'ready') finish({ wallet: st.wallet, phone: st.phone });
+      if (st.k === 'ready') finish({ wallet: st.wallet, phone: st.phone, page: p.ret });
       else if (st.k === 'error') finish(null);
     }, () => undefined);
     const connect = () => {

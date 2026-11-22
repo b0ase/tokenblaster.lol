@@ -1,11 +1,11 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
-import { BwalletxSignin } from '@bwalletx/connect/react';
 import { GET_BWALLETX_URL } from '@/lib/pair/site';
 import { detectPhone, isAppParent, isBwalletInAppUa } from '@/lib/pair/phoneUi';
 import { WALLET_BAR as W } from '@/lib/walletBar';
-import { openSiteWallet } from '@/lib/siteWallet';
+import { openSiteWallet, resumeSiteWallet, returnFragmentRead } from '@/lib/siteWallet';
 import { useSiteWallet } from '@/lib/useSiteWallet';
 import { isBwalletxOrigin, walletPresence, type WalletPresence } from '@/lib/walletDetect';
 
@@ -57,6 +57,16 @@ export function useWalletPresence(): WalletPresence {
 }
 
 /**
+ * @bwalletx/connect's button, imported only after this site has read any `#bwx=ok` return from bWalletX
+ * (resumeSiteWallet): connect 0.9.0 strips that fragment from the address bar at module load, and this site's own phone
+ * pairing (src/lib/pair/site.ts) needs it to finish. It also keeps connect's own @bsv/sdk 4.x copy out of first load.
+ */
+const BwalletxSignin = dynamic(() => returnFragmentRead().then(() => import('@bwalletx/connect/react')).then((m) => m.BwalletxSignin), {
+  ssr: false,
+  loading: () => <span aria-hidden className="inline-block h-8 w-24" />,
+});
+
+/**
  * The official bWalletX sign-in button (<bwalletx-signin> from @bwalletx/connect: gold b mark, brand gradient,
  * radius and shadow; owner 28 Oct 2026: no knock-offs) in the arcade bar while signed out. Event-only mode: the
  * click runs this site's own connect (openSiteWallet), whose chooser also offers Get bWalletX. Connected, the bar's
@@ -64,6 +74,7 @@ export function useWalletPresence(): WalletPresence {
  */
 export function BwalletButton({ onSignIn, size = 'sm' }: { onSignIn: () => void; size?: 'sm' | 'md' | 'lg' }) {
   const presence = useWalletPresence();
+  useEffect(() => resumeSiteWallet(), []); // reads a return fragment, then lets the button load (a no-op after once)
   const signIn = (
     <span data-bwallet-button="sign-in" className="inline-flex shrink-0">
       <BwalletxSignin size={size} subtitle={size === 'sm' ? false : undefined} onClick={() => onSignIn()} />
