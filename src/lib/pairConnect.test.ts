@@ -15,14 +15,17 @@ import {
   REPAIR_TEXT,
   STORE,
   OLD_STORE,
-  upgradeOldPairing,
+  dropOldPairing,
+  CALL_TIMEOUT_MS,
+  _setCallTimeoutForTests,
   _forgetPhoneForReload,
   disconnectPhone,
   type PairState,
 } from './pair/site';
 import { getSiteWallet, pickWallet, _resetSiteWallet, resumeSiteWallet, walletErrorText, returnPage } from './siteWallet';
 import { getBarWallet } from './walletBar';
-import { BWX_RETURN_SCRIPT, RETURN_GLOBAL, bootReturnHash, returnRid } from './pair/bwxReturn';
+import { BWX_RETURN_SCRIPT, RETURN_GLOBAL, bootReturnHash, pruneConnectReturns, returnRid } from './pair/bwxReturn';
+import { PAY_TIMEOUT_MS } from './wallet';
 
 // ---- A browser, enough of it ----
 
@@ -36,9 +39,18 @@ class MockSocket {
   onmessage: ((ev: { data: string }) => void) | null = null;
   onclose: ((e?: unknown) => void) | null = null;
   onerror: ((e?: unknown) => void) | null = null;
+  /** The relay is unreachable: new sockets fail instead of opening. */
+  static refuse = false;
   constructor(readonly url: string) {
     MockSocket.all.push(this);
+    const refused = MockSocket.refuse;
     setTimeout(() => {
+      if (refused) {
+        this.readyState = 3;
+        this.onerror?.();
+        this.onclose?.();
+        return;
+      }
       this.readyState = 1;
       this.onopen?.();
     }, 0);
@@ -288,18 +300,12 @@ test('ready -> the site wallet is the phone everywhere; a reload restores it and
   assert.equal((g.sessionStorage as Storage).getItem(STORE), null);
 });
 
-test('a pairing stored by the hand-rolled code is upgraded to connect format; junk is dropped', () => {
+test('a pairing stored by the hand-rolled code is dropped (no relay claim: dead after 30 Nov), never upgraded', () => {
   const s = mem();
-  const old = { c: 'A'.repeat(22), r: 'relay.bwallet.space', s: 'a'.repeat(64), k: '02' + 'b'.repeat(64), phone: 'bWallet', sent: 3, lastSeen: 2 };
-  s.setItem(OLD_STORE, JSON.stringify(old));
-  upgradeOldPairing(s, 1234);
+  s.setItem(OLD_STORE, JSON.stringify({ c: 'A'.repeat(22), r: 'relay.bwallet.space', s: 'a'.repeat(64), k: '02' + 'b'.repeat(64), phone: 'bWallet', sent: 3, lastSeen: 2 }));
+  dropOldPairing(s);
   assert.equal(s.getItem(OLD_STORE), null);
-  assert.deepEqual(JSON.parse(s.getItem(STORE)!), { v: 1, c: old.c, r: old.r, s: old.s, k: old.k, sent: 3, lastSeen: 2, pairedAt: 1234 });
-  const t = mem();
-  t.setItem(OLD_STORE, JSON.stringify({ ...old, k: 'nope' }));
-  upgradeOldPairing(t);
-  assert.equal(t.getItem(OLD_STORE), null);
-  assert.equal(t.getItem(STORE), null);
+  assert.equal(s.getItem(STORE), null);
 });
 
 // ---- bWallet's reply codes, the phone's status ----
@@ -348,6 +354,7 @@ test('REPAIR_NEEDED then close: pairing ended everywhere, fresh-QR text, stored 
   // The pairing is over at once: the other waiting call is refused too, even if the phone's close never arrives.
   const o = (await other) as PairError;
   assert.equal(o.code, 'REPAIR_NEEDED');
+  assert.equal((g.sessionStorage as Storage).getItem(STORE), null, 'removed at once: a reload must not resume it');
   p.sock.push(await p.phone.seal({ t: 'close', reason: 'REPAIR_NEEDED' }));
   const e = (await call) as PairError;
   assert.equal(e.code, 'REPAIR_NEEDED');
@@ -489,16 +496,72 @@ test('bWalletX returns in a NEW tab: the pairing is finished there and the playe
   }
 });
 
-test('an unknown or used return id connects nothing and leaves no fragment', async () => {
+test('an unknown or used return id connects nothing, leaves no fragment, and the page resumes as usual', async () => {
+  // A phone paired earlier in this tab, then a reload that arrives with a return this browser never started.
   fresh();
+  const p = await pair({ onReady: (s) => void pickWallet({ id: 'phone', name: `${s.phone} on your phone`, icon: null, kind: 'phone', wallet: s.wallet, fresh: true }) });
+  const [req] = await requests(p.sock, p.phone);
+  p.sock.push(await p.phone.seal({ t: 'res', id: req.id, result: { publicKey: KEY } }));
+  await until(() => getSiteWallet().wallet?.id === 'phone', 'the site wallet');
+  p.stop();
+  _forgetPhoneForReload();
   _resetSiteWallet();
   win[RETURN_GLOBAL] = '#bwx=ok&rid=ZZZZZZZZZZZZZZZZZZZZZZ';
   const before = MockSocket.all.length;
   resumeSiteWallet();
-  await until(() => getSiteWallet().waiting === null, 'the return to give up');
-  assert.equal(getSiteWallet().wallet, null);
+  assert.equal(getSiteWallet().waiting?.text, 'Finishing the connection with bWallet…');
+  await until(() => getSiteWallet().wallet?.id === 'phone', 'the quiet resume after the empty return', 2000);
+  assert.equal(getSiteWallet().wallet?.publicKey, KEY);
   assert.equal(MockSocket.all.length, before, 'no relay socket for a return this browser never started');
   assert.equal(bootReturnHash(), '');
+  disconnectPhone();
+});
+
+test("page load prunes connect's saved returns that are stale, taken or unreadable", () => {
+  const s = mem();
+  const now = 10_000_000;
+  s.setItem('bwalletx.connect.return.fresh', JSON.stringify({ v: 1, at: now - 60_000 }));
+  s.setItem('bwalletx.connect.return.old', JSON.stringify({ v: 1, at: now - 11 * 60_000 }));
+  s.setItem('bwalletx.connect.return.taken', JSON.stringify({ v: 1, at: now, taken: now }));
+  s.setItem('bwalletx.connect.return.junk', '{');
+  s.setItem('other', 'kept');
+  pruneConnectReturns(s, now);
+  assert.deepEqual([...Array(s.length).keys()].map((i) => s.key(i)).sort(), ['bwalletx.connect.return.fresh', 'other']);
+});
+
+test('connect gives up on a call just after fund() does, so a payment the site abandoned is never sent later', async () => {
+  // fund() (180 s) times out first and says so; connect's limit is only 5 s longer.
+  assert.ok(CALL_TIMEOUT_MS > PAY_TIMEOUT_MS && CALL_TIMEOUT_MS <= PAY_TIMEOUT_MS + 5_000);
+  fresh();
+  _setCallTimeoutForTests(150);
+  try {
+    const p = await pair();
+    // The relay drops the socket and stays unreachable: the spend can't go out.
+    p.sock.readyState = 3;
+    p.sock.onclose?.();
+    MockSocket.refuse = true;
+    const before = MockSocket.all.length;
+    const spend = p.w.createAction({ description: 'ammo', outputs: [] }).catch((x: unknown) => x);
+    const e = (await spend) as PairError;
+    assert.equal(e.code, 'NO_ANSWER', 'never sent');
+    assert.ok(MockSocket.all.length > before, 'it did try to reconnect');
+    // The relay is back and the phone says ready: only the new read goes out, never the abandoned payment.
+    MockSocket.refuse = false;
+    const read = p.w.listOutputs({ basket: 'ammo' });
+    await until(() => MockSocket.all.at(-1)!.readyState === 1, 'the new socket');
+    const sock = MockSocket.all.at(-1)!;
+    const [r] = await requests(sock, p.phone);
+    sock.push(await p.phone.seal({ t: 'ready' }));
+    await tick(50);
+    const again = await requests(sock, p.phone, 1);
+    for (const m of [r, ...again]) assert.equal(m.action, 'listOutputs');
+    sock.push(await p.phone.seal({ t: 'res', id: r.id, result: { outputs: [], totalOutputs: 0 } }));
+    assert.deepEqual(await read, { outputs: [], totalOutputs: 0 });
+    p.stop();
+  } finally {
+    MockSocket.refuse = false;
+    _setCallTimeoutForTests();
+  }
 });
 
 test('bWalletX returns to the SAME tab while the chooser waits: that pairing finishes from the fragment', async () => {
@@ -537,4 +600,90 @@ test('bWalletX returns to the SAME tab while the chooser waits: that pairing fin
     setUa(DESKTOP_UA);
     stop();
   }
+});
+
+/** The site's connect (getPublicKey) after a pairing, answered by the phone on whatever socket the link opens. */
+async function answerConnect(phone: Phone, from: number) {
+  for (let i = 0; i < 1000 && getSiteWallet().wallet?.id !== 'phone'; i++) {
+    for (const sock of MockSocket.all.slice(from)) {
+      while (sock.sent.length) {
+        const m = await phone.open(JSON.parse(sock.sent.shift()!) as Frame);
+        if (m?.t === 'req' && m.action === 'getPublicKey') sock.push(await phone.seal({ t: 'res', id: m.id, result: { publicKey: KEY } }));
+      }
+    }
+    await tick(2);
+  }
+}
+
+/** A phone pairing in this tab whose player went to bWalletX: the chooser is still waiting. */
+async function phoneRound() {
+  setUa(IPHONE_UA);
+  let link = '';
+  let code = '';
+  let ready = false;
+  const stop = startPairing((s) => {
+    if (s.k === 'qr') link = s.link;
+    if (s.k === 'code') code = s.code;
+    if (s.k === 'ready') ready = true;
+  });
+  await until(() => !!link, 'the link');
+  setUa(DESKTOP_UA);
+  const u = new URL(link);
+  const rid = u.searchParams.get('rid')!;
+  await until(() => !!(g.localStorage as Storage).getItem(`bwalletx.connect.return.${rid}`), 'the saved return');
+  const W = PrivateKey.fromRandom();
+  const phone = await phoneSession(W, u.searchParams.get('k')!, u.searchParams.get('c')!);
+  const wk = W.toPublicKey().toString();
+  const fragment = async () => `#bwx=ok&rid=${rid}&wk=${wk}&f=${Buffer.from(JSON.stringify(await phone.seal({ t: 'ready' }))).toString('base64url')}`;
+  return { stop, rid, c: u.searchParams.get('c')!, wk, phone, fragment, code: () => code, ready: () => ready };
+}
+
+/** bWalletX's return reaches the tab: the boot script stashes it and hashchange fires. */
+function returnArrives(hash: string) {
+  win[RETURN_GLOBAL] = hash;
+  for (const h of [...(listeners.hashchange ?? [])]) h();
+}
+
+test('M1: the round ends first (QR refresh / chooser closed), then the return lands in this tab: it still connects', async () => {
+  fresh();
+  _resetSiteWallet();
+  resumeSiteWallet();
+  const r = await phoneRound();
+  const hash = await r.fragment();
+  r.stop(); // the round is cancelled (iOS woke the tab: the overdue refresh fired first)
+  const before = MockSocket.all.length;
+  returnArrives(hash); // synchronously after: the dead round must not be waited for
+  assert.equal(getSiteWallet().waiting?.text, 'Finishing the connection with bWallet…', 'finished the other way at once');
+  await until(() => MockSocket.all.length > before, 'the return socket');
+  const sock = MockSocket.all.at(-1)!;
+  assert.equal(new URL(sock.url).pathname, `/v1/c/${r.c}`);
+  await tick(5);
+  sock.push({ t: 'hello', k: r.wk, info: { name: 'bWalletX', rdns: 'space.bwallet.mobile' } }); // confirms the fragment
+  await answerConnect(r.phone, before);
+  assert.equal(getSiteWallet().wallet?.id, 'phone');
+  assert.equal(bootReturnHash(), '');
+  disconnectPhone();
+});
+
+test('M1: the return lands while the round waits (before the phone\'s hello), then the round ends: it still connects', async () => {
+  fresh();
+  _resetSiteWallet();
+  resumeSiteWallet();
+  const r = await phoneRound();
+  const before = MockSocket.all.length;
+  returnArrives(await r.fragment()); // deferred to the waiting round, which keeps it only provisionally (no hello yet)
+  await tick(20);
+  assert.equal(getSiteWallet().waiting, null, 'left to the waiting round');
+  assert.notEqual(bootReturnHash(), '', 'the stash is kept while that round is undecided');
+  r.stop(); // then the round is cancelled (refresh timer / expiry / chooser closed)
+  await until(() => MockSocket.all.length > before, 'the fallback return socket');
+  assert.equal(getSiteWallet().waiting?.text, 'Finishing the connection with bWallet…');
+  const sock = MockSocket.all.at(-1)!;
+  await tick(5);
+  sock.push({ t: 'hello', k: r.wk, info: { name: 'bWalletX', rdns: 'space.bwallet.mobile' } });
+  await answerConnect(r.phone, before);
+  assert.equal(getSiteWallet().wallet?.id, 'phone');
+  assert.equal(r.ready(), false, 'the cancelled round never reported ready');
+  assert.equal(bootReturnHash(), '');
+  disconnectPhone();
 });

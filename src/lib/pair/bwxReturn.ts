@@ -60,3 +60,30 @@ export function returnRid(hash: string): string | null {
   const rid = new URLSearchParams(hash.replace(/^#/, '')).get('rid') ?? '';
   return /^[A-Za-z0-9_-]{16,64}$/.test(rid) ? rid : null;
 }
+
+/** Connect's saved returns (`pairBwalletX` with `returnTo`): one per rid, holding that pairing's site key. */
+export const CONNECT_RETURN_PREFIX = 'bwalletx.connect.return.';
+const RETURN_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Remove connect's saved returns that are older than their 10 minutes, taken, or unreadable: the same rule as connect's
+ * own pruneReturns, which 0.9.1 doesn't export and runs only when a pairing starts or resumes. Run on page load.
+ */
+export function pruneConnectReturns(store: Pick<Storage, 'getItem' | 'removeItem' | 'key' | 'length'> | null | undefined, now = Date.now()) {
+  if (!store || typeof store.key !== 'function') return;
+  const keys: string[] = [];
+  for (let i = 0; i < store.length; i++) {
+    const k = store.key(i);
+    if (k?.startsWith(CONNECT_RETURN_PREFIX)) keys.push(k);
+  }
+  for (const k of keys) {
+    let ok = false;
+    try {
+      const p = JSON.parse(String(store.getItem(k))) as { at?: unknown; taken?: unknown } | null;
+      ok = !!p && typeof p.at === 'number' && now - p.at <= RETURN_TTL_MS && now >= p.at - 60_000 && !p.taken;
+    } catch {
+      ok = false;
+    }
+    if (!ok) store.removeItem(k);
+  }
+}

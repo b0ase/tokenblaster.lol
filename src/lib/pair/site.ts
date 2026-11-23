@@ -17,20 +17,28 @@
 import type { WalletInterface } from '@bsv/sdk';
 import type { PairedWallet, PairStorage, SocketLike } from '@bwalletx/connect';
 import QRCode from 'qrcode';
-import { bootReturnHash, clearBootReturn } from './bwxReturn';
+import { bootReturnHash, clearBootReturn, returnRid } from './bwxReturn';
 import { detectPhone } from './phoneUi';
+import { PAY_TIMEOUT_MS } from '../wallet';
 
 /** Relay host (connect's default). NEXT_PUBLIC_PAIR_RELAY points a dev build at a local relay. */
 export const RELAY = process.env.NEXT_PUBLIC_PAIR_RELAY || 'relay.bwallet.space';
 /** This tab's pairing, in connect's format. */
 export const STORE = 'tokenblaster.pair.v2';
-/** Where the hand-rolled code kept it (upgraded in place on the next resume). */
+/** Where the hand-rolled code kept it. Dropped, never upgraded: it has no relay claim and dies on 30 Nov 2026. */
 export const OLD_STORE = 'tokenblaster.pair';
 const QR_LIFETIME_S = 120;
-/** Connect's own per-call limit: above this site's (connect 45 s, payment 180 s, src/lib/wallet.ts), which decide. */
-export const CALL_TIMEOUT_MS = 200_000;
-/** How long a returned tab waits for the relay to confirm the phone (the old code gave it two minutes). */
-export const RETURN_WAIT_MS = 120_000;
+/**
+ * Connect's own per-call limit: just above this site's payment limit (src/lib/wallet.ts PAY_TIMEOUT_MS), so fund()'s
+ * own timeout and words win, and only just: a payment the site gave up on must not stay queued in connect, where a
+ * later reconnect could still send it (a second payment sheet for one purchase). Connect 45 s, payment 180 s decide.
+ */
+export const CALL_TIMEOUT_MS = PAY_TIMEOUT_MS + 5_000;
+let callTimeoutMs = CALL_TIMEOUT_MS;
+/** Tests only: a short connect call limit. */
+export const _setCallTimeoutForTests = (ms: number = CALL_TIMEOUT_MS) => void (callTimeoutMs = ms);
+/** How long a returned tab waits for the relay to confirm the phone before it gives up. */
+export const RETURN_WAIT_MS = 45_000;
 /** The phone's name in the chooser and the bar ("bWallet on your phone"). */
 export const PHONE_NAME = 'bWallet';
 
@@ -143,24 +151,15 @@ function scopedStore(): ScopedStore {
   };
 }
 
-/** A pairing the hand-rolled code stored ({c,r,s,k,phone,sent,lastSeen}) becomes connect's ({v:1,…,pairedAt}). */
-export function upgradeOldPairing(store: KV = tabStorage(), now = Date.now()) {
+/**
+ * A pairing the hand-rolled code stored is dropped, not upgraded: it was opened without a relay claim or `wc`, so after
+ * 30 Nov 2026 the relay treats it as unpaired and it would fail silently. The player pairs again (one scan).
+ */
+export function dropOldPairing(store: KV = tabStorage()) {
   try {
-    const raw = store.getItem(OLD_STORE);
-    if (!raw) return;
     store.removeItem(OLD_STORE);
-    if (store.getItem(STORE)) return;
-    const p = JSON.parse(raw) as Record<string, unknown>;
-    const n = (x: unknown) => Number.isInteger(x) && (x as number) >= 0;
-    if (typeof p.c !== 'string' || !/^[A-Za-z0-9_-]{22}$/.test(p.c)) return;
-    if (typeof p.r !== 'string' || !/^[a-z0-9.-]+(:\d+)?$/i.test(p.r)) return;
-    if (typeof p.s !== 'string' || !/^[0-9a-f]{64}$/i.test(p.s)) return;
-    if (typeof p.k !== 'string' || !/^0[23][0-9a-f]{64}$/i.test(p.k)) return;
-    if (!n(p.sent) || !n(p.lastSeen)) return;
-    // No site claim yet: connect makes one on the first reconnect and the relay binds it.
-    store.setItem(STORE, JSON.stringify({ v: 1, c: p.c, r: p.r, s: p.s, k: p.k, sent: p.sent, lastSeen: p.lastSeen, pairedAt: now }));
   } catch {
-    /* unreadable: pair again */
+    /* blocked storage: nothing kept anyway */
   }
 }
 
@@ -224,6 +223,12 @@ function end(w: PairedWallet, code: 'REPAIR_NEEDED' | 'UNPAIRED'): PairError {
   inflight.get(w)?.clear();
   void w.forget().catch(() => undefined);
   if (live?.w === w) {
+    // Gone now, not when forget() gets round to it: a reload in between must not resume a dead pairing.
+    try {
+      tabStorage().removeItem(STORE);
+    } catch {
+      /* ignore */
+    }
     live = null;
     restored = null;
     phoneEnd = err;
@@ -301,11 +306,11 @@ export function resumePhone(): Promise<{ wallet: WalletInterface; phone: string 
   if (restored) return Promise.resolve(restored);
   if (live) return Promise.resolve(null);
   restoring ??= (async () => {
-    upgradeOldPairing();
+    dropOldPairing();
     if (!tabStorage().getItem(STORE)) return null;
     const store = scopedStore();
     const { restorePairing } = await loadConnect();
-    const w = await restorePairing({ storage: store, storageKey: STORE, socket: watchedSocket, callTimeoutMs: CALL_TIMEOUT_MS }).catch(() => null);
+    const w = await restorePairing({ storage: store, storageKey: STORE, socket: watchedSocket, callTimeoutMs }).catch(() => null);
     if (!w) return null;
     if (live) {
       // Paired again meanwhile: this one is stale.
@@ -325,7 +330,10 @@ export function disconnectPhone() {
   const l = live;
   live = null;
   restored = null;
-  if (l) void l.w.forget().catch(() => undefined);
+  if (l) {
+    void l.w.forget().catch(() => undefined);
+    l.store.revoke(); // its link may still persist counters before forget() lands: never back into storage
+  }
   try {
     tabStorage().removeItem(STORE);
     tabStorage().removeItem(OLD_STORE);
@@ -339,6 +347,13 @@ export function disconnectPhone() {
 /** The return id of the chooser's pairing in progress (same phone): that pairing takes its own return. */
 let livePairRid: string | null = null;
 export const isLivePairing = (rid: string | null) => !!rid && rid === livePairRid;
+
+/**
+ * Who finishes a return whose own pairing round ended without it (siteWallet.finishReturnedPairing, which falls back to
+ * resumeReturnedPairing). Set by siteWallet; site.ts can't import it (siteWallet imports this module).
+ */
+let orphanedReturn: () => void = () => undefined;
+export const onOrphanedReturn = (fn: () => void) => void (orphanedReturn = fn);
 
 function pairFailText(e: unknown): string {
   const code = (e as { code?: unknown } | null)?.code;
@@ -359,12 +374,23 @@ export function startPairing(onState: (s: PairState) => void): () => void {
   let stopped = false;
   let ctl: AbortController | null = null;
   let refresh: ReturnType<typeof setTimeout> | undefined;
+  let cancelRound: () => void = () => undefined;
 
   const round = async () => {
     if (stopped) return;
     const mine = new AbortController();
     ctl = mine;
     const current = () => !stopped && ctl === mine;
+    /** This round's return id (phones only). */
+    let myRid: string | null = null;
+    const releaseRid = () => {
+      if (myRid && livePairRid === myRid) livePairRid = null;
+    };
+    cancelRound = () => {
+      // Before the abort: a return arriving now must not be left to a round that is ending (review M1).
+      releaseRid();
+      mine.abort();
+    };
     let coded = false;
     const store = scopedStore();
     const phone = detectPhone();
@@ -380,6 +406,7 @@ export function startPairing(onState: (s: PairState) => void): () => void {
     // Refresh a QR nobody scanned a little before it expires (connect would reject it at expiry).
     refresh = setTimeout(() => {
       if (coded || !current()) return;
+      releaseRid();
       mine.abort();
       void round();
     }, QR_LIFETIME_S * 1000 - 5000);
@@ -389,17 +416,20 @@ export function startPairing(onState: (s: PairState) => void): () => void {
         storage: store,
         storageKey: STORE,
         socket: watchedSocket,
-        callTimeoutMs: CALL_TIMEOUT_MS,
+        callTimeoutMs,
         signal: mine.signal,
         ...(phone && typeof location !== 'undefined' && { returnTo: location.href }),
         readHash: bootReturnHash,
-        replaceUrl: clearBootReturn,
+        // Connect calls this when it takes the fragment, possibly only provisionally (before the relay's hello). The
+        // stash stays until this round settles: if it ends without finishing, the fallback below still has it.
+        replaceUrl: () => undefined,
         onLink: (link) => {
           let expires = Date.now() + QR_LIFETIME_S * 1000;
           try {
             const u = new URL(link);
             expires = Number(u.searchParams.get('e')) * 1000 || expires;
-            if (ctl === mine) livePairRid = u.searchParams.get('rid');
+            myRid = u.searchParams.get('rid');
+            if (current() && myRid) livePairRid = myRid;
           } catch {
             /* connect's own link: always parses */
           }
@@ -419,13 +449,17 @@ export function startPairing(onState: (s: PairState) => void): () => void {
       })
       .then(
         (w) => {
-          if (ctl === mine) livePairRid = null;
+          releaseRid();
+          if (myRid && returnRid(bootReturnHash()) === myRid) clearBootReturn(); // used (or made moot) by this pairing
           const l = adopt(w, store);
           onState({ k: 'ready', wallet: l.wallet, phone: PHONE_NAME });
         },
         (e: unknown) => {
-          if (ctl === mine) livePairRid = null;
+          releaseRid();
           store.revoke();
+          // Its return came back but this round ended first (refresh, expiry, the chooser closing): finish it the
+          // other way, from connect's saved return entry (review M1).
+          if (myRid && returnRid(bootReturnHash()) === myRid) orphanedReturn();
           if (!current()) return; // stopped, or replaced by a fresh QR
           if (/expired/i.test(e instanceof Error ? e.message : '')) return void round();
           onState({ k: 'error', message: pairFailText(e) });
@@ -438,7 +472,7 @@ export function startPairing(onState: (s: PairState) => void): () => void {
   return () => {
     stopped = true;
     clearTimeout(refresh);
-    ctl?.abort();
+    cancelRound();
   };
 }
 
@@ -461,7 +495,7 @@ export async function finishReturn(): Promise<{ wallet: WalletInterface; phone: 
       storage: store,
       storageKey: STORE,
       socket: watchedSocket,
-      callTimeoutMs: CALL_TIMEOUT_MS,
+      callTimeoutMs,
       waitMs: RETURN_WAIT_MS,
     });
     if (!r) return null;

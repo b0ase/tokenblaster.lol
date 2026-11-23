@@ -13,8 +13,8 @@
  */
 import { PublicKey } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
-import { PairError, disconnectPhone, finishReturn, getPhoneEnd, getPhoneStatus, isLivePairing, subPhoneStatus } from './pair/site';
-import { bootReturnHash, clearBootReturn, returnRid } from './pair/bwxReturn';
+import { PairError, disconnectPhone, finishReturn, getPhoneEnd, getPhoneStatus, isLivePairing, onOrphanedReturn, subPhoneStatus } from './pair/site';
+import { bootReturnHash, clearBootReturn, pruneConnectReturns, returnRid } from './pair/bwxReturn';
 import { cancelWalletCalls, connect, onWalletHold, serialised, walletHeld, withTimeout, WALLET_CANCELLED, WALLET_HELD, type Wallet } from './wallet';
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
@@ -364,7 +364,8 @@ function finishReturnedPairing(): boolean {
   void finishReturn()
     .then((p) => {
       discoveryDone();
-      if (!p) return;
+      // Nothing to finish (unknown, used or expired return): carry on as an ordinary page load (review L5).
+      if (!p) return quietResume();
       return connectEntry({ id: 'phone', name: `${p.phone} on your phone`, icon: null, kind: 'phone', wallet: p.wallet, fresh: true }).then((w) => {
         // bWalletX 5.2.61+ returns to the site's root, not the page the player started on: go back there. The phone
         // pairing is kept in this tab (sessionStorage) and resumes quietly after the load.
@@ -372,18 +373,39 @@ function finishReturnedPairing(): boolean {
         if (back) location.replace(back);
       });
     })
-    .catch(() => discoveryDone())
+    .catch(() => {
+      discoveryDone();
+      quietResume();
+    })
     .finally(() => (returning = false));
   return true;
 }
+
+// The chooser's pairing round ended (QR refresh, expiry, closed) after its return came back: finish it from connect's
+// saved return entry instead (review M1).
+onOrphanedReturn(() => void finishReturnedPairing());
 
 /** Quietly reconnect the remembered wallet once per page load (no chooser popping up uninvited). */
 let resumed = false;
 export function resumeSiteWallet() {
   if (resumed || typeof window === 'undefined') return;
   resumed = true;
+  // connect 0.9.1 prunes its saved returns (they hold a pairing key) only when a pairing starts or resumes (review L4).
+  try {
+    pruneConnectReturns(localStorage);
+  } catch {
+    /* storage blocked */
+  }
   window.addEventListener?.('hashchange', () => void finishReturnedPairing());
   if (finishReturnedPairing()) return;
+  quietResume();
+}
+
+let quietDone = false;
+/** Page load asks the wallet nothing: resume the remembered wallet only with a key already kept. Once per page load. */
+function quietResume() {
+  if (quietDone) return;
+  quietDone = true;
   const id = rememberedWallet();
   if (!id || state.wallet) return;
   void discoverWallets()
@@ -401,6 +423,7 @@ export function resumeSiteWallet() {
 export function _resetSiteWallet() {
   state = EMPTY;
   resumed = false;
+  quietDone = false;
   returning = false;
   connecting = null;
   discoverGen = 0;
