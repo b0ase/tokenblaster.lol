@@ -13,8 +13,8 @@
  */
 import { PublicKey } from '@bsv/sdk';
 import { discoverWallets, rememberWallet, rememberedWallet, type WalletEntry } from './discovery';
-import { PairError, disconnectPhone, getPhoneEnd, getPhoneStatus, resumeReturnedPairing, subPhoneStatus } from './pair/site';
-import { parseReturnHash, withoutHash } from './pair/returnStore';
+import { PairError, disconnectPhone, finishReturn, getPhoneEnd, getPhoneStatus, isLivePairing, subPhoneStatus } from './pair/site';
+import { bootReturnHash, clearBootReturn, returnRid } from './pair/bwxReturn';
 import { cancelWalletCalls, connect, onWalletHold, serialised, walletHeld, withTimeout, WALLET_CANCELLED, WALLET_HELD, type Wallet } from './wallet';
 import { lookupPaymail, patchBarWallet, setBarWallet, tellWalletDisconnected, getBarWallet } from './walletBar';
 import { setProofWallet } from './xproof';
@@ -328,17 +328,17 @@ onWalletHold((held) => {
 });
 
 /**
- * Back from bWallet after Allow (v2 return, #bwx=ok&rid=…): finish that pairing, then connect as a fresh phone.
- * bWalletX 5.2.61+ returns to the site's ROOT (the page started on is in the pending entry); when the player started on
- * the root, iOS often brings them back to the SAME tab with only the hash changed: no reload, so this also runs on
- * `hashchange` (owner, iPhone, 27 Oct 2026: approved in bWallet, the site still said "Connect wallet" because the
- * return hash was never read). This must read the hash before @bwalletx/connect loads: connect 0.9.0 strips any
- * `#bwx=ok` fragment at module load, so BwalletButton imports it only after resumeSiteWallet() has run.
+ * Back from bWalletX after Connect (`#bwx=ok&rid=…`, connect 0.9): finish that pairing, then connect as a fresh phone.
+ * bWalletX 5.2.61+ returns to the site's ROOT (the page started on is kept in this browser by connect); when the player
+ * started on the root, iOS often brings them back to the SAME tab with only the hash changed: no reload, so this also
+ * runs on `hashchange` (owner, iPhone, 27 Oct 2026). The fragment itself is taken out of the address bar by the boot
+ * script in <head> (src/lib/pair/bwxReturn.ts) before anything else runs; this reads it from there.
  */
 let returning = false;
 
 /** The page to go back to after a return, or null when it is this page already or not a page on this origin. */
-export function returnPage(page: string, here: { origin: string; pathname: string } = location): string | null {
+export function returnPage(page: string | null, here: { origin: string; pathname: string } = location): string | null {
+  if (!page) return null;
   try {
     const u = new URL(page);
     if (u.origin !== here.origin || u.pathname === here.pathname) return null;
@@ -349,20 +349,19 @@ export function returnPage(page: string, here: { origin: string; pathname: strin
 }
 
 function finishReturnedPairing(): boolean {
-  if (!parseReturnHash(location.hash)) return false;
+  const hash = bootReturnHash();
+  if (!hash) return false;
   if (returning) return true;
-  // The open chooser's own pairing already got the phone's ready: just tidy the URL.
+  // The chooser's own pairing (still open in this tab) is waiting for this very return: it takes the fragment itself.
+  if (isLivePairing(returnRid(hash))) return true;
+  // The open chooser's own pairing already got the phone's ready over the relay: just drop the fragment.
   if (state.wallet?.id === 'phone' && state.live) {
-    try {
-      history.replaceState(history.state, '', withoutHash(location.href));
-    } catch {
-      /* harmless */
-    }
+    clearBootReturn();
     return true;
   }
   returning = true;
   set({ waiting: { text: 'Finishing the connection with bWallet…', since: Date.now(), kind: 'discover' } });
-  void resumeReturnedPairing()
+  void finishReturn()
     .then((p) => {
       discoveryDone();
       if (!p) return;
@@ -378,23 +377,13 @@ function finishReturnedPairing(): boolean {
   return true;
 }
 
-let markReturnRead!: () => void;
-const returnRead = new Promise<void>((r) => (markReturnRead = r));
-/**
- * Resolves once resumeSiteWallet() has read (and cleared) any `#bwx=ok` return and is listening for the next one.
- * Load @bwalletx/connect only after it: connect 0.9.0 strips that fragment at module load and on every hashchange.
- */
-export const returnFragmentRead = () => returnRead;
-
 /** Quietly reconnect the remembered wallet once per page load (no chooser popping up uninvited). */
 let resumed = false;
 export function resumeSiteWallet() {
   if (resumed || typeof window === 'undefined') return;
   resumed = true;
   window.addEventListener?.('hashchange', () => void finishReturnedPairing());
-  const back = finishReturnedPairing();
-  markReturnRead();
-  if (back) return;
+  if (finishReturnedPairing()) return;
   const id = rememberedWallet();
   if (!id || state.wallet) return;
   void discoverWallets()

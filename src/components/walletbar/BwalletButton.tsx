@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { GET_BWALLETX_URL } from '@/lib/pair/site';
 import { detectPhone, isAppParent, isBwalletInAppUa } from '@/lib/pair/phoneUi';
 import { WALLET_BAR as W } from '@/lib/walletBar';
-import { openSiteWallet, resumeSiteWallet, returnFragmentRead } from '@/lib/siteWallet';
+import { openSiteWallet, resumeSiteWallet } from '@/lib/siteWallet';
 import { useSiteWallet } from '@/lib/useSiteWallet';
 import { isBwalletxOrigin, walletPresence, type WalletPresence } from '@/lib/walletDetect';
 
@@ -57,11 +57,11 @@ export function useWalletPresence(): WalletPresence {
 }
 
 /**
- * @bwalletx/connect's button, imported only after this site has read any `#bwx=ok` return from bWalletX
- * (resumeSiteWallet): connect 0.9.0 strips that fragment from the address bar at module load, and this site's own phone
- * pairing (src/lib/pair/site.ts) needs it to finish. It also keeps connect's own @bsv/sdk 4.x copy out of first load.
+ * @bwalletx/connect's button, loaded on demand (it keeps connect's own @bsv/sdk 4.x copy out of first load). It never
+ * takes bWalletX's `#bwx=ok` return: the boot script in <head> (src/lib/pair/bwxReturn.ts) moves that out of the address
+ * bar first, and this site's own pairing finishes it (siteWallet.resumeSiteWallet).
  */
-const BwalletxSignin = dynamic(() => returnFragmentRead().then(() => import('@bwalletx/connect/react')).then((m) => m.BwalletxSignin), {
+const BwalletxSignin = dynamic(() => import('@bwalletx/connect/react').then((m) => m.BwalletxSignin), {
   ssr: false,
   loading: () => <span aria-hidden className="inline-block h-8 w-24" />,
 });
@@ -74,7 +74,7 @@ const BwalletxSignin = dynamic(() => returnFragmentRead().then(() => import('@bw
  */
 export function BwalletButton({ onSignIn, size = 'sm' }: { onSignIn: () => void; size?: 'sm' | 'md' | 'lg' }) {
   const presence = useWalletPresence();
-  useEffect(() => resumeSiteWallet(), []); // reads a return fragment, then lets the button load (a no-op after once)
+  useEffect(() => resumeSiteWallet(), []); // finishes a bWalletX return, else resumes quietly (a no-op after once)
   const signIn = (
     <span data-bwallet-button="sign-in" className="inline-flex shrink-0">
       <BwalletxSignin size={size} subtitle={size === 'sm' ? false : undefined} onClick={() => onSignIn()} />

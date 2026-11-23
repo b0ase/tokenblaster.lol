@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { diagLine, discoverWallets, lastDiscovery, type WalletEntry } from '@/lib/discovery';
-import { GET_BWALLETX_URL, openInBwalletUrl, startPairing, type PairState } from '@/lib/pair/site';
+import { GET_BWALLETX_URL, startPairing, type PairState } from '@/lib/pair/site';
 import { usePhoneLink } from '@/lib/pair/usePhoneLink';
 import { getSiteWallet } from '@/lib/siteWallet';
 import { BWALLET_BROWSER_LINK_READY, detectPhone, openInBwalletBrowserUrl, phoneRows, showQrPanel } from '@/lib/pair/phoneUi';
@@ -224,7 +224,7 @@ export function WalletChooser({ note, onPick, onClose }: { note?: string | null;
                     icon="/wallets/bwalletx.png"
                     name="bWallet on your phone"
                     sub={pair.k === 'code' ? `Check bWallet shows ${pair.code}, then tap Connect.` : pair.k === 'error' ? pair.message : 'Opens bWallet to connect, then come back here.'}
-                    href={pair.k === 'qr' ? openInBwalletUrl(pair.link) : undefined}
+                    href={pair.k === 'qr' ? pair.link : undefined}
                     onClick={pair.k === 'qr' ? undefined : () => undefined}
                     action={pair.k === 'code' ? pair.code : pair.k === 'qr' ? 'Open in bWallet' : '…'}
                     self
