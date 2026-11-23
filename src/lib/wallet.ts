@@ -102,6 +102,16 @@ let callTimeoutMs = CALL_TIMEOUT_MS;
 /** Tests only: shorten the non-payment deadline. */
 export const setWalletCallTimeout = (ms = CALL_TIMEOUT_MS) => void (callTimeoutMs = ms);
 export const callDeadline = (method: string) => (PAY_METHODS.has(method) ? PAY_TIMEOUT_MS + 5_000 : callTimeoutMs);
+export const isPayMethod = (method: string) => PAY_METHODS.has(method);
+
+/**
+ * While serialised() hands a call to the wallet object (synchronously, inside the call), the moment the site gives up
+ * on that call (ms since epoch): fund()'s PAY_TIMEOUT_MS for a payment, the queue deadline otherwise, both counted
+ * from when it was queued. A wallet proxy reads it at the start of its call (the paired phone, src/lib/pair/site.ts,
+ * so it never sends a payment the site will have abandoned). Null outside a hand-off.
+ */
+let handoff: number | null = null;
+export const handoffGiveUpAt = () => handoff;
 export function serialised(client: WalletInterface): WalletInterface {
   const q: Queue = queues.get(client) ?? { tail: Promise.resolve(), inFlight: 0, gen: 0, cancels: new Set() };
   queues.set(client, q);
@@ -127,9 +137,15 @@ export function serialised(client: WalletInterface): WalletInterface {
           cancel(new Error('WALLET_TIMEOUT'));
         }, callDeadline(String(prop)));
         (deadline as { unref?: () => void }).unref?.();
+        const giveUpAt = Date.now() + (PAY_METHODS.has(String(prop)) ? PAY_TIMEOUT_MS : callTimeoutMs);
         const call = q.tail.then(() => {
           if (q.gen !== gen || expired) throw new Error(expired ? 'WALLET_TIMEOUT' : WALLET_CANCELLED);
-          return (v as (...a: unknown[]) => unknown).apply(target, args);
+          handoff = giveUpAt;
+          try {
+            return (v as (...a: unknown[]) => unknown).apply(target, args);
+          } finally {
+            handoff = null;
+          }
         });
         // The caller sees the wallet's answer, a cancel or the deadline, whichever comes first; each frees the queue.
         const run = Promise.race([call, cancelled]);

@@ -19,7 +19,7 @@ import type { PairedWallet, PairStorage, SocketLike } from '@bwalletx/connect';
 import QRCode from 'qrcode';
 import { bootReturnHash, clearBootReturn, returnRid } from './bwxReturn';
 import { detectPhone } from './phoneUi';
-import { PAY_TIMEOUT_MS } from '../wallet';
+import { CALL_TIMEOUT_MS as QUEUE_TIMEOUT_MS, PAY_TIMEOUT_MS, handoffGiveUpAt, isPayMethod } from '../wallet';
 
 /** Relay host (connect's default). NEXT_PUBLIC_PAIR_RELAY points a dev build at a local relay. */
 export const RELAY = process.env.NEXT_PUBLIC_PAIR_RELAY || 'relay.bwallet.space';
@@ -29,11 +29,16 @@ export const STORE = 'tokenblaster.pair.v2';
 export const OLD_STORE = 'tokenblaster.pair';
 const QR_LIFETIME_S = 120;
 /**
- * Connect's own per-call limit: just above this site's payment limit (src/lib/wallet.ts PAY_TIMEOUT_MS), so fund()'s
- * own timeout and words win, and only just: a payment the site gave up on must not stay queued in connect, where a
- * later reconnect could still send it (a second payment sheet for one purchase). Connect 45 s, payment 180 s decide.
+ * Connect's own per-call limit (it has one for every call on a link, counted from when the call reaches it). It must end
+ * before the site gives up on a payment (fund(), PAY_TIMEOUT_MS from when it is called), or an unsent payment the site
+ * abandoned could still be sent after a reconnect: a second payment sheet for one purchase (review M2/N1). A payment
+ * can first wait in this site's queue (src/lib/wallet.ts) behind another call, for up to that call's deadline
+ * (QUEUE_TIMEOUT_MS, a minute), so: 180 s - 60 s - 5 s = 115 s to approve once it reaches the phone. A slower approval
+ * gets connect's own words ("No answer from bWalletX. It may still have done this: check bWalletX before you try
+ * again."), and fund()'s callers already check the balance before any re-pay. A payment that waited longer in the
+ * queue (behind another payment-class call) is refused before it is sent: see tooLateForPhone.
  */
-export const CALL_TIMEOUT_MS = PAY_TIMEOUT_MS + 5_000;
+export const CALL_TIMEOUT_MS = PAY_TIMEOUT_MS - QUEUE_TIMEOUT_MS - 5_000;
 let callTimeoutMs = CALL_TIMEOUT_MS;
 /** Tests only: a short connect call limit. */
 export const _setCallTimeoutForTests = (ms: number = CALL_TIMEOUT_MS) => void (callTimeoutMs = ms);
@@ -256,12 +261,24 @@ export function mapPhoneError(w: PairedWallet, e: unknown): unknown {
   return e;
 }
 
+/**
+ * A payment handed over with less of the site's time left than connect would keep it: refuse it unsent. Connect could
+ * otherwise still send it after fund() gave up (review N1). Only payments: other calls have shorter site deadlines and
+ * show no payment sheet.
+ */
+export const tooLateForPhone = (method: string, giveUpAt: number | null, now: number, limit: number) =>
+  giveUpAt !== null && isPayMethod(method) && giveUpAt - now < limit;
+export const TOO_LATE_TEXT = 'bWallet was still busy with an earlier request, so this payment was not sent. Try again.';
+
 function wrap(w: PairedWallet): WalletInterface {
   const waiting = new Set<(e: unknown) => void>();
   inflight.set(w, waiting);
   const call = async (method: string, args: unknown) => {
+    // Read synchronously: serialised() sets it only while it hands this call over.
+    const giveUpAt = handoffGiveUpAt();
     const done = ended.get(w);
     if (done) throw done;
+    if (tooLateForPhone(method, giveUpAt, Date.now(), callTimeoutMs)) throw new PairError('NO_ANSWER', TOO_LATE_TEXT);
     const sleepy = setTimeout(() => live?.w === w && setPhoneStatus('asleep'), ASLEEP_AFTER_MS);
     let reject: (e: unknown) => void = () => undefined;
     try {

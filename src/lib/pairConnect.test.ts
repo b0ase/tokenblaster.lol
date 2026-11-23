@@ -18,6 +18,8 @@ import {
   dropOldPairing,
   CALL_TIMEOUT_MS,
   _setCallTimeoutForTests,
+  tooLateForPhone,
+  TOO_LATE_TEXT,
   _forgetPhoneForReload,
   disconnectPhone,
   type PairState,
@@ -25,7 +27,7 @@ import {
 import { getSiteWallet, pickWallet, _resetSiteWallet, resumeSiteWallet, walletErrorText, returnPage } from './siteWallet';
 import { getBarWallet } from './walletBar';
 import { BWX_RETURN_SCRIPT, RETURN_GLOBAL, bootReturnHash, pruneConnectReturns, returnRid } from './pair/bwxReturn';
-import { PAY_TIMEOUT_MS } from './wallet';
+import { CALL_TIMEOUT_MS as QUEUE_TIMEOUT_MS, PAY_TIMEOUT_MS, handoffGiveUpAt, serialised } from './wallet';
 
 // ---- A browser, enough of it ----
 
@@ -164,9 +166,9 @@ async function phoneSession(W: PrivateKey, siteKey: string, channel: string) {
 type Phone = Awaited<ReturnType<typeof phoneSession>>;
 
 /** Requests the site sent on `sock`, opened by the phone. */
-async function requests(sock: MockSocket, phone: Phone, n = 1) {
+async function requests(sock: MockSocket, phone: Phone, n = 1, tries = 3000) {
   const out: Msg[] = [];
-  for (let i = 0; i < 600 && out.length < n; i++) {
+  for (let i = 0; i < tries && out.length < n; i++) {
     while (sock.sent.length) {
       const m = await phone.open(JSON.parse(sock.sent.shift()!) as Frame);
       if (m?.t === 'req') out.push(m);
@@ -404,7 +406,7 @@ test('after the phone rejoins, an unanswered read is asked again with the SAME i
     again.map((r) => [r.id, r.action]),
     first.filter((r) => r.action === 'listOutputs').map((r) => [r.id, r.action]),
   );
-  assert.equal((await requests(p.sock, p.phone, 1)).length, 0, 'the spend is not re-sent');
+  assert.equal((await requests(p.sock, p.phone, 1, 300)).length, 0, 'the spend is not re-sent');
   p.sock.push(await p.phone.seal({ t: 'res', id: again[0].id, result: { outputs: [], totalOutputs: 0 } }));
   assert.deepEqual(await read, { outputs: [], totalOutputs: 0 });
   const spendReq = first.find((r) => r.action === 'createAction')!;
@@ -529,9 +531,9 @@ test("page load prunes connect's saved returns that are stale, taken or unreadab
   assert.deepEqual([...Array(s.length).keys()].map((i) => s.key(i)).sort(), ['bwalletx.connect.return.fresh', 'other']);
 });
 
-test('connect gives up on a call just after fund() does, so a payment the site abandoned is never sent later', async () => {
-  // fund() (180 s) times out first and says so; connect's limit is only 5 s longer.
-  assert.ok(CALL_TIMEOUT_MS > PAY_TIMEOUT_MS && CALL_TIMEOUT_MS <= PAY_TIMEOUT_MS + 5_000);
+test('connect gives up on a call before fund() does, so a payment the site abandoned is never sent later', async () => {
+  // A payment may wait in the site's queue up to a minute first; connect's wait must still end before fund()'s 180 s.
+  assert.ok(QUEUE_TIMEOUT_MS + CALL_TIMEOUT_MS + 5_000 <= PAY_TIMEOUT_MS, `${CALL_TIMEOUT_MS}`);
   fresh();
   _setCallTimeoutForTests(150);
   try {
@@ -553,7 +555,7 @@ test('connect gives up on a call just after fund() does, so a payment the site a
     const [r] = await requests(sock, p.phone);
     sock.push(await p.phone.seal({ t: 'ready' }));
     await tick(50);
-    const again = await requests(sock, p.phone, 1);
+    const again = await requests(sock, p.phone, 1, 300);
     for (const m of [r, ...again]) assert.equal(m.action, 'listOutputs');
     sock.push(await p.phone.seal({ t: 'res', id: r.id, result: { outputs: [], totalOutputs: 0 } }));
     assert.deepEqual(await read, { outputs: [], totalOutputs: 0 });
@@ -685,5 +687,74 @@ test('M1: the return lands while the round waits (before the phone\'s hello), th
   assert.equal(getSiteWallet().wallet?.id, 'phone');
   assert.equal(r.ready(), false, 'the cancelled round never reported ready');
   assert.equal(bootReturnHash(), '');
+  disconnectPhone();
+});
+
+test('N1: serialised() tells the phone link when the site gives up; a payment with too little of it left is refused unsent', async () => {
+  // The hand-off: read synchronously by the wallet object while serialised() calls it.
+  let seen: number | null = null;
+  const fake = { createAction: async () => ((seen = handoffGiveUpAt()), { txid: 'x' }) } as unknown as WalletInterface;
+  const t0 = Date.now();
+  await serialised(fake).createAction({ description: 'x', outputs: [] });
+  assert.ok(seen !== null && seen >= t0 + PAY_TIMEOUT_MS && seen <= Date.now() + PAY_TIMEOUT_MS, 'fund()\'s deadline, from when it was queued');
+  assert.equal(handoffGiveUpAt(), null, 'only during the hand-off');
+  // The rule: payments only, and only when less of the site's time is left than connect would keep the call.
+  assert.equal(tooLateForPhone('createAction', 1_000 + CALL_TIMEOUT_MS - 1, 1_000, CALL_TIMEOUT_MS), true);
+  assert.equal(tooLateForPhone('createAction', 1_000 + CALL_TIMEOUT_MS, 1_000, CALL_TIMEOUT_MS), false);
+  assert.equal(tooLateForPhone('listOutputs', 1_001, 1_000, CALL_TIMEOUT_MS), false);
+  assert.equal(tooLateForPhone('createAction', null, 1_000, CALL_TIMEOUT_MS), false);
+
+  // Through the real queue to a paired phone: a connect limit longer than the site's budget refuses the payment
+  // before anything is sent; a read still goes.
+  fresh();
+  const p = await pair();
+  _setCallTimeoutForTests(PAY_TIMEOUT_MS + 1);
+  try {
+    const q = serialised(p.w);
+    const e = (await q.createAction({ description: 'ammo', outputs: [] }).catch((x: unknown) => x)) as PairError;
+    assert.ok(e instanceof PairError);
+    assert.equal(e.code, 'NO_ANSWER');
+    assert.equal(e.message, TOO_LATE_TEXT);
+    await tick(20);
+    assert.equal(p.sock.sent.length, 0, 'nothing reached the phone');
+    const read = q.listOutputs({ basket: 'ammo' });
+    const [r] = await requests(p.sock, p.phone);
+    assert.equal(r.action, 'listOutputs');
+    p.sock.push(await p.phone.seal({ t: 'res', id: r.id, result: { outputs: [], totalOutputs: 0 } }));
+    assert.deepEqual(await read, { outputs: [], totalOutputs: 0 });
+  } finally {
+    _setCallTimeoutForTests();
+    p.stop();
+  }
+});
+
+test('N2: a return that arrives while another is being finished is taken afterwards, not left in the stash', async () => {
+  fresh();
+  _resetSiteWallet();
+  resumeSiteWallet();
+  const a = await phoneRound();
+  a.stop();
+  const b = await phoneRound();
+  b.stop();
+  await tick(10);
+  const before = MockSocket.all.length;
+  returnArrives(`#bwx=ok&rid=${a.rid}`); // A is being finished: its relay hasn't answered yet
+  await until(() => MockSocket.all.length > before, 'A\'s return socket');
+  const sockA = MockSocket.all.at(-1)!;
+  returnArrives(await b.fragment()); // B (an orphaned round's return) comes in meanwhile: turned away for now
+  await tick(10);
+  assert.equal(MockSocket.all.length, before + 1, 'one return at a time');
+  assert.notEqual(bootReturnHash(), '', 'B waits in the stash');
+  // A comes to nothing (the relay drops it): B is taken straight after, not left for some later hashchange.
+  sockA.readyState = 3;
+  sockA.onclose?.();
+  await until(() => MockSocket.all.length > before + 1, 'B\'s return socket');
+  const sockB = MockSocket.all.at(-1)!;
+  assert.equal(new URL(sockB.url).pathname, `/v1/c/${b.c}`);
+  assert.equal(bootReturnHash(), '');
+  await tick(5);
+  sockB.push({ t: 'hello', k: b.wk, info: { name: 'bWalletX', rdns: 'space.bwallet.mobile' } });
+  await answerConnect(b.phone, before + 1);
+  assert.equal(getSiteWallet().wallet?.id, 'phone');
   disconnectPhone();
 });

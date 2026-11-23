@@ -377,7 +377,12 @@ function finishReturnedPairing(): boolean {
       discoveryDone();
       quietResume();
     })
-    .finally(() => (returning = false));
+    .finally(() => {
+      returning = false;
+      // A return that came in meanwhile (an orphaned round's, review N2) was turned away by the guard above: take it now,
+      // so it can't sit in the stash and replace this pairing on some later hashchange.
+      if (bootReturnHash()) finishReturnedPairing();
+    });
   return true;
 }
 
