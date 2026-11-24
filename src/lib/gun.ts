@@ -10,7 +10,7 @@ import { STREAM_STEP, fanoutPlan, lanesFor as plannedLanes } from './gallery';
 import { runStorm, type StormBase, type StormBatch, type StormLane, type StormNet } from './stormRun';
 import { streamLeaves, type LaneSpec } from './fanoutStream';
 import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, ammoPush, dualBroadcaster, makeBroadcaster, settleTxs, type BroadcasterKind, type UnfiredLane } from './stormCore';
-import { decodeSpare, encodeSpare, mergeSpare, spareKey, takeSpare } from './spareLanes';
+import { decodeSpare, encodeSpare, mergeSpare, spareKey, spareRounds, takeSpare } from './spareLanes';
 import { hasPayRef } from './payRef';
 import { buildSweep } from './sweep';
 import { archiveKey, archivedKeys, keyPersisted } from './gunKeys';
@@ -496,6 +496,13 @@ export class Gun {
     // Only this gun's own record counts (by address: the key is never copied a second time).
     const rec = spare as { address?: string; lanes?: unknown } | null;
     this.spare = rec && s && rec.address === this.key.toAddress() ? mergeSpare([], decodeSpare(rec.lanes), this.spent) : [];
+  }
+
+  /** Spare lanes (src/lib/spareLanes.ts): the rounds they carry at `perBlast` and their sats. Already paid for: no new fee. */
+  spareLoad(perBlast: number): { rounds: number; sats: number } {
+    this.refresh();
+    const live = this.spare.filter((l) => !this.spent.has(spareKey(l)));
+    return { rounds: live.reduce((n, l) => n + spareRounds(l.sats, perBlast), 0), sats: live.reduce((n, l) => n + l.sats, 0) };
   }
 
   /** Keep lanes the senders never fired (or a load that was never fired), saved at once. */
@@ -1007,7 +1014,13 @@ export class Gun {
    * go in ONE fan-out tx; more go in a root tx paying ceil(lanes / SPLIT_OUTPUTS) leaf fan-outs, broadcast level by
    * level (the root, then the leaves together once the network has the root), never a parent with its child.
    */
-  async prepareStorm(total: number, perBlast: number, step: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
+  async prepareStorm(
+    total: number,
+    perBlast: number,
+    step: (pct: number, slowSecs: number) => void = () => undefined,
+    /** RELOAD: spare lanes carrying most of the load fire alone, so the reload is instant (the coin waits). */
+    opts: { preferSpare?: boolean } = {},
+  ): Promise<void> {
     // Heartbeat: the page judges a load by progress, so every phase reports once a second while it works (with how
     // long it has waited), not only when it changes phase. Each phase below has its own bound.
     let pct = 5;
@@ -1019,13 +1032,13 @@ export class Gun {
     };
     const beat = setInterval(() => step(pct, Math.round((Date.now() - since) / 1000)), 1000);
     try {
-      await this.prepareStormNow(total, perBlast, onStep);
+      await this.prepareStormNow(total, perBlast, onStep, opts.preferSpare ?? false);
     } finally {
       clearInterval(beat);
     }
   }
 
-  private async prepareStormNow(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void): Promise<void> {
+  private async prepareStormNow(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void, preferSpare: boolean): Promise<void> {
     await this.endSession();
     await this.stopFeed(this.ready);
     return this.exclusive(async () => {
@@ -1065,8 +1078,9 @@ export class Gun {
         if (spare.taken.length) this.keepSpare(spare.taken);
       };
       const rest = total - spare.rounds;
-      // Spare lanes carrying most of the load fire alone (a RELOAD is instant); the rest stays in the coin for the next load.
-      if (rest <= spare.rounds) {
+      // A RELOAD whose spare lanes carry most of the load fires them alone (instant); the rest stays in the coin for the
+      // next load. LOCK & LOAD always fans out its share of the coin: it charged the fee for those rounds.
+      if (rest <= 0 || (preferSpare && rest <= spare.rounds)) {
         finish();
         return ready();
       }

@@ -782,7 +782,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       const left = boughtRef.current - sentRef.current;
       if (left <= 0) return;
       try {
-        if (!dry) await b.prepareStorm(left, perShot);
+        if (!dry) await b.prepareStorm(left, perShot, undefined, { preferSpare: true });
         senderDead.current = false;
         // The round may have ended while the lanes loaded: only a live round starts sending again.
         if (!dry && modeRef.current === 'live') sessionRef.current(left);
@@ -1317,21 +1317,29 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       // answered with a txid sits at the gun's address but not in the gun's own coin (owner, 25 Oct 2026).
       // gather() already read the chain and built the one coin: its sats ARE the balance (no second chain read).
       const t0 = performance.now();
-      const avail = await limit(
+      // Spare lanes (src/lib/spareLanes.ts): rounds an earlier session fanned out and never fired. They are already
+      // paid for (fee included), so they add to the rounds here but never to the fee.
+      const spare = b.spareRounds(perShot);
+      let gathered = true;
+      const got = await limit(
         b.gatherGun().catch(async (e) => {
           loadMark(`gather: ${e instanceof Error ? e.message : e}`);
+          gathered = false;
           return b.refreshGun('lock & load');
         }),
         LOAD_STEP_MS * 2,
         'reading your gun',
       );
+      // gather() answers the firing coin alone; the fallback (the whole balance) also counts the spare lanes.
+      const avail = Math.max(0, gathered ? got : got - spare.sats);
       loadMark(`gather: ${Math.round(performance.now() - t0)} ms`);
-      loadMark(`lock & load: gun has ${avail} sats`);
+      loadMark(`lock & load: gun has ${avail} sats${spare.rounds ? ` + ${spare.rounds} spare rounds` : ''}`);
       const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
       // The same count the cabinet showed (src/lib/coinop/shots.ts): each shot = round fee + its $TERRORNODE receipt,
       // the receipt money stays in the gun until settlement.
-      let shots = rc.curve ? shotsForSats(avail, perShotAll, rc.curve) : roundsFrom(avail, perShotAll, overheadSats);
-      if (plan.short || shots <= 0) throw new Error('SHORT');
+      let shots = plan.short ? 0 : rc.curve ? shotsForSats(avail, perShotAll, rc.curve) : roundsFrom(avail, perShotAll, overheadSats);
+      if (shots <= 0 && !spare.rounds) throw new Error('SHORT');
+      shots = Math.max(0, shots);
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
         // The platform fee is TERRORNODE revenue: two outputs, 50/50 NPG Ltd · bCorp (odd sat → bCorp), then reported
@@ -1343,6 +1351,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots) - rc.rangeCost(shots)) / perShot));
       }
       if (rc.live) while (shots > 0 && shots * perShot + rc.rangeCost(shots) + overheadSats(shots) > avail - feeSats) shots--;
+      shots += spare.rounds;
       if (shots <= 0) throw new Error('SHORT');
       setLoadingRounds(shots);
       for (let attempt = 1; stream; attempt++) {
