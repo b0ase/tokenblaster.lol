@@ -266,7 +266,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   // The wallet sheet names the game the player is in (owner, 25 Oct 2026: it said "Shooting Gallery" on TerrorNode).
-  const cab = useCabinet(b, 'TerrorNode', { dry });
+  // No payment is taken while the revenue split can't be paid (src/lib/launch/splitClient.ts): the check comes first.
+  const cab = useCabinet(b, 'TerrorNode', { dry, canPay: splitAvailable });
   const cabRef = useRef(cab);
   useEffect(() => {
     cabRef.current = cab;
@@ -1279,7 +1280,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     };
     try {
       // TERRORNODE revenue goes 50/50 to NPG Ltd and bCorp (src/lib/launch/split.ts). If their destinations can't be
-      // resolved and pinned right now, no paid session starts (free practice still works); nothing goes anywhere else.
+      // resolved and pinned right now, no paid session starts; nothing goes anywhere else. A new payment is refused
+      // before the wallet is asked (useCabinet canPay); this covers loading from credit already in the gun.
       // (usually answered already: the check is prefetched when the loadout opens, splitClient.ts)
       if (!(await limit(splitAvailable(), LOAD_STEP_MS, 'payments check'))) throw new Error('PAYUNAVAIL');
       // End the previous session first (its sender was told to stop above): release the gun's lock, save its change.
@@ -1383,7 +1385,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       boughtRef.current = firedRef.current;
       setBought(firedRef.current);
       setLoadout(true);
-      setLoad({ kind: 'failed', retry: timedOut || m === 'NETSLOW', text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : m === 'NETSLOW' ? 'The network has not confirmed your rounds yet. Your credit is safe in your gun. Try again in a minute.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
+      setLoad({ kind: 'failed', retry: timedOut || m === 'NETSLOW', text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments are unavailable for a moment. Your credit is safe in your gun: LOCK & LOAD again in a minute.' : m === 'NETSLOW' ? 'The network has not confirmed your rounds yet. Your credit is safe in your gun. Try again in a minute.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       instantRef.current = false;
       setLocking(false);

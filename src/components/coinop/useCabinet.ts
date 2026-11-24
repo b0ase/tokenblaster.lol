@@ -48,8 +48,17 @@ export function useBsvUsd() {
   return rate;
 }
 
-export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = {}) {
+/** How long a pre-payment check (opts.canPay) may take before the payment is refused (nothing charged). */
+export const CAN_PAY_MS = 10_000;
+
+/**
+ * `canPay`: checked before the wallet is asked for anything (TERRORNODE: the revenue split's destinations answer).
+ * False, or no answer within CAN_PAY_MS, refuses the payment with nothing charged, instead of taking the money and
+ * then failing to load.
+ */
+export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean; canPay?: () => Promise<boolean> } = {}) {
   const bsvUsd = useBsvUsd();
+  const { canPay } = opts;
   const [pending, setPending] = useState(0);
   const [stage, setStage] = useState<LoadStage>(null);
   const [stageText, setStageText] = useState<string | null>(null);
@@ -124,6 +133,14 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     }
     const sats = usdToSats(pending, bsvUsd);
     if (!sats) return setErr('Checking the price. Try again in a moment.');
+    if (canPay) {
+      const ok = await Promise.race([canPay().catch(() => false), new Promise<boolean>((r) => setTimeout(() => r(false), CAN_PAY_MS))]);
+      if (!ok) {
+        loadMark('pay: refused before the wallet was asked (payments check failed)');
+        after.current = null;
+        return setErr('Payments are unavailable for a moment. Nothing was charged. Try again in a minute.');
+      }
+    }
     if (!b.wallet) {
       // LOCK & LOAD = connect and pay (owner, 24 Oct): no wallet yet, so connect now and pay straight after.
       loadMark('pay: no wallet yet, connecting then paying');
@@ -173,7 +190,7 @@ export function useCabinet(b: Blaster, label: string, opts: { dry?: boolean } = 
     setStage('ready');
     setStageText(null);
     setLanded((n) => n + 1);
-  }, [pending, bsvUsd, b, label, opts.dry, notePaid]);
+  }, [pending, bsvUsd, b, label, opts.dry, canPay, notePaid]);
 
   const payThen = useCallback(
     (then: () => void) => {
