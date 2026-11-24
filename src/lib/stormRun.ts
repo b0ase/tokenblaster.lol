@@ -4,6 +4,8 @@
  * src/workers/storm.ts), forward stop / pause, and add up what ARC accepted.
  */
 export type StormLane = { vout: number; count: number; n: number; base?: number; tok?: { vout: number; amt: string } };
+import { unfiredOf, type UnfiredLane } from './stormCore';
+
 /** A fan-out the network has, as the workers need it (no tx to parse): its base number, txid and output values. */
 export type StormBase = { i: number; txid: string; values: number[] };
 /**
@@ -58,9 +60,13 @@ export type WorkerStats = { signed: number; posted: number; accepted: number; si
 /** After stop, a worker gets this long to say done (it covers POST_TRIES x POST_TIMEOUT_MS plus back-off), then it is terminated. */
 export const STOP_KILL_MS = 40_000;
 
-export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy?: string; stats: WorkerStats; net: StormNet }> {
+export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy?: string; stats: WorkerStats; net: StormNet; unfired: UnfiredLane[] }> {
   const cores = Math.max(1, o.feed ? o.cores : Math.min(o.lanes.length, o.cores));
   const workers: Worker[] = [];
+  /** Workers that said done (or were terminated): a lane handed to one now would never be fired. */
+  const gone = new Set<number>();
+  /** Lane coins no worker fired (src/lib/stormCore.ts UnfiredLane). A worker that never reports counts as having fired all. */
+  const unfired: UnfiredLane[] = [];
   let ended = false;
   let rr = 0;
   const pushTo = (b: { bases: StormBase[]; lanes: StormLane[] }) => {
@@ -70,7 +76,9 @@ export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy
     per.forEach((lanes, w) => {
       if (!lanes.length) return;
       const need = new Set(lanes.map((l) => l.base ?? 0));
-      workers[w].postMessage({ type: 'add', bases: b.bases.filter((x) => need.has(x.i)), lanes });
+      const bases = b.bases.filter((x) => need.has(x.i));
+      if (gone.has(w)) unfired.push(...unfiredOf([{ bases, lanes }]));
+      else workers[w].postMessage({ type: 'add', bases, lanes });
     });
   };
   let sent = 0;
@@ -108,6 +116,7 @@ export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy
           wasPaused = p;
         }, 50);
         const end = () => {
+          gone.add(w);
           clearInterval(poll);
           clearTimeout(kill);
           wk.terminate();
@@ -130,6 +139,8 @@ export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy
           } else if (m.type === 'stats' && m.stats) {
             for (const k of Object.keys(stats) as (keyof WorkerStats)[]) stats[k] += m.stats[k];
             o.onStats?.(m.stats);
+          } else if (m.type === 'unfired') {
+            unfired.push(...((m as { lanes?: UnfiredLane[] }).lanes ?? []));
           } else if (m.type === 'done') end();
         };
         wk.onerror = (e) => {
@@ -158,5 +169,5 @@ export async function runStorm(o: StormRunOpts): Promise<{ sent: number; lastWhy
       });
     }),
   );
-  return { sent, lastWhy, stats, net };
+  return { sent, lastWhy, stats, net, unfired };
 }

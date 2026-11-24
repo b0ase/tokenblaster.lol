@@ -92,7 +92,13 @@ export type Out =
   | { type: 'sent'; n: number; last?: string; seen: number; orphans: number; statuses: Record<string, number> }
   | { type: 'batch'; via: string; n: number; ms: number; statuses: Record<string, number> }
   | { type: 'why'; text: string }
-  | { type: 'stats'; stats: Stats };
+  | { type: 'stats'; stats: Stats }
+  | { type: 'unfired'; lanes: UnfiredLane[] };
+/**
+ * A lane coin the sender never signed a blast from: still unspent at the gun, so the gun keeps it for the next session
+ * (src/lib/gun.ts spare lanes) instead of writing it off. Only ever reported for lanes nothing spent.
+ */
+export type UnfiredLane = { txid: string; vout: number; sats: number };
 export type Stats = { signed: number; posted: number; accepted: number; signMs: number; postMs: number; posts: number; orphans: number };
 export type Ctl = {
   stopped: () => boolean;
@@ -358,7 +364,25 @@ type Lane = {
   /** The tip's POST got no answer: not counted as sent; asked by status until the network has it (or checks run out). */
   unanswered?: boolean;
   tok?: { txidLE: Uint8Array; vout: number; amt: bigint; lock: Uint8Array };
+  /** The lane coin it started from, and whether a blast was ever signed from it (then its fate is the network's). */
+  origin: UnfiredLane;
+  fired: boolean;
 };
+
+/** The lanes of `adds` as unfired coins (they never reached a sender): each base's value at the lane's vout. */
+export function unfiredOf(adds: AddMsg[], known: ({ txid: string; values: number[] } | undefined)[] = []): UnfiredLane[] {
+  const out: UnfiredLane[] = [];
+  const bases = [...known];
+  for (const a of adds) {
+    for (const x of a.bases ?? []) bases[x.i] = x;
+    for (const l of a.lanes) {
+      const b = bases[l.base ?? 0];
+      const sats = b?.values[l.vout] ?? 0;
+      if (b && sats > 0 && !l.tok) out.push({ txid: b.txid, vout: l.vout, sats });
+    }
+  }
+  return out;
+}
 
 /** The <game> push and up to two short pushes after it (strings only). */
 /**
@@ -403,8 +427,8 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
     }),
   );
   // Indexed by base number; streamed bases arrive later (sparse until then).
-  const bases: ({ le: Uint8Array; values: number[] } | undefined)[] = [];
-  const addBase = (i: number, x: { txid: string; values: number[] }) => (bases[i] = { le: fromHex(x.txid).reverse(), values: x.values });
+  const bases: ({ le: Uint8Array; txid: string; values: number[] } | undefined)[] = [];
+  const addBase = (i: number, x: { txid: string; values: number[] }) => (bases[i] = { le: fromHex(x.txid).reverse(), txid: x.txid, values: x.values });
   if (m.baseTxid) addBase(0, { txid: m.baseTxid, values: m.baseValues });
   (m.bases ?? []).forEach((x, i) => addBase(i + 1, x));
   const depth = m.maxDepth && m.maxDepth > 0 ? m.maxDepth : Infinity;
@@ -428,6 +452,8 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
       resends: 0,
       due: 0,
       tok: m.burn && l.tok ? { txidLE: base.le, vout: l.tok.vout, amt: BigInt(l.tok.amt), lock: bsv21Lock(m.burn.id, BigInt(l.tok.amt), b.lock) } : undefined,
+      origin: { txid: base.txid, vout: l.vout, sats: base.values[l.vout] ?? 0 },
+      fired: false,
     };
   };
   let lanes: Lane[] = [];
@@ -491,6 +517,7 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
           lane.state = 'done';
           continue;
         }
+        lane.fired = true;
         lane.pending = t;
         lane.resends = 0;
         stats.signed++;
@@ -612,7 +639,8 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
   while (!ctl.stopped()) {
     intake();
     if (!halted()) {
-      while (inflight.size < MAX_INFLIGHT) {
+      // Re-checked per batch: a lane signed after a stop is never sent, and only an unsigned lane can be kept as spare.
+      while (inflight.size < MAX_INFLIGHT && !halted()) {
         const batch = take();
         if (!batch) break;
         track(sendBatch(batch.bc, batch.lanes));
@@ -629,4 +657,13 @@ export async function runLanes(m: StartMsg, ctl: Ctl): Promise<void> {
   }
   await Promise.allSettled([...inflight]);
   flushStats(true);
+  // Session end (31 Oct-23 Nov 2026: every handed lane was written off, so a released gun lost the rounds it never
+  // fired): name the lane coins nothing spent, plus lanes that arrived and were never taken in. Sats lanes only: a burn
+  // lane's token coin is not the gun's to reuse this way.
+  if (!m.burn) {
+    // A lane 'done' without firing was too small for one blast: dust, not worth keeping.
+    const left = lanes.filter((l) => !l.fired && l.state !== 'done' && l.origin.sats > 0).map((l) => l.origin);
+    left.push(...unfiredOf(ctl.more?.() ?? [], bases));
+    if (left.length) ctl.emit({ type: 'unfired', lanes: left });
+  }
 }
