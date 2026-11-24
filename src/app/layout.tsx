@@ -8,6 +8,7 @@ import { drFontClass } from "@/components/dr/fonts";
 import { logoFont } from "@/components/dr/logo-font";
 import { HOME_CARD, shareImages } from "@/lib/og";
 import { PALETTE_SCRIPT } from "@/components/PaletteToggle";
+import { BWX_RETURN_SCRIPT } from "@/lib/pair/bwxReturn";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://www.tokenblaster.lol"),
@@ -40,6 +41,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`h-full ${drFontClass} ${logoFont.variable}`} suppressHydrationWarning>
       <head>
+        {/* First: takes bWalletX's #bwx=ok return out of the address bar before any other script or the router reads it. */}
+        <script dangerouslySetInnerHTML={{ __html: BWX_RETURN_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: PALETTE_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">

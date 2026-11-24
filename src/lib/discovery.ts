@@ -192,7 +192,7 @@ async function discoverAll(): Promise<WalletEntry[]> {
       if (!list.some((w) => w.id === a.info.rdns)) list.push({ id: a.info.rdns, name: a.info.name, icon: a.info.icon ?? null, kind: a.info.kind ?? 'extension', wallet: a.wallet });
 
   // A phone paired by QR earlier in this tab (§4.6): offer it again, so a reload reconnects to it.
-  const phone = resumePhone();
+  const phone = await resumePhone().catch(() => null);
   if (phone) list.push({ id: 'phone', name: `${phone.phone} on your phone`, icon: null, kind: 'phone', wallet: phone.wallet });
 
   // §3.3: a window.CWI nobody announced (Yours today, older wallets).
