@@ -9,7 +9,8 @@ import { applyResync, resyncCandidates, type ResyncResult } from './gunResync';
 import { STREAM_STEP, fanoutPlan, lanesFor as plannedLanes } from './gallery';
 import { runStorm, type StormBase, type StormBatch, type StormLane, type StormNet } from './stormRun';
 import { streamLeaves, type LaneSpec } from './fanoutStream';
-import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, ammoPush, dualBroadcaster, makeBroadcaster, settleTxs, type BroadcasterKind } from './stormCore';
+import { ARCADE_DEFAULT, ARC_DEFAULT, MAX_DEPTH, ORPHAN, ammoPush, dualBroadcaster, makeBroadcaster, settleTxs, type BroadcasterKind, type UnfiredLane } from './stormCore';
+import { decodeSpare, encodeSpare, mergeSpare, spareKey, spareRounds, takeSpare } from './spareLanes';
 import { hasPayRef } from './payRef';
 import { buildSweep } from './sweep';
 import { archiveKey, archivedKeys, keyPersisted } from './gunKeys';
@@ -53,8 +54,8 @@ type Ammo = {
   cancelled: boolean;
   done: Promise<void>;
   maxN: number;
-  /** Fan-outs handed over and how many of their outputs are lanes (spent by the workers). */
-  used: { txid: string; n: number }[];
+  /** Lane coins handed over, per fan-out (its output values, shared): spent at session end unless reported unfired. */
+  used: { txid: string; values: number[]; vouts: number[] }[];
 };
 
 /** One [tb-load] line per POST that held orphans or failures, and a roll-up every 5 s (the orphan rate). */
@@ -124,6 +125,8 @@ export async function txHex(txid: string): Promise<string> {
 }
 const FEE_RATE = 100; // sats/kB, matches SATS_PER_BLAST in pricing.ts
 const STORE = 'tokenblaster.gun';
+/** Spare lanes (src/lib/spareLanes.ts), kept apart from the gun record so a full store can never cost the key or coin. */
+const SPARE_STORE = 'tokenblaster.gun.spare';
 /** ARC took it AND it's headed for a block (an orphan = its parent is missing/spent: it will never mine). */
 const good = (r?: { status?: string; txStatus?: string; description?: string }) =>
   (r?.status === 'success' && !/ORPHAN|REJECT|DOUBLE/i.test(r.txStatus ?? '')) ||
@@ -374,6 +377,8 @@ export class Gun {
   private extra: { tx: Transaction; vout: number }[] = [];
   /** Outpoints our own broadcasts spent. */
   private spent = new Set<string>();
+  /** Lane coins fanned out and never fired (src/lib/spareLanes.ts): the next load fires these first. */
+  private spare: UnfiredLane[] = [];
   /** outpoint → the txid that spent it, when known (re-sync asks Arcade/ARC whether that spender is still held). */
   private spentBy = new Map<string, string>();
   /** Storage held something we could not read: never write over it (the owner's key may be in it). */
@@ -482,6 +487,30 @@ export class Gun {
     }
     this.spent = new Set(s?.spent ?? []);
     this.spentBy = new Map(Object.entries(s?.spentBy ?? {}).filter(([k]) => this.spent.has(k)));
+    let spare: unknown = null;
+    try {
+      spare = s ? JSON.parse(localStorage.getItem(SPARE_STORE) ?? 'null') : null;
+    } catch {
+      /* no storage, or a record we can't read: no spare lanes */
+    }
+    // Only this gun's own record counts (by address: the key is never copied a second time).
+    const rec = spare as { address?: string; lanes?: unknown } | null;
+    this.spare = rec && s && rec.address === this.key.toAddress() ? mergeSpare([], decodeSpare(rec.lanes), this.spent) : [];
+  }
+
+  /** Spare lanes (src/lib/spareLanes.ts): the rounds they carry at `perBlast` and their sats. Already paid for: no new fee. */
+  spareLoad(perBlast: number): { rounds: number; sats: number } {
+    this.refresh();
+    const live = this.spare.filter((l) => !this.spent.has(spareKey(l)));
+    return { rounds: live.reduce((n, l) => n + spareRounds(l.sats, perBlast), 0), sats: live.reduce((n, l) => n + l.sats, 0) };
+  }
+
+  /** Keep lanes the senders never fired (or a load that was never fired), saved at once. */
+  private keepSpare(lanes: UnfiredLane[]) {
+    if (!lanes.length) return;
+    this.spare = mergeSpare(this.spare, lanes, this.spent);
+    loadMark(`kept ${lanes.length} unfired lane(s): ${this.spare.length} spare, ${this.spare.reduce((n, l) => n + l.sats, 0)} sats`);
+    this.save();
   }
 
   /** Remember every input of a transaction we broadcast: those outpoints are spent, whatever the index says. */
@@ -607,7 +636,15 @@ export class Gun {
       vout: this.coin?.vout,
       owed: this.owed && this.owed.n > BigInt(0) ? { id: this.owed.id, n: this.owed.n.toString() } : undefined,
       tok: this.tok && this.tok.amt > BigInt(0) ? { id: this.tok.id, tx: this.tok.tx.toHex(), vout: this.tok.vout, amt: this.tok.amt.toString() } : undefined,
-    });    const left = this.sats;
+    });
+    this.spare = this.spare.filter((l) => !this.spent.has(spareKey(l)));
+    try {
+      if (this.spare.length) localStorage.setItem(SPARE_STORE, JSON.stringify({ address: this.address, lanes: encodeSpare(this.spare) }));
+      else localStorage.removeItem(SPARE_STORE);
+    } catch {
+      /* storage full or blocked: the spare lanes still work for this page view */
+    }
+    const left = this.sats;
     const prev = this.lastReported;
     this.lastReported = left;
     if (prev !== null && left !== prev) reportToWallet(Math.max(0, prev - left), left);
@@ -665,7 +702,8 @@ export class Gun {
       if (strict) throw e;
       return [] as { txid: string; vout: number; sats: number }[];
     });
-    return spendableCoins([tag(this.extra), tag(this.coin ? [this.coin] : []), chain], this.spent).reduce((n, c) => n + c.sats, 0);
+    // Spare lanes too: the chain read hands back only the 200 largest coins, and these are small.
+    return spendableCoins([tag(this.extra), tag(this.coin ? [this.coin] : []), chain, this.spare], this.spent).reduce((n, c) => n + c.sats, 0);
   }
 
   /**
@@ -732,9 +770,11 @@ export class Gun {
     const s = this.session;
     if (!s) {
       // Loaded but never fired: still stop the background fan-out feed before anything else uses the coins.
+      // None of its lanes were fired: keep every one for the next load.
       const a = this.ready;
       this.ready = null;
       await this.stopFeed(a);
+      if (a) this.keepSpare(a.used.flatMap((u) => u.vouts.map((vout) => ({ txid: u.txid, vout, sats: u.values[vout] ?? 0 }))));
       return;
     }
     this.halt = true;
@@ -974,7 +1014,13 @@ export class Gun {
    * go in ONE fan-out tx; more go in a root tx paying ceil(lanes / SPLIT_OUTPUTS) leaf fan-outs, broadcast level by
    * level (the root, then the leaves together once the network has the root), never a parent with its child.
    */
-  async prepareStorm(total: number, perBlast: number, step: (pct: number, slowSecs: number) => void = () => undefined): Promise<void> {
+  async prepareStorm(
+    total: number,
+    perBlast: number,
+    step: (pct: number, slowSecs: number) => void = () => undefined,
+    /** RELOAD: spare lanes carrying most of the load fire alone, so the reload is instant (the coin waits). */
+    opts: { preferSpare?: boolean } = {},
+  ): Promise<void> {
     // Heartbeat: the page judges a load by progress, so every phase reports once a second while it works (with how
     // long it has waited), not only when it changes phase. Each phase below has its own bound.
     let pct = 5;
@@ -986,13 +1032,13 @@ export class Gun {
     };
     const beat = setInterval(() => step(pct, Math.round((Date.now() - since) / 1000)), 1000);
     try {
-      await this.prepareStormNow(total, perBlast, onStep);
+      await this.prepareStormNow(total, perBlast, onStep, opts.preferSpare ?? false);
     } finally {
       clearInterval(beat);
     }
   }
 
-  private async prepareStormNow(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void): Promise<void> {
+  private async prepareStormNow(total: number, perBlast: number, onStep: (pct: number, slowSecs: number) => void, preferSpare: boolean): Promise<void> {
     await this.endSession();
     await this.stopFeed(this.ready);
     return this.exclusive(async () => {
@@ -1001,36 +1047,10 @@ export class Gun {
       this.halt = false;
       loadMark(`prepare: ${total} rounds`);
       onStep(10, 0);
-      await this.startCoin((secs) => onStep(15, secs), true);
-      if (!this.coin) throw new Error('EMPTY');
-      onStep(30, 0);
-      const plan = fanoutPlan(total, perBlast);
-      const { lanes: lanesN, perLane, each, sizes, leaves, leafFee, need } = plan;
-      if (this.sats < need) throw new Error('SHORT');
-      const root = new Transaction();
-      const lock = new P2PKH().lock(this.address);
-      root.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
-      if (leaves) sizes.forEach((k, i) => root.addOutput({ lockingScript: lock, satoshis: k * each + leafFee[i] }));
-      else for (let i = 0; i < lanesN; i++) root.addOutput({ lockingScript: lock, satoshis: each });
-      root.addOutput({ lockingScript: lock, change: true });
-      await root.fee(new SatoshisPerKilobyte(FEE_RATE));
-      await root.sign();
-      loadMark(`fan-out root built: ${lanesN} lanes x ${perLane} deep${leaves ? ` over ${leaves} leaves (streamed)` : ''}`);
-      onStep(45, 0);
-      // Level 1: the root, through the gun's usual send (retries, a parent the wallet is still propagating).
-      await this.send(root);
-      const rootTxid = root.id('hex');
-      this.coin = { tx: Transaction.fromHex(root.toHex()), vout: root.outputs.length - 1 };
-      this.save();
-      // Wait for the network (not just ARC) to have it: lanes (or leaves) spend it next.
-      // GO never depends on ARC's SEEN alone (31 Oct 2026): Arcade and ARC are both asked, either one seeing it counts.
-      const bc = fanoutBroadcaster();
-      const t0 = Date.now();
-      onStep(leaves ? 55 : 70, 0);
       const ammo: Ammo = { batches: [], push: null, end: null, ended: false, cancelled: false, done: Promise.resolve(), maxN: total + 1, used: [] };
       const hand = (bases: StormBase[], lanes: LaneSpec[]) => {
         const b = { bases, lanes };
-        for (const x of bases) ammo.used.push({ txid: x.txid, n: lanes.filter((l) => l.base === x.i).length });
+        for (const x of bases) ammo.used.push({ txid: x.txid, values: x.values, vouts: lanes.filter((l) => l.base === x.i).map((l) => l.vout) });
         if (ammo.push) ammo.push(b);
         else ammo.batches.push(b);
       };
@@ -1038,65 +1058,142 @@ export class Gun {
         ammo.ended = true;
         ammo.end?.();
       };
-      try {
-        const rootSeen = await settleTxs(bc, [{ ef: Uint8Array.from(root.toEF()), txid: rootTxid }], { deadlineMs: leaves ? GO_MAX_MS / 2 : FANOUT_SEEN_MS });
-        // A leaf POSTed with an unseen parent is orphaned and never recovers (GorillaPool, 26 Oct 2026): stop honestly.
-        if (leaves && !rootSeen.seen.size) throw new Error('NETSLOW');
-        loadMark(`fan-out root ${rootSeen.seen.size ? 'seen on network' : `NOT seen yet (${JSON.stringify(rootSeen.statuses)}): lanes will wait per lane`}`);
-        if (!leaves) {
-          const lanes: LaneSpec[] = [];
-          for (let j = 0, left = total; j < sizes[0] && left > 0; j++, left -= perLane) lanes.push({ base: 0, vout: j, count: Math.min(perLane, left) });
-          hand([{ i: 0, txid: rootTxid, values: root.outputs.map((o) => o.satoshis ?? 0) }], lanes);
-          finish();
-        } else {
-          // Level 2, streamed: one leaf first (GO as soon as the network has it), the rest in the background.
-          onStep(75, 0);
-          const st = streamLeaves({
-            root,
-            plan,
-            total,
-            key: this.key,
-            address: this.address,
-            bc,
-            seenMs: FANOUT_SEEN_MS,
-            cancelled: () => ammo.cancelled,
-            onSpent: (op) => this.spent.add(op),
-            onUnspent: (op) => {
-              // no source ever had that leaf: its root output is still the gun's credit
-              this.spent.delete(op);
-              this.save();
-            },
-            onReady: hand,
-            log: loadMark,
-          });
-          ammo.done = st.done.then(
-            (r) => {
-              loadMark(`fan-out feed done: ${r.fed} lanes live${r.unseen.length ? `, ${r.unseen.length} leaves never seen (not used)` : ''}`);
-              finish();
-            },
-            (e) => {
-              loadMark(`fan-out feed stopped: ${e instanceof Error ? e.message : String(e)}`);
-              finish();
-            },
-          );
-          // Bounded and honest: the first live lanes within GO_MAX_MS, else stop (credit stays in the gun).
-          const fed = await Promise.race([st.first, new Promise<number>((r) => setTimeout(() => r(0), GO_MAX_MS))]);
-          if (!fed) {
-            ammo.cancelled = true;
-            await Promise.race([ammo.done, new Promise((r) => setTimeout(r, FEED_STOP_MS))]);
-            throw new Error('NETSLOW');
-          }
-          loadMark(`GO: first ${fed} lanes live after ${Math.round((Date.now() - t0) / 1000)} s; the rest load while you fire`);
-        }
-      } finally {
-        // nothing to clear: the heartbeat lives in prepareStorm()
+      const ready = () => {
+        onStep(95, 0);
+        this.ready = ammo;
+        this.feeding = ammo;
+        loadMark('ready');
+        onStep(100, 0);
+      };
+      // Lanes an earlier session fanned out and never fired go first: the network already has them, nothing to wait for.
+      const spare = takeSpare(this.spare, total, perBlast, this.spent);
+      this.spare = spare.rest;
+      if (spare.taken.length) {
+        this.save();
+        hand(spare.bases, spare.lanes);
+        loadMark(`spare lanes: ${spare.taken.length} lane(s), ${spare.rounds} rounds, no fan-out needed for those`);
       }
-      onStep(95, 0);
-      this.ready = ammo;
-      this.feeding = ammo;
-      loadMark('ready');
-      onStep(100, 0);
+      // Nothing may lose them: a load that fails gives the spare lanes back.
+      const giveBack = () => {
+        if (spare.taken.length) this.keepSpare(spare.taken);
+      };
+      const rest = total - spare.rounds;
+      // A RELOAD whose spare lanes carry most of the load fires them alone (instant); the rest stays in the coin for the
+      // next load. LOCK & LOAD always fans out its share of the coin: it charged the fee for those rounds.
+      if (rest <= 0 || (preferSpare && rest <= spare.rounds)) {
+        finish();
+        return ready();
+      }
+      try {
+        await this.startCoin((secs) => onStep(15, secs), true);
+      } catch (e) {
+        if (!spare.rounds) throw e;
+      }
+      const plan = fanoutPlan(rest, perBlast);
+      if (!this.coin || this.sats < plan.need) {
+        // Not enough in the gun for the rest: fire what the spare lanes carry.
+        if (spare.rounds) {
+          finish();
+          return ready();
+        }
+        throw new Error(this.coin ? 'SHORT' : 'EMPTY');
+      }
+      try {
+        await this.fanOut(rest, plan, onStep, hand, finish, ammo);
+      } catch (e) {
+        ammo.cancelled = true;
+        giveBack();
+        throw e;
+      }
+      ready();
     });
+  }
+
+  /** Fan the gun's coin out into lane coins for `total` rounds (prepareStorm), handing each batch as the network takes it. */
+  private async fanOut(
+    total: number,
+    plan: ReturnType<typeof fanoutPlan>,
+    onStep: (pct: number, slowSecs: number) => void,
+    hand: (bases: StormBase[], lanes: LaneSpec[]) => void,
+    finish: () => void,
+    ammo: Ammo,
+  ) {
+    if (!this.coin) throw new Error('EMPTY');
+    onStep(30, 0);
+    const { lanes: lanesN, perLane, each, sizes, leaves, leafFee } = plan;
+    const root = new Transaction();
+    const lock = new P2PKH().lock(this.address);
+    root.addInput({ sourceTransaction: this.coin.tx, sourceOutputIndex: this.coin.vout, unlockingScriptTemplate: new P2PKH().unlock(this.key) });
+    if (leaves) sizes.forEach((k, i) => root.addOutput({ lockingScript: lock, satoshis: k * each + leafFee[i] }));
+    else for (let i = 0; i < lanesN; i++) root.addOutput({ lockingScript: lock, satoshis: each });
+    root.addOutput({ lockingScript: lock, change: true });
+    await root.fee(new SatoshisPerKilobyte(FEE_RATE));
+    await root.sign();
+    loadMark(`fan-out root built: ${lanesN} lanes x ${perLane} deep${leaves ? ` over ${leaves} leaves (streamed)` : ''}`);
+    onStep(45, 0);
+    // Level 1: the root, through the gun's usual send (retries, a parent the wallet is still propagating).
+    await this.send(root);
+    const rootTxid = root.id('hex');
+    this.coin = { tx: Transaction.fromHex(root.toHex()), vout: root.outputs.length - 1 };
+    this.save();
+    // Wait for the network (not just ARC) to have it: lanes (or leaves) spend it next.
+    // GO never depends on ARC's SEEN alone (31 Oct 2026): Arcade and ARC are both asked, either one seeing it counts.
+    const bc = fanoutBroadcaster();
+    const t0 = Date.now();
+    onStep(leaves ? 55 : 70, 0);
+    try {
+      const rootSeen = await settleTxs(bc, [{ ef: Uint8Array.from(root.toEF()), txid: rootTxid }], { deadlineMs: leaves ? GO_MAX_MS / 2 : FANOUT_SEEN_MS });
+      // A leaf POSTed with an unseen parent is orphaned and never recovers (GorillaPool, 26 Oct 2026): stop honestly.
+      if (leaves && !rootSeen.seen.size) throw new Error('NETSLOW');
+      loadMark(`fan-out root ${rootSeen.seen.size ? 'seen on network' : `NOT seen yet (${JSON.stringify(rootSeen.statuses)}): lanes will wait per lane`}`);
+      if (!leaves) {
+        const lanes: LaneSpec[] = [];
+        for (let j = 0, left = total; j < sizes[0] && left > 0; j++, left -= perLane) lanes.push({ base: 0, vout: j, count: Math.min(perLane, left) });
+        hand([{ i: 0, txid: rootTxid, values: root.outputs.map((o) => o.satoshis ?? 0) }], lanes);
+        finish();
+      } else {
+        // Level 2, streamed: one leaf first (GO as soon as the network has it), the rest in the background.
+        onStep(75, 0);
+        const st = streamLeaves({
+          root,
+          plan,
+          total,
+          key: this.key,
+          address: this.address,
+          bc,
+          seenMs: FANOUT_SEEN_MS,
+          cancelled: () => ammo.cancelled,
+          onSpent: (op) => this.spent.add(op),
+          onUnspent: (op) => {
+            // no source ever had that leaf: its root output is still the gun's credit
+            this.spent.delete(op);
+            this.save();
+          },
+          onReady: hand,
+          log: loadMark,
+        });
+        ammo.done = st.done.then(
+          (r) => {
+            loadMark(`fan-out feed done: ${r.fed} lanes live${r.unseen.length ? `, ${r.unseen.length} leaves never seen (not used)` : ''}`);
+            finish();
+          },
+          (e) => {
+            loadMark(`fan-out feed stopped: ${e instanceof Error ? e.message : String(e)}`);
+            finish();
+          },
+        );
+        // Bounded and honest: the first live lanes within GO_MAX_MS, else stop (credit stays in the gun).
+        const fed = await Promise.race([st.first, new Promise<number>((r) => setTimeout(() => r(0), GO_MAX_MS))]);
+        if (!fed) {
+          ammo.cancelled = true;
+          await Promise.race([ammo.done, new Promise((r) => setTimeout(r, FEED_STOP_MS))]);
+          throw new Error('NETSLOW');
+        }
+        loadMark(`GO: first ${fed} lanes live after ${Math.round((Date.now() - t0) / 1000)} s; the rest load while you fire`);
+      }
+    } finally {
+      // nothing to clear: the heartbeat lives in prepareStorm()
+    }
   }
 
   /**
@@ -1153,7 +1250,7 @@ export class Gun {
       let failed: string | null = null;
       loadMark(`storm: ${r.batches.reduce((k, b) => k + b.lanes.length, 0)} lanes live (more streaming in: ${!r.ended}), ${MAX_DEPTH} deep, via ${via}`);
       // Built by `pnpm storm:build` from src/workers/storm.ts (esbuild; Turbopack ships workers as raw TS).
-      const { sent, lastWhy, net } = await runStorm({
+      const { sent, lastWhy, net, unfired } = await runStorm({
         workerUrl: '/storm-worker.js',
         // Streamed: only { txid, values } per fan-out reaches the workers, lane batches as their leaf is SEEN.
         feed: {
@@ -1186,11 +1283,15 @@ export class Gun {
       loadMark(`${via} statuses: ${JSON.stringify(net.statuses)} (seen on network: ${net.seen}/${sent}, orphans ${net.orphans})`);
       if (!sent) failed = `${via} took no blasts: ${lastWhy ?? 'no reason given'}`;
       // Session end: merge the lane ends (and the fan-out change) back into one coin once the last blasts settle,
-      // and save it. The fan-out's lanes are spent by the workers: never reuse them.
+      // and save it. Every lane a sender fired from is spent: never reuse it. Lanes no sender fired (the workers name
+      // them; lanes the feed handed over after the senders stopped land in `unfired` too) are kept as spare lanes for
+      // the next load. A lane nobody reported on counts as fired.
       // Stop the background feed first: no leaf may be POSTed while the coin set is merged.
       await this.stopFeed(r);
       await new Promise((ok) => setTimeout(ok, 6000));
-      if (sent) for (const u of r.used) for (let v = 0; v < u.n; v++) this.spent.add(`${u.txid}_${v}`);
+      const keep = new Set(unfired.map(spareKey));
+      for (const u of r.used) for (const v of u.vouts) if (!keep.has(`${u.txid}_${v}`)) this.spent.add(`${u.txid}_${v}`);
+      this.keepSpare(unfired);
       try {
         const coins = await this.candidates();
         if (coins.length > 1) await this.consolidate(coins);
@@ -1604,6 +1705,21 @@ export class Gun {
   private async unloadNow(address: string): Promise<string | null> {
     const coins = await this.coinsOnChain();
     if (this.coin && !coins.some((c) => c.tx.id('hex') === this.coin!.tx.id('hex') && c.vout === this.coin!.vout)) coins.push(this.coin);
+    // Spare lanes (~62 sats each) are under the chain read's cut: add them from their fan-outs' bytes.
+    this.refresh();
+    const spare = this.spare.filter((l) => !this.spent.has(spareKey(l)) && !coins.some((c) => c.vout === l.vout && c.tx.id('hex') === l.txid));
+    const parents = new Map<string, Transaction>();
+    for (const txid of new Set(spare.map((l) => l.txid))) {
+      try {
+        parents.set(txid, Transaction.fromHex(await txHex(txid)));
+      } catch {
+        /* that fan-out can't be read right now: its lanes stay spare for the next UNLOAD or load */
+      }
+    }
+    for (const l of spare) {
+      const tx = parents.get(l.txid);
+      if (tx && (tx.outputs[l.vout]?.satoshis ?? 0) === l.sats) coins.push({ tx, vout: l.vout });
+    }
     // Every coin worth more than its fee, largest first (src/lib/sweep.ts): thousands of 6-sat lane ends are left.
     const built = await buildSweep(this.key, coins, address);
     if (!built) return null;

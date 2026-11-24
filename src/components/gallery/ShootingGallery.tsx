@@ -266,7 +266,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
   const ammoLen = (ammo ?? DEFAULT_AMMO).length;
   const perShot = shotSats(HANDLE_BUDGET, ammoLen);
   // The wallet sheet names the game the player is in (owner, 25 Oct 2026: it said "Shooting Gallery" on TerrorNode).
-  const cab = useCabinet(b, 'TerrorNode', { dry });
+  // No payment is taken while the revenue split can't be paid (src/lib/launch/splitClient.ts): the check comes first.
+  const cab = useCabinet(b, 'TerrorNode', { dry, canPay: splitAvailable });
   const cabRef = useRef(cab);
   useEffect(() => {
     cabRef.current = cab;
@@ -781,7 +782,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       const left = boughtRef.current - sentRef.current;
       if (left <= 0) return;
       try {
-        if (!dry) await b.prepareStorm(left, perShot);
+        if (!dry) await b.prepareStorm(left, perShot, undefined, { preferSpare: true });
         senderDead.current = false;
         // The round may have ended while the lanes loaded: only a live round starts sending again.
         if (!dry && modeRef.current === 'live') sessionRef.current(left);
@@ -1279,7 +1280,8 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
     };
     try {
       // TERRORNODE revenue goes 50/50 to NPG Ltd and bCorp (src/lib/launch/split.ts). If their destinations can't be
-      // resolved and pinned right now, no paid session starts (free practice still works); nothing goes anywhere else.
+      // resolved and pinned right now, no paid session starts; nothing goes anywhere else. A new payment is refused
+      // before the wallet is asked (useCabinet canPay); this covers loading from credit already in the gun.
       // (usually answered already: the check is prefetched when the loadout opens, splitClient.ts)
       if (!(await limit(splitAvailable(), LOAD_STEP_MS, 'payments check'))) throw new Error('PAYUNAVAIL');
       // End the previous session first (its sender was told to stop above): release the gun's lock, save its change.
@@ -1315,21 +1317,29 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       // answered with a txid sits at the gun's address but not in the gun's own coin (owner, 25 Oct 2026).
       // gather() already read the chain and built the one coin: its sats ARE the balance (no second chain read).
       const t0 = performance.now();
-      const avail = await limit(
+      // Spare lanes (src/lib/spareLanes.ts): rounds an earlier session fanned out and never fired. They are already
+      // paid for (fee included), so they add to the rounds here but never to the fee.
+      const spare = b.spareRounds(perShot);
+      let gathered = true;
+      const got = await limit(
         b.gatherGun().catch(async (e) => {
           loadMark(`gather: ${e instanceof Error ? e.message : e}`);
+          gathered = false;
           return b.refreshGun('lock & load');
         }),
         LOAD_STEP_MS * 2,
         'reading your gun',
       );
+      // gather() answers the firing coin alone; the fallback (the whole balance) also counts the spare lanes.
+      const avail = Math.max(0, gathered ? got : got - spare.sats);
       loadMark(`gather: ${Math.round(performance.now() - t0)} ms`);
-      loadMark(`lock & load: gun has ${avail} sats`);
+      loadMark(`lock & load: gun has ${avail} sats${spare.rounds ? ` + ${spare.rounds} spare rounds` : ''}`);
       const plan = planLoad({ gunSats: avail, pendingUsd: 0, roundSats: Math.ceil(perShotAll) + overheadSats(1) });
       // The same count the cabinet showed (src/lib/coinop/shots.ts): each shot = round fee + its $TERRORNODE receipt,
       // the receipt money stays in the gun until settlement.
-      let shots = rc.curve ? shotsForSats(avail, perShotAll, rc.curve) : roundsFrom(avail, perShotAll, overheadSats);
-      if (plan.short || shots <= 0) throw new Error('SHORT');
+      let shots = plan.short ? 0 : rc.curve ? shotsForSats(avail, perShotAll, rc.curve) : roundsFrom(avail, perShotAll, overheadSats);
+      if (shots <= 0 && !spare.rounds) throw new Error('SHORT');
+      shots = Math.max(0, shots);
       const feeSats = Math.ceil(shots * perShot * fee);
       if (feeSats > 0) {
         // The platform fee is TERRORNODE revenue: two outputs, 50/50 NPG Ltd · bCorp (odd sat → bCorp), then reported
@@ -1341,6 +1351,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
         shots = Math.max(0, Math.floor((avail - feeSats - overheadSats(shots) - rc.rangeCost(shots)) / perShot));
       }
       if (rc.live) while (shots > 0 && shots * perShot + rc.rangeCost(shots) + overheadSats(shots) > avail - feeSats) shots--;
+      shots += spare.rounds;
       if (shots <= 0) throw new Error('SHORT');
       setLoadingRounds(shots);
       for (let attempt = 1; stream; attempt++) {
@@ -1383,7 +1394,7 @@ export function ShootingGallery({ freePlay: freePlayProp = false, demo, startExt
       boughtRef.current = firedRef.current;
       setBought(firedRef.current);
       setLoadout(true);
-      setLoad({ kind: 'failed', retry: timedOut || m === 'NETSLOW', text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments temporarily unavailable. Your credit is safe in your gun; free practice still works.' : m === 'NETSLOW' ? 'The network has not confirmed your rounds yet. Your credit is safe in your gun. Try again in a minute.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
+      setLoad({ kind: 'failed', retry: timedOut || m === 'NETSLOW', text: timedOut ? `Loading timed out (${m.slice(8)}). Your credit is safe in your gun. Try again.` : m === 'SHORT' ? 'Not enough ammo in your gun for a round. Put another coin in.' : m === 'PAYUNAVAIL' ? 'Payments are unavailable for a moment. Your credit is safe in your gun: LOCK & LOAD again in a minute.' : m === 'NETSLOW' ? 'The network has not confirmed your rounds yet. Your credit is safe in your gun. Try again in a minute.' : safeNote(fmtCredit(satsToUsd(have, bsvUsd))) });
     } finally {
       instantRef.current = false;
       setLocking(false);

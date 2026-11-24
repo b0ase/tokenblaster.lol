@@ -516,18 +516,21 @@ export function useBlaster() {
   }, []);
 
   /** LOCK & LOAD: find the coin, split it into lanes, wait for the network. Then storm() fires at once. */
-  const prepareStorm = useCallback(async (total: number, perBlast: number, onStep?: (pct: number, slowSecs: number) => void) => {
+  const prepareStorm = useCallback(async (total: number, perBlast: number, onStep?: (pct: number, slowSecs: number) => void, opts?: { preferSpare?: boolean }) => {
     const g = gun.current;
     if (!g) throw new Error('No gun.');
     try {
       // No re-sync here (owner log, 31 Oct 2026: it added seconds to every LOCK & LOAD); page load and UNLOAD run it.
-      await g.prepareStorm(total, perBlast, onStep);
+      await g.prepareStorm(total, perBlast, onStep, opts);
     } finally {
       // Never block the start on a chain read (owner log, 25 Oct: stuck at 100% for 68 s on this balance).
       setAmmo(g.sats);
       void g.balance('after prepare').then(setAmmo).catch(() => undefined);
     }
   }, []);
+
+  /** Rounds (and sats) in the gun's spare lanes: fanned out by an earlier session, never fired, fee already paid. */
+  const spareRounds = useCallback((perBlast: number) => gun.current?.spareLoad(perBlast) ?? { rounds: 0, sats: 0 }, []);
 
   /** Turn whatever credit is at the gun's address into its one firing coin (no wallet call). Returns the sats. */
   const gatherGun = useCallback(async () => {
@@ -828,5 +831,5 @@ export function useBlaster() {
     [],
   );
 
-  return { moreRoundsLoading, latePaid, warmWallet, gunLocked, gunMissing, creditUnknown, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid, resyncNote, setResyncNote };
+  return { spareRounds, moreRoundsLoading, latePaid, warmWallet, gunLocked, gunMissing, creditUnknown, syncBackup, exportGunKey, ammoKnown, gatherGun, payReceipts, swapLoadCoin, oweCoinRounds, settleCoinBurn, prepareCoinStorm, coinStorm, wallet, walletLive, checkWallet, endSession, ammo, token, setToken, tokens, busy, chooser, setChooser, pick, connectWallet, load, fire, fireBatch, storm, prepareStorm, fireTokens, loadTokenAmmo, refreshWallet, readTokens, tokensRead, refreshing, stranded, fixStranded, gunTokens, refreshGun, receipt, setReceipt, unload, mode, setMode, tokenAmmo, refreshTokens, gunAddress, error, setError, walletSaid, resyncNote, setResyncNote };
 }

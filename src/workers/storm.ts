@@ -19,12 +19,14 @@
  *               { type: 'batch', via, n, ms, statuses }  every POST's answer (the [tb-load] orphan log)
  *               { type: 'why', text }       a rejection reason (for the UI)
  *               { type: 'stats', stats }    signed / posted / accepted / signMs / postMs / posts since the last one
+ *               { type: 'unfired', lanes }  lane coins never fired from ({ txid, vout, sats }): the gun keeps them
  *               { type: 'done' }
  */
 import { PrivateKey, Transaction } from '@bsv/sdk';
-import { runLanes, type AddMsg } from '../lib/stormCore';
+import { runLanes, unfiredOf, type AddMsg } from '../lib/stormCore';
 
 let stopped = false;
+let finished = false;
 let paused = false;
 let open = false;
 const added: AddMsg[] = [];
@@ -40,7 +42,13 @@ self.onmessage = async (e: MessageEvent) => {
     return;
   }
   if (m.type === 'add') {
-    if (Array.isArray(m.lanes)) added.push({ bases: Array.isArray(m.bases) ? m.bases : undefined, lanes: m.lanes });
+    if (!Array.isArray(m.lanes)) return;
+    const a: AddMsg = { bases: Array.isArray(m.bases) ? m.bases : undefined, lanes: m.lanes };
+    // Lanes that arrive after the sender stopped were never fired: hand them straight back.
+    if (finished) {
+      const lanes = unfiredOf([a]);
+      if (lanes.length) self.postMessage({ type: 'unfired', lanes });
+    } else added.push(a);
     return;
   }
   if (m.type === 'end') {
@@ -86,6 +94,7 @@ self.onmessage = async (e: MessageEvent) => {
   } catch (err) {
     self.postMessage({ type: 'why', text: err instanceof Error ? err.message : String(err) });
   } finally {
+    finished = true;
     // Always say done: runStorm (and the gun lock behind it) waits for every worker's done.
     self.postMessage({ type: 'done' });
   }
