@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // full-screen instead. No X-Frame-Options: it can't list origins.
   async headers() {
     return [
-      { source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://web.bwalletx.com https://desktop.bwalletx.com capacitor://localhost" }] },
+      { source: '/:path*', headers: [{ key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://web.bwalletx.com https://desktop.bwalletx.com capacitor://localhost https://scammerscartel.com https://www.scammerscartel.com" }] },
       // TERRORNODE in the bChatX room's floating player (?embed=1, owner 27 Oct 2026): that route only, also framable by
       // bchatx.com. Listed after the catch-all so this value wins (Next: the last matching header with the same key).
       {
